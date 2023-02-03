@@ -166,13 +166,13 @@ set_eval_func("python", eval_python)
 
 set_eval_func(
     "sensitive",
-    lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)),
+    lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)), safe=True
 )
 
 
 set_eval_func(
     "portspec",
-    lambda arg, ctx: PortSpec.make(map_value(arg, ctx)),
+    lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
 
@@ -480,7 +480,7 @@ def _template_func(args, ctx):
     return apply_template(value, ctx, ctx.kw.get("overrides"))
 
 
-set_eval_func("template", _template_func)
+set_eval_func("template", _template_func, safe=True)
 
 
 def run_lookup(name, templar, *args, **kw):
@@ -562,7 +562,7 @@ def concat(args, ctx):
     return sep.join([str(a) for a in result])
 
 
-set_eval_func("concat", concat, True)
+set_eval_func("concat", concat, True, True)
 
 
 def token(args, ctx):
@@ -570,7 +570,7 @@ def token(args, ctx):
     return args[0].split(args[1])[args[2]]
 
 
-set_eval_func("token", token, True)
+set_eval_func("token", token, True, True)
 
 # XXX this doesn't work with node_filters, need an instance to get a specific result
 def get_tosca_property(args, ctx):
@@ -704,7 +704,7 @@ def to_env(args, ctx: RefContext):
 set_eval_func("to_env", to_env)
 
 
-def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z", start_prepend="x"):
+def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z", start_prepend="x", **kw):
     r"""Convert a string to q label with the given constraints. 
         If a dictionary or list, all keys and string values are converted.
 
@@ -743,6 +743,10 @@ def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z",
     else:
         return arg
 
+set_eval_func(
+    "to_label",
+    lambda arg, ctx: to_label(map_value(arg, ctx), **ctx.kw), safe=True
+)
 
 def to_dns_label(arg):
     """
@@ -757,7 +761,7 @@ def to_dns_label(arg):
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx)),
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx)), safe=True
 )
 
 
@@ -772,7 +776,7 @@ def to_kubernetes_label(arg):
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx)),
+    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx)), safe=True
 )
 
 
@@ -787,7 +791,7 @@ def to_googlecloud_label(arg):
 
 set_eval_func(
     "to_googlecloud_label",
-    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx)),
+    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx)), safe=True 
 )
 
 
@@ -847,7 +851,7 @@ def get_attribute(args, ctx: RefContext):
     return ctx.query(query)
 
 
-set_eval_func("get_attribute", get_attribute, True)
+set_eval_func("get_attribute", get_attribute, True, True)
 
 
 def get_nodes_of_type(type_name, ctx: RefContext):
@@ -859,10 +863,10 @@ def get_nodes_of_type(type_name, ctx: RefContext):
     ]
 
 
-set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
+set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
 
-set_eval_func("_generate", lambda arg, ctx: get_random_password(10, ""), True)
+set_eval_func("_generate", lambda arg, ctx: get_random_password(10, ""), True, True)
 
 
 class ContainerImage(ExternalValue):

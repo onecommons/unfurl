@@ -603,7 +603,7 @@ SUB: '1'
         assert env == {'PATH': new_path}
 
     def test_labels(self):
-        import six
+        import io
         from unfurl.yamlloader import make_yaml
         src = """
           eval:
@@ -612,10 +612,25 @@ SUB: '1'
               Missing: null
           """
         yaml = make_yaml()
-        expr = yaml.load(six.StringIO(src))
+        expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
         labels = map_value(expr, ctx)
         assert labels == {'url': "https______foo-bar__com"}
+
+        src = """
+          eval:
+            to_label: "1 convert me"
+            replace: _
+            max: 10
+            case: upper
+            start_prepend: _
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(self._getTestResource())
+        label = map_value(expr, ctx)
+        assert label == "_1_CONVERT"
+
 
 
 def pairs(iterable):

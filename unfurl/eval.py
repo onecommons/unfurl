@@ -593,17 +593,19 @@ _FuncsTop = ["q"]
 
 
 class SafeRefContext(RefContext):
-    _Funcs = _CoreFuncs
+    _Funcs = _CoreFuncs.copy()
 
 
 def get_eval_func(name):
     return RefContext._Funcs.get(name)
 
 
-def set_eval_func(name, val, topLevel=False):
+def set_eval_func(name, val, topLevel=False, safe=False):
     RefContext._Funcs[name] = val
     if topLevel:
         _FuncsTop.append(name)
+    if safe:
+        SafeRefContext._Funcs[name] = val
 
 
 def eval_ref(
