@@ -16,6 +16,11 @@ def test_jsonexport():
     local = LocalEnv(basepath + "include-json-ensemble.yaml")
     # verify to_graphql is working as expected
     jsonExport = to_deployment(local)
+
+    # check that subtypes can remove inherited operations
+    assert jsonExport["ResourceType"]["Atlas"]['implementations'] == ['configure', 'connect']
+    assert jsonExport["ResourceType"]["SelfHostedMongoDb"]['implementations'] == ['configure']
+
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
@@ -116,6 +121,7 @@ spec:
             operations:
               create:
               configure:
+              delete:
         requirements:
         - host:
             metadata:
@@ -131,6 +137,7 @@ spec:
           Standard:
             operations:
               create:
+              delete: not_implemented
         requirements:
         - host:
             metadata:
@@ -145,6 +152,13 @@ spec:
           requirements:
           - host:
               node: the_app
+
+        base:
+          type: Base
+          requirements:
+          - host:
+              node: the_app
+
 """
         manifest = YamlManifest(manifest)
         app_template = manifest.tosca.nodeTemplates['the_app']
@@ -157,6 +171,10 @@ spec:
           'description': 'A derived compute instance',
           'node': 'Derived'
         }
+
+        assert not _find_implementation("Standard", "delete", app_template)
+        base_template = manifest.tosca.nodeTemplates['base']
+        assert _find_implementation("Standard", "delete", base_template)
 
 class ToscaSyntaxTest(unittest.TestCase):
 
