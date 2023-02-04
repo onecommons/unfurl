@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 from unfurl.eval import map_value
 from ..configurator import Configurator
-from ..result import ResultsMap
+from ..result import Results, ResultsMap
 from ..util import register_short_names
 from ..support import Status
 from ..planrequests import set_default_command
@@ -50,8 +50,10 @@ class TemplateConfigurator(Configurator):
         # get the resultTemplate without evaluating it
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         errors = []
-        if resultTemplate:  # evaluate it now with the result
+        if resultTemplate:  # evaluate it now with the result          
             task.logger.trace("evaluated result template with %s", result)
+            if isinstance(resultTemplate, Results):
+                resultTemplate = resultTemplate._attributes
             try:
                 results = map_value(resultTemplate, task.inputs.context.copy(vars=result))
             except Exception as e:

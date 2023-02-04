@@ -238,6 +238,22 @@ class EvalTest(unittest.TestCase):
         serialized = serialize_value(dict(foo=sensitive_str("sensitive")), redact=True)
         self.assertEqual(json.dumps(serialized), '{"foo": "<<REDACTED>>"}')
 
+    def test_map_value(self):
+        resource = self._getTestResource()
+        result = {'outputs': {'ec2_instance':
+                      {'ami': 'ami-0077f1602df963b17',
+                       'arn': 'arn:aws:ec2:eu-central-1',
+                       'id': 'i-087439ef0d1105c1c' }
+                   }
+        }
+        ctx = RefContext(resource)
+        resultTemplate = ResultsMap(dict(attributes=dict(
+                  id = "{{ outputs.ec2_instance.id }}",
+                  arn = "{{ outputs.ec2_instance.arn }}")), ctx)
+        # if don't get _attributes here this fails because it resolve's against ctx's vars:
+        results = map_value(resultTemplate._attributes, ctx.copy(vars=result))
+        assert results == {'attributes': {'id': 'i-087439ef0d1105c1c', 'arn': 'arn:aws:ec2:eu-central-1'}}
+
     def test_jinjaTemplate(self):
         resource = NodeInstance("test", attributes=dict(a1="hello"))
         ctx = RefContext(resource, {"foo": "hello"})
