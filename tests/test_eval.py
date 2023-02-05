@@ -222,12 +222,23 @@ class EvalTest(unittest.TestCase):
         result6 = Ref(test5).resolve_one(RefContext(resource, trace=0))
         assert result6 == 80
 
-        test6= {
+        test6 = {
             "eval": {"portspec": "80:81"},
             "select": "target"
         }
         result7 = Ref(test6).resolve_one(RefContext(resource, trace=0))
         assert result7 == 81
+
+        from toscaparser.elements.portspectype import PortSpec
+
+        test7 = {
+            "eval": "$p",
+            "foreach": {
+                "eval": {"portspec": {"eval": "$item"}}
+            }
+        }
+        result7 = Ref(test7).resolve_one(RefContext(resource, vars=dict(p="80:81"), trace=0))
+        assert result7 == [PortSpec.make("80:81")]
 
     def test_serializeValues(self):
         resource = self._getTestResource()

@@ -20,6 +20,7 @@ spec:
         attributes:
           attr:
             type: string
+            default: Default
         interfaces:
          Standard:
           operations:
@@ -61,8 +62,8 @@ spec:
           type: nodes.Test
           properties:
             prop: static
-        # attributes: # XXX this is currently ignored!
-        #   attr: live
+          # attributes: # XXX this is currently ignored!
+          #   attr: live
 """
 
 manifestContent = _manifestTemplate % "ok"
@@ -78,6 +79,7 @@ def test_digests(caplog):
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
     digestKeys = job.manifest.manifest.config["changes"][0]["digestKeys"]
+    # XXX this assertion fails when UNFURL_LOGGING=trace!
     assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
     digest = job.manifest.manifest.config["changes"][0]["digestValue"]
     assert digest == "961216502983569ae51c5c8f96b106ccecca0d3e"
@@ -139,10 +141,10 @@ class DependencyTest(unittest.TestCase):
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
 
-        dependencies = [dict(ref="::nodeC::attr", expected=None, required=True)]
+        dependencies = [dict(ref="::nodeC::prop", expected="static", required=True)]
         self.assertEqual(
             dependencies,
-            job.manifest.manifest.config["changes"][2]["dependencies"],
+            job.manifest.manifest.config["changes"][0]["dependencies"],
         )
 
         self.assertEqual(
@@ -193,7 +195,7 @@ class DependencyTest(unittest.TestCase):
                         "template": "nodeB",
                         "type": "tosca.nodes.Root",
                         "targetStatus": "pending",
-                        "targetState": "configuring",
+                        "targetState": None,  # never ran
                         "changed": False,
                         "configurator": "unfurl.configurators.TemplateConfigurator",
                         "priority": "required",
@@ -224,10 +226,11 @@ class DependencyTest(unittest.TestCase):
         # print(job.out.getvalue())
 
         # dependencies detected during render should be saved
-        dependencies = [dict(ref="::nodeC::attr", required=True, expected=None)]
+        dependencies = [dict(ref="::nodeC::attr", required=True, expected="Default")]
         self.assertEqual(
             dependencies,
             job.manifest.manifest.config["changes"][2]["dependencies"],
+            job.manifest.manifest.config["changes"]
         )
 
         self.assertEqual(

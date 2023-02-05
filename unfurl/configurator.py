@@ -1194,6 +1194,13 @@ class Dependency(Operational):
     def priority(self) -> Priority:
         return Priority.required if self._required else Priority.optional
 
+    def _is_unexpected(self) -> bool:
+        if self.target is None:
+            return True
+        wantList: Union[str, bool] = "result" if isinstance(self.expected, Result) else self.wantList
+        result = Ref(self.expr).resolve(RefContext(self.target), wantList=wantList)
+        return result != self.expected
+
     def refresh(self, config: "ConfigTask") -> None:
         if self.expected is not None:
             changeId = config.changeId
@@ -1238,7 +1245,9 @@ class Dependency(Operational):
             return False
         return False  # assuming this is what is meant by the function
 
-    def has_changed(self, config: "ChangeRecord") -> bool:
+    def has_changed(self, config: Optional["ChangeRecord"] = None) -> bool:
+        if config is None:
+            return self._is_unexpected()
         changeId = config.changeId
         # Manifest.load_config_change sets config.target
         context = RefContext(config.target, dict(val=self.expected, changeId=changeId))  # type: ignore

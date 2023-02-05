@@ -18,6 +18,7 @@ from typing import (
     List,
     Dict,
     Mapping,
+    MutableMapping,
     Optional,
     Sequence,
     Tuple,
@@ -25,7 +26,7 @@ from typing import (
     cast,
     TYPE_CHECKING,
 )
-from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
+from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState, AttributeChanges
 from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
@@ -47,6 +48,7 @@ from .planrequests import (
     do_render_requests,
     get_render_requests,
     set_fulfilled,
+    set_fulfilled_stragglers,
     create_instance_from_spec,
 )
 from .plan import Plan, get_success_status
@@ -195,7 +197,7 @@ class ConfigTask(TaskView, ConfigChange):
         self._configurator = None
         self.generator = None
         self.job = job
-        self.changeList = []
+        self.changeList: List[AttributeChanges] = []
         self.result = None
         self.outputs = None
         # for summary:
@@ -658,7 +660,7 @@ class Job(ConfigChange):
             return self.rootResource
 
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
-        while ready:
+        while ready or notReady:
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
             self.apply(ready)
@@ -671,14 +673,22 @@ class Job(ConfigChange):
 
             # remove requests from notReady if they've had all their dependencies fulfilled
             completed = ready
-            ready, notReady = set_fulfilled(notReady, completed)
+            if completed:
+                ready, notReady = set_fulfilled(notReady, completed)
+            else:
+                # we ran all the tasks we could so now we can run left-over tasks that depend on 
+                # live attributes that we no longer have to worry about changing
+                ready, notReady = set_fulfilled_stragglers(notReady, self.jobOptions.workflow == "deploy")
             logger.trace("ready %s; not ready %s; completed: %s", ready, notReady, completed)
             # the first time we render them all, after that only re-render requests if their dependencies were fulfilled
-            ready, unfulfilled, errors = do_render_requests(self, ready)
+            # the last time (when completed is empty) don't have render valid dependencies as unfulfilled
+            ready, unfulfilled, errors = do_render_requests(self, ready, not completed)
             if unfulfilled:
                 logger.trace("marking unfulfilled as not ready %s", unfulfilled)
-            # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
-            notReady.extend(unfulfilled)
+                # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
+                notReady.extend(unfulfilled)
+            if not ready and not completed:
+                break
 
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
