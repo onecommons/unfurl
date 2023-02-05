@@ -247,7 +247,7 @@ spec:
         if record.levelname == "WARNING":
             assert (
                 record.getMessage()
-                == 'Running task for testNode: configure (reason: add): error processing resultTemplate: <<Error rendering template: missing attribute or key: "missing">>'
+                == 'Task configure for testNode (reason: add): error processing resultTemplate: <<Error rendering template: missing attribute or key: "missing">>'
             )
             break
     else:

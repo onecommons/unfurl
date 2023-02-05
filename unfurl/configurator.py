@@ -370,10 +370,9 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
         # we override this instead of process() because we need to change the log level
         # note that `self.extra` does NOT replace kwargs['extra']
         if self.isEnabledFor(level):
-            # task for {resource name}: {operation} (reason: {resource})
-            # e.g. Task for test-node: configure (reason: missing)
             task = cast(TaskView, self.extra)
-            task_id = f"for {task.target.name}: {task.configSpec.operation}"
+            # e.g. Task configure for test-node (reason: missing)
+            task_id = f"{task.configSpec.operation} for {task.target.name}"
             if task.reason:
                 task_id += f" (reason: {task.reason})"
             if task._rendering:
@@ -381,7 +380,7 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
                 if level >= Levels.VERBOSE:
                     level = Levels.VERBOSE
             else:
-                msg = f"Running task {task_id}: {msg}"
+                msg = f"Task {task_id}: {msg}"
             self.logger.log(level, msg, *args, **kwargs)
 
 
@@ -454,7 +453,7 @@ class TaskView:
                 del os.environ[key]
         for key, value in self.environ.items():
             if value is not None:
-                os.environ[key] = value
+                os.environ[key] = str(value)
 
     def restore_envvars(self):
         # restore the environ set on root resource
@@ -465,7 +464,7 @@ class TaskView:
                 del os.environ[key]
         for key, value in self.target.environ.items():
             if value is not None:
-                os.environ[key] = value
+                os.environ[key] = str(value)
 
     @property
     def inputs(self) -> ResultsMap:
@@ -840,7 +839,7 @@ class TaskView:
         name: Optional[str] = None,
         required: bool = True,
         wantList: bool = False,
-        target: Optional[NodeInstance] = None,
+        target: Optional[EntityInstance] = None,
     ) -> "Dependency":
         getter = getattr(expr, "as_ref", None)
         if getter:
@@ -1171,9 +1170,12 @@ class Dependency(Operational):
         self.expected = expected
         self.schema = schema
         self._required = required
-        self.name = name or expr
+        self.name = name or str(expr)
         self.wantList = wantList
         self.target = target
+
+    def __repr__(self) -> str: 
+        return f"Dependency('{self.name}')"
 
     @property
     def local_status(self) -> Optional[Status]:
