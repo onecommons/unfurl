@@ -26,10 +26,19 @@ spec:
           interfaces:
             Configure:
               operations:
-                post_configure_target: echo "attach target {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
-                post_configure_source: echo "attach source {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+                # post_configure_target: echo "attach target {{TARGET.volume_id}} to {{SOURCE.public_address}} at {{ SELF.location }}"
+                post_configure_source: echo "attach source {{SOURCE.public_address}} to {{TARGET.volume_id}} at {{ SELF.location }}"
                 remove_target: echo "detach from target {{TARGET.name}}"
                 remove_source: echo "detach from source {{TARGET.name}}"
+
+    node_types:
+      Volume:
+        derived_from: tosca.nodes.Storage.BlockStorage
+        attributes:
+          public_address:
+            type: string
+            default:
+              eval: .sources::local_storage::public_address
 
     topology_template:
       node_templates:
@@ -45,18 +54,31 @@ spec:
           interfaces:
             Standard:
               operations:
-                create: echo "create my_server"
+                create:
+                  implementation: echo "create my_server"
+                  inputs:
+                    resultTemplate:
+                      readyState: ok
+                      attributes:
+                        public_address:  10.10.10.1
                 delete: echo "delete my_server"
 
         my_block_storage:
-          type: tosca.nodes.Storage.BlockStorage
+          type: Volume
           properties:
             name: blocky
             size: 10 GB
           interfaces:
             Standard:
               operations:
-                create: echo "create my_block_storage"
+                create:
+                  implementation: echo "create my_block_storage at {{ SELF.public_address }}"
+                  inputs:
+                    resultTemplate:
+                      attributes:
+                        volume_id: DX34B
+                        public_address:
+                          eval: .sources::local_storage::public_address
                 delete: echo "delete my_block_storage"
 """
 
@@ -109,6 +131,7 @@ def test_plan():
           "skipped": 0,
           "changed": 3
         }
+        # print("deploy", job.manifest.status_summary())
 
         result, job, summary = run_job_cmd(runner, ["undeploy"], 2)
         # print(job.json_summary(True))
@@ -157,7 +180,7 @@ def test_plan():
                 "target": "my_block_storage",
                 "operation": "delete",
                 "template": "my_block_storage",
-                "type": "tosca.nodes.Storage.BlockStorage",
+                "type": "Volume",
                 "targetStatus": "absent",
                 "targetState": "deleted",
                 "changed": True,

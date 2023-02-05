@@ -12,7 +12,8 @@ import six
 import re
 import ast
 import time
-from typing import TYPE_CHECKING, Union, cast, Dict, Optional, Any
+from typing import TYPE_CHECKING, Iterator, List, Tuple, Union, cast, Dict, Optional, Any, NewType
+from typing_extensions import Protocol
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -20,6 +21,7 @@ from urllib.parse import urlsplit
 if TYPE_CHECKING:
     from .manifest import Manifest
     from .runtime import EntityInstance
+    from .configurator import Dependency
 
 from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
 from .result import (
@@ -743,12 +745,14 @@ def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z",
     else:
         return arg
 
+
 set_eval_func(
     "to_label",
     lambda arg, ctx: to_label(map_value(arg, ctx), **ctx.kw), safe=True
 )
 
-def to_dns_label(arg):
+
+def to_dns_label(arg, max=63, **kw):
     """
     Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
     The maximum length of each label is 63 characters and can include
@@ -756,12 +760,12 @@ def to_dns_label(arg):
 
     Invalid characters are replaced with "--".
     """
-    return to_label(arg, allowed=r"\w-", start=r"\w", replace="--")
+    return to_label(arg, allowed=r"\w-", start=r"\w", replace="--", max=max)
 
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx)), safe=True
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **ctx.kw), safe=True
 )
 
 
@@ -780,18 +784,18 @@ set_eval_func(
 )
 
 
-def to_googlecloud_label(arg):
+def to_googlecloud_label(arg, max=63, **kw):
     """
     See https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
 
     Invalid characters are replaced with "__".
     """
-    return to_label(arg, allowed=r"\w_-", case="lower", replace="__")
+    return to_label(arg, allowed=r"\w_-", case="lower", replace="__", max=max)
 
 
 set_eval_func(
     "to_googlecloud_label",
-    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx)), safe=True 
+    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx), **ctx.kw), safe=True
 )
 
 
@@ -816,6 +820,7 @@ def get_ensemble_metadata(arg, ctx):
         return metadata.get(key, "")
     else:
         return metadata
+
 
 set_eval_func("get_ensemble_metadata", get_ensemble_metadata)
 
@@ -1357,6 +1362,11 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendents()))
 
 
+LiveDependencies = NewType('LiveDependencies',
+                           Dict[str, Tuple["EntityInstance",
+                                           Dict[str, Tuple[bool, Union[Result, Any]]]]])
+
+
 class AttributeManager:
     """
     Tracks changes made to Resources
@@ -1374,7 +1384,7 @@ class AttributeManager:
     # what about an attribute that is added to the spec that already exists in status?
     # XXX2 tests for the above behavior
     def __init__(self, yaml=None, task=None):
-        self.attributes = {}
+        self.attributes: Dict[str, Tuple[EntityInstance, ResultsMap]] = {}
         self.statuses = {}
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
@@ -1407,7 +1417,7 @@ class AttributeManager:
                 resource.template is not template
                 and template not in resource.template._isReferencedBy
             ):
-                resource.template._isReferencedBy.append(template)
+                resource.template._isReferencedBy.append(template)  # type: ignore
 
     def _get_context(self, resource):
         if self._context_vars is None:
@@ -1415,7 +1425,7 @@ class AttributeManager:
             set_context_vars(self._context_vars, resource)
         return RefContext(resource, self._context_vars, task=self.task)
 
-    def get_attributes(self, resource):
+    def get_attributes(self, resource: "EntityInstance"):
         if resource.key not in self.attributes:
             if resource.shadow:
                 return resource.shadow.attributes
@@ -1468,26 +1478,23 @@ class AttributeManager:
         )
         return changed, live
 
-    def find_live_dependencies(self):
-        liveDependencies = {}
+    def find_live_dependencies(self) -> Dict[str, List["Dependency"]]:
+        from .configurator import Dependency
+        dependencies: Dict[str, List["Dependency"]] = {} 
         for resource, attributes in self.attributes.values():
             overrides, specd = attributes._attributes.split()
-            live = []
             # items in overrides of type Result have been accessed during this transaction
             for key, value in overrides.items():
                 if isinstance(value, Result):
                     changed, isLive = self._check_attribute(specd, key, value, resource)
                     if isLive:
-                        live.append(key)
+                        dep = Dependency(resource.key + "::" + key, value, target=resource)
+                        dependencies.setdefault(resource.key, []).append(dep)
+        return dependencies
 
-            if live:
-                liveDependencies[resource.key] = (resource, live)
-
-        return liveDependencies
-
-    def commit_changes(self):
+    def commit_changes(self) -> Tuple[Dict, LiveDependencies]:
         changes = {}
-        liveDependencies = {}
+        liveDependencies = cast(LiveDependencies, {})
         for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
             # overrides will only contain:
@@ -1496,7 +1503,7 @@ class AttributeManager:
             _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
-            live = {}
+            live: Dict[str, Any] = {}
             # items in overrides of type Result have been accessed during this transaction
             for key, value in list(overrides.items()):
                 if not isinstance(value, Result):

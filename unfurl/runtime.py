@@ -52,8 +52,8 @@ class Operational(ChangeAware):
     This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
     and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
     """
-
     # XXX3 add repairable, messages?
+    name = ""
 
     # core properties to override
     @property
@@ -67,6 +67,11 @@ class Operational(ChangeAware):
     @property
     def state(self) -> NodeState:
         return NodeState.initial
+
+    def has_state(self, state: NodeState) -> bool:
+        if state < NodeState.stopping:
+            return self.state >= state
+        return self.state == state
 
     def get_operational_dependencies(self) -> Iterable["Operational"]:
         """

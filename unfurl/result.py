@@ -482,7 +482,7 @@ def _validation_error(src, context, prop_def, msg):
     from .eval import Ref
     from .configurator import Dependency
 
-    if Ref.is_ref(src):
+    if src and Ref.is_ref(src):
         dep = Dependency(src, target=context.currentResource, schema=prop_def)
     else:
         dep = None

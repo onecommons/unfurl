@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import collections
 import re
-from typing import TYPE_CHECKING, Iterator, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, cast
 import six
 import shlex
 import sys
@@ -11,6 +11,7 @@ import os.path
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
+    from .configurator import Dependency
 
 from .util import (
     lookup_class,
@@ -20,7 +21,7 @@ from .util import (
     UnfurlTaskError,
     to_enum,
 )
-from .result import serialize_value
+from .result import Result, ResultsList, serialize_value
 from .support import Defaults, NodeState, Priority
 from .runtime import EntityInstance
 from .logs import getLogger
@@ -149,19 +150,20 @@ class ConfigurationSpec:
 
 class PlanRequest:
     error = None
-    future_dependencies: list = []
     task: Optional["ConfigTask"] = None
     render_errors: Optional[List[UnfurlTaskError]] = None
 
     def __init__(self, target: "EntityInstance"):
         self.target = target
+        self.dependencies: List["Dependency"] = []
 
     @property
     def root(self) -> Optional["EntityInstance"]:
         return self.target.root if self.target else None
 
-    def update_future_dependencies(self, completed):
-        return self.future_dependencies
+    def add_dependencies(self, dependencies: List["Dependency"]) -> List["Dependency"]:
+        self.dependencies.extend(dependencies)
+        return self.dependencies
 
     def get_operation_artifacts(self):
         return []
@@ -181,29 +183,33 @@ class PlanRequest:
             return True
         return False
 
-    def get_unfulfilled_refs(self):
+    def get_unfulfilled_refs(self) -> Iterator["Dependency"]:
+        for dep in self.dependencies:
+            yield dep
         if not self.render_errors:
             return
         for error in self.render_errors:
-            dep = getattr(error, "dependency", None)
-            if dep:
-                yield dep
+            # result.py::_validation_error() creates a UnfurlTaskError with a Dependency
+            more_dep = cast(Optional["Dependency"], getattr(error, "dependency", None))
+            if more_dep:
+                yield more_dep
 
-    def update_unfulfilled_errors(self):
-        self.render_errors = list(self._get_unfulfilled_errors())
+    def update_unfulfilled_errors(self) -> bool:
+        self.render_errors = list(self._revalidate_unfulfilled_errors())
+        self.dependencies = [dep for dep in self.dependencies if not dep.validate()]
         return self.has_unfulfilled_refs()
 
-    def _get_unfulfilled_errors(self):
+    def _revalidate_unfulfilled_errors(self) -> Iterator["UnfurlTaskError"]:
         if not self.render_errors:
             return
         for error in self.render_errors:
-            dep = getattr(error, "dependency", None)
+            dep = cast(Optional["Dependency"], getattr(error, "dependency", None))
             if not dep or not dep.validate():
                 yield error
 
     @property
-    def not_ready(self):
-        return self.future_dependencies or self.has_unfulfilled_refs()
+    def not_ready(self) -> bool:
+        return bool(self.has_unfulfilled_refs())
 
     @property
     def name(self):
@@ -310,12 +316,6 @@ class TaskRequest(PlanRequest):
             return name + " (reason: " + self.reason + ")"
         return name
 
-    def update_future_dependencies(self, completed):
-        self.future_dependencies = [
-            fr for fr in self.future_dependencies if fr not in completed
-        ]
-        return self.future_dependencies
-
     def _summary_dict(self, include_rendered=True):
         summary = dict(
             operation=self.configSpec.operation or self.configSpec.name,
@@ -353,20 +353,8 @@ class TaskRequestGroup(PlanRequest):
     def __init__(self, target: EntityInstance, workflow: str):
         super().__init__(target)
         self.workflow = workflow
+        self.starting_status = target.local_status
         self.children: List[PlanRequest] = []
-
-    @property
-    def future_dependencies(self):
-        future_dependencies = []
-        for req in self.children:
-            future_dependencies.extend(req.future_dependencies)
-        return future_dependencies
-
-    def update_future_dependencies(self, completed):
-        future_dependencies = []
-        for req in self.children:
-            future_dependencies.extend(req.update_future_dependencies(completed))
-        return future_dependencies
 
     def get_operation_artifacts(self):
         artifacts = []
@@ -378,16 +366,16 @@ class TaskRequestGroup(PlanRequest):
         for req in self.children:
             yield from req.get_unfulfilled_refs()
 
-    def update_unfulfilled_errors(self):
+    def update_unfulfilled_errors(self) -> bool:
         for req in self.children:
             req.update_unfulfilled_errors()
         return self.has_unfulfilled_refs()
 
     def __str__(self) -> str:
         if self.children:
-            return str(self.children)
+            return f"TaskRequestGroup{self.children}"
         else:
-            return f'Planned task {self.workflow} for "{self.target.name}"'
+            return f'Planned task group {self.workflow} for "{self.target.name}"'
 
     def __repr__(self):
         return f"TaskRequestGroup({self.target}:{self.workflow}:{self.children})"
@@ -474,32 +462,36 @@ def get_render_requests(
             assert not req, f"unexpected type of request: {req}"
 
 
-def _get_deps(parent, req, liveDependencies, requests):
-    previous = None
+def _get_deps(parent, req: TaskRequest, live_dependencies: Dict[str, List["Dependency"]], requests: "FlattenedRequests") -> None:
+    # iterate through the live attributes the given task depends
+    # if the attribute's instance might be modified by another task, mark that task as a dependency 
     for (root, r) in requests:
         if req.target.key == r.target.key:
             continue  # skip self
+        if r.task and r.task.completed:
+            continue  # already ran
         if req.required is not None and not req.required:
             continue  # skip requests that aren't going to run
-        if r.target.key in liveDependencies:
-            if root:
-                if previous is root or parent is root:
-                    # only yield root once and
-                    # don't consider requests in the same root
-                    continue
-                previous = root
-            yield root or r
+        dependencies = live_dependencies.get(r.target.key)
+        if dependencies:
+            # logger.trace("%s dependencies on future task %s: %s", req.target.key, r.target.key, dependencies)
+            req.add_dependencies(dependencies)
 
 
-def set_fulfilled(requests, completed):
-    # requests, completed are top level requests,
-    # as is future_dependencies
+def set_fulfilled(requests: List[PlanRequest], completed: List[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest]]:
+    # find the requests that are ready to run
+    # requests, completed are top level requests
+
+    # Note:
+    # to avoid circular dependencies we want to be eager and run as soon as a task changed required attribute to a valid state
+    # but then another task could change the attribute later in the job.
+    # to fix, the user can declare an explicit dependency on the resource 
+    # so that the task won't run after all the resource operations have run (i.e. its task group finished)
+
     ready, notReady = [], []
     for req in requests:
+        assert req not in completed
         _not_ready = False
-        # always need to evaluate both:
-        if req.update_future_dependencies(completed):
-            _not_ready = True
         if req.update_unfulfilled_errors():
             _not_ready = True
         if _not_ready:
@@ -553,7 +545,8 @@ def _prepare_request(job: "Job", req: TaskRequest, errors: List) -> bool:
 FlattenedRequests = List[Tuple[Optional[TaskRequestGroup], TaskRequest]]
 
 
-def _render_request(job: "Job", parent: Optional[TaskRequestGroup], req: TaskRequest, requests: FlattenedRequests) -> Tuple[Optional[List], Optional[UnfurlError]]:
+def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
+                    req: TaskRequest, requests: FlattenedRequests) -> Tuple[Optional[bool], Optional[UnfurlError]]:
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     assert req.task
     task = req.task
@@ -584,24 +577,21 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup], req: TaskReq
     task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
 
-    if parent and parent.workflow == "undeploy":
+    if not parent or parent.workflow != "undeploy":
         # when removing an instance don't worry about depending values changing in the future
-        deps = []
-    else:
-        # key => (instance, list<attribute>)
+        # key => (instance, list<attribute name>)
         liveDependencies = task._attributeManager.find_live_dependencies()
-        task.logger.trace(f"liveDependencies for {task.target}: {liveDependencies}")
+        task.logger.trace(f"live dependencies for {task.target}: {liveDependencies}")
         # a future request may change the value of these attributes
-        deps = list(_get_deps(parent, req, liveDependencies, requests))
+        _get_deps(parent, req, liveDependencies, requests)
 
     dependent_refs = [dep.expr for dep in req.get_unfulfilled_refs()]
-    if deps or dependent_refs:
-        req.future_dependencies = deps
+    if dependent_refs:
         task.logger.debug(
             "%s:%s can not render yet, depends on %s",
             task.target.name,
             req.configSpec.operation,
-            deps or dependent_refs,
+            dependent_refs,
             exc_info=error_info,
         )
         # rollback changes:
@@ -609,7 +599,7 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup], req: TaskReq
         task._reset()
         task._attributeManager.attributes = {}
         task.discard_work_folders()
-        return deps or dependent_refs, None
+        return bool(dependent_refs), None
     elif error:
         task.fail_work_folders()
         task._reset()
@@ -657,6 +647,8 @@ def do_render_requests(
     render_requests = collections.deque(flattened_requests)
     while render_requests:
         parent, request = render_requests.popleft()
+        if request.task and request.task.completed:
+            continue
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
         required = (
@@ -670,9 +662,14 @@ def do_render_requests(
             if error:
                 errors.append(error)
             elif deps:
-                # remove parent from ready if added it there
+                # remove parent from ready if it was already added there
                 if parent and ready and ready[-1] is parent:
                     ready.pop()
+                    # add the individual requests
+                    for prior_req in parent.children:
+                        if prior_req is request:
+                            break
+                        _add_to_req_list(ready, None, prior_req)
                 _add_to_req_list(notReady, parent, request)
             elif not parent or not notReady or notReady[-1] is not parent:
                 # don't add if the parent was placed on the notReady list

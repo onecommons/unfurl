@@ -371,6 +371,10 @@ class ConfigTask(TaskView, ConfigChange):
         self.target_state = self.target.state
         return self
 
+    @property
+    def completed(self) -> bool:
+        return bool(self.local_status and self.local_status > Status.unknown)
+
     def _reset(self):
         self._inputs = None
         self._environ = None
@@ -461,7 +465,7 @@ class ConfigTask(TaskView, ConfigChange):
             missing, reason = _dependency_check(self)
             # skip check on self.target if this operation doesn't depend on its operational dependencies being live
             if not missing and self.configSpec.entry_state > NodeState.initial:
-                missing, reason = _dependency_check(self.target)
+                missing, reason = _dependency_check(self.target, self.configSpec.entry_state)
         return missing, reason
 
     @property
@@ -517,9 +521,15 @@ class ConfigTask(TaskView, ConfigChange):
         return f"ConfigTask({self.target}:{self.name})"
 
 
-def _dependency_check(instance):
-    dependencies = list(instance.get_operational_dependencies())
-    missing = [dep for dep in dependencies if not dep.operational and dep.required]
+def _dependency_check(instance: Operational, state: Optional[NodeState] = None):
+    missing = []
+    for dep in instance.get_operational_dependencies():
+        if dep.required:
+            if state and dep.has_state(state):
+                missing.append(dep)
+            elif not dep.operational:  # ok or degraded
+                missing.append(dep)
+
     if missing:
         reason = "required dependencies not operational: %s" % ", ".join(
             [f"{dep.name} is {dep.status.name}" for dep in missing]
@@ -631,7 +641,7 @@ class Job(ConfigChange):
                 yield e
 
     def _run(
-        self, rendered_requests: Optional[Tuple[list, list, list]] = None
+        self, rendered_requests: Optional[Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]] = None
     ) -> ResourceRef:
         if rendered_requests:
             ready, notReady, errors = rendered_requests
@@ -660,10 +670,13 @@ class Job(ConfigChange):
                 self.run_job_request(jobRequest)
 
             # remove requests from notReady if they've had all their dependencies fulfilled
-            ready, notReady = set_fulfilled(notReady, ready)
-            logger.trace("ready %s; not ready %s", ready, notReady)
+            completed = ready
+            ready, notReady = set_fulfilled(notReady, completed)
+            logger.trace("ready %s; not ready %s; completed: %s", ready, notReady, completed)
             # the first time we render them all, after that only re-render requests if their dependencies were fulfilled
             ready, unfulfilled, errors = do_render_requests(self, ready)
+            if unfulfilled:
+                logger.trace("marking unfulfilled as not ready %s", unfulfilled)
             # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
             notReady.extend(unfulfilled)
 
@@ -674,7 +687,7 @@ class Job(ConfigChange):
                     self.jobOptions.workflow == "deploy" and not req.include_in_plan()
                 ):  # we don't want to run these
                     continue
-                deps = req.future_dependencies + [
+                deps = [
                     dep.expr for dep in req.get_unfulfilled_refs()
                 ]
                 message = f"can't fulfill {req.target.name}: never ran {deps}"
@@ -688,7 +701,7 @@ class Job(ConfigChange):
         outputs = serialize_value(self.get_outputs())
         if outputs:
             logger.info("Job outputs: %s", outputs)
-        self.rootResource.attributeManager.commit_changes()  # type: ignore
+        self.rootResource.attributeManager and self.rootResource.attributeManager.commit_changes()
         return self.rootResource
 
     def run(self, rendered: Tuple[list, list, list]) -> None:
@@ -801,23 +814,25 @@ class Job(ConfigChange):
         return None
 
     def apply_group(self, depth: int, groupRequest: TaskRequestGroup) -> Optional[ConfigTask]:
+        # support split groups -- child might have already run separately
         workflow = groupRequest.workflow
-        starting_status = groupRequest.target.local_status
         tasks, success = self.apply(groupRequest.children, depth, groupRequest)
         for task in tasks:
             successStatus = self._get_success_status(workflow, success)
             # successStatus is the status state to set when the given workflow succeeds
-            if successStatus is not None and starting_status != successStatus:
+            if successStatus is not None and groupRequest.starting_status != successStatus:
                 # target's status needs to change
                 task.logger.trace(
-                    "successStatus %s for %s with local_status %s",
+                    "successStatus %s for %s with local_status %s %s",
                     successStatus.name,
                     task.target.name,
                     task.target.local_status,  # type: ignore
+                    task.target.created
                 )
                 # one of the child tasks succeeded and the workflow is one that modifies the target
                 # update the target's status
                 task._finished_workflow(successStatus, workflow)
+
         # XXX
         if tasks:
             return tasks[0]
@@ -852,7 +867,11 @@ class Job(ConfigChange):
             elif isinstance(taskRequest, TaskRequestGroup):
                 task = self.apply_group(depth, taskRequest)
             else:
-                task = self._run_operation(taskRequest, workflow, depth)
+                if taskRequest.task and taskRequest.task.completed:
+                    # the task already ran (before the rest of its task group)
+                    task = taskRequest.task
+                else:
+                    task = self._run_operation(taskRequest, workflow, depth)
 
             if not task:
                 continue
