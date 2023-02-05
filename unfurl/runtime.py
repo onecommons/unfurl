@@ -18,6 +18,8 @@ from typing import (
     Union,
     TYPE_CHECKING,
     cast,
+    NewType,
+    AnyStr
 )
 import six
 from collections.abc import Mapping
@@ -44,8 +46,8 @@ if TYPE_CHECKING:
 
 logger = getLogger("unfurl")
 
-# CF 3.4.1 Node States p61
 
+InstanceKey = NewType("InstanceKey", str)
 
 class Operational(ChangeAware):
     """
@@ -423,9 +425,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.template.aggregate_only()
 
     @property
-    def key(self):
+    def key(self) -> InstanceKey:
         assert self.parent and self.parentRelation
-        return f"{self.parent.key}::.{self.parentRelation[1:]}::{self.name}"
+        return cast(InstanceKey, f"{self.parent.key}::.{self.parentRelation[1:]}::{self.name}")
 
     def as_ref(self, options=None):
         return {"ref": self.key}
@@ -552,8 +554,8 @@ class HasInstancesInstance(EntityInstance):
             self._environ = os.environ.copy()
 
     @property
-    def key(self):
-        return f"::{self.name}"
+    def key(self) -> InstanceKey:
+        return cast(InstanceKey, f"::{self.name}")
 
     def get_self_and_descendents(self):
         "Recursive descendent including self"
@@ -641,10 +643,10 @@ class CapabilityInstance(EntityInstance):
         return self._relationships
 
     @property
-    def key(self):
+    def key(self) -> InstanceKey:
         # XXX implement something like _ChildResources to enable ::name instead of [.name]
         assert self.parent
-        return f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]"
+        return cast(InstanceKey, f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]")
 
 
 class RelationshipInstance(EntityInstance):
@@ -683,14 +685,14 @@ class RelationshipInstance(EntityInstance):
         return self.parent
 
     @property
-    def key(self) -> str:
+    def key(self) -> InstanceKey:
         # XXX implement something like _ChildResources to enable ::name instead of [.name=name]
         if self.source:
-            return f"{self.source.key}::.requirements::[.name={self.name}]"
+            return cast(InstanceKey, f"{self.source.key}::.requirements::[.name={self.name}]")
         elif not self.parent or self.parent is self.root:  # it's a default relationship
-            return f"::.requirements::[.name={self.name}]"
+            return cast(InstanceKey, f"::.requirements::[.name={self.name}]")
         elif self.parent:  # capability is parent
-            return f"{self.parent.key}::.relationships::[.name={self.name}]"
+            return cast(InstanceKey, f"{self.parent.key}::.relationships::[.name={self.name}]")
 
     def merge_props(self, matchfn, delete_if_none=False) -> Dict[str, str]:
         env: Dict[str, str] = {}

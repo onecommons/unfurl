@@ -12,7 +12,7 @@ import six
 import re
 import ast
 import time
-from typing import TYPE_CHECKING, Iterator, List, Tuple, Union, cast, Dict, Optional, Any, NewType
+from typing import TYPE_CHECKING, Iterator, List, MutableMapping, Tuple, Union, cast, Dict, Optional, Any, NewType
 from typing_extensions import Protocol
 from enum import Enum
 from urllib.parse import urlsplit
@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .manifest import Manifest
-    from .runtime import EntityInstance
+    from .runtime import EntityInstance, InstanceKey
     from .configurator import Dependency
 
 from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -1265,6 +1265,8 @@ class DelegateAttributes:
                 return result
 
 
+AttributeChanges = NewType("AttributeChanges", Dict["InstanceKey", MutableMapping[str, Any]])
+
 class ResourceChanges(collections.OrderedDict):
     """
     Records changes made by configurations.
@@ -1282,11 +1284,17 @@ class ResourceChanges(collections.OrderedDict):
     addedIndex = 1
     attributesIndex = 2
 
-    def get_attribute_changes(self, key):
+    def get_attribute_changes(self, key: "InstanceKey"):
         record = self.get(key)
         if record:
             return record[self.attributesIndex]
         return {}
+
+    def get_changes_as_expr(self) -> Iterator[str]:
+        for key, record in self.items():
+            attribute_changes = record[self.attributesIndex]
+            if attribute_changes:
+                yield from (key + "::" + attr for attr in attribute_changes)
 
     def sync(self, resource: "EntityInstance", changeId=None):
         """Update self to only include changes that are still live"""
@@ -1306,7 +1314,7 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 del self[k]
 
-    def add_changes(self, changes):
+    def add_changes(self, changes: AttributeChanges):
         for name, change in changes.items():
             old = self.get(name)
             if old:
@@ -1329,7 +1337,7 @@ class ResourceChanges(collections.OrderedDict):
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
-    def update_changes(self, changes, statuses, resource, changeId=None):
+    def update_changes(self, changes: AttributeChanges, statuses, resource, changeId=None):
         self.add_changes(changes)
         self.add_statuses(statuses)
         if resource:
@@ -1363,7 +1371,7 @@ class TopologyMap(dict):
 
 
 LiveDependencies = NewType('LiveDependencies',
-                           Dict[str, Tuple["EntityInstance",
+                           Dict["InstanceKey", Tuple["EntityInstance",
                                            Dict[str, Tuple[bool, Union[Result, Any]]]]])
 
 
@@ -1478,9 +1486,9 @@ class AttributeManager:
         )
         return changed, live
 
-    def find_live_dependencies(self) -> Dict[str, List["Dependency"]]:
+    def find_live_dependencies(self) -> Dict["InstanceKey", List["Dependency"]]:
         from .configurator import Dependency
-        dependencies: Dict[str, List["Dependency"]] = {} 
+        dependencies: Dict[InstanceKey, List["Dependency"]] = {} 
         for resource, attributes in self.attributes.values():
             overrides, specd = attributes._attributes.split()
             # items in overrides of type Result have been accessed during this transaction
@@ -1492,8 +1500,8 @@ class AttributeManager:
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
 
-    def commit_changes(self) -> Tuple[Dict, LiveDependencies]:
-        changes = {}
+    def commit_changes(self) -> Tuple[AttributeChanges, LiveDependencies]:
+        changes: AttributeChanges = cast(AttributeChanges, {})
         liveDependencies = cast(LiveDependencies, {})
         for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
