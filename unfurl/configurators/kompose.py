@@ -266,7 +266,7 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
         definition.setdefault("metadata", {}).setdefault("annotations", {}).update(  # type: ignore
             annotations
         )
-    if definition["kind"] == "Deployment" and definition["spec"]["strategy"] == "Recreate":  # type: ignore
+    if definition["kind"] == "Deployment" and definition["spec"].get("strategy") == "Recreate":  # type: ignore
         definition["spec"]["strategy"]["rollingUpdate"] = None  # type: ignore
     mark_sensitive(task, definition)
     return definition
