@@ -342,7 +342,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
         __getitem__ = __getattr__  # type: ignore
 
         def _log_message(self) -> None:
-            msg = "Template: %s", self._undefined_message
+            msg = "Template: %s" % self._undefined_message
             # XXX override _undefined_message: if self._undefined_obj is a Results then add its ctx._lastResource to the msg
             #     see https://github.com/pallets/jinja/blob/7d72eb7fefb7dce065193967f31f805180508448/src/jinja2/runtime.py#L824
             logger.warning(msg)
@@ -392,7 +392,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     templar.environment.trim_blocks = False
     # templar.environment.lstrip_blocks = False
     fail_on_undefined = ctx.strict
-    if not fail_on_undefined:
+    if not fail_on_undefined:  # note: strict is on by default
         templar.environment.undefined = _UnfurlUndefined
 
     vars = _VarTrackerDict(
@@ -400,6 +400,8 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     )
     if hasattr(ctx.currentResource, "attributes"):
         vars["SELF"] = ctx.currentResource.attributes  # type: ignore
+    if os.getenv("UNFURL_TEST_DEBUG_EX"):
+        logger.debug("template vars for %s: %s", value[:300], list(ctx.vars))
     vars.update(ctx.vars)
     vars.ctx = ctx
 

@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import os
 from unfurl.eval import map_value
 from ..configurator import Configurator
 from ..result import Results, ResultsMap
@@ -50,12 +51,18 @@ class TemplateConfigurator(Configurator):
         # get the resultTemplate without evaluating it
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         errors = []
-        if resultTemplate:  # evaluate it now with the result          
-            task.logger.trace("evaluated result template with %s", result)
+        if resultTemplate:  # evaluate it now with the result    
+            if os.getenv("UNFURL_TEST_DEBUG_EX"):
+                task.logger.error("evaluated result template (%s) with %s %s", type(resultTemplate), type(result), result)
             if isinstance(resultTemplate, Results):
                 resultTemplate = resultTemplate._attributes
             try:
-                results = map_value(resultTemplate, task.inputs.context.copy(vars=result))
+                if os.getenv("UNFURL_TEST_DEBUG_EX"):
+                    task.logger.error("result %s template is %s", type(resultTemplate), resultTemplate)   
+                    trace = 2
+                else:
+                    trace = None
+                results = map_value(resultTemplate, task.inputs.context.copy(vars=result, trace=trace))
             except Exception as e:
                 results = None
                 errors = [e]
