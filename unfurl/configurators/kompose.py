@@ -266,6 +266,13 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
         definition.setdefault("metadata", {}).setdefault("annotations", {}).update(  # type: ignore
             annotations
         )
+
+    if definition["kind"] == "Ingress":
+        # ingress class annotation deprecated in Kubernete 1.22+, if set, move to ingressClassName (introduced in 1.18)
+        ingressClass = definition.get("metadata", {}).get("annotations", {}).pop("kubernetes.io/ingress.class", None)
+        if ingressClass:
+            definition["spec"]["ingressClassName"] = ingressClass
+
     if definition["kind"] == "Deployment" and definition["spec"].get("strategy", {}).get("type") == "Recreate":  # type: ignore
         definition["spec"]["strategy"]["rollingUpdate"] = None  # type: ignore
     mark_sensitive(task, definition)
