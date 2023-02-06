@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import os
-from unfurl.eval import map_value
+from unfurl.eval import Ref, map_value
 from ..configurator import Configurator
 from ..result import Results, ResultsMap
 from ..util import register_short_names
@@ -62,10 +62,15 @@ class TemplateConfigurator(Configurator):
                     trace = 2
                 else:
                     trace = 0
-                results = map_value(resultTemplate, task.inputs.context.copy(vars=result, trace=trace))
+                if Ref.is_ref(resultTemplate):
+                    results = task.query({"eval": resultTemplate}, vars=result, throw=True)
+                else:
+                    # lazily evaluated by update_instances() below
+                    results = Results._map_value(resultTemplate, task.inputs.context.copy(vars=result, trace=trace))
             except Exception as e:
                 results = None
                 errors = [e]
+                task.logger.debug("exception when processing resultTemplate", exc_info=True)
             else:
                 if results:
                     jr, errors = task.update_instances(results)
