@@ -263,9 +263,11 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
         definition = merge_dicts(definition, ingress_extras)
     annotations = task.inputs.get("annotations")
     if annotations:
-        definition.setdefault("metadata", {}).setdefault("annotations", {}).update(
+        definition.setdefault("metadata", {}).setdefault("annotations", {}).update(  # type: ignore
             annotations
         )
+    if definition["kind"] == "Deployment" and definition["spec"]["strategy"] == "Recreate":  # type: ignore
+        definition["spec"]["strategy"]["rollingUpdate"] = None  # type: ignore
     mark_sensitive(task, definition)
     return definition
 
