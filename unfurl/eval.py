@@ -206,7 +206,7 @@ class RefContext:
 
     def trace(self, *msg: Any) -> None:
         if self._trace:
-            log = logger.info if self._trace >= 2 else logger.trace
+            log = logger.info if self._trace == 2 else logger.trace
             log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")  # type: ignore
 
     def add_external_reference(self, external: ExternalValue) -> Result:
