@@ -61,7 +61,7 @@ class TemplateConfigurator(Configurator):
                     task.logger.error("result %s template is %s", type(resultTemplate), resultTemplate)   
                     trace = 2
                 else:
-                    trace = None
+                    trace = 0
                 results = map_value(resultTemplate, task.inputs.context.copy(vars=result, trace=trace))
             except Exception as e:
                 results = None
