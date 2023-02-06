@@ -483,12 +483,16 @@ class Project:
             self.localConfig.ensembles, self.projectRoot, path
         )
 
-    def find_ensemble_by_name(self, name: str) -> Optional[dict]:
-        for tpl in self.localConfig.ensembles:
+    @staticmethod
+    def _find_ensemble_by_name(ensembles, name: str) -> Optional[dict]:
+        for tpl in ensembles:
             alias = tpl.get("alias")
             if alias and alias == name:
                 return tpl
         return None
+
+    def find_ensemble_by_name(self, name: str) -> Optional[dict]:
+        return self._find_ensemble_by_name(self.localConfig.ensembles, name)
 
     @property
     def name(self) -> str:
@@ -631,6 +635,10 @@ class Project:
                 if "manifest_path" in url_vars:
                     ensemble_tpl = self._find_ensemble_by_path(
                         ensembles, self.projectRoot, url_vars["manifest_path"]
+                    )
+                elif "manifest_alias" in url_vars:
+                    ensemble_tpl = self._find_ensemble_by_name(
+                        ensembles, url_vars["manifest_alias"]
                     )
                 else:
                     ensemble_tpl = LocalConfig._get_default_manifest_tpl(ensembles)
@@ -869,6 +877,8 @@ class LocalEnv:
             manifestPath = ""
         else:
             assert manifestPath
+            # set this because the yaml loader needs access to this while the project is being instantiated
+            self.overrides["manifest_alias"] = manifestPath
             # if manifestPath doesn't point to a project or ensemble,
             # look for a project in the current directory and then see if the project has a manifest with that name
             project = self.find_project(".")
