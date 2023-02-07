@@ -500,7 +500,7 @@ def set_fulfilled(upcoming: List[PlanRequest], completed: List[PlanRequest]) -> 
     #     if done.task and done.task.local_status == Status.ok:
     #         updated_deps.update(done.task._resourceChanges.get_changes_as_expr())
     for req in upcoming:
-        assert req not in completed
+        assert req not in completed, f"{req} already completed"
         _not_ready = False
         # see if these changes fulfilled the dependencies on a pending task
         if req.update_unfulfilled_errors():
@@ -647,7 +647,7 @@ def _add_to_req_list(reqs, parent, request):
     if parent:  # only add if we haven't already
         if not reqs or reqs[-1] is not parent:
             reqs.append(parent)
-    else:
+    elif request not in reqs:
         reqs.append(request)
 
 
@@ -685,7 +685,8 @@ def do_render_requests(
         check_target = ""
     while render_requests:
         parent, request = render_requests.popleft()
-        if request.task and request.task.completed:
+        assert request.task
+        if request.task.completed:
             continue
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
@@ -693,6 +694,7 @@ def do_render_requests(
             job.workflow != "deploy" or job.is_filtered() or request.include_in_plan()
         )
         if not required:
+            logger.trace("request isn't required by the plan, skipping: %s", request)
             not_required.append((parent, request))
         else:
             request.target.validate()
