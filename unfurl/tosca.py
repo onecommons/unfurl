@@ -835,7 +835,7 @@ class EntitySpec(ResourceRef):
         pass
 
     @property
-    def required(self):
+    def required(self) -> bool:
         # check if this template is required by another template
         for root in _get_roots(self):
             if self.spec.substitution_template:
@@ -852,7 +852,7 @@ class EntitySpec(ResourceRef):
         return os.environ
 
 
-def _get_roots(node, seen=None):
+def _get_roots(node: EntitySpec, seen=None):
     # node can reference each other's properties, so we need to handle circular references
     if seen is None:
         seen = set()
@@ -875,7 +875,7 @@ class NodeSpec(EntitySpec):
             assert spec
         EntitySpec.__init__(self, template, spec)
         self._capabilities = None
-        self._requirements = None
+        self._requirements: Optional[Dict[str, "RequirementSpec"]] = None
         self._relationships = []
         self._artifacts = None
 
@@ -989,7 +989,7 @@ class NodeSpec(EntitySpec):
     def get_capability(self, name):
         return self.capabilities.get(name)
 
-    def add_relationship(self, reqSpec):
+    def add_relationship(self, reqSpec: "RequirementSpec"):
         # find the relationship for this requirement:
         for relSpec in self._get_relationship_specs():
             # the RelationshipTemplate should have had the source node assigned by the tosca parser
@@ -1015,6 +1015,7 @@ class NodeSpec(EntitySpec):
                 )
                 if not relSpec.requirement:
                     relSpec.requirement = reqSpec
+                    relSpec._isReferencedBy.append(self)  # type: ignore
                 break
         else:
             msg = f'relationship not found for requirement "{reqSpec.name}" on "{reqSpec.parentNode}" targeting "{self.name}"'
@@ -1129,12 +1130,12 @@ class RequirementSpec:
     """
 
     # XXX need __eq__ since this doesn't derive from EntitySpec
-    def __init__(self, name, req, parent, type_tpl):
-        self.source = self.parentNode = parent  # NodeSpec
+    def __init__(self, name: str, req: dict, parent: NodeSpec, type_tpl: dict):
+        self.source = self.parentNode = parent
         self.spec = parent.spec
         self.name = name
         self.entity_tpl = req
-        self.relationship = None
+        self.relationship: Optional[RelationshipSpec] = None
         self.type_tpl = type_tpl
         # entity_tpl may specify:
         # capability (definition name or type name), node (template name or type name), and node_filter,
