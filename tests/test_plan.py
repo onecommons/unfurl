@@ -133,7 +133,8 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
         relation = plan[1]["plan"][0]["sequence"][1]
         # print(relation)
         assert relation["instance"] == "local_storage"
-        assert relation["plan"][0]["operation"] == "post_configure_source"
+        # relation is a nested task group:
+        assert relation["plan"][0]["sequence"][0]["operation"] == "post_configure_source"
 
         result, job, summary = run_job_cmd(runner, ["deploy"])
         # print(job.json_summary(True))

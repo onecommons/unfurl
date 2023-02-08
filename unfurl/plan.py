@@ -3,7 +3,7 @@
 from typing import Dict, Optional
 import six
 
-from .runtime import NodeInstance
+from .runtime import InstanceKey, NodeInstance
 from .util import UnfurlError
 from .result import ChangeRecord
 from .support import Status, NodeState, Reason
@@ -17,6 +17,7 @@ from .planrequests import (
     ConfigurationSpec,
     find_parent_resource,
     find_resources_from_template_name,
+    _find_implementation,
 )
 from .tosca import NodeSpec, find_standard_interface, EntitySpec, ToscaSpec
 from .logs import getLogger
@@ -86,6 +87,7 @@ class Plan:
             self.filterTemplate = filterTemplate
         else:
             self.filterTemplate = None
+        self._rel_taskgroups: Dict[InstanceKey, TaskRequestGroup] = {}
 
     def find_shadow_instance(self, template, match=is_external_template_compatible):
         imported = template.tpl.get("imported")
@@ -410,12 +412,29 @@ class Plan:
         else:
             group = None
         task_found = False
+        pre_relgroup = None
+        post_relgroup = None
         for taskRequest in configGenerator:
             if taskRequest:
                 task_found = True
                 yield from self._get_connection_task(taskRequest)
                 if group and not isinstance(taskRequest, JobRequest):
-                    group.children.append(taskRequest)
+                    if taskRequest.target == group.target:
+                        group.children.append(taskRequest)
+                    else:
+                        last_config_op = self.is_last_configure_op(taskRequest)
+                        relgroup = self._rel_taskgroups.get(taskRequest.target.key)
+                        if not relgroup:
+                            relgroup = TaskRequestGroup(taskRequest.target, workflow)
+                            if not last_config_op:
+                                self._rel_taskgroups[taskRequest.target.key] = relgroup
+                        relgroup.children.append(taskRequest)
+                        if last_config_op:
+                            if "post" in last_config_op:
+                                post_relgroup = relgroup
+                            else:  # if pre_config_* or remove_* run those first
+                                pre_relgroup = relgroup
+
                 else:
                     yield taskRequest
         if not task_found:
@@ -423,6 +442,10 @@ class Plan:
                 f'No operations for workflow "{workflow}" defined for instance "{resource.name}"'
             )
         if group:
+            if pre_relgroup:
+                group.children.insert(0, pre_relgroup)
+            elif post_relgroup:
+                group.children.append(post_relgroup)
             yield group
 
     def execute_workflow(self, workflowName, resource):
@@ -529,6 +552,9 @@ class Plan:
 
     def include_not_found(self, template):
         return True
+
+    def is_last_configure_op(self, taskrequest) -> str:
+        return ""
 
     def _generate_workflow_configurations(self, instance, oldTemplate):
         yield from self._generate_configurations(instance, self.workflow)
@@ -708,6 +734,15 @@ class DeployPlan(Plan):
         else:
             yield from self._generate_configurations(instance, reason)
 
+    def is_last_configure_op(self, taskrequest: TaskRequest) -> str:
+        order = ("pre_configure_target", "pre_configure_source", "post_configure_target", "post_configure_source")
+        implemented = [op for op in order if _find_implementation("Configure", op, taskrequest.target.template)]
+        index = implemented.index(taskrequest.configSpec.operation)
+        if len(implemented) == index + 1:
+            return implemented[index]
+        else:
+            return ""
+
 
 class UndeployPlan(Plan):
     def execute_plan(self):
@@ -722,6 +757,15 @@ class UndeployPlan(Plan):
 
         # return value is used as "reason"
         return self.workflow
+
+    def is_last_configure_op(self, taskrequest: TaskRequest) -> str:
+        order = ["remove_target", "remove_source"]
+        implemented = [op for op in order if _find_implementation("Configure", op, taskrequest.target.template)]
+        index = implemented.index(taskrequest.configSpec.operation)
+        if len(implemented) == index + 1:
+            return implemented[index]
+        else:
+            return ""
 
 
 class ReadOnlyPlan(Plan):
