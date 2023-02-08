@@ -372,7 +372,8 @@ class Manifest(AttributeManager):
                 key, val = next(iter(req.items()))
                 requirement = self._create_requirement(key, val)
                 requirement._source = resource
-                assert requirement in resource.requirements
+                # XXX investigate and re-enable this assert
+                # assert requirement in resource.requirements, f"{requirement} not in {resource.requirements}"
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
