@@ -611,10 +611,10 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
         # when removing an instance don't worry about depending values changing in the future
         # key => (instance, list<attribute name>)
         liveDependencies = task._attributeManager.find_live_dependencies()
-        task.logger.trace(f"live dependencies for {task.target}: {liveDependencies}, check_target: {check_target}")
+        task.logger.trace(f"live dependencies for {task.target}: {liveDependencies}")
         # a future request may change the value of these attributes
         _get_deps(parent, req, liveDependencies, requests)
-        dependent_refs = [dep.expr for dep in req.get_unfulfilled_refs(check_target)]
+        dependent_refs = [dep.name for dep in req.get_unfulfilled_refs(check_target)]
     else:
         dependent_refs = req.render_errors  # type: ignore
     if dependent_refs:

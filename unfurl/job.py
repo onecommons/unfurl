@@ -465,9 +465,13 @@ class ConfigTask(TaskView, ConfigChange):
         ):
             # check if the live attributes this task depends on has been set
             missing, reason = _dependency_check(self)
+
             # skip check on self.target if this operation doesn't depend on its operational dependencies being live
-            if not missing and self.configSpec.entry_state > NodeState.initial:
-                missing, reason = _dependency_check(self.target, self.configSpec.entry_state)
+            # XXX disable for now -- this causes circular dependencies if a node has a relationships that requires it to be created first
+            # this really only makes sense in a general way for deploy workflows but we skip those in the check above
+            # for now a task should declare an explicit status dependencies to enforce this
+            # if not missing and self.configSpec.entry_state > NodeState.initial:
+            #    missing, reason = _dependency_check(self.target, self.configSpec.entry_state)
         return missing, reason
 
     @property
@@ -527,9 +531,10 @@ def _dependency_check(instance: Operational, state: Optional[NodeState] = None):
     missing = []
     for dep in instance.get_operational_dependencies():
         if dep.required:
-            if state and dep.has_state(state):
-                missing.append(dep)
-            elif not dep.operational:  # ok or degraded
+            if state and dep.state:
+                if not dep.has_state(state):
+                    missing.append(dep)
+            if not dep.operational:  # operational == ok or degraded
                 missing.append(dep)
 
     if missing:
@@ -699,9 +704,17 @@ class Job(ConfigChange):
                 ):  # we don't want to run these
                     continue
                 deps = [
-                    dep.expr for dep in req.get_unfulfilled_refs()
+                    dep.name for dep in req.get_unfulfilled_refs()
                 ]
-                message = f"can't fulfill {req.target.name}: never ran {deps}"
+                if deps:
+                    if req.render_errors:
+                        message = f"Never ran: invalid dependencies: {deps}"
+                    else:  # XXX could have both
+                        message = f"Never ran: unfulfilled dependencies: {deps}"
+                elif parent and parent.target.name != req.target.name:
+                    message = f"Never ran: parent resource in error: {parent.target.name}"
+                else:
+                    message = "Never ran: previous operation failed"
                 if req.task:
                     req.task.logger.info(message)
                     req.task.finished(ConfiguratorResult(False, False, result=message))
@@ -1311,7 +1324,7 @@ class Job(ConfigChange):
             )
 
         if not self.workDone:
-            return f"Job {self.changeId} completed: {self.status.name}. Found nothing to do. {outputString}"
+            return f"Job {self.changeId} completed: {self.status.name}. No tasks ran. {outputString}"
 
         def format(i: int, task: ConfigTask) -> str:
             return "%d. %s; %s" % (i, task.summary(), task.result or "skipped")

@@ -1,14 +1,14 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import os
-from unfurl.eval import Ref, map_value
-from ..configurator import Configurator
+from ..eval import Ref, map_value
+from ..configurator import Configurator, TaskView
 from ..result import Results, ResultsMap
 from ..util import register_short_names
 from ..support import Status
 from ..planrequests import set_default_command
 import importlib
-from typing import Tuple
+from typing import Sequence, Tuple
 from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
@@ -42,7 +42,7 @@ class PythonPackageCheckConfigurator(Configurator):
 class TemplateConfigurator(Configurator):
     exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")
 
-    def process_result_template(self, task, result):
+    def process_result_template(self, task: "TaskView", result):
         """
         for both the ansible and shell configurators
         result can include: "returncode", "msg", "error", "stdout", "stderr"
@@ -50,7 +50,8 @@ class TemplateConfigurator(Configurator):
         """
         # get the resultTemplate without evaluating it
         resultTemplate = task.inputs._attributes.get("resultTemplate")
-        errors = []
+        errors: Sequence[Exception] = []
+        current_status = task.target.local_status
         if resultTemplate:  # evaluate it now with the result    
             if os.getenv("UNFURL_TEST_DEBUG_EX"):
                 task.logger.error("evaluated result template (%s) with %s %s", type(resultTemplate), type(result), result)
@@ -73,13 +74,17 @@ class TemplateConfigurator(Configurator):
                 task.logger.debug("exception when processing resultTemplate", exc_info=True)
             else:
                 if results:
-                    jr, errors = task.update_instances(results)
+                    jr, errors = task.update_instances(results)  # type: ignore
             if errors:
                 task.logger.warning(
                     "error processing resultTemplate: %s",
                     errors[0],
                 )
-        return errors
+        if task.target.local_status != current_status: 
+            new_status = task.target.local_status
+        else:
+            new_status = None
+        return errors, new_status
 
     def can_dry_run(self, task):
         return not not task.inputs.get("dryrun")
@@ -93,7 +98,7 @@ class TemplateConfigurator(Configurator):
             runResult = task.inputs.get("run")
         return runResult
 
-    def done(self, task, **kw):
+    def done(self, task: "TaskView", **kw):
         # this is called by derived classes like ShellConfigurator to allow the user
         # to override the default logic for updating the state and status of a task.
         done = task.inputs.get_copy("done", {})
@@ -102,7 +107,7 @@ class TemplateConfigurator(Configurator):
             kw.update(done)  # "done" overrides kw
         return task.done(**kw)
 
-    def run(self, task):
+    def run(self, task: "TaskView"):
         runResult = task.rendered
         done = task.inputs.get_copy("done", {})
         if "result" not in done:
@@ -110,8 +115,11 @@ class TemplateConfigurator(Configurator):
                 done["result"] = {"run": runResult, "outputs": done.get("outputs")}
             else:
                 done["result"] = runResult
-        if self.process_result_template(task, done.get("result") or {}):
+        errors, new_status = self.process_result_template(task, done.get("result") or {})
+        if errors:
             done["success"] = False  # returned errors
+        if new_status is not None:
+            done["status"] = new_status
         yield task.done(**done)
 
 

@@ -72,7 +72,8 @@ class Operational(ChangeAware):
 
     def has_state(self, state: NodeState) -> bool:
         if state < NodeState.stopping:
-            return self.state >= state
+            # self.state is sometimes None even though it shouldn't be
+            return bool(self.state) and self.state >= state
         return self.state == state
 
     def get_operational_dependencies(self) -> Iterable["Operational"]:

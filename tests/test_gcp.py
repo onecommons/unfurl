@@ -199,7 +199,7 @@ gcpTestUpgradeConnectionManifest = """\
                               to_env:
                                 GOOGLE_APPLICATION_CREDENTIALS:
                                   eval:
-                                    tempfile: 
+                                    tempfile:
                                       q: "{{ outputs.app_credentials }}"
                                     suffix: .json
                                 GOOGLE_OAUTH_ACCESS_TOKEN: null
@@ -243,8 +243,8 @@ def test_validate_connection():
     "id": "A01110000000",
     "status": "error",
     "total": 1,
-    "ok": 1,
-    "error": 0,
+    "ok": 0,
+    "error": 1,
     "unknown": 0,
     "skipped": 0,
     "changed": 1

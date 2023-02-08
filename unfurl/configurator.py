@@ -1170,7 +1170,14 @@ class Dependency(Operational):
         self.expected = expected
         self.schema = schema
         self._required = required
-        self.name = name or str(expr)
+        if name:
+            self.name = name
+        elif isinstance(expr, str):
+            self.name = str(expr)
+        elif target:
+            self.name = f"{target.name}:{dict(expr)}"
+        else:
+            self.name = f"{dict(expr)}"
         self.wantList = wantList
         self.target = target
 

@@ -184,7 +184,8 @@ class JobReporter:
 
     @staticmethod
     def stats(tasks, asMessage: bool = False) -> Union[Dict[str, int], str]:
-        key = lambda t: t._localStatus or Status.unknown
+        # note: the status of the task, not the target resource
+        key = lambda t: Status.error if t.target_status == Status.error else t._localStatus or Status.unknown
         tasks = sorted(tasks, key=key)  # type: ignore
         stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
@@ -294,7 +295,7 @@ class JobReporter:
     def summary_table(job):
         console = getConsole()
         if not job.workDone:
-            console.print(f"Job {job.changeId} completed: [{job.status.color}]{job.status.name}[/]. Found nothing to do.")
+            console.print(f"Job {job.changeId} completed: [{job.status.color}]{job.status.name}[/]. No tasks ran.")
             return
 
         title = "Job %s completed in %.3fs: [%s]%s[/]. %s:\n    " % (

@@ -228,10 +228,10 @@ class ShellConfigurator(TemplateConfigurator):
         success = self._handle_result(task, result, cwd)
         resultDict = result.__dict__.copy()
         resultDict["success"] = success
-        self.process_result_template(task, resultDict)
+        errors, status = self.process_result_template(task, resultDict)
         if task._errors:
-            return False
-        return success
+            return False, status
+        return success, status
 
     def can_run(self, task):
         params = task.inputs
@@ -278,8 +278,8 @@ class ShellConfigurator(TemplateConfigurator):
             keeplines=keeplines,
             echo=echo,
         )
-        success = self._process_result(task, result, cwd)
-        yield self.done(task, success=success, result=result.__dict__)
+        success, status = self._process_result(task, result, cwd)
+        yield self.done(task, success=success, status=status, result=result.__dict__)
 
     def resolve_dry_run(self, cmd, task):
         is_string = isinstance(cmd, six.string_types)

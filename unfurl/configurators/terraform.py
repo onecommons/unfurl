@@ -496,9 +496,11 @@ class TerraformConfigurator(ShellConfigurator):
                 state["outputs"] = outputs  # replace outputs
                 state["success"] = success
                 state["modified"] = modified
-                errors = self.process_result_template(task, state)
+                errors, new_status = self.process_result_template(task, state)
                 if success:
                     success = not errors
+                if new_status is not None:
+                    status = new_status
             else:
                 state = {}
         else:

@@ -255,9 +255,10 @@ class AnsibleConfigurator(TemplateConfigurator):
         return task.inputs.get("resultKeys", [])
 
     def process_result(self, task, result):
-        result.success = not self.process_result_template(
+        errors, status = self.process_result_template(
             task, dict(result.result, success=result.success, outputs=result.outputs)
         )
+        result.success = not errors
         return result
 
     def render(self, task):

@@ -95,6 +95,7 @@ ensembles:
     environment: test
 """
 
+empty_job_msg = "No tasks ran."
 
 class CliTestConfigurator(Configurator):
     def run(self, task):
@@ -406,7 +407,7 @@ spec:
             )
             getattr(self, "assertRegex", self.assertRegexpMatches)(
                 clean_output(result.output),
-                "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
+                "Job A[0-9A-Za-z]{11} completed: ok. " + empty_job_msg,
             )
             self.assertEqual(result.exit_code, 0, result.output)
 
@@ -439,7 +440,7 @@ spec:
             )
             getattr(self, "assertRegex", self.assertRegexpMatches)(
                 result.output,
-                "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
+                "Job A[0-9A-Za-z]{11} completed: ok. " + empty_job_msg,
             )
             self.assertEqual(result.exit_code, 0, result.output)
 
@@ -459,7 +460,7 @@ spec:
             self.assertNotIn("p1", os.listdir("p1"))
 
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
-            self.assertRegex(result.output, "Found nothing to do.")
+            self.assertRegex(result.output, empty_job_msg)
 
             os.chdir("p1")
 
@@ -481,13 +482,13 @@ spec:
             result = run_cmd(
                 runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_shared"]
             )
-            self.assertRegex(result.output, "Found nothing to do.")
+            self.assertRegex(result.output, empty_job_msg)
 
             os.chdir("..")
             # clone a project
             run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
-            self.assertRegex(result.output, "Found nothing to do.")
+            self.assertRegex(result.output, empty_job_msg)
 
     def test_environment_args(self):
         runner = CliRunner()
@@ -554,7 +555,7 @@ spec:
             assert "Ensemble manifest does not exist" in str(err.exception)
 
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
-            self.assertRegex(result.output, "Found nothing to do.")
+            self.assertRegex(result.output, empty_job_msg)
 
             # test clone ensemble in existing project
             result = run_cmd(
@@ -597,7 +598,7 @@ spec:
             result = run_cmd(
                 runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_shared"]
             )
-            self.assertRegex(result.output, "Found nothing to do.")
+            self.assertRegex(result.output, empty_job_msg)
 
             os.chdir("..")
 
@@ -614,4 +615,4 @@ spec:
             assert ensemble_record["project"] == "production"
 
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
-            self.assertRegex(result.output, "Found nothing to do.")
+            self.assertRegex(result.output, empty_job_msg)
