@@ -125,13 +125,14 @@ class Operational(ChangeAware):
         if not status:
             return Status.unknown
 
-        if status >= Status.error:
-            # return error, pending, or absent
+        if status == Status.error or status == Status.absent:
+            # return error, or absent
             return status
 
         dependentStatus = self.aggregate_status(
             self.get_operational_dependencies(), seen
         )
+
         if self.is_computed():
             # if local_status is a no op (status purely determined by dependents) set to ok
             status = Status.ok
@@ -659,7 +660,7 @@ class RelationshipInstance(EntityInstance):
     _source: Optional["NodeInstance"] = None
 
     def __init__(
-        self, name="", attributes=None, parent=None, template=None, status=None
+        self, name="", attributes=None, parent=None, template=None, status=Status.pending
     ):
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
@@ -714,6 +715,9 @@ class RelationshipInstance(EntityInstance):
                 env[name] = val
         return env
 
+    def __repr__(self):
+        return f"RelationshipInstance('{self.name}')"
+
 
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
@@ -751,6 +755,9 @@ class ArtifactInstance(EntityInstance):
         # skip dependency on the parent
         for d in self.dependencies:
             yield d
+
+    def __repr__(self):
+        return f"ArtifactInstance('{self.name}')"
 
 
 class NodeInstance(HasInstancesInstance):
@@ -956,6 +963,7 @@ class NodeInstance(HasInstancesInstance):
         yield from super().get_operational_dependencies()
 
         for instance in self.requirements:
+            # super() yields self.parent so skip that one
             if instance.target is not self.parent:
                 yield instance
 
