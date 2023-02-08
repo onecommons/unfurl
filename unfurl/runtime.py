@@ -397,6 +397,22 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
 
+    def __priority():  # type: ignore
+        doc = "The priority property."
+
+        def fget(self) -> Optional[Priority]:
+            if self._priority is None and self.template:
+                return Priority.required if self.template.required else Priority.ignore
+            else:
+                return self._priority
+
+        def fset(self, value):  # type: ignore
+            self._priority = to_enum(Priority, value)
+
+        return locals()
+
+    priority: Optional[Priority] = property(**__priority())  # type: ignore
+
     def __local_status():  # type: ignore
         doc = "The working_dir property."
 
