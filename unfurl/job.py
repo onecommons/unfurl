@@ -838,13 +838,25 @@ class Job(ConfigChange):
         return None
 
     def apply_group(self, depth: int, groupRequest: TaskRequestGroup) -> Optional[ConfigTask]:
-        # support split groups -- child might have already run separately
+        # A TaskRequestGroup is a list of task requests that need to succeed to advance
+        # the target NodeInstance to the workflow's desired status (e.g. ok or absent)
+        # It is created by TOSCA's standard operations or by a custom workflow.
+
+        # If the tasks succeed and if the task group's target hasn't had its status set alread
+        # Set the target status to workflow's desired status.
+
+        # If task's target is different from the task group's target (e.g. it is a relationship instance)
+        # then we should only set the desired status if the task modified the target and didn't explicitly set its target's status
+
+        # (some of the tasks in the group may have already run (see do_render_requests())
         workflow = groupRequest.workflow
         tasks, success = self.apply(groupRequest.children, depth, groupRequest)
-        for task in tasks:
-            successStatus = self._get_success_status(workflow, success)
-            # successStatus is the status state to set when the given workflow succeeds
-            if successStatus is not None and groupRequest.starting_status != successStatus:
+        successStatus = self._get_success_status(workflow, success)
+        # successStatus is the status state to set when the given workflow succeeds
+        if successStatus is not None and groupRequest.starting_status != successStatus:
+            for task in tasks:
+                if task.target != groupRequest.target and task.result and task.result.status is not None:
+                    continue
                 # target's status needs to change
                 task.logger.trace(
                     "successStatus %s for %s with local_status %s %s",
@@ -901,7 +913,7 @@ class Job(ConfigChange):
                 continue
             tasks.append(task)
 
-            if task.result and task.result.success:  # type: ignore
+            if task.result and task.result.success and task.target.local_status != Status.error:  # type: ignore
                 if parent and task.target is parent.target:
                     # if the task explicitly set the status use that
                     if task.result.status is not None:  # type: ignore

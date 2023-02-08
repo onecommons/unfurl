@@ -3,14 +3,8 @@ import json
 import os
 import traceback
 from click.testing import CliRunner
-from unfurl.__main__ import cli, _latestJobs
-from unfurl.localenv import LocalEnv
-from unfurl.job import start_job
-from unfurl.yamlmanifest import YamlManifest
 from .utils import init_project, run_job_cmd
-from pathlib import Path
-from unfurl.support import Status
-from unfurl.configurator import Configurator
+
 
 ENSEMBLE_WITH_RELATIONSHIPS = """
 apiVersion: unfurl/v1alpha1
@@ -26,8 +20,13 @@ spec:
           interfaces:
             Configure:
               operations:
+                # XXX fix taskgroup!
                 # post_configure_target: echo "attach target {{TARGET.volume_id}} to {{SOURCE.public_address}} at {{ SELF.location }}"
-                post_configure_source: echo "attach source {{SOURCE.public_address}} to {{TARGET.volume_id}} at {{ SELF.location }}"
+                post_configure_source: # post_configure_target:
+                  implementation: echo "attach source {{SOURCE.public_address}} to {{TARGET.volume_id}} at {{ SELF.location }}"
+                  inputs:
+                    resultTemplate:
+                      readyState: {}
                 remove_target: echo "detach from target {{TARGET.name}}"
                 remove_source: echo "detach from source {{TARGET.name}}"
 
@@ -58,7 +57,7 @@ spec:
                   implementation: echo "create my_server"
                   inputs:
                     resultTemplate:
-                      readyState: ok
+                      readyState: {}
                       attributes:
                         public_address:  10.10.10.1
                 delete: echo "delete my_server"
@@ -75,6 +74,7 @@ spec:
                   implementation: echo "create my_block_storage at {{ SELF.public_address }}"
                   inputs:
                     resultTemplate:
+                      readyState: ok
                       attributes:
                         volume_id: DX34B
                         public_address:
@@ -83,7 +83,18 @@ spec:
 """
 
 
-def test_plan():
+@pytest.mark.parametrize(
+    ["local_storage_status", "compute_status", "total", "expected_errors"],
+    [
+      # compute explicitly set to ok
+      ("", "ok", 3, 0),
+      # attaching failed
+      ("error", "", 3, 1),
+      # compute failed, so attachment doesn't run
+      ("", "error", 2, 1),
+    ]
+)
+def test_plan(local_storage_status, compute_status, total, expected_errors):
     runner = CliRunner()
     with runner.isolated_filesystem():
         init_project(
@@ -91,7 +102,7 @@ def test_plan():
             args=["init", "--mono"],
         )
         with open("ensemble/ensemble.yaml", "w") as f:
-            f.write(ENSEMBLE_WITH_RELATIONSHIPS)
+            f.write(ENSEMBLE_WITH_RELATIONSHIPS.format(local_storage_status, compute_status))
         # suppress logging
         try:
             old_env_level = os.environ.get("UNFURL_LOGGING")
@@ -103,7 +114,12 @@ def test_plan():
         finally:
             if old_env_level:
                 os.environ["UNFURL_LOGGING"] = old_env_level
-        # print(job.manifest.status_summary())
+        # print(job.manifest.status_summary()
+        assert job.rootResource.find_instance("my_server").required
+        relinstance = job.rootResource.find_instance("my_server").get_requirements("local_storage")[0]
+        assert relinstance.required
+        assert not relinstance.is_computed()
+
         planoutput = result.output.strip()
         assert planoutput
         # print(planoutput)
@@ -121,17 +137,68 @@ def test_plan():
 
         result, job, summary = run_job_cmd(runner, ["deploy"])
         # print(job.json_summary(True))
-        assert summary["job"] == {
-          "id": "A01110000000",
-          "status": "ok",
-          "total": 3,
-          "ok": 3,
-          "error": 0,
-          "unknown": 0,
-          "skipped": 0,
-          "changed": 3
+        expected = [
+            {
+              "status": "ok",
+              "target": "my_block_storage",
+              "operation": "create",
+              "template": "my_block_storage",
+              "type": "Volume",
+              "targetStatus": "ok",
+              "targetState": "created",
+              "changed": True,
+              "configurator": "unfurl.configurators.shell.ShellConfigurator",
+              "priority": "required",
+              "reason": "add"
+            },
+            {
+              "status": "ok",
+              "target": "my_server",
+              "operation": "create",
+              "template": "my_server",
+              "type": "tosca.nodes.Compute",
+              "targetStatus": compute_status or "ok",
+              "targetState": "created",
+              "changed": True,
+              "configurator": "unfurl.configurators.shell.ShellConfigurator",
+              "priority": "required",
+              "reason": "add"
+            },
+        ]
+        if total > 2:
+            expected += [
+                {
+                    "status": "ok",
+                    "target": "local_storage",
+                    "operation": "post_configure_source",
+                    "template": "local_storage",
+                    "type": "VolumeAttach",
+                    "targetStatus": local_storage_status or "ok",
+                    "targetState": "configured",
+                    "changed": True,
+                    "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                    "priority": "required",
+                    "reason": "add"
+                }
+            ]
+        assert summary == {
+          "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": total,
+            "ok": total - expected_errors,
+            "error": expected_errors,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": total
+          },
+          "outputs": {},
+          "tasks": expected
         }
         # print("deploy", job.manifest.status_summary())
+
+        if compute_status != "ok":
+            return  # only test undeploy once
 
         result, job, summary = run_job_cmd(runner, ["undeploy"], 2)
         # print(job.json_summary(True))

@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Optional
+from typing import Dict, Optional
 import six
 
 from .runtime import NodeInstance
@@ -18,7 +18,7 @@ from .planrequests import (
     find_parent_resource,
     find_resources_from_template_name,
 )
-from .tosca import find_standard_interface, EntitySpec
+from .tosca import NodeSpec, find_standard_interface, EntitySpec, ToscaSpec
 from .logs import getLogger
 
 
@@ -70,7 +70,7 @@ class Plan:
 
     interface: Optional[str] = None
 
-    def __init__(self, root, toscaSpec, jobOptions):
+    def __init__(self, root, toscaSpec: ToscaSpec, jobOptions):
         self.jobOptions = jobOptions
         self.workflow = jobOptions.workflow
         self.root = root
@@ -210,6 +210,7 @@ class Plan:
         )
 
         if sourceConfigOps:
+            # we're the source and we just ran configure, now configure any relationships
             for requirement in resource.requirements:
                 yield from self._run_operation(
                     NodeState.configuring,
@@ -387,7 +388,7 @@ class Plan:
     def _get_connection_task(self, taskRequest):
         if not self._checked_connection_task:
             self._checked_connection_task = True
-            if self.tosca.topology.primary_provider:
+            if self.tosca.topology and self.tosca.topology.primary_provider:
                 for rel in self.root.requirements:
                     if rel.name == "primary_provider":
                         yield from self.execute_default_install_op("check", rel)
@@ -743,7 +744,7 @@ class WorkflowPlan(Plan):
             if self.tosca.is_type_name(step.target):
                 templates = self.tosca.find_matching_templates(step.target)
             else:
-                template = self.tosca.findTemplate(step.target)
+                template = self.tosca.nodeTemplates.get(step.target)
                 if not template:
                     continue
                 templates = [template]
@@ -859,8 +860,7 @@ def interface_requirements_ok(spec, template):
     return True
 
 
-def order_templates(templates, filter=None, interface=None):
-    # templates is dict of NodeSpecs
+def order_templates(templates: Dict[str, NodeSpec], filter=None, interface=None):
     seen = set()
     for source in templates.values():
         if filter and source.name != filter:
@@ -882,7 +882,7 @@ def order_templates(templates, filter=None, interface=None):
             if spec:
                 if spec is not source:
                     # ancestor is required by source
-                    spec._isReferencedBy.append(source)
+                    spec._isReferencedBy.append(source)  # type: ignore
                 if spec in seen:
                     continue
                 seen.add(spec)
