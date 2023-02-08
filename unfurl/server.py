@@ -483,7 +483,9 @@ def export():
             for manifest_path in json_summary["DeploymentPath"]:
                 dcache_entry = CacheEntry(project_id, branch, manifest_path, "deployment", repo)
                 derr, djson = dcache_entry.get_or_set(cache, workfn, latest_commit)
-                if not derr:
+                if derr:
+                    deployments.append(dict(deployment=manifest_path, error="Internal Error"))
+                else:
                     deployments.append(djson)
                     hit = hit and dcache_entry.hit
             json_summary["deployments"] = deployments
