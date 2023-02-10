@@ -235,6 +235,12 @@ class Project:
         return None
 
     def get_relative_path(self, path: str) -> str:
+        # TODO: consider asserting that `path` is an absolute path so this method is not ambiguous
+        # assert os.path.isabs(path)
+        # return os.path.relpath(path, self.projectRoot)
+
+        # NOTE: `os.path.abspath` constructs the absolute path from the current working directory
+        # This may not be the desired behavior (unfurl-server being a counterexample)
         return os.path.relpath(os.path.abspath(path), self.projectRoot)
 
     def is_path_in_project(self, path: str) -> bool:
