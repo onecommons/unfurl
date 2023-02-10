@@ -755,8 +755,6 @@ def _find_implementation(interface, operation, template):
         if iDef.interfacename == interface or iDef.type == interface:
             if iDef.name == operation:
                 return iDef
-            if iDef.name == "default":
-                default = iDef
     return default
 
 

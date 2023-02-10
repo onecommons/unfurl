@@ -117,6 +117,8 @@ spec:
       Base:
         derived_from: tosca:Root
         interfaces:
+          defaults:
+            implementation: foo
           Standard:
             operations:
               create:
@@ -172,6 +174,8 @@ spec:
           'node': 'Derived'
         }
 
+        # make sure "defaults" doesn't mess up _find_implementation
+        assert not _find_implementation("Standard", "start", app_template)
         assert not _find_implementation("Standard", "delete", app_template)
         base_template = manifest.tosca.nodeTemplates['base']
         assert _find_implementation("Standard", "delete", base_template)
