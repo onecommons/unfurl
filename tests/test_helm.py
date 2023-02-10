@@ -149,8 +149,7 @@ class HelmTest(unittest.TestCase):
             # print(run.json_summary(True))
             summary = run.json_summary()
             tasks = summary.pop("tasks")
-            #self.assertEqual
-            (summary, {
+            self.assertEqual(summary, {
                     "external_jobs": [
                         {
                             "ensemble": summary["external_jobs"][0]["ensemble"],

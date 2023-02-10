@@ -5,6 +5,7 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.configurator import Configurator
+from unfurl.plan import DeployPlan
 from .utils import init_project, run_job_cmd
 
 
@@ -26,7 +27,8 @@ version1 = """
                     status: ok
       topology_template:
         node_templates:
-          node2: {type: nodes.Test}
+          node2: 
+            type: nodes.Test
           node1:
             type: tosca.nodes.Root
             properties:
@@ -193,7 +195,7 @@ class ConfigChangeTest(unittest.TestCase):
                     "error": 0,
                     "unknown": 0,
                     "skipped": 0,
-                    "changed": 3,
+                    "changed": 2,
                 },
                 summary["job"],
             )
@@ -373,8 +375,42 @@ def test_topology_input_change():
 
         # check that 1 task ran and output == 'default'
         result, job, summary = run_job_cmd(cli_runner, starttime=1)
-        assert summary["job"]["changed"] == 1
-        assert summary["outputs"]["test_output"] == "default"
+
+        last_op = DeployPlan.is_last_workflow_op(None, job.plan_requests[0].children[0])
+        assert last_op == "configure"
+
+        # print(job.json_summary(pretty=True))
+        # in particular, check outputs and changed
+        assert summary == {
+          "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1
+          },
+          "outputs": {
+            "test_output": "default"
+          },
+          "tasks": [
+            {
+              "status": "ok",
+              "target": "node1",
+              "operation": "configure",
+              "template": "node1",
+              "type": "tosca.nodes.SoftwareComponent",
+              "targetStatus": "ok",
+              "targetState": "configured",
+              "changed": True,
+              "configurator": "tests.test_configchanges.SpecChangeConfigurator",
+              "priority": "required",
+              "reason": "add"
+            }
+          ]
+        }        
 
         # no changes, nothing to do
         result, job, summary = run_job_cmd(cli_runner, starttime=2)

@@ -698,23 +698,12 @@ class Job(ConfigChange):
 
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
-            for parent, req in get_render_requests(notReady):
+            for req in get_render_requests(notReady):
                 if (
                     self.jobOptions.workflow == "deploy" and not req.include_in_plan()
                 ):  # we don't want to run these
                     continue
-                deps = [
-                    dep.name for dep in req.get_unfulfilled_refs()
-                ]
-                if deps:
-                    if req.render_errors:
-                        message = f"Never ran: invalid dependencies: {deps}"
-                    else:  # XXX could have both
-                        message = f"Never ran: unfulfilled dependencies: {deps}"
-                elif parent and parent.target.name != req.target.name:
-                    message = f"Never ran: parent resource in error: {parent.target.name}"
-                else:
-                    message = "Never ran: previous operation failed"
+                message = req.get_notready_message()
                 if req.task:
                     req.task.logger.info(message)
                     req.task.finished(ConfiguratorResult(False, False, result=message))
@@ -830,104 +819,53 @@ class Job(ConfigChange):
         self.plan_requests = plan_requests
         return self.plan_requests[:]
 
-    def _get_success_status(self, workflow: str, success: Any) -> Optional[Status]:
-        if isinstance(success, Status):
-            return success
-        if success:
-            return get_success_status(workflow)
-        return None
-
-    def apply_group(self, depth: int, groupRequest: TaskRequestGroup) -> Optional[ConfigTask]:
-        # A TaskRequestGroup is a list of task requests that need to succeed to advance
-        # the target NodeInstance to the workflow's desired status (e.g. ok or absent)
-        # It is created by TOSCA's standard operations or by a custom workflow.
-
-        # If the tasks succeed and if the task group's target hasn't had its status set alread
-        # Set the target status to workflow's desired status.
-
-        # If task's target is different from the task group's target (e.g. it is a relationship instance)
-        # then we should only set the desired status if the task modified the target and didn't explicitly set its target's status
-
-        # (some of the tasks in the group may have already run (see do_render_requests())
-        workflow = groupRequest.workflow
-        tasks, success = self.apply(groupRequest.children, depth, groupRequest)
-        successStatus = self._get_success_status(workflow, success)
-        # successStatus is the status state to set when the given workflow succeeds
-        if successStatus is not None and groupRequest.starting_status != successStatus:
-            for task in tasks:
-                if task.target != groupRequest.target and task.result and task.result.status is not None:
-                    continue
-                # target's status needs to change
-                task.logger.trace(
-                    "successStatus %s for %s with local_status %s %s",
-                    successStatus.name,
-                    task.target.name,
-                    task.target.local_status,  # type: ignore
-                    task.target.created
-                )
-                # one of the child tasks succeeded and the workflow is one that modifies the target
-                # update the target's status
-                task._finished_workflow(successStatus, workflow)
-
-        # XXX
-        if tasks:
-            return tasks[0]
-        else:
-            return None
-
     def apply(
         self,
-        taskRequests: Sequence[Union[JobRequest, PlanRequest]],
+        reqs: Sequence[Union[JobRequest, PlanRequest]],
         depth: int = 0,
-        parent: "TaskRequestGroup" = None,
-    ) -> Tuple[List[ConfigTask], bool]:
-        failed = False
-        tasks: List[ConfigTask] = []
-        successStatus = False
-        if parent:
-            workflow = parent.workflow
-        else:
-            workflow = None
-
-        for idx, taskRequest in enumerate(taskRequests):
+        parent: Optional[TaskRequestGroup] = None,
+    ) -> Optional[ConfigTask]:
+        success = True
+        task = None
+        for req in reqs:
             # if parent is set, stop processing requests once one fails
-            if parent and failed:
+            if parent and not success:
+                req.set_error("previous operation failed")
                 logger.debug(
-                    "Skipping task %s because previous operation failed", taskRequest
+                    "Skipping task %s because previous operation failed", req
                 )
                 continue
-            if isinstance(taskRequest, JobRequest):
-                self.jobRequestQueue.append(taskRequest)
-                self.run_job_request(taskRequest)
-                continue
-            elif isinstance(taskRequest, TaskRequestGroup):
-                task = self.apply_group(depth, taskRequest)
+            if isinstance(req, JobRequest):
+                self.jobRequestQueue.append(req)
+                self.run_job_request(req)
+            elif isinstance(req, TaskRequestGroup):
+                # XXX this shouldn't happen now
+                task = self.apply(req.children, depth, req)
+            elif isinstance(req, SetStateRequest):
+                logger.debug("Setting state with %s", req)
+                self._set_state(req)
             else:
-                if taskRequest.task and taskRequest.task.completed:
+                assert isinstance(req, TaskRequest), type(req)
+                _task = None
+                if req.task and req.task.completed:
                     # the task already ran (before the rest of its task group)
-                    task = taskRequest.task
+                    _task, success = req.task, req.task.local_status != Status.error
                 else:
-                    task = self._run_operation(taskRequest, workflow, depth)
+                    workflow = req.group.workflow if req.group else None
+                    _task, success = self._run_operation(req, workflow, depth)
+                if not _task:
+                    continue
+                task = _task
+                if task.priority == Priority.critical:
+                    if not success or (task.result and task.result.status == Status.error):
+                        raise JobAborted(
+                            f"Critical task failed: {task.name} for {task.target.name}"
+                        )
+                # note: task won't be return from _run_operation is the target's workflow state was set
+                if req.is_final_for_workflow and req.completed:
+                    req.finish_workflow()
 
-            if not task:
-                continue
-            tasks.append(task)
-
-            if task.result and task.result.success and task.target.local_status != Status.error:  # type: ignore
-                if parent and task.target is parent.target:
-                    # if the task explicitly set the status use that
-                    if task.result.status is not None:  # type: ignore
-                        successStatus = task.result.status  # type: ignore
-                    else:
-                        successStatus = True
-            else:
-                failed = True
-            if task.priority == Priority.critical:
-                if failed or (task.result and task.result.status == Status.error):
-                    raise JobAborted(
-                        f"Critical task failed: {task.name} for {task.target.name}"
-                    )
-        return tasks, successStatus  # type: ignore
+        return task  # return the last task executed
 
     def run_job_request(self, jobRequest: JobRequest) -> "Job":
         logger.debug("running jobrequest: %s", jobRequest)
@@ -1024,6 +962,7 @@ class Job(ConfigChange):
                 reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies()
+                task.logger.debug("find missing %s %s %s", missing, task.configSpec.entry_state, task.configSpec.entry_state > NodeState.initial)
                 if not missing:
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
@@ -1052,7 +991,6 @@ class Job(ConfigChange):
             return False, "could not run: " + reason
 
     def _set_state(self, req: SetStateRequest) -> None:
-        logger.debug("setting state %s for %s", req.set_state, req.target)
         resource = req.target
         if "managed" in req.set_state:
             resource.created = False if req.set_state == "unmanaged" else self.changeId
@@ -1061,6 +999,7 @@ class Job(ConfigChange):
                 resource.state = req.set_state
             except KeyError:
                 resource.local_status = to_enum(Status, req.set_state)
+        req.completed = True
 
     def _entry_test(self, req: TaskRequest, workflow: Optional[str]) -> Tuple[bool, str]:
         """
@@ -1124,20 +1063,16 @@ class Job(ConfigChange):
 
     def _run_operation(
         self, req: PlanRequest, workflow: Optional[str], depth: int
-    ) -> Optional[ConfigTask]:
-        if isinstance(req, SetStateRequest):
-            logger.debug("Setting state with %s", req)
-            self._set_state(req)
-            return None
-
+    ) -> Tuple[Optional[ConfigTask], bool]:
         assert isinstance(req, TaskRequest)
         if req.required is False:  # set after should_run() is called
-            return None
+            return None, True
         if req.error:
-            return None
+            return None, False
 
         test, msg = self._entry_test(req, workflow)
         if not test:
+            req.completed = True
             logger.info(
                 'Skipping operation "%s" on instance "%s" with state "%s" and status "%s": %s',
                 req.configSpec.operation,
@@ -1146,7 +1081,7 @@ class Job(ConfigChange):
                 req.target.status,
                 msg,
             )
-            return None
+            return None, True
 
         task = req.task or self.create_task(
             req.configSpec, req.target, reason=req.reason
@@ -1207,8 +1142,9 @@ class Job(ConfigChange):
                 task.logger.info("succeeded, STATUS: %s state: %s", status, state_status, extra=extra)
             else:
                 task.logger.error("failed, STATUS: %s state: %s", status, state_status, extra=extra)
+            return task, task_success
+        return None, False
 
-        return task
 
     def run_task(self, task: ConfigTask, depth: int = 0) -> ConfigTask:
         """
@@ -1245,11 +1181,7 @@ class Job(ConfigChange):
                         return result.task.finished(  # type: ignore
                             ConfiguratorResult(False, False, result=errors)
                         )
-                    changes, success = self.apply(ready, depth + 1)
-                    if changes:
-                        change = changes[0]
-                    else:
-                        change = None
+                    change = self.apply(ready, depth + 1)
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job

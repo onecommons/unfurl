@@ -240,7 +240,7 @@ class UndeployTest(unittest.TestCase):
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 2,
+                "changed": 1,
             },
             summary["job"],
         )
@@ -321,7 +321,7 @@ class UndeployTest(unittest.TestCase):
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 2,
+                "changed": 1,
             },
             summary["job"],
         )
@@ -333,9 +333,9 @@ class UndeployTest(unittest.TestCase):
                     "operation": "stop",
                     "template": "simple",
                     "type": "test.nodes.simple",
-                    "targetStatus": "absent",
+                    "targetStatus": "ok",
                     "targetState": "stopped",
-                    "changed": True,
+                    "changed": False,
                     "configurator": "unfurl.configurators.TemplateConfigurator",
                     "priority": "required",
                     "reason": "undeploy",
@@ -356,6 +356,7 @@ class UndeployTest(unittest.TestCase):
             ],
             summary["tasks"],
         )
+        # print(job._json_plan_summary(pretty=True, include_rendered=False))
         self.assertEqual(
             job._json_plan_summary(include_rendered=False),
             [
@@ -363,7 +364,7 @@ class UndeployTest(unittest.TestCase):
                     "instance": "simple",
                     "status": "Status.absent",
                     "state": "NodeState.deleted",
-                    "managed": "A01110000001",
+                    "managed": "A01110000002",
                     "plan": [
                         {
                             "workflow": "undeploy",

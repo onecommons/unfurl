@@ -18,6 +18,7 @@ from .planrequests import (
     find_parent_resource,
     find_resources_from_template_name,
     _find_implementation,
+    get_success_status,
 )
 from .tosca import NodeSpec, Workflow, find_standard_interface, EntitySpec, ToscaSpec
 from .logs import getLogger
@@ -45,16 +46,6 @@ def is_external_template_compatible(
             )
         return True
     return False
-
-
-def get_success_status(workflow):
-    if workflow == "deploy":
-        return Status.ok
-    elif workflow == "stop":
-        return Status.pending
-    elif workflow == "undeploy":
-        return Status.absent
-    return None
 
 
 class Plan:
@@ -87,7 +78,6 @@ class Plan:
             self.filterTemplate = filterTemplate
         else:
             self.filterTemplate = None
-        self._rel_taskgroups: Dict[InstanceKey, TaskRequestGroup] = {}
 
     def find_shadow_instance(self, template, match=is_external_template_compatible):
         imported = template.tpl.get("imported")
@@ -397,14 +387,17 @@ class Plan:
                         return
                 assert False, self.root.requirements
 
-    def _generate_configurations(self, resource, reason, workflow=None):
+    def _generate_configurations(self, resource: "EntityInstance", reason: str, workflow: Optional[str] = None):
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
         configGenerator = self.execute_workflow(workflow, resource)
-        if not configGenerator:
+        if configGenerator:
+            custom_workflow = True
+        else:
             configGenerator = self._get_default_generator(workflow, resource, reason)
             if not configGenerator:
                 raise UnfurlError("can not get default for workflow " + workflow)
+            custom_workflow = False
 
         # if the workflow is one that can modify a target, create a TaskRequestGroup
         if get_success_status(workflow):
@@ -412,29 +405,15 @@ class Plan:
         else:
             group = None
         task_found = False
-        pre_relgroup = None
-        post_relgroup = None
         for taskRequest in configGenerator:
             if taskRequest:
                 task_found = True
                 yield from self._get_connection_task(taskRequest)
                 if group and not isinstance(taskRequest, JobRequest):
-                    if taskRequest.target == group.target:
-                        group.children.append(taskRequest)
-                    else:
-                        last_config_op = self.is_last_configure_op(taskRequest)
-                        relgroup = self._rel_taskgroups.get(taskRequest.target.key)
-                        if not relgroup:
-                            relgroup = TaskRequestGroup(taskRequest.target, workflow)
-                            if not last_config_op:
-                                self._rel_taskgroups[taskRequest.target.key] = relgroup
-                        relgroup.children.append(taskRequest)
-                        if last_config_op:
-                            if "post" in last_config_op:
-                                post_relgroup = relgroup
-                            else:  # if pre_config_* or remove_* run those first
-                                pre_relgroup = relgroup
-
+                    # if taskRequest.target == group.target:
+                    group.add_request(taskRequest)
+                    if isinstance(taskRequest, TaskRequest):
+                        taskRequest.set_final_for_workflow(bool(self.is_last_workflow_op(taskRequest)))
                 else:
                     yield taskRequest
         if not task_found:
@@ -442,13 +421,11 @@ class Plan:
                 f'No operations for workflow "{workflow}" defined for instance "{resource.name}"'
             )
         if group:
-            if pre_relgroup:
-                group.children.insert(0, pre_relgroup)
-            elif post_relgroup:
-                group.children.append(post_relgroup)
+            if custom_workflow:
+                group.set_final_for_workflow(True)
             yield group
 
-    def execute_workflow(self, workflowName, resource):
+    def execute_workflow(self, workflowName: str, resource):
         workflow = self.tosca.get_workflow(workflowName)
         if not workflow:
             return None
@@ -502,7 +479,7 @@ class Plan:
                     continue
                 for result in workflowGenerator:
                     if result:
-                        reqGroup.children.append(result)
+                        reqGroup.add_request(result)
             elif activity.type == "call_operation":
                 # XXX need to pass operation_host (see 3.6.27 Workflow step definition p188)
                 # if target is a group can be value can be node_type or node template name
@@ -515,9 +492,9 @@ class Plan:
                     activity.inputs,
                 )
                 if req:
-                    reqGroup.children.append(req)
+                    reqGroup.add_request(req)
             elif activity.type == "set_state":
-                reqGroup.children.append(SetStateRequest(resource, activity.set_state))
+                reqGroup.add_request(SetStateRequest(resource, activity.set_state))
             elif activity.type == "delegate":
                 # XXX inputs
                 configGenerator = self._get_default_generator(
@@ -525,7 +502,8 @@ class Plan:
                 )
                 if not configGenerator:
                     continue
-                reqGroup.children.extend(filter(None, configGenerator))
+                for req in filter(None, configGenerator):
+                    reqGroup.add_request(req)
 
         # XXX  yield step.on_failure  # list of steps
         yield reqGroup
@@ -553,7 +531,7 @@ class Plan:
     def include_not_found(self, template):
         return True
 
-    def is_last_configure_op(self, taskrequest) -> str:
+    def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
         return ""
 
     def _generate_workflow_configurations(self, instance, oldTemplate):
@@ -734,14 +712,20 @@ class DeployPlan(Plan):
         else:
             yield from self._generate_configurations(instance, reason)
 
-    def is_last_configure_op(self, taskrequest: TaskRequest) -> str:
-        order = ("pre_configure_target", "pre_configure_source", "post_configure_target", "post_configure_source")
-        implemented = [op for op in order if _find_implementation("Configure", op, taskrequest.target.template)]
-        index = implemented.index(taskrequest.configSpec.operation)
-        if len(implemented) == index + 1:
-            return implemented[index]
+    def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
+        interface = taskrequest.configSpec.interface
+        if interface == "Standard":
+            order = ["create", "configure", "start"]
+        elif interface == "Configure":
+            order = ["pre_configure_target", "pre_configure_source", "post_configure_target", "post_configure_source"]
         else:
             return ""
+        implemented = [op for op in order if _find_implementation(interface, op, taskrequest.target.template)]
+        if taskrequest.configSpec.operation in implemented:
+            index = implemented.index(taskrequest.configSpec.operation)
+            if len(implemented) == index + 1:
+                return implemented[index]
+        return ""
 
 
 class UndeployPlan(Plan):
@@ -758,14 +742,23 @@ class UndeployPlan(Plan):
         # return value is used as "reason"
         return self.workflow
 
-    def is_last_configure_op(self, taskrequest: TaskRequest) -> str:
-        order = ["remove_target", "remove_source"]
-        implemented = [op for op in order if _find_implementation("Configure", op, taskrequest.target.template)]
-        index = implemented.index(taskrequest.configSpec.operation)
-        if len(implemented) == index + 1:
-            return implemented[index]
+    def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
+        interface = taskrequest.configSpec.interface
+        if interface == "Standard":
+            if self.workflow == "stop":
+                order = ["stop"]
+            else:
+                order = ["stop", "delete"]
+        elif interface == "Configure":
+            order = ["remove_target", "remove_source"]
         else:
             return ""
+        implemented = [op for op in order if _find_implementation(interface, op, taskrequest.target.template)]
+        if taskrequest.configSpec.operation in implemented:
+            index = implemented.index(taskrequest.configSpec.operation)
+            if len(implemented) == index + 1:
+                return implemented[index]
+        return ""
 
 
 class ReadOnlyPlan(Plan):

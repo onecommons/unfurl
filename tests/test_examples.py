@@ -61,6 +61,8 @@ class RunTest(unittest.TestCase):
         job = runner.run(JobOptions(add=True, out=output, startTime=1))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # print(manifest.statusSummary())
+        # check that the set-state step ran, it sets "created" here:
+        assert job.rootResource.find_instance("gitlab-release").created
         summary = job.json_summary()
         tasks = summary.pop("tasks")
         self.assertEqual(summary,
@@ -111,7 +113,7 @@ class RunTest(unittest.TestCase):
                         "operation": "execute",
                         "template": "gitlab-release",
                         "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "ok",
+                        "targetStatus": "pending",
                         "targetState": None,
                         "changed": True,
                         "configurator": "tests.test_examples.HelmConfigurator",
@@ -166,7 +168,7 @@ class RunTest(unittest.TestCase):
             JobOptions(workflow="undeploy", out=output3, startTime=2)
         )
         # print(output3.getvalue())
-        # only the chart delete task should have ran as it owns the resources it created
+        # only the chart delete gitlab-release should have ran as it owns the resources it created
         # print(job3.json_summary(True))
         assert len(job3.workDone) == 1, job3.json_summary()
         tasks = list(job3.workDone.values())

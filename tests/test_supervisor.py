@@ -36,7 +36,7 @@ class SupervisorTest(unittest.TestCase):
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 5,
+                        "changed": 4,  # create operation doesn't mark as modified
                     },
                     summary["job"],
                 )

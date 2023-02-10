@@ -2,7 +2,20 @@
 # SPDX-License-Identifier: MIT
 import collections
 import re
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 import six
 import shlex
 import sys
@@ -149,13 +162,23 @@ class ConfigurationSpec:
 
 
 class PlanRequest:
-    error = None
+    error: Union[bool, str] = False
     task: Optional["ConfigTask"] = None
     render_errors: Optional[List[UnfurlTaskError]] = None
+    completed = False
+    group: Optional["TaskRequestGroup"] = None
+    required: Optional[bool] = None
+    is_final_for_workflow: Optional[bool] = None
 
     def __init__(self, target: "EntityInstance"):
         self.target = target
         self.dependencies: List["Dependency"] = []
+
+    def set_error(self, msg: str):
+        self.error = msg
+        if self.task:
+            self.task.local_status = Status.error
+            self.task.result = msg
 
     @property
     def root(self) -> Optional["EntityInstance"]:
@@ -186,7 +209,9 @@ class PlanRequest:
     def get_unfulfilled_refs(self, check_target="") -> Iterator["Dependency"]:
         for dep in self.dependencies:
             if check_target and dep.target:
-                if (check_target != "operational" or dep.target.operational) and dep.validate():
+                if (
+                    check_target != "operational" or dep.target.operational
+                ) and dep.validate():
                     continue
             yield dep
         if not self.render_errors:
@@ -200,8 +225,11 @@ class PlanRequest:
     def update_unfulfilled_errors(self) -> bool:
         # remove unfulfilled dependencies and errors caused by an unfulfilled dependency
         self.render_errors = list(self._revalidate_unfulfilled_errors())
-        self.dependencies = [dep for dep in self.dependencies
-                             if not dep.has_changed() or not dep.validate()]
+        self.dependencies = [
+            dep
+            for dep in self.dependencies
+            if not dep.has_changed() or not dep.validate()
+        ]
         return self.has_unfulfilled_refs()
 
     def _revalidate_unfulfilled_errors(self) -> Iterator["UnfurlTaskError"]:
@@ -219,6 +247,23 @@ class PlanRequest:
     @property
     def name(self):
         return type(self).__name__
+
+    def get_notready_message(self) -> str:
+        deps = [
+            dep.name for dep in self.get_unfulfilled_refs()
+        ]
+        if deps:
+            if self.render_errors:
+                return f"Never ran: invalid dependencies: {deps}"
+            else:  # XXX could have both
+                return f"Never ran: unfulfilled dependencies: {deps}"
+        elif self.group and self.group.target.name != self.target.name:
+            return f"Never ran: parent resource in error: {self.group.target.name}"
+        else:
+            return "Never ran: previous operation failed"
+
+    def set_final_for_workflow(self, is_final: bool):
+        self.is_final_for_workflow = is_final
 
     def __str__(self) -> str:
         return f'Planned task {self.name} for "{self.target.name}"'
@@ -246,6 +291,48 @@ class TaskRequest(PlanRequest):
         self.error = configSpec.name == "#error"
         self.startState = startState
         self.task = None
+        self._completed = False
+
+    def __completed():  # type: ignore
+
+        def fget(self) -> bool:
+            return bool(self._completed or self.task and self.task.completed)
+
+        def fset(self, value: bool):  
+            self._completed = value
+
+        return locals()
+
+    completed: bool = property(**__completed())  # type: ignore
+
+    def finish_workflow(self) -> None:
+        # This is called on the last task apply to a resource in a work flow.
+        # If the all the task succeeded and if target hasn't had its status set already,
+        # set the target status to workflow's desired status.
+        task = self.task
+        assert task
+        assert task.completed  # task.finished() has been called
+        if task.local_status == Status.error:
+            # if failed then task._update_status() set error state on the target
+            return
+        workflow = self.group and self.group.workflow
+        if not workflow:  # not in a group or not in a mutable workflow 
+            return
+        explicit_status = task.result and task.result.status
+        if explicit_status is None:
+            # even though we didn't modify the target this is the last op and the task succeeded 
+            # so assume the target is that the workflow's final state
+            explicit_status = get_success_status(workflow)
+            # target's status needs to change
+        task.logger.trace(
+            "finish workflow with %s status %s for workflow %s %s with local_status %s created: %s",
+            task.target.name,
+            "None" if explicit_status is None else explicit_status.name,
+            workflow, type(workflow),
+            task.target.local_status,  # type: ignore
+            task.target.created
+        )
+        task._finished_workflow(explicit_status, workflow)
 
     def _get_artifact_plan(self, artifact):
         # the artifact has an interface so it needs to be installed on the operation_host
@@ -353,8 +440,20 @@ class SetStateRequest(PlanRequest):
     def _summary_dict(self):
         return dict(set_state=self.set_state)
 
+    def set_final_for_workflow(self, is_final: bool):
+        assert self.group
+        previous = self.group.get_previous(self)
+        if previous:
+            previous.set_final_for_workflow(is_final)
+
 
 class TaskRequestGroup(PlanRequest):
+    """
+    A TaskRequestGroup is a list of task requests that need to succeed to advance
+    the target NodeInstance to the workflow's desired status (e.g. ok or absent)
+    It is created by TOSCA's standard operations or by a custom workflow.
+    """
+
     def __init__(self, target: EntityInstance, workflow: str):
         super().__init__(target)
         self.workflow = workflow
@@ -367,6 +466,21 @@ class TaskRequestGroup(PlanRequest):
             artifacts.extend(req.get_operation_artifacts())
         return artifacts
 
+    def add_request(self, req: PlanRequest) -> None:
+        self.children.append(req)
+        req.group = self
+
+    def get_previous(self, req) -> Optional[PlanRequest]:
+        siblings = self.children
+        if len(siblings) > 1 and req in siblings:
+            return siblings[siblings.index(req) - 1]
+        return None
+        
+    def set_final_for_workflow(self, is_final: bool):
+        if self.children:
+            self.children[-1].set_final_for_workflow(is_final)
+
+    # XXX unused
     def get_unfulfilled_refs(self, check_target=""):
         for req in self.children:
             yield from req.get_unfulfilled_refs(check_target)
@@ -391,10 +505,13 @@ class JobRequest:
     Yield this to run a child job.
     """
 
-    def __init__(self, resources, errors=None, update=None):
+    def __init__(self, resources: List[EntityInstance], errors: Optional[Sequence[UnfurlError]]=None, update=None):
         self.instances = resources
         self.errors = errors or []
         self.update = update
+
+    def set_error(self, msg: str):
+        self.errors.append(UnfurlError(msg))  # type: ignore
 
     def get_instance_specs(self):
         if self.update:
@@ -454,36 +571,47 @@ def find_operation_host(target, operation_host):
 
 def get_render_requests(
     requests: Sequence[PlanRequest],
-) -> Iterator[Tuple[Optional[TaskRequestGroup], TaskRequest]]:
+) -> Iterator[PlanRequest]:
     # returns requests that can be rendered grouped by its top-most task group
     for req in requests:
         if isinstance(req, TaskRequestGroup):
-            for parent, child in get_render_requests(req.children):
-                yield req, child  # yields root as parent
-        elif isinstance(req, TaskRequest):
-            yield None, req
-        elif not isinstance(req, SetStateRequest):
-            # note: SetStateRequests don't render, only run
+            for child in get_render_requests(req.children):
+                yield child  # yields root as parent
+        elif isinstance(req, (TaskRequest, SetStateRequest)):
+            yield req
+        else:
             assert not req, f"unexpected type of request: {req}"
 
 
-def _get_deps(parent, req: TaskRequest, live_dependencies: Dict[InstanceKey, List["Dependency"]], requests: "FlattenedRequests") -> None:
+def _get_deps(
+    req: PlanRequest,
+    live_dependencies: Dict[InstanceKey, List["Dependency"]],
+    requests: Sequence[PlanRequest],
+) -> None:
     # iterate through the live attributes the given task depends
-    # if the attribute's instance might be modified by another task, mark that task as a dependency 
-    for (root, r) in requests:
+    # if the attribute's instance might be modified by another task, mark that task as a dependency
+    for r in requests:
         if req.target.key == r.target.key:
             continue  # skip self
         if r.task and r.task.completed:
             continue  # already ran
         if req.required is not None and not req.required:
+            logger.trace(f"skipping not required {req}")
             continue  # skip requests that aren't going to run
         dependencies = live_dependencies.get(r.target.key)
         if dependencies:
-            # logger.trace("%s dependencies on future task %s: %s", req.target.key, r.target.key, dependencies)
+            logger.trace(
+                "%s dependencies on future task %s: %s",
+                req.target.key,
+                r.target.key,
+                dependencies,
+            )
             req.add_dependencies(dependencies)
 
 
-def set_fulfilled(upcoming: List[PlanRequest], completed: List[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest]]:
+def set_fulfilled(
+    upcoming: List[PlanRequest], completed: List[PlanRequest]
+) -> Tuple[List[PlanRequest], List[PlanRequest]]:
     # find the requests that are ready to run
     # requests, completed are top level requests
 
@@ -500,6 +628,8 @@ def set_fulfilled(upcoming: List[PlanRequest], completed: List[PlanRequest]) -> 
     #     if done.task and done.task.local_status == Status.ok:
     #         updated_deps.update(done.task._resourceChanges.get_changes_as_expr())
     for req in upcoming:
+        if req.completed:
+            continue
         assert req not in completed, f"{req} already completed"
         _not_ready = False
         # see if these changes fulfilled the dependencies on a pending task
@@ -512,11 +642,15 @@ def set_fulfilled(upcoming: List[PlanRequest], completed: List[PlanRequest]) -> 
     return ready, notReady
 
 
-def set_fulfilled_stragglers(upcoming: List[PlanRequest], deploying: bool) -> Tuple[List[PlanRequest], List[PlanRequest]]:
+def set_fulfilled_stragglers(
+    upcoming: List[PlanRequest], deploying: bool
+) -> Tuple[List[PlanRequest], List[PlanRequest]]:
     # we ran all the tasks we could so now we can run left-over tasks
     # that depend on live attributes that we no longer have to worry about changing
     ready, notReady = [], []
     for req in upcoming:
+        if req.completed:
+            continue
         ok = True
         if deploying:
             for dep in req.get_unfulfilled_refs("operational"):
@@ -530,8 +664,20 @@ def set_fulfilled_stragglers(upcoming: List[PlanRequest], deploying: bool) -> Tu
     return ready, notReady
 
 
-def _prepare_request(job: "Job", req: TaskRequest, errors: List) -> bool:
-    # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
+def reassign_final_for_workflow(req) -> bool:
+    if req.is_final_for_workflow:
+        previous = req.group and req.group.get_previous(req)
+        while previous:
+            if previous.target == req.target and previous.required != False:
+                previous.is_final_for_workflow = True
+                return True
+            previous = req.group.get_previous(previous)
+    return False
+
+
+def _prepare_request(job: "Job", req: PlanRequest, errors: List) -> bool:
+    if not isinstance(req, TaskRequest):
+        return True
     if req.task:
         task = req.task
         task._attributeManager.attributes = {}
@@ -544,14 +690,16 @@ def _prepare_request(job: "Job", req: TaskRequest, errors: List) -> bool:
         proceed, msg = job.should_run_task(task)
         if not proceed:
             req.required = False
+            reassigned = reassign_final_for_workflow(req)
             if task._errors:
                 error = task._errors[0]
             logger.debug(
-                "skipping task %s for instance %s with state %s and status %s: %s",
+                "skipping task %s for instance %s with state %s and status %s (reassigned: %s): %s",
                 req.configSpec.operation,
                 req.target.name,
                 req.target.state,
                 req.target.status,
+                reassigned,
                 msg,
             )
             # we want to track and save skipped tasks
@@ -571,11 +719,12 @@ def _prepare_request(job: "Job", req: TaskRequest, errors: List) -> bool:
     return proceed
 
 
-FlattenedRequests = List[Tuple[Optional[TaskRequestGroup], TaskRequest]]
-
-
-def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
-                    req: TaskRequest, requests: FlattenedRequests, check_target: str) -> Tuple[Optional[bool], Optional[UnfurlError]]:
+def _render_request(
+    job: "Job",
+    req: PlanRequest,
+    requests: Sequence[PlanRequest],
+    check_target: str,
+) -> Tuple[Optional[bool], Optional[UnfurlError]]:
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     assert req.task
     task = req.task
@@ -591,7 +740,6 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
         task.set_envvars()
         assert task._inputs is not None and not task._inputs.context.strict
         task.rendered = task.configurator.render(task)
-        task.logger.trace("rendered: %s", task.rendered)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error_info = sys.exc_info()
@@ -606,14 +754,14 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
     task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
 
-    workflow = parent and parent.workflow
+    workflow = req.group and req.group.workflow
     if workflow != "undeploy":
         # when removing an instance don't worry about depending values changing in the future
         # key => (instance, list<attribute name>)
         liveDependencies = task._attributeManager.find_live_dependencies()
         task.logger.trace(f"live dependencies for {task.target}: {liveDependencies}")
         # a future request may change the value of these attributes
-        _get_deps(parent, req, liveDependencies, requests)
+        _get_deps(req, liveDependencies, requests)
         dependent_refs = [dep.name for dep in req.get_unfulfilled_refs(check_target)]
     else:
         dependent_refs = req.render_errors  # type: ignore
@@ -621,7 +769,7 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
         task.logger.debug(
             "%s:%s can not render yet, depends on %s",
             task.target.name,
-            req.configSpec.operation,
+            req.name,
             dependent_refs,
             exc_info=error_info,
         )
@@ -643,35 +791,33 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup],
         return None, None
 
 
-def _add_to_req_list(reqs, parent, request):
-    if parent:  # only add if we haven't already
-        if not reqs or reqs[-1] is not parent:
-            reqs.append(parent)
-    elif request not in reqs:
+def _add_to_req_list(reqs, request):
+    if request not in reqs:
         reqs.append(request)
 
 
 def _reevaluate_not_required(not_required, render_requests):
     # keep rendering if a not_required template was referenced and is now required
     new_not_required = []
-    for (parent, request) in not_required:
+    for request in not_required:
         if request.include_in_plan():
             request.target.validate()
-            render_requests.append((parent, request))
+            render_requests.append(request)
         else:
-            new_not_required.append((parent, request))
+            new_not_required.append(request)
     return new_not_required
 
 
 def do_render_requests(
-    job, requests: Sequence[PlanRequest], stragglers=False,
+    job,
+    requests: Sequence[PlanRequest],
+    stragglers=False,
 ) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
     ready: List[PlanRequest] = []
     notReady: List[PlanRequest] = []
     errors: List[UnfurlError] = []
     flattened_requests = list(
-        (p, r)
-        for (p, r) in get_render_requests(requests)
+        r for r in get_render_requests(requests)
         if _prepare_request(job, r, errors)
     )
     not_required = []
@@ -684,9 +830,8 @@ def do_render_requests(
     else:
         check_target = ""
     while render_requests:
-        parent, request = render_requests.popleft()
-        assert request.task
-        if request.task.completed:
+        request = render_requests.popleft()
+        if request.completed:
             continue
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
@@ -695,29 +840,26 @@ def do_render_requests(
         )
         if not required:
             logger.trace("request isn't required by the plan, skipping: %s", request)
-            not_required.append((parent, request))
+            not_required.append(request)
         else:
             request.target.validate()
-            deps, error = _render_request(job, parent, request, flattened_requests, check_target)
+            if not request.task:
+                # i.e (for now): a setstate request
+                _add_to_req_list(ready, request)
+                continue
+            deps, error = _render_request(
+                job, request, flattened_requests, check_target
+            )
             if error:
                 errors.append(error)
             elif deps:
-                # remove parent from ready if it was already added there
-                if parent and ready and ready[-1] is parent:
-                    ready.pop()
-                    # add the individual requests
-                    for prior_req in parent.children:
-                        if prior_req is request:
-                            break
-                        _add_to_req_list(ready, None, prior_req)
-                _add_to_req_list(notReady, parent, request)
-            elif not parent or not notReady or notReady[-1] is not parent:
-                # don't add if the parent was placed on the notReady list
-                _add_to_req_list(ready, parent, request)
+                _add_to_req_list(notReady, request)
+            else:
+                _add_to_req_list(ready, request)
             not_required = _reevaluate_not_required(not_required, render_requests)
 
-    for (parent, request) in not_required:
-        _add_to_req_list(notReady, parent, request)
+    for request in not_required:
+        _add_to_req_list(notReady, request)
     return ready, notReady, errors
 
 
@@ -806,7 +948,7 @@ def create_instance_from_spec(_manifest, target, rname, resourceSpec):
         resourceSpec["created"] = target.key
 
     if "parent" not in resourceSpec and "template" in resourceSpec:
-        tname = resourceSpec['template']
+        tname = resourceSpec["template"]
         nodeSpec = _manifest.tosca.get_template(tname)
         if not nodeSpec:
             raise UnfurlError(
@@ -831,6 +973,16 @@ def _maybe_mock(iDef, template):
         iDef.implementation = dict(primary=iDef.implementation)
     iDef.implementation["className"] = "unfurl.configurator.MockConfigurator"
     return iDef
+
+
+def get_success_status(workflow):
+    if workflow == "deploy":
+        return Status.ok
+    elif workflow == "stop":
+        return Status.pending
+    elif workflow == "undeploy":
+        return Status.absent
+    return None
 
 
 def create_task_request(
