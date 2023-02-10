@@ -475,7 +475,13 @@ class TaskRequestGroup(PlanRequest):
         if len(siblings) > 1 and req in siblings:
             return siblings[siblings.index(req) - 1]
         return None
-        
+
+    def has_errors(self):
+        for req in self.children:
+            if req.error or req.task and req.task.local_status == Status.error:
+                return True
+        return False
+
     def set_final_for_workflow(self, is_final: bool):
         if self.children:
             self.children[-1].set_final_for_workflow(is_final)

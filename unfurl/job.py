@@ -823,24 +823,23 @@ class Job(ConfigChange):
         self,
         reqs: Sequence[Union[JobRequest, PlanRequest]],
         depth: int = 0,
-        parent: Optional[TaskRequestGroup] = None,
     ) -> Optional[ConfigTask]:
-        success = True
         task = None
         for req in reqs:
             # if parent is set, stop processing requests once one fails
-            if parent and not success:
+            if isinstance(req, JobRequest):
+                self.jobRequestQueue.append(req)
+                self.run_job_request(req)
+                continue
+            if req.group and req.group.has_errors():
                 req.set_error("previous operation failed")
                 logger.debug(
                     "Skipping task %s because previous operation failed", req
                 )
                 continue
-            if isinstance(req, JobRequest):
-                self.jobRequestQueue.append(req)
-                self.run_job_request(req)
-            elif isinstance(req, TaskRequestGroup):
+            if isinstance(req, TaskRequestGroup):
                 # XXX this shouldn't happen now
-                task = self.apply(req.children, depth, req)
+                task = self.apply(req.children, depth)
             elif isinstance(req, SetStateRequest):
                 logger.debug("Setting state with %s", req)
                 self._set_state(req)
