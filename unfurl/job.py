@@ -466,12 +466,8 @@ class ConfigTask(TaskView, ConfigChange):
             # check if the live attributes this task depends on has been set
             missing, reason = _dependency_check(self)
 
-            # skip check on self.target if this operation doesn't depend on its operational dependencies being live
-            # XXX disable for now -- this causes circular dependencies if a node has a relationships that requires it to be created first
-            # this really only makes sense in a general way for deploy workflows but we skip those in the check above
-            # for now a task should declare an explicit status dependencies to enforce this
-            # if not missing and self.configSpec.entry_state > NodeState.initial:
-            #    missing, reason = _dependency_check(self.target, self.configSpec.entry_state)
+            if not missing:
+                reason = _dependency_check(self.target, self.configSpec.entry_state)
         return missing, reason
 
     @property
@@ -507,7 +503,7 @@ class ConfigTask(TaskView, ConfigChange):
             operation=self.configSpec.operation,
             template=self.target.template.name,
             type=self.target.template.type,
-            targetStatus=self.target_status.name,
+            targetStatus=None if self.target_status is None else self.target_status.name,
             targetState=self.target_state and self.target_state.name or None,
             changed=self.modified_target,
             configurator=configurator,
@@ -527,14 +523,18 @@ class ConfigTask(TaskView, ConfigChange):
         return f"ConfigTask({self.target}:{self.name})"
 
 
-def _dependency_check(instance: Operational, state: Optional[NodeState] = None):
+def _dependency_check(instance: Operational, state: Optional[NodeState] = None, operational=False):
     missing = []
     for dep in instance.get_operational_dependencies():
         if dep.required:
-            if state and dep.state:
+            if dep.local_status == Status.error:
+                # we only want to consider local_status especially for the case of subsequent runs
+                # trying to repair a failed deployment.
+                missing.append(dep)
+            elif state and dep.state:
                 if not dep.has_state(state):
                     missing.append(dep)
-            if not dep.operational:  # operational == ok or degraded
+            elif operational and not dep.operational:  # operational == ok or degraded
                 missing.append(dep)
 
     if missing:
@@ -1080,7 +1080,7 @@ class Job(ConfigChange):
             workflow,
         )
         if req.configSpec.operation == "check":
-            missing, reason = _dependency_check(resource)
+            missing, reason = _dependency_check(resource, operational=True)
             if missing:
                 return False, reason
             if not workflow:
