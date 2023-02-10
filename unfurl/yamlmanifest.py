@@ -638,7 +638,7 @@ class YamlManifest(ReadOnlyManifest):
 
     def save_requirement(self, resource) -> Optional[Dict[str, Dict]]:
         if not resource.last_change and (
-            not resource.local_status or resource.local_status <= Status.ok
+            not resource.local_status or resource.local_status <= Status.ok or resource.local_status == Status.pending
         ):
             # no reason to serialize requirements that haven't been instantiated
             return None
