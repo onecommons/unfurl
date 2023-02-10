@@ -412,7 +412,7 @@ class ToscaSpec:
                 workflows.setdefault(name, []).append(Workflow(w))
         self._workflows = workflows
 
-    def get_workflow(self, workflow):
+    def get_workflow(self, workflow: str) -> Optional["Workflow"]:
         # XXX need api to get all the workflows with the same name
         wfs = self._workflows.get(workflow)
         if wfs:

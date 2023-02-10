@@ -1,9 +1,9 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import six
 
-from .runtime import InstanceKey, NodeInstance
+from .runtime import InstanceKey, NodeInstance, EntityInstance
 from .util import UnfurlError
 from .result import ChangeRecord
 from .support import Status, NodeState, Reason
@@ -19,7 +19,7 @@ from .planrequests import (
     find_resources_from_template_name,
     _find_implementation,
 )
-from .tosca import NodeSpec, find_standard_interface, EntitySpec, ToscaSpec
+from .tosca import NodeSpec, Workflow, find_standard_interface, EntitySpec, ToscaSpec
 from .logs import getLogger
 
 
@@ -469,7 +469,7 @@ class Plan:
         finally:
             pass  # pop _workflow_inputs
 
-    def execute_steps(self, workflow, steps, resource):
+    def execute_steps(self, workflow: Workflow, steps: List, resource: EntityInstance):
         queue = steps[:]
         while queue:
             step = queue.pop()
@@ -491,9 +491,9 @@ class Plan:
             except StopIteration:
                 pass
 
-    def execute_step(self, step, resource, workflow):
+    def execute_step(self, step, resource: EntityInstance, workflow: Workflow):
         logger.debug("executing step %s for %s", step.name, resource.name)
-        reqGroup = TaskRequestGroup(resource, workflow)
+        reqGroup = TaskRequestGroup(resource, workflow.workflow.name)
         for activity in step.activities:
             if activity.type == "inline":
                 # XXX inputs
