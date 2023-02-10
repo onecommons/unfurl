@@ -1452,7 +1452,7 @@ def set_deploymentpaths(project, existing=None):
         if "environment" in ensemble_info and "project" not in ensemble_info:
             # exclude external ensembles
             path = os.path.dirname(ensemble_info["file"])
-            if os.path.abspath(path):
+            if os.path.isabs(path):
                 path = project.get_relative_path(path)
             obj = {
                 "__typename": "DeploymentPath",
