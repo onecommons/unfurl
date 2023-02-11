@@ -319,8 +319,16 @@ as an alternative to using the full name (“module.class”) when setting the i
 
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.configurator.JobRequest">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">JobRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">resources</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">errors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.JobRequest" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">JobRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">resources</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">unfurl.runtime.EntityInstance</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">errors</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#unfurl.util.UnfurlError" title="unfurl.util.UnfurlError"><span class="pre">unfurl.util.UnfurlError</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.JobRequest" title="Permalink to this definition"></a></dt>
 <dd><p>Yield this to run a child job.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>resources</strong> (<em>List</em><em>[</em><em>unfurl.runtime.EntityInstance</em><em>]</em>) – </p></li>
+<li><p><strong>errors</strong> (<em>Optional</em><em>[</em><em>Sequence</em><em>[</em><a class="reference internal" href="#unfurl.util.UnfurlError" title="unfurl.util.UnfurlError"><em>unfurl.util.UnfurlError</em></a><em>]</em><em>]</em>) – </p></li>
+</ul>
+</dd>
+</dl>
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.JobRequest.get_instance_specs">
 <span class="sig-name descname"><span class="pre">get_instance_specs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.JobRequest.get_instance_specs" title="Permalink to this definition"></a></dt>
@@ -335,6 +343,16 @@ as an alternative to using the full name (“module.class”) when setting the i
 <dt class="sig sig-object py" id="unfurl.configurator.JobRequest.root">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">root</span></span><a class="headerlink" href="#unfurl.configurator.JobRequest.root" title="Permalink to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.JobRequest.set_error">
+<span class="sig-name descname"><span class="pre">set_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">msg</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.JobRequest.set_error" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>msg</strong> (<em>str</em>) – </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="unfurl.configurator.JobRequest.target">
@@ -359,6 +377,25 @@ as an alternative to using the full name (“module.class”) when setting the i
 </ul>
 </dd>
 </dl>
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.completed">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">completed</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#unfurl.configurator.TaskRequest.completed" title="Permalink to this definition"></a></dt>
+<dd><p>bool(x) -&gt; bool</p>
+<p>Returns True when the argument x is true, False otherwise.
+The builtins True and False are the only two instances of the class bool.
+The class bool is a subclass of the class int, and cannot be subclassed.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.finish_workflow">
+<span class="sig-name descname"><span class="pre">finish_workflow</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#unfurl.configurator.TaskRequest.finish_workflow" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.get_operation_artifacts">
 <span class="sig-name descname"><span class="pre">get_operation_artifacts</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskRequest.get_operation_artifacts" title="Permalink to this definition"></a></dt>
@@ -368,6 +405,16 @@ as an alternative to using the full name (“module.class”) when setting the i
 <dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.name">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#unfurl.configurator.TaskRequest.name" title="Permalink to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.reassign_final_for_workflow">
+<span class="sig-name descname"><span class="pre">reassign_final_for_workflow</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#unfurl.configurator.TaskRequest" title="unfurl.planrequests.TaskRequest"><span class="pre">unfurl.planrequests.TaskRequest</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#unfurl.configurator.TaskRequest.reassign_final_for_workflow" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><em>Optional</em>[<a class="reference internal" href="#unfurl.configurator.TaskRequest" title="unfurl.planrequests.TaskRequest">unfurl.planrequests.TaskRequest</a>]</p>
+</dd>
+</dl>
+</dd></dl>
 
 </dd></dl>
 
