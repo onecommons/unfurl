@@ -178,6 +178,8 @@ class DockerTest(unittest.TestCase):
         assert env == {'FOO': '1', 'BAR': '1', 'PASSWORD': 'test'}
 
     def test_lifecycle(self):
+        # note: this tests dynamically skipping an operation (start) because the previous one (create) 
+        # sets the state state
         src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")
         list(
             isolated_lifecycle(

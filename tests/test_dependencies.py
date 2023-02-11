@@ -116,7 +116,7 @@ def test_digests(caplog):
             "outputs": {},
             "tasks": [],
         }
-        logMsg = "skipping task configure for instance nodeA with state NodeState.configured and status Status.ok (reassigned: False): no change detected"
+        logMsg = "skipping task configure for instance nodeA with state NodeState.configured and status Status.ok (reassigned: None): no change detected"
         assert logMsg in caplog.text
 
 
