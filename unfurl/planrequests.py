@@ -339,10 +339,10 @@ class TaskRequest(PlanRequest):
             explicit_status = get_success_status(workflow)
             # target's status needs to change
         task.logger.trace(
-            "finish workflow with %s status %s for workflow %s %s with local_status %s created: %s",
+            "finish workflow with %s status %s for workflow %s with local_status %s created: %s",
             task.target.name,
             "None" if explicit_status is None else explicit_status.name,
-            workflow, type(workflow),
+            workflow,
             task.target.local_status,  # type: ignore
             task.target.created
         )
@@ -642,11 +642,6 @@ def set_fulfilled(
     # so that the task won't run after all the resource operations have run (i.e. its task group finished)
 
     ready, notReady = [], []
-    # updated_deps: Set[str] = set()
-    # for done in completed:
-    #     # create a set of dependency expressions of attributes that were modifed
-    #     if done.task and done.task.local_status == Status.ok:
-    #         updated_deps.update(done.task._resourceChanges.get_changes_as_expr())
     for req in upcoming:
         if req.completed:
             continue
@@ -838,6 +833,8 @@ def do_render_requests(
             check_target = "any"
     else:
         check_target = ""
+
+    notready_group = None
     while render_requests:
         request = render_requests.popleft()
         if request.completed:
@@ -852,6 +849,10 @@ def do_render_requests(
             not_required.append(request)
         else:
             request.target.validate()
+            if notready_group and notready_group == request.group:
+                # group children run sequentially
+                _add_to_req_list(notReady, request)
+                continue
             if not request.task:
                 # i.e (for now): a setstate request
                 _add_to_req_list(ready, request)
@@ -862,6 +863,7 @@ def do_render_requests(
             if error:
                 errors.append(error)
             elif deps:
+                notready_group = request.group
                 _add_to_req_list(notReady, request)
             else:
                 _add_to_req_list(ready, request)
