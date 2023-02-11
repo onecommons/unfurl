@@ -305,6 +305,20 @@ class TaskRequest(PlanRequest):
 
     completed: bool = property(**__completed())  # type: ignore
 
+    def reassign_final_for_workflow(self) -> Optional["TaskRequest"]:
+        req = self
+        group = req.group 
+        if group and req.is_final_for_workflow:
+            previous = group.get_previous(req)
+            while previous:
+                if (previous.target == req.target
+                    and previous.required != False
+                    and isinstance(previous, TaskRequest)):
+                    previous.is_final_for_workflow = True
+                    return previous
+                previous = group.get_previous(previous)
+        return None
+
     def finish_workflow(self) -> None:
         # This is called on the last task apply to a resource in a work flow.
         # If the all the task succeeded and if target hasn't had its status set already,
@@ -670,17 +684,6 @@ def set_fulfilled_stragglers(
     return ready, notReady
 
 
-def reassign_final_for_workflow(req) -> bool:
-    if req.is_final_for_workflow:
-        previous = req.group and req.group.get_previous(req)
-        while previous:
-            if previous.target == req.target and previous.required != False:
-                previous.is_final_for_workflow = True
-                return True
-            previous = req.group.get_previous(previous)
-    return False
-
-
 def _prepare_request(job: "Job", req: PlanRequest, errors: List) -> bool:
     if not isinstance(req, TaskRequest):
         return True
@@ -696,7 +699,7 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List) -> bool:
         proceed, msg = job.should_run_task(task)
         if not proceed:
             req.required = False
-            reassigned = reassign_final_for_workflow(req)
+            reassigned = req.reassign_final_for_workflow()
             if task._errors:
                 error = task._errors[0]
             logger.debug(

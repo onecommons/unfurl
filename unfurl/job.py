@@ -853,7 +853,13 @@ class Job(ConfigChange):
                     workflow = req.group.workflow if req.group else None
                     _task, success = self._run_operation(req, workflow, depth)
                 if not _task:
-                    continue
+                    if req.is_final_for_workflow:
+                        # we didn't need to run this one, but we need to finalize the workflow
+                        req = req.reassign_final_for_workflow()  # type: ignore
+                        if req:
+                            _task = req.task
+                    if not _task:
+                        continue
                 task = _task
                 if task.priority == Priority.critical:
                     if not success or (task.result and task.result.status == Status.error):
@@ -1087,7 +1093,7 @@ class Job(ConfigChange):
         )
         if task:
             start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
-            task.logger.info("started.")
+            task.logger.info("started task.")
 
             resource = req.target
             startingStatus = resource._localStatus

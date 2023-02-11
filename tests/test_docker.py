@@ -127,14 +127,9 @@ class DockerTest(unittest.TestCase):
         assert "::container1::container_image" in run1.manifest.manifest.config["changes"][1]["digestKeys"]
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
-        # stop op shouldn't be called, just delete
+        # containers weren't persistent so nothing to do
         assert len(run2.workDone) == 0, run2.workDone
         assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
-        return
-        tasks = list(run2.workDone.values())
-        # runner.manifest.dump()
-        assert tasks[0].status.name == "ok", tasks[0].status
-        assert tasks[0].target.status.name == "absent", tasks[0].target.status
 
     def test_login(self):
         """
@@ -179,6 +174,8 @@ class DockerTest(unittest.TestCase):
         assert env == {'FOO': '1', 'BAR': '1', 'PASSWORD': 'test'}
 
     def test_lifecycle(self):
+        # note: this tests dynamically skipping an operation (start) because the previous one (create) 
+        # sets the state state
         src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")
         list(
             isolated_lifecycle(
