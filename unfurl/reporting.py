@@ -2,16 +2,7 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import json
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Tuple,
-    Union,
-    Optional,
-    TYPE_CHECKING
-)
+from typing import Any, Dict, Iterable, List, Tuple, Union, Optional, TYPE_CHECKING
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
     TaskRequest,
@@ -25,6 +16,7 @@ from rich.table import Table
 from rich import box
 from rich.segment import Segment
 import re
+import os
 
 if TYPE_CHECKING:
     from unfurl.yamlmanifest import YamlManifest
@@ -35,7 +27,6 @@ logger = getLogger("unfurl")
 
 
 class JobTable(Table):
-        
     def __init__(self, **kwargs):
         super().__init__(box=box.HORIZONTALS, show_lines=True, expand=True, **kwargs)
         self.hacks = {}
@@ -45,28 +36,32 @@ class JobTable(Table):
         _box = self.box
         table_style = console.get_style(self.style or "")
         border_style = table_style + console.get_style(self.border_style or "")
-        lastcell = None
-        width = sum(widths)  # XXX use to center extra
-
+        extra = None
+        # width = sum(widths)  # XXX use to center extra
         for segment in super()._render(console, options, widths):
-            if isinstance(segment, Segment) and self._match(segment.text):
-                first, lastcell = self._match(segment.text)
+            if not isinstance(segment, Segment):
+                yield segment
+                continue
+            if self._match(segment.text):
+                first, extra = self._match(segment.text)
                 if first:  # might be empty if the text had styling
                     yield segment._replace(text=first)
-            elif lastcell and isinstance(segment, Segment) and segment.text == new_line.text:
+            elif extra and segment.text == new_line.text:
                 # add line of text that spans across all the columns
                 yield segment
                 if _box:
                     yield Segment(_box.mid_left, border_style)
-                    # XXX how to center? how to turn automatic formatting?
-                    # just yield one line of segments
-                    yield from console.render_lines(lastcell, options)[0]
+                    # XXX how to center extra? how to turn on automatic formatting?
+                    #     how to wrap lines and yield more than one line?
+                    text = console.render_str(extra)
+                    for segment_list in console.render_lines(text, options):
+                        yield from segment_list
                     yield Segment(_box.mid_right, border_style)
                 yield Segment.line()
-                lastcell = None
+                extra = None
             else:
                 yield segment
-    
+
     def _match(self, s):
         m = re.match(r"=(.+?)=(.*)", s)
         if m:
@@ -84,7 +79,9 @@ class JobTable(Table):
             hackid = str(len(self.hacks))
             hack = f"={hackid}={renderables[-1]}"
             self.hacks[hackid] = extra
-        super().add_row(*(renderables[:-1] + (hack,)), style=style, end_section=end_section)
+        super().add_row(
+            *(renderables[:-1] + (hack,)), style=style, end_section=end_section
+        )
 
 
 class JobReporter:
@@ -185,7 +182,11 @@ class JobReporter:
     @staticmethod
     def stats(tasks, asMessage: bool = False) -> Union[Dict[str, int], str]:
         # note: the status of the task, not the target resource
-        key = lambda t: Status.error if t.target_status == Status.error else t._localStatus or Status.unknown
+        key = (
+            lambda t: Status.error
+            if t.target_status == Status.error
+            else t._localStatus or Status.unknown
+        )
         tasks = sorted(tasks, key=key)  # type: ignore
         stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
@@ -292,11 +293,13 @@ class JobReporter:
         return "\n".join(output), count
 
     @staticmethod
-    def summary_table(job):
-        console = getConsole()
+    def summary_table(job) -> str:
+        console = getConsole(record=True)
         if not job.workDone:
-            console.print(f"Job {job.changeId} completed: [{job.status.color}]{job.status.name}[/]. No tasks ran.")
-            return
+            console.print(
+                f"Job {job.changeId} completed: [{job.status.color}]{job.status.name}[/]. No tasks ran."
+            )
+            return console.export_text()
 
         title = "Job %s completed in %.3fs: [%s]%s[/]. %s:\n    " % (
             job.changeId,
@@ -317,7 +320,9 @@ class JobReporter:
 
         for i, task in enumerate(job.workDone.values()):
             if task.result:
-                task_success = "[green]success[/]" if task.result.success else "[red]failed[/]"
+                task_success = (
+                    "[green]success[/]" if task.result.success else "[red]failed[/]"
+                )
             else:
                 task_success = "[white]skipped[/]"
             operation = task.configSpec.operation
@@ -333,7 +338,15 @@ class JobReporter:
                 result = f"Output: {task.result.result}"
             else:
                 result = ""
-            table.add_row(f"{i + 1} ({task_success})", resource, operation, reason, status,
-                          state, changed, extra=result)
+            table.add_row(
+                f"{i + 1} ({task_success})",
+                resource,
+                operation,
+                reason,
+                status,
+                state,
+                changed,
+                extra=result,
+            )
         console.print(table)
-
+        return console.export_text()

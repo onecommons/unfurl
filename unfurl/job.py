@@ -714,7 +714,8 @@ class Job(ConfigChange):
         outputs = serialize_value(self.get_outputs())
         if outputs:
             logger.info("Job outputs: %s", outputs)
-        self.rootResource.attributeManager and self.rootResource.attributeManager.commit_changes()
+        if self.rootResource.attributeManager:
+            self.rootResource.attributeManager.commit_changes()
         return self.rootResource
 
     def run(self, rendered: Tuple[list, list, list]) -> None:
@@ -867,7 +868,7 @@ class Job(ConfigChange):
                             f"Critical task failed: {task.name} for {task.target.name}"
                         )
                 # note: task won't be return from _run_operation is the target's workflow state was set
-                if req.is_final_for_workflow and req.completed:
+                if req and req.is_final_for_workflow and req.completed:
                     req.finish_workflow()
 
         return task  # return the last task executed
@@ -1227,8 +1228,8 @@ class Job(ConfigChange):
     def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
         return JobReporter.stats(self.workDone.values(), asMessage)
 
-    def print_summary_table(self):
-        JobReporter.summary_table(self)
+    def print_summary_table(self) -> str:
+        return JobReporter.summary_table(self)
 
     def _plan_summary(
         self,

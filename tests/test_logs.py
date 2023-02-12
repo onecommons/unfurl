@@ -9,7 +9,7 @@ from click.testing import CliRunner
 from unfurl.__main__ import detect_log_level, detect_verbose_level
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
-from unfurl.logs import Levels, SensitiveFilter
+from unfurl.logs import Levels, SensitiveFilter, getConsole
 from unfurl.util import sensitive_str
 from unfurl import logs
 from ruamel.yaml.comments import CommentedMap
@@ -181,14 +181,14 @@ def summary_table():
 
     # table.add_column("", justify="right", style="green")
 
-    table.add_row("Dec 20, 2019", "Star Wars: The Rise of Skywalker", "952", extra="This is some Text")
+    table.add_row("Dec 20, 2019", "Star Wars: The Rise of Skywalker", "952", extra="This is some Text"*10)
     table.add_row("May 25, 2018", "Solo: A Star Wars Story", "[red]3945[/]", extra="More [b]hacky[/b] text")
 
     # table.add_row("Dec 15, 2017", "Star Wars Ep. V111: The Last Jedi", "$1,332,539,889")
     # table.add_row("Dec 16, 2016", "Rogue One: A Star Wars Story", "$1,332,439,889")
 
-    console = Console()
-    console.print(table)   
+    console = getConsole(record=True)
+    console.print(table)
 
 if __name__ == "__main__":
     logger = logs.getLogger("unfurl")

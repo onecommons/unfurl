@@ -1,4 +1,5 @@
 import os
+import re
 import traceback
 import unittest
 from collections.abc import MutableSequence
@@ -6,6 +7,7 @@ import six
 import sys
 import unfurl
 from click.testing import CliRunner
+from click.termui import unstyle
 from unfurl.__main__ import _args, cli
 from unfurl.configurator import Configurator
 from unfurl.configurators.shell import clean_output
@@ -303,9 +305,8 @@ spec:
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
-            assert r"'stdout': 'ok\n'" in result.output.replace(
-                "u'", "'"
-            ), result.output
+            output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
+            assert r"'stdout': 'ok\n'" in output, output
             # run same command using ansible
             result = runner.invoke(
                 cli, run_cmd + ["--host", "localhost", "--", "echo", "ok"]
@@ -313,7 +314,8 @@ spec:
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
-            assert r"'stdout': 'ok'" in result.output.replace("u'", "'"), result.output
+            output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
+            assert r"'stdout': 'ok'" in output, output
 
     def test_localConfig(self):
         # test loading the default manifest declared in the local config

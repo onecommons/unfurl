@@ -19,7 +19,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
-from typing import Optional, List, Union, TYPE_CHECKING
+from typing import Any, Optional, List, Union, TYPE_CHECKING
 
 import click
 import rich
@@ -27,7 +27,7 @@ import rich
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from . import init as initmod
 from . import logs, version_tuple
-from .job import start_job
+from .job import start_job, Job
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
@@ -445,11 +445,12 @@ def _run_remote(runtime, options, localEnv):
         sys.exit(rv)
 
 
-def _print_summary(job, options):
-    jsonSummary = {}
+def _print_summary(job: "Job", options) -> str:
+    jsonSummary: Any = {}
+    text = ""
     summary = options.get("output")
     if summary == "text" and not job.jobOptions.planOnly:
-        job.print_summary_table()
+        text = job.print_summary_table()
     elif summary == "json":
         if job.jobOptions.planOnly:
             jsonSummary = job._json_plan_summary()
@@ -469,7 +470,9 @@ def _print_summary(job, options):
             else:
                 click.echo(result)
     if jsonSummary:
-        click.echo(json.dumps(jsonSummary, indent=2))
+        text = json.dumps(jsonSummary, indent=2)
+        click.echo(text)
+    return text
 
 
 def yesno(prompt):
@@ -482,7 +485,10 @@ def yesno(prompt):
         return False
 
 
-def _stop_logging(job, options, verbose, tmplogfile):
+def _stop_logging(job, options, verbose, tmplogfile, summary):
+    if summary:
+        with open(tmplogfile, "a") as f:
+            f.write(summary)
     if job and job.log_path:
         log_path = job.log_path
         dir = os.path.dirname(log_path)
@@ -506,6 +512,7 @@ def _run_local(ensemble: str, options):
     tmplogfile = options["logfile"]
     job, rendered, proceed = start_job(ensemble, options)
     _latestJobs.append(job)  # testing only
+    summary = ""
     if job:
         declined = False
         if not job.unexpectedAbort and not job.planOnly and proceed:
@@ -518,11 +525,11 @@ def _run_local(ensemble: str, options):
             if verbose > 0:
                 raise job.unexpectedAbort
         elif not declined:
-            _print_summary(job, options)
+            summary = _print_summary(job, options)
     else:
         click.echo("Unable to create job")
 
-    _stop_logging(job, options, verbose, tmplogfile)
+    _stop_logging(job, options, verbose, tmplogfile, summary)
     return _exit(job, options)
 
 
