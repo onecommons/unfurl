@@ -208,12 +208,19 @@ class PlanRequest:
 
     def get_unfulfilled_refs(self, check_target="") -> Iterator["Dependency"]:
         for dep in self.dependencies:
-            if check_target and dep.target:
+            if check_target:
+                if not dep.validate():
+                    yield dep
                 if (
-                    check_target != "operational" or dep.target.operational
-                ) and dep.validate():
-                    continue
-            yield dep
+                    check_target == "operational"
+                    and dep.target
+                    and dep.target != self.target
+                ):
+                    if not dep.target.operational:
+                        yield dep
+                # otherwise, dep is fulfilled
+            else:
+                yield dep
         if not self.render_errors:
             return
         for error in self.render_errors:
@@ -255,9 +262,7 @@ class PlanRequest:
         return type(self).__name__
 
     def get_notready_message(self) -> str:
-        deps = [
-            dep.name for dep in self.get_unfulfilled_refs()
-        ]
+        deps = [dep.name for dep in self.get_unfulfilled_refs()]
         if deps:
             if self.render_errors:
                 return f"Never ran: invalid dependencies: {deps}"
@@ -265,8 +270,10 @@ class PlanRequest:
                 return f"Never ran: unfulfilled dependencies: {deps}"
         elif self.group and self.group.target.name != self.target.name:
             return f"Never ran: parent resource in error: {self.group.target.name}"
+        elif self.previous:
+            return f'Never ran: previous operation "{self.previous}" failed or could not run'
         else:
-            return "Never ran: previous operation failed"
+            return "Couldn't run"
 
     def set_final_for_workflow(self, is_final: bool):
         self.is_final_for_workflow = is_final
@@ -300,11 +307,10 @@ class TaskRequest(PlanRequest):
         self._completed = False
 
     def __completed():  # type: ignore
-
         def fget(self) -> bool:
             return bool(self._completed or self.task and self.task.completed)
 
-        def fset(self, value: bool):  
+        def fset(self, value: bool):
             self._completed = value
 
         return locals()
@@ -313,13 +319,15 @@ class TaskRequest(PlanRequest):
 
     def reassign_final_for_workflow(self) -> Optional["TaskRequest"]:
         req = self
-        group = req.group 
+        group = req.group
         if group and req.is_final_for_workflow:
             previous = group.get_previous(req)
             while previous:
-                if (previous.target == req.target
+                if (
+                    previous.target == req.target
                     and previous.required != False
-                    and isinstance(previous, TaskRequest)):
+                    and isinstance(previous, TaskRequest)
+                ):
                     previous.is_final_for_workflow = True
                     return previous
                 previous = group.get_previous(previous)
@@ -336,11 +344,11 @@ class TaskRequest(PlanRequest):
             # if failed then task._update_status() set error state on the target
             return
         workflow = self.group and self.group.workflow
-        if not workflow:  # not in a group or not in a mutable workflow 
+        if not workflow:  # not in a group or not in a mutable workflow
             return
         explicit_status = task.result and task.result.status
         if explicit_status is None:
-            # even though we didn't modify the target this is the last op and the task succeeded 
+            # even though we didn't modify the target this is the last op and the task succeeded
             # so assume the target is that the workflow's final state
             explicit_status = get_success_status(workflow)
             # target's status needs to change
@@ -350,7 +358,7 @@ class TaskRequest(PlanRequest):
             "None" if explicit_status is None else explicit_status.name,
             workflow,
             task.target.local_status,  # type: ignore
-            task.target.created
+            task.target.created,
         )
         task._finished_workflow(explicit_status, workflow)
 
@@ -531,7 +539,12 @@ class JobRequest:
     Yield this to run a child job.
     """
 
-    def __init__(self, resources: List[EntityInstance], errors: Optional[Sequence[UnfurlError]]=None, update=None):
+    def __init__(
+        self,
+        resources: List[EntityInstance],
+        errors: Optional[Sequence[UnfurlError]] = None,
+        update=None,
+    ):
         self.instances = resources
         self.errors = errors or []
         self.update = update
@@ -653,7 +666,9 @@ def set_fulfilled(
             continue
         assert req not in completed, f"{req} already completed"
         _not_ready = False
-        if req.previous and req.previous.not_ready:
+        previous = req.previous
+        if previous and previous.not_ready:
+            logger.trace(f"Previous {previous} not ready")
             _not_ready = True
         # see if these changes fulfilled the dependencies on a pending task
         elif req.update_unfulfilled_errors():
@@ -675,7 +690,9 @@ def set_fulfilled_stragglers(
         if req.completed:
             continue
         ok = True
-        if req.previous and req.previous.not_ready:
+        previous = req.previous
+        if previous and previous.not_ready:
+            logger.trace(f"Previous {previous} not ready in final round.")
             ok = False
         elif deploying:
             for dep in req.get_unfulfilled_refs("operational"):
@@ -831,8 +848,7 @@ def do_render_requests(
     notReady: List[PlanRequest] = []
     errors: List[UnfurlError] = []
     flattened_requests = list(
-        r for r in get_render_requests(requests)
-        if _prepare_request(job, r, errors)
+        r for r in get_render_requests(requests) if _prepare_request(job, r, errors)
     )
     not_required = []
     render_requests = collections.deque(flattened_requests)
@@ -861,7 +877,6 @@ def do_render_requests(
             request.target.validate()
             if notready_group and notready_group == request.group:
                 # group children run sequentially
-                logger.error(f"render_requests previous wasn't ready {request.target} {request} group {request.group == notready_group}")
                 _add_to_req_list(notReady, request)
                 continue
             if not request.task:
@@ -875,7 +890,6 @@ def do_render_requests(
                 errors.append(error)
             elif deps:
                 notready_group = request.group
-                logger.error(f"notready  {request.target} {request} group {request.group}")
                 _add_to_req_list(notReady, request)
             else:
                 _add_to_req_list(ready, request)
