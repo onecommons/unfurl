@@ -131,7 +131,7 @@ def get_remote_tags(url, pattern="*") -> List[str]:
     # len("b90df3d12413db22d051db1f7c7286cdd2f00b66\trefs/tags/") == 51
     # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
     tags = [line[51:] for line in blob.split('\n') if not line.endswith("^{}")]
-    logger.error("got %s remote tags with pattern %s from %s", len(tags), pattern, url)
+    logger.debug("got %s remote tags with pattern %s from %s", len(tags), pattern, url)
     return tags
 
 

@@ -315,7 +315,7 @@ def resolve_package(repoview: RepoView, packages: PackagesType, package_specs: D
         if existing.repositories and not package.is_compatible_with(existing):
             # XXX if we need a later version, update the existing package and reload any content from it
             # not yet implemented so just throw an error
-            raise UnfurlError(f"{package.package_id} has version {package.revision} but {existing.revision} is already in use.")
+            raise UnfurlError(f"{package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use.")
         package = existing
 
     package.add_reference(repoview)
