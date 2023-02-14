@@ -326,11 +326,38 @@ class Plan:
         yield from self._run_operation(nodeState, op, resource, reason, inputs)
 
     def execute_default_install_op(self, operation, resource, reason=None, inputs=None):
+        # add target or add source
         req = create_task_request(
             self.jobOptions, "Install." + operation, resource, reason, inputs
         )
         if req:
             yield req
+
+        if operation != "check":
+            # we're the source, target has already started
+            sourceConfigOps = resource.template.get_requirement_interfaces()
+            if sourceConfigOps:
+                if resource.template.get_requirement_interfaces():
+                    # we're the source
+                    for relationship in resource.requirements:
+                        req = create_task_request(
+                            self.jobOptions, "Configure.add_source", relationship, reason, inputs
+                        )
+                        if req:
+                            yield req
+
+            targetConfigOps = resource.template.get_capability_interfaces()
+            # test for targetConfigOps to avoid creating unnecessary instances
+            if targetConfigOps:
+                for capability in resource.capabilities:
+                    for relationship in capability.relationships:
+                        # we're the target
+                        req = create_task_request(
+                            self.jobOptions, "Configure.add_target", relationship, reason, inputs
+                        )
+                        if req:
+                            yield req
+
 
     def generate_delete_configurations(self, include):
         for resource in get_operational_dependents(self.root):
@@ -388,6 +415,7 @@ class Plan:
                 assert False, self.root.requirements
 
     def _generate_configurations(self, resource: "EntityInstance", reason: str, workflow: Optional[str] = None):
+        # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
         configGenerator = self.execute_workflow(workflow, resource)
@@ -400,7 +428,7 @@ class Plan:
             custom_workflow = False
 
         # if the workflow is one that can modify a target, create a TaskRequestGroup
-        if get_success_status(workflow):
+        if workflow != "check":
             group = TaskRequestGroup(resource, workflow)
         else:
             group = None
