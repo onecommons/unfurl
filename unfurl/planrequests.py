@@ -241,7 +241,13 @@ class PlanRequest:
                 yield error
 
     @property
+    def previous(self) -> Optional["PlanRequest"]:
+        return self.group and self.group.get_previous(self) or None
+
+    @property
     def not_ready(self) -> bool:
+        if self.previous and self.previous.not_ready:
+            return True
         return bool(self.has_unfulfilled_refs())
 
     @property
@@ -486,7 +492,7 @@ class TaskRequestGroup(PlanRequest):
 
     def get_previous(self, req) -> Optional[PlanRequest]:
         siblings = self.children
-        if len(siblings) > 1 and req in siblings:
+        if req in siblings and siblings[0] != req:
             return siblings[siblings.index(req) - 1]
         return None
 
@@ -647,8 +653,10 @@ def set_fulfilled(
             continue
         assert req not in completed, f"{req} already completed"
         _not_ready = False
+        if req.previous and req.previous.not_ready:
+            _not_ready = True
         # see if these changes fulfilled the dependencies on a pending task
-        if req.update_unfulfilled_errors():
+        elif req.update_unfulfilled_errors():
             _not_ready = True  # still has unfulfilled dependencies
         if _not_ready:
             notReady.append(req)
@@ -667,7 +675,9 @@ def set_fulfilled_stragglers(
         if req.completed:
             continue
         ok = True
-        if deploying:
+        if req.previous and req.previous.not_ready:
+            ok = False
+        elif deploying:
             for dep in req.get_unfulfilled_refs("operational"):
                 ok = False  # not ready yet
                 break
@@ -851,6 +861,7 @@ def do_render_requests(
             request.target.validate()
             if notready_group and notready_group == request.group:
                 # group children run sequentially
+                logger.error(f"render_requests previous wasn't ready {request.target} {request} group {request.group == notready_group}")
                 _add_to_req_list(notReady, request)
                 continue
             if not request.task:
@@ -864,6 +875,7 @@ def do_render_requests(
                 errors.append(error)
             elif deps:
                 notready_group = request.group
+                logger.error(f"notready  {request.target} {request} group {request.group}")
                 _add_to_req_list(notReady, request)
             else:
                 _add_to_req_list(ready, request)
