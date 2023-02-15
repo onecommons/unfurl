@@ -629,6 +629,7 @@ def _get_deps(
 ) -> None:
     # iterate through the live attributes the given task depends
     # if the attribute's instance might be modified by another task, mark that task as a dependency
+    req.dependencies = []  # reset
     for r in requests:
         if req.target.key == r.target.key:
             continue  # skip self
@@ -668,7 +669,7 @@ def set_fulfilled(
         _not_ready = False
         previous = req.previous
         if previous and previous.not_ready:
-            logger.trace(f"Previous {previous} not ready")
+            logger.trace(f"Previous {previous} not ready: {previous.get_notready_message()}")
             _not_ready = True
         # see if these changes fulfilled the dependencies on a pending task
         elif req.update_unfulfilled_errors():
@@ -692,7 +693,7 @@ def set_fulfilled_stragglers(
         ok = True
         previous = req.previous
         if previous and previous.not_ready:
-            logger.trace(f"Previous {previous} not ready in final round.")
+            logger.trace(f"Previous {previous} not ready in final round: {{previous.get_notready_message()}}.")
             ok = False
         elif deploying:
             for dep in req.get_unfulfilled_refs("operational"):
