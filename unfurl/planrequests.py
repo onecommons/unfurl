@@ -216,7 +216,10 @@ class PlanRequest:
                     and dep.target
                     and dep.target != self.target
                 ):
-                    if not dep.target.operational:
+                    if dep.target.local_status not in [Status.ok, Status.degraded]:
+                        logger.trace(
+                            f"{dep} not operational with local status {dep.target.local_status and dep.target.local_status.name}"
+                        )
                         yield dep
                 # otherwise, dep is fulfilled
             else:
@@ -232,11 +235,15 @@ class PlanRequest:
     def update_unfulfilled_errors(self) -> bool:
         # remove unfulfilled dependencies and errors caused by an unfulfilled dependency
         self.render_errors = list(self._revalidate_unfulfilled_errors())
+        # note: this isn't called during the last round because we don't want the has_changed() check
         self.dependencies = [
             dep
             for dep in self.dependencies
-            if not dep.has_changed() or not dep.validate()
+            if not dep.validate() or not dep.has_changed()
         ]
+        # logger.trace(
+        #     f"update_unfulfilled_errors {self.target.name}: {self.dependencies}"
+        # )
         return self.has_unfulfilled_refs()
 
     def _revalidate_unfulfilled_errors(self) -> Iterator["UnfurlTaskError"]:
@@ -245,6 +252,10 @@ class PlanRequest:
         for error in self.render_errors:
             dep = cast(Optional["Dependency"], getattr(error, "dependency", None))
             if not dep or not dep.validate():
+                # if dep:
+                #     logger.trace(
+                #         f"in render_errors: invalid dep {dep} for {self.target.name}"
+                #     )
                 yield error
 
     @property
@@ -262,13 +273,36 @@ class PlanRequest:
         return type(self).__name__
 
     def get_notready_message(self) -> str:
-        deps = [dep.name for dep in self.get_unfulfilled_refs()]
-        if deps:
-            if self.render_errors:
-                return f"Never ran: invalid dependencies: {deps}"
-            else:  # XXX could have both
-                return f"Never ran: unfulfilled dependencies: {deps}"
-        elif self.group and self.group.target.name != self.target.name:
+        start = "Never ran:"
+        msg = start
+        if self.render_errors:
+            render_deps = [
+                error.dependency.name  # type: ignore
+                for error in self.render_errors
+                if getattr(error, "dependency", None)
+            ]
+            msg += f" invalid dependencies: {render_deps}"
+        if self.dependencies:
+            not_operational = [
+                dep.name
+                for dep in self.dependencies
+                if dep.target
+                and dep.target.local_status not in [Status.ok, Status.degraded]
+            ]
+            invalid_deps = [
+                dep.name for dep in self.dependencies if dep not in not_operational
+            ]
+            if msg != start:
+                msg += " and "
+            if not_operational:
+                msg += f"non-operational dependencies: {not_operational}."
+            if msg != start:
+                msg += " and "
+            if invalid_deps:
+                msg += f" unfulfilled dependencies: {invalid_deps}."
+        if msg != start:
+            return msg
+        if self.group and self.group.target.name != self.target.name:
             return f"Never ran: parent resource in error: {self.group.target.name}"
         elif self.previous:
             return f'Never ran: previous operation "{self.previous}" failed or could not run'
@@ -669,7 +703,9 @@ def set_fulfilled(
         _not_ready = False
         previous = req.previous
         if previous and previous.not_ready:
-            logger.trace(f"Previous {previous} not ready: {previous.get_notready_message()}")
+            logger.trace(
+                f"Previous {previous} not ready: {previous.get_notready_message()}"
+            )
             _not_ready = True
         # see if these changes fulfilled the dependencies on a pending task
         elif req.update_unfulfilled_errors():
@@ -693,11 +729,16 @@ def set_fulfilled_stragglers(
         ok = True
         previous = req.previous
         if previous and previous.not_ready:
-            logger.trace(f"Previous {previous} not ready in final round: {{previous.get_notready_message()}}.")
+            # logger.trace(
+            #     f"Previous {previous} not ready in final round: {previous.get_notready_message()}."
+            # )
             ok = False
         elif deploying:
             for dep in req.get_unfulfilled_refs("operational"):
                 ok = False  # not ready yet
+                # logger.trace(
+                #     f"Dependency for {req} not ready in final round: {req.get_notready_message()}."
+                # )
                 break
         if ok:
             ready.append(req)

@@ -1145,9 +1145,9 @@ class Job(ConfigChange):
             state_status = task.target.state.name if task.target.state else ""
             extra = dict(rich=dict(style=task.target.status.color))
             if task_success:
-                task.logger.info("succeeded, STATUS: %s state: %s", status, state_status, extra=extra)
+                task.logger.info("Task succeeded, Resource Status: %s State: %s", status, state_status, extra=extra)
             else:
-                task.logger.error("failed, STATUS: %s state: %s", status, state_status, extra=extra)
+                task.logger.error("Task failed, Resource Status: %s State: %s", status, state_status, extra=extra)
             return task, task_success
         return None, False
 
