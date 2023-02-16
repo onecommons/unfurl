@@ -67,6 +67,15 @@ from toscaparser.utils.validateutils import TOSCAVersionProperty
 logger = getLogger("unfurl")
 
 
+def is_semver(revision: Optional[str]) -> bool:
+    """Return true if ``revision`` looks like a semver with major version >= 1"""
+    return bool(
+        revision
+        and not revision.lstrip("v").startswith("0")
+        and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
+    )
+
+
 class Package_Url_Info(NamedTuple):
     package_id: Optional[str]
     revision: Optional[str]
@@ -74,8 +83,10 @@ class Package_Url_Info(NamedTuple):
 
 
 class PackageSpec:
-    def __init__(self, package_spec: str, url: Optional[str], minimum_version: Optional[str]):
-        # url can be package, and url prefix, url with a revision or branch, # 
+    def __init__(
+        self, package_spec: str, url: Optional[str], minimum_version: Optional[str]
+    ):
+        # url can be package, and url prefix, url with a revision or branch, #
         self.package_spec = package_spec
         if url:
             self.package_id, revision, self.url = get_package_id_from_url(url)
@@ -103,11 +114,15 @@ class PackageSpec:
         # if the package's package_id was replaced return that
         if self.package_spec.endswith("*"):
             if self.url:
-                package.url = self.url.replace("*", package.package_id[len(self.package_spec) - 1:])
+                package.url = self.url.replace(
+                    "*", package.package_id[len(self.package_spec) - 1 :]
+                )
                 return ""
             elif self.package_id:
                 replaced_id = package.package_id
-                package.package_id = self.package_id.replace("*", package.package_id[len(self.package_spec) - 1:])
+                package.package_id = self.package_id.replace(
+                    "*", package.package_id[len(self.package_spec) - 1 :]
+                )
                 package.url = ""
                 return replaced_id
             elif self.revision:
@@ -117,7 +132,9 @@ class PackageSpec:
                 return ""
             else:
                 # package_specs
-                raise UnfurlError(f"Malformed package spec: {self.package_spec}: missing url or package id")
+                raise UnfurlError(
+                    f"Malformed package spec: {self.package_spec}: missing url or package id"
+                )
 
         if self.revision:
             package.revision = self.revision
@@ -130,7 +147,9 @@ class PackageSpec:
         return ""
 
     @staticmethod
-    def update_package(package_specs: Dict[str, "PackageSpec"], package: "Package") -> bool:
+    def update_package(
+        package_specs: Dict[str, "PackageSpec"], package: "Package"
+    ) -> bool:
         """_summary_
 
         Args:
@@ -148,14 +167,16 @@ class PackageSpec:
             for pkg_spec in package_specs.values():
                 if pkg_spec.matches(package):
                     replaced_id = pkg_spec.update(package)
-                    logger.trace("updated package %s using rule %s", package, pkg_spec)
+                    logger.trace("updated package %s using rule %s: replaced %s", package, pkg_spec, replaced_id)
                     if not replaced_id:
                         if not package.url:
                             # use default url pattern for the package_id
                             package.set_url_from_package_id()
                         return True  # we're done
                     if replaced_id in old:
-                        raise UnfurlError(f"Circular reference in package rules: {replaced_id}")
+                        raise UnfurlError(
+                            f"Circular reference in package rules: {replaced_id}"
+                        )
                     old.append(replaced_id)
                     break  # package_id replaced start over
             else:
@@ -176,7 +197,7 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
     parts = urlparse(url)
     path = parts.path.strip("/")
     if path.endswith(".git"):
-        path = path[:len(path) - 4]
+        path = path[: len(path) - 4]
     if parts.hostname:
         package_id = parts.hostname + "/" + path
     else:
@@ -206,27 +227,33 @@ class Package:
         self.repositories: List[RepoView] = []
 
     def __str__(self):
-        return f"Package({self.package_id},v{self.revision} {self.url})"
+        return f"Package({self.package_id} {self.revision} {self.url})"
 
     def version_tag_prefix(self) -> str:
         # see https://go.dev/ref/mod#vcs-version
         url, repopath, urlrevision = split_git_url(self.url)
         # return tag prefix to match version tags with
         if repopath:
-            # strip out major version suffix
-            return re.sub(r"(/v\d+)?$", '', repopath) + "/v"
-        return 'v'
+            # strip out major version suffix:
+            # if repopath looks "foo" or "foo/v2", return "foo/v"
+            return re.sub(r"(/v\d+)?$", "", repopath) + "/v"
+        return "v"
 
-    def find_latest_version_from_repo(self) -> Optional[str]:
+    def find_latest_semver_from_repo(self) -> Optional[str]:
         prefix = self.version_tag_prefix()
-        tags = [tag[len(prefix):] for tag in get_remote_tags(self.url, prefix + "*")
-                if TOSCAVersionProperty.VERSION_RE.match(tag[len(prefix):])]
+        # get an sorted list of tags and strip the prefix from them
+        vtags = [tag[len(prefix) :] for tag in get_remote_tags(self.url, prefix + "*")]
+        # only include tags look like a semver with major version of 1 or higher
+        # (We exclude unreleased versions because we want to treat the repository
+        # as if it didn't specify a semver at all. Unrelease versions have no backwards compatibility
+        # guarantees so we don't want to treat the repository as pinned to a particular revision.
+        tags = [vtag for vtag in vtags if is_semver(vtag)]
         if tags:
             return tags[0]
         return None
 
     def set_version_from_repo(self):
-        self.revision = self.find_latest_version_from_repo()
+        self.revision = self.find_latest_semver_from_repo()
 
     def set_url_from_package_id(self):
         self.url = package_id_to_url(self.package_id, self.revision_tag)
@@ -246,15 +273,18 @@ class Package:
             self.repositories.append(repoview)
             repoview.package = self
             # we need to set the path, url, and revision to match the package
-            url, repopath, urlrevision = split_git_url(self.url)
-            repoview.path = repopath
-            repoview.revision = self.revision
-            repoview.repository.url = f"{url}#{self.revision_tag}:{repopath}"
+            if self.revision:
+                url, repopath, urlrevision = split_git_url(self.url)
+                repoview.path = repopath
+                repoview.revision = self.revision
+                repoview.repository.url = f"{url}#{self.revision_tag}:{repopath}"
+            else:
+                repoview.repository.url = self.url
             return True
         return False
 
     def has_semver(self):
-        return self.revision and TOSCAVersionProperty.VERSION_RE.match(self.revision) is not None
+        return is_semver(self.revision)
 
     def is_compatible_with(self, package: "Package") -> bool:
         """
@@ -264,21 +294,25 @@ class Package:
         Otherwise only return true if the packages revisions match exactly.
         """
         if not self.revision or not package.revision:
+            # there aren't two revisions to compare so skip compatibility check
             return True
         if not self.has_semver():
             return self.revision == package.revision
         if not package.has_semver():  # doesn't have a semver and doesn't match
             return False
-        
+
         # # if given revision is newer than current packages we need to reload (error for now?)
         return TOSCAVersionProperty(package.revision).is_semver_compatible_with(
-                                    TOSCAVersionProperty(self.revision))
+            TOSCAVersionProperty(self.revision)
+        )
 
 
 PackagesType = Dict[str, Union[Literal[False], Package]]
 
 
-def resolve_package(repoview: RepoView, packages: PackagesType, package_specs: Dict[str, PackageSpec]) -> Optional["Package"]:
+def resolve_package(
+    repoview: RepoView, packages: PackagesType, package_specs: Dict[str, PackageSpec]
+) -> Optional["Package"]:
     """
     If repository references a package, register it with existing package or create a new one.
     A error is raised if a package's version conficts with the repository's version requirement.
@@ -292,16 +326,18 @@ def resolve_package(repoview: RepoView, packages: PackagesType, package_specs: D
     minimum_version = repoview.repository.revision or revision
     package = Package(package_id, url or "", minimum_version)
     # possibly change the package info if we match a PackageSpec
-    PackageSpec.update_package(package_specs, package)
+    changed = PackageSpec.update_package(package_specs, package)
     if package.package_id not in packages:
         if not package.url:
             # the repository didn't specify a full url and there wasn't already an existing package or package spec
-            raise UnfurlError(f'Could not find a repository that matched package "{package.package_id}"')
+            raise UnfurlError(
+                f'Could not find a repository that matched package "{package.package_id}"'
+            )
         if not package.revision:
             # no version specified, use the latest version tagged in the repository
             package.set_version_from_repo()
-        if not package.revision:
-            # no version tags, repository can't be used as a package
+        if not changed and not package.revision:
+            # don't treat repository as a package
             repoview.package = False
             packages[package.package_id] = False
             return None
@@ -315,7 +351,9 @@ def resolve_package(repoview: RepoView, packages: PackagesType, package_specs: D
         if existing.repositories and not package.is_compatible_with(existing):
             # XXX if we need a later version, update the existing package and reload any content from it
             # not yet implemented so just throw an error
-            raise UnfurlError(f"{package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use.")
+            raise UnfurlError(
+                f"{package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use."
+            )
         package = existing
 
     package.add_reference(repoview)
