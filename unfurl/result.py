@@ -344,9 +344,12 @@ class ExternalValue(ChangeAware):
         return {"eval": serialized}
 
 
-_Deleted = object()
-_Get = object()
+class _Sentinal:
+    pass
 
+_Deleted = _Sentinal()
+_Get = _Sentinal()
+_RecursionGuard = _Sentinal()
 
 class Result(ChangeAware):
     # ``original`` is managed by the Results that owns this Result
@@ -582,7 +585,7 @@ class Results(ABC):
         return self._getresult(key).resolved
 
     def _getresult(self, key: Any) -> Result:
-        from .eval import map_value
+        from .eval import map_value, Ref
 
         val = self._attributes[key]
         if isinstance(val, Result):
@@ -590,38 +593,46 @@ class Results(ABC):
             self.context.trace("Results.get: already resolved", key, val)
             assert not isinstance(val.resolved, Result), val
             return val
+        if val is _RecursionGuard:
+            self.context.trace("Recursion detected, returning None", key)
+            return Result(None)
         else:
-            if self.doFullResolve:
-                self.context.trace("Results.doFullResolve", key, val)
-                if isinstance(val, Results):
-                    resolved = val
-                else:  # evaluate records that aren't Results
-                    resolved = map_value(val, self.context, self.applyTemplates)
-            else:
-                # lazily evaluate lists and dicts
-                self.context.trace("Results._mapValue", key, val)
-                defs = self.get_datatype_defs(key)
-                resolved = self._map_value(val, self.context, self.applyTemplates, defs)
-            # will return a Result if val was an expression that was evaluated
-            if isinstance(resolved, Result):
-                result: Result = resolved
-                result.resolved = self._transform(key, result.resolved)
-                resolved = result.resolved
-            else:
-                resolved = self._transform(key, resolved)
-                result = Result(resolved)
-            result.original = _Get
-            if isinstance(resolved, MutableSequence) and resolved:
-                assert not isinstance(resolved[0], Result), resolved[0]
+            self._attributes[key] = _RecursionGuard
+            try:
+                if self.doFullResolve:
+                    self.context.trace("Results.doFullResolve", key, val)
+                    if isinstance(val, Results):
+                        resolved = val
+                    else:  # evaluate records that aren't Results
+                        resolved = map_value(val, self.context, self.applyTemplates)
+                else:
+                    # lazily evaluate lists and dicts
+                    self.context.trace("Results._mapValue", key, val)
+                    defs = self.get_datatype_defs(key)
+                    resolved = self._map_value(val, self.context, self.applyTemplates, defs)
+                # will return a Result if val was an expression that was evaluated
+                if isinstance(resolved, Result):
+                    result: Result = resolved
+                    result.resolved = self._transform(key, result.resolved)
+                    resolved = result.resolved
+                else:
+                    resolved = self._transform(key, resolved)
+                    result = Result(resolved)
+                result.original = _Get
+                if isinstance(resolved, MutableSequence) and resolved:
+                    assert not isinstance(resolved[0], Result), resolved[0]
 
-            if self.validate:
-                self._validate(key, resolved, val)
-            if self.defs and is_sensitive_schema(self.defs, key):
-                result.resolved = wrap_sensitive_value(resolved)
+                if self.validate:
+                    self._validate(key, resolved, val)
+                if self.defs and is_sensitive_schema(self.defs, key):
+                    result.resolved = wrap_sensitive_value(resolved)
 
-            self._attributes[key] = result
-            assert not isinstance(resolved, Result), val
-            return result
+                self._attributes[key] = result
+                assert not isinstance(resolved, Result), val
+                return result
+            finally:
+                if self._attributes[key] is _RecursionGuard:
+                    self._attributes[key] = val
 
     def get_datatype_defs(self, key):
         property = self.defs.get(key)

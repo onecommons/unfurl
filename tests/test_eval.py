@@ -2,6 +2,7 @@ import unittest
 import os
 import json
 import pickle
+import io
 
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
@@ -174,6 +175,19 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(
             resource.attributes["b"], result5
         )  # this doesn't seem obvious!
+
+    def test_circular_refs(self):
+        more = {}
+        more["circular_a"] = dict(eval=".::circular_b")
+        more["circular_b"] = dict(eval=".::circular_a")
+        more["circular_c"] = dict(eval={"or": [".::circular_d", 1]})
+        more["circular_d"] = dict(eval={"or": [".::circular_c", 1]})
+
+        resource = self._getTestResource(more)
+        assert resource.attributes["circular_a"] == None, resource.attributes["circular_a"]
+        assert resource.attributes["circular_b"] == None, resource.attributes["circular_b"]
+        assert resource.attributes["circular_c"] == 1, resource.attributes["circular_c"]
+        assert resource.attributes["circular_d"] == 1, resource.attributes["circular_d"]
 
     def test_forEach(self):
         resource = self._getTestResource()
@@ -502,7 +516,6 @@ a_dict:
         assert not ChangeRecord.is_change_id(True), "not a string"
 
     def test_binaryvault(self):
-        import six
         from unfurl.support import AttributeManager
         from unfurl.yamlloader import make_yaml, sensitive_bytes, make_vault_lib
 
@@ -523,7 +536,7 @@ a_dict:
         )
         vault = make_vault_lib("password")
         yaml = make_yaml(vault)
-        expr = yaml.load(six.StringIO(src))
+        expr = yaml.load(io.StringIO(src))
         resource = self._getTestResource()
         resource.attributeManager = AttributeManager(yaml)
         resource._templar._loader.set_vault_secrets(vault.secrets)
@@ -543,7 +556,7 @@ a_dict:
           encoding: binary
         select: contents
         """
-        expr = yaml.load(six.StringIO(src))
+        expr = yaml.load(io.StringIO(src))
         contents = map_value(expr, RefContext(resource, vars=dict(tempfile=filePath)))
         assert isinstance(contents, sensitive_bytes), type(contents)
         with open(fixture, "rb") as tp:
@@ -582,7 +595,6 @@ a_dict:
         self.assertEqual(result, "transformed test")
 
     def test_to_env(self):
-        import six
         from unfurl.yamlloader import make_yaml
         src = """
           eval:
@@ -597,11 +609,11 @@ a_dict:
               SUB: "${FOO}"
           """
         yaml = make_yaml()
-        expr = yaml.load(six.StringIO(src))
+        expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
         env = map_value(expr, ctx)
         assert env == {'FOO': '1', 'BAR': '', 'BAZ': 'true', 'QUU': 'passw0rd', "SUB": "1"}
-        out=six.StringIO()
+        out=io.StringIO()
         yaml.dump(serialize_value(env), out)
         assert out.getvalue() == '''\
 FOO: '1'
@@ -612,7 +624,6 @@ SUB: '1'
 '''
 
     def test_to_env_set_environ(self):
-        import six
         from unfurl.yamlloader import make_yaml
         src = """
           eval:
@@ -621,7 +632,7 @@ SUB: '1'
             update_os_environ: true
           """
         yaml = make_yaml()
-        expr = yaml.load(six.StringIO(src))
+        expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
         path = os.environ['PATH']
         env = map_value(expr, ctx)
