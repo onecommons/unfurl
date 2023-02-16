@@ -15,8 +15,7 @@ def test_package_rules():
     assert not url, (package_id, revision, url)
     types_url = "https://unfurl.cloud/onecommons/unfurl-types.git"
     latest_version_tag = Package("", types_url, None).find_latest_semver_from_repo()
-    # XXX change assert when unfurl-types releases a v1 version
-    assert latest_version_tag is None
+    assert latest_version_tag
     # replace gitlab.com/onecommons packages unfurl.cloud/onecommons packages
     package_rules_envvar = "gitlab.com/onecommons/* unfurl.cloud/onecommons/*"
     runner = CliRunner()
@@ -54,8 +53,7 @@ def test_package_rules():
             origin = clonedtypes.remote(["get-url", "origin"])
             # should be on unfurl.cloud:
             assert origin == types_url, origin
-            # XXX re-enable when unfurl-types has a v1 revision
-            # assert clonedtypes.describe() == "v"+latest_version_tag
+            assert clonedtypes.describe() == "v"+latest_version_tag
 
             # add a rule to set the version to the "main" branch
             os.environ["UNFURL_PACKAGE_RULES"] = package_rules_envvar + " unfurl.cloud/onecommons/* #main"

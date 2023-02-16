@@ -67,11 +67,11 @@ from toscaparser.utils.validateutils import TOSCAVersionProperty
 logger = getLogger("unfurl")
 
 
-def is_semver(revision: Optional[str]) -> bool:
+def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
     """Return true if ``revision`` looks like a semver with major version >= 1"""
     return bool(
         revision
-        and not revision.lstrip("v").startswith("0")
+        and (include_unreleased or not revision.lstrip("v").startswith("0"))
         and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
     )
 
@@ -167,7 +167,12 @@ class PackageSpec:
             for pkg_spec in package_specs.values():
                 if pkg_spec.matches(package):
                     replaced_id = pkg_spec.update(package)
-                    logger.trace("updated package %s using rule %s: replaced %s", package, pkg_spec, replaced_id)
+                    logger.trace(
+                        "updated package %s using rule %s: replaced %s",
+                        package,
+                        pkg_spec,
+                        replaced_id,
+                    )
                     if not replaced_id:
                         if not package.url:
                             # use default url pattern for the package_id
@@ -225,6 +230,7 @@ class Package:
         self.url = url
         self.revision = minimum_version
         self.repositories: List[RepoView] = []
+        self.discovered_revision = False
 
     def __str__(self):
         return f"Package({self.package_id} {self.revision} {self.url})"
@@ -247,13 +253,15 @@ class Package:
         # (We exclude unreleased versions because we want to treat the repository
         # as if it didn't specify a semver at all. Unrelease versions have no backwards compatibility
         # guarantees so we don't want to treat the repository as pinned to a particular revision.
-        tags = [vtag for vtag in vtags if is_semver(vtag)]
+        tags = [vtag for vtag in vtags if is_semver(vtag, True)]
         if tags:
             return tags[0]
         return None
 
     def set_version_from_repo(self):
         self.revision = self.find_latest_semver_from_repo()
+        # set flag to indicate the revision wasn't explicitly specified
+        self.discovered_revision = True
 
     def set_url_from_package_id(self):
         self.url = package_id_to_url(self.package_id, self.revision_tag)
@@ -262,7 +270,7 @@ class Package:
     def revision_tag(self) -> str:
         if not self.revision:
             return ""
-        if not self.has_semver():
+        if not self.has_semver(True):
             return self.revision
         else:
             # since "^v" is in the semver regex, make sure don't end up with "vv"
@@ -283,8 +291,8 @@ class Package:
             return True
         return False
 
-    def has_semver(self):
-        return is_semver(self.revision)
+    def has_semver(self, include_unreleased=False) -> bool:
+        return is_semver(self.revision, include_unreleased)
 
     def is_compatible_with(self, package: "Package") -> bool:
         """
@@ -297,6 +305,10 @@ class Package:
             # there aren't two revisions to compare so skip compatibility check
             return True
         if not self.has_semver():
+            # if the revision wasn't specified, skip compatibility check
+            # otherwise, require an exact match for non-semver revisions
+            if self.discovered_revision or package.discovered_revision:
+                return True
             return self.revision == package.revision
         if not package.has_semver():  # doesn't have a semver and doesn't match
             return False
