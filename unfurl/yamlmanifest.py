@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Loads and saves a ensemble manifest.
 """
-from __future__ import absolute_import
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 import six
 import sys
 from collections.abc import MutableSequence, Mapping
@@ -29,6 +28,8 @@ from .logs import getLogger
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from ansible.parsing.dataloader import DataLoader
+if TYPE_CHECKING:
+    from .job import Job
 
 logger = getLogger("unfurl")
 
@@ -828,13 +829,13 @@ class YamlManifest(ReadOnlyManifest):
             job.out = self.manifest.save()
         return jobRecord, changes
 
-    def commit_job(self, job):
-        if job.planOnly:
+    def commit_job(self, job: "Job"):
+        if job.jobOptions.planOnly:
             return
         if job.dry_run:
             logger.info("printing results from dry run")
-            if not job.out and self.manifest.path:
-                job.out = sys.stdout
+            if not job.jobOptions.out and self.manifest.path:  # type: ignore
+                job.jobOptions.out = sys.stdout  # type: ignore
         jobRecord, changes = self.save_job(job)
         if not changes:
             logger.info("job run didn't make any changes; nothing to commit")
@@ -848,9 +849,9 @@ class YamlManifest(ReadOnlyManifest):
         if job.dry_run:
             return
 
-        if job.commit and self.repo:
-            if job.message is not None:
-                message = job.message
+        if job.jobOptions.commit and self.repo:
+            if job.jobOptions.message is not None:
+                message = job.jobOptions.message
             else:
                 message = self.get_default_commit_message()
 
@@ -858,6 +859,8 @@ class YamlManifest(ReadOnlyManifest):
             ensembleRepo = self.repositories["self"]
             if ensembleRepo.is_dirty():
                 ensembleRepo.commit(message, True)
+                if job.jobOptions.push and ensembleRepo.repo:
+                    ensembleRepo.repo.push()
 
     def get_default_commit_message(self):
         jobRecord = self.manifest.config.get("lastJob")

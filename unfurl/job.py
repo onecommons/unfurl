@@ -129,6 +129,9 @@ class JobOptions:
     workflow = Defaults.workflow
     planOnly = False
     verbose = 0
+    message: Optional[str] = None
+    commit = False
+    push = False
 
     defaults = dict(
         global_defaults,

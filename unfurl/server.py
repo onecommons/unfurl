@@ -908,9 +908,9 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, True)
         logger.info(f"committed to {committed} repositories")
-        if manifest.repo and manifest.repo.repo.remotes:
+        if manifest.repo:
             try:
-                manifest.repo.repo.remotes.origin.push().raise_if_error()
+                manifest.repo.push()
                 logger.info("pushed")
             except Exception:
                 # discard the last commit that we couldn't push

@@ -178,6 +178,12 @@ readonlyJobControlOptions = option_group(
         help="Commit modified files to the ensemble repository. (Default: false)",
     ),
     click.option(
+        "--push",
+        default=False,
+        is_flag=True,
+        help="Push after committing. (Default: false)",
+    ),
+    click.option(
         "--dirty",
         type=click.Choice(["abort", "ok", "auto"]),
         default="auto",

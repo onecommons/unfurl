@@ -493,27 +493,22 @@ class GitRepo(Repo):
     def __init__(self, gitrepo: git.Repo):
         self.repo = gitrepo
         self.url = self.working_dir or str(gitrepo.git_dir)
-        if gitrepo.remotes:
+        remote = self.remote
+        if remote:
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
-            try:
-                remote = gitrepo.remotes["origin"]
-            except Exception:
-                remote = gitrepo.remotes[0]
             self.url = remote.url
-
+  
     def add_transient_credentials(self, username, password):
         assert "@" not in self.url, self.url
         replacement = f'url."{username}:{password}@{self.url}".insteadOf "{self.url}"'
         self.repo.git.set_persistent_git_options(c=replacement)
 
-    def set_url_credentials(self, username, password):
-        try:
-            remote = self.repo.remotes["origin"]
-        except Exception:
-            remote = self.repo.remotes[0]
-        new_url = add_user_to_url(remote.url, username, password)
-        # replace the url
-        remote.set_url(new_url, remote.url)
+    def set_url_credentials(self, username: str, password: str) -> None:
+        remote = self.remote
+        if remote:
+            new_url = add_user_to_url(remote.url, username, password)
+            # replace the url
+            remote.set_url(new_url, remote.url)
 
     @property
     def working_dir(self) -> str:
@@ -531,6 +526,17 @@ class GitRepo(Repo):
         if not self.repo.head.is_valid():
             return ""
         return self.repo.head.commit.hexsha
+
+    @property
+    def remote(self) -> Optional[git.Remote]:
+        gitrepo = self.repo
+        if gitrepo.remotes:
+            # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
+            try:
+                return gitrepo.remotes["origin"]
+            except Exception:
+                return gitrepo.remotes[0]
+        return None
 
     def resolve_rev_spec(self, revision):
         try:
@@ -679,6 +685,10 @@ class GitRepo(Repo):
             return not code
         else:
             return False
+
+    def push(self) -> None:
+        if self.remote:
+            self.remote.push().raise_if_error()
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
