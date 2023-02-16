@@ -853,7 +853,11 @@ class YamlManifest(ReadOnlyManifest):
                 message = job.message
             else:
                 message = self.get_default_commit_message()
-            self.commit(message, True)
+
+            # only commit the ensemble repository:
+            ensembleRepo = self.repositories["self"]
+            if ensembleRepo.is_dirty():
+                ensembleRepo.commit(message, True)
 
     def get_default_commit_message(self):
         jobRecord = self.manifest.config.get("lastJob")
@@ -862,21 +866,21 @@ class YamlManifest(ReadOnlyManifest):
         else:
             return "Commit by Unfurl"
 
-    def get_repo_status(self, dirty=False):
+    def get_repo_status(self, dirty=False) -> str:
         return "".join([r.get_repo_status(dirty) for r in self.repositories.values()])
 
-    def add_all(self):
+    def add_all(self) -> None:
         for repository in self.repositories.values():
             if not repository.readOnly and repository.is_dirty():
                 repository.add_all()
 
-    def commit(self, msg: str, addAll: bool) -> int:
+    def commit(self, msg: str, add_all: bool = False) -> int:
         committed = 0
         for repository in self.repositories.values():
             if repository.repo == self.repo:
                 continue
             if not repository.readOnly and repository.is_dirty():
-                retVal = repository.commit(msg, addAll)
+                retVal = repository.commit(msg, add_all)
                 committed += 1
                 logger.info(
                     "committed %s to %s: %s", retVal, repository.working_dir, msg
@@ -886,7 +890,7 @@ class YamlManifest(ReadOnlyManifest):
         #    (note: endCommit will be omitted as changes.yaml isn't updated)
         ensembleRepo = self.repositories["self"]
         if ensembleRepo.is_dirty():
-            retVal = ensembleRepo.commit(msg, addAll)
+            retVal = ensembleRepo.commit(msg, add_all)
             committed += 1
             logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
 

@@ -22,10 +22,7 @@ from typing import (
     TYPE_CHECKING,
     cast,
 )
-
 from ansible.parsing.vault import VaultLib
-import six
-from six import Iterator
 from unfurl.runtime import NodeInstance
 
 from .repo import GitRepo, Repo, add_user_to_url, split_git_url, RepoView, normalize_git_url_hard
@@ -55,7 +52,6 @@ from .logs import getLogger
 
 logger = getLogger("unfurl")
 
-
 class Project:
     """
     A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
@@ -69,7 +65,7 @@ class Project:
         overrides: Optional[dict] = None,
         readonly: Optional[bool] = False,
     ):
-        assert isinstance(path, six.string_types), path
+        assert isinstance(path, str), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         self.overrides = overrides or {}
         if os.path.exists(path):

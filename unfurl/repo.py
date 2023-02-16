@@ -419,7 +419,7 @@ class RepoView:
     def save_secrets(self):
         return commit_secrets(self.working_dir, self.yaml)
 
-    def commit(self, message, addAll=False):
+    def commit(self, msg: str, add_all: bool = False) -> int:
         assert not self.readOnly
         assert self.repo
         if self.yaml:
@@ -427,13 +427,10 @@ class RepoView:
                 local_path = str(saved.relative_to(self.repo.working_dir))
                 if not self.repo.is_path_excluded(local_path):
                     self.repo.repo.git.add(local_path)
-        if addAll:
+        if add_all:
             self.add_all()
-        self.repo.repo.index.commit(message)
+        self.repo.repo.index.commit(msg)
         return 1
-
-    def get_default_commit_message(self):
-        return "Commit by Unfurl"
 
     def git_status(self):
         assert not self.readOnly

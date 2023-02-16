@@ -904,10 +904,9 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     if was_dirty:
         logger.warning("local repository at %s was dirty, not committing or pushing", clone_location)
     else:
-        manifest.add_all()
         commit_msg = body.get("commit_msg", "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
-        committed = manifest.commit(commit_msg, False)
+        committed = manifest.commit(commit_msg, True)
         logger.info(f"committed to {committed} repositories")
         if manifest.repo and manifest.repo.repo.remotes:
             try:

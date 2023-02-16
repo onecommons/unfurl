@@ -20,6 +20,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
+from typing_extensions import Protocol
 
 import click
 import rich
@@ -174,7 +175,7 @@ readonlyJobControlOptions = option_group(
         "--commit",
         default=False,
         is_flag=True,
-        help="Commit modified files to the instance repository. (Default: false)",
+        help="Commit modified files to the ensemble repository. (Default: false)",
     ),
     click.option(
         "--dirty",
@@ -230,7 +231,7 @@ commonJobFilterOptions = option_group(
         type=click.Tuple([str, str]),
         multiple=True,
         help="name/value pair to pass to job (multiple times ok).",
-    )
+    ),
 )
 destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
@@ -1005,15 +1006,25 @@ def git(ctx, gitargs, dir="."):
     return status
 
 
-def get_commit_message(committer):
+class Committer(Protocol):
+    def commit(self, msg: str, add_all: bool = False) -> int:
+        ...
+
+    def add_all(self) -> None:
+        ...
+
+    def get_repo_status(self, dirty=False) -> str:
+        ...
+
+
+def get_commit_message(committer, default_message):
     statuses = committer.get_repo_status(True)
     if not statuses:
         click.echo("Nothing to commit!")
         return None
-    defaultMsg = committer.get_default_commit_message()
     MARKER = "# Everything below is ignored\n"
     statusMsg = "# " + "\n# ".join(statuses.rstrip().splitlines())
-    message = click.edit(defaultMsg + "\n\n" + MARKER + statusMsg)
+    message = click.edit(default_message + "\n\n" + MARKER + statusMsg)
     if message is not None:
         return message.split(MARKER, 1)[0].rstrip("\n")
     else:
@@ -1038,11 +1049,25 @@ def get_commit_message(committer):
     help="Don't add files for committing (user must add using git)",
 )
 @click.option(
+    "--all-repositories",
+    default=False,
+    is_flag=True,
+    help="Commit all repositories the ensemble accesses",
+)
+@click.option(
     "--use-environment",
     default=None,
     help="Use this environment.",
 )
-def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options):
+def commit(
+    ctx,
+    project_or_ensemble_path,
+    message,
+    skip_add,
+    no_edit,
+    all_repositories,
+    **options,
+):
     """Commit any changes to the given project or ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
@@ -1051,23 +1076,36 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
         can_be_empty=True,
         override_context=options.get("use_environment") or "",
     )
-    if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(localEnv.manifestPath):
-        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
+    if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(
+        localEnv.manifestPath
+    ):
+        ensemble = localEnv.get_manifest()
+        default_commit_message = ensemble.get_default_commit_message()
+        if all_repositories:
+            committer: Committer = ensemble
+        else:
+            committer = ensemble.repositories["self"]
     else:
+        default_commit_message = "Commit by Unfurl"
         # otherwise commit the whole project
-        assert localEnv.project
-        committer = localEnv.project.project_repoview
+        if all_repositories:
+            click.echo("aborting: --all-repositories requires an ensemble path")
+            return
+        else:
+            assert localEnv.project
+            committer = localEnv.project.project_repoview
 
     if not skip_add:
         committer.add_all()
 
     if not message:
         if no_edit:
-            message = committer.get_default_commit_message()
+            message = default_commit_message
         else:
-            message = get_commit_message(committer)
+            message = get_commit_message(committer, default_commit_message)
             if not message:
                 return  # aborted
+
     committed = committer.commit(message, False)
     click.echo(f"committed to {committed} repositories")
 
@@ -1134,7 +1172,7 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
         project_or_ensemble_path,
         options.get("home"),
         override_context=options.get("use_environment") or "",
-        readonly=True
+        readonly=True,
     )
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv, file)
@@ -1242,8 +1280,12 @@ def help(ctx, cmd=""):
 
 @cli.command()
 @click.pass_context
-@click.argument("project_or_ensemble_path", default=".",
-                envvar='UNFURL_SERVE_PATH', type=click.Path(exists=True))
+@click.argument(
+    "project_or_ensemble_path",
+    default=".",
+    envvar="UNFURL_SERVE_PATH",
+    type=click.Path(exists=True),
+)
 @click.option("--port", default=8081, help="Port to listen on")
 @click.option("--address", default="localhost", help="Host to listen on")
 @click.option(
@@ -1263,7 +1305,9 @@ def help(ctx, cmd=""):
     envvar="UNFURL_SERVE_CORS",
     help='enable CORS with origin (e.g. "*")',
 )
-def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options):
+def serve(
+    ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options
+):
     options.update(ctx.obj)
     # env vars need to set before importing serve
     if cors:
