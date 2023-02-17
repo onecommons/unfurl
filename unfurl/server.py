@@ -71,7 +71,6 @@ app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
 if cors:
     CORS(app, origins=cors.split())
-os.environ["GIT_ASKPASS"] = "false"
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
 def set_current_ensemble_git_url():
