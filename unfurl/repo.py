@@ -510,9 +510,8 @@ class GitRepo(Repo):
             self.url = remote.url
 
     def add_transient_credentials(self, username, password):
-        assert "@" not in self.url, self.url
         url = add_user_to_url(self.url, username, password)
-        replacement = f'url."{username}:{password}@{url}".insteadOf "{self.url}"'
+        replacement = f'url."{url}".insteadOf "{self.url}"'
         # _git_options get cleared after next git command is issued
         self.repo.git._git_options = self.repo.git.self.transform_kwargs(
             split_single_char_options=True, c=replacement
