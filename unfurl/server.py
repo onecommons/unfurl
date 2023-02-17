@@ -95,7 +95,7 @@ def _get_project_repo(project_id: str, args: Optional[dict] = None) -> Optional[
             # make sure we are using the latest credentials:
             username, password = args.get("username"), args.get("private_token", args.get("password"))
             if username and password:
-                repo.set_url_credentials(username, password)
+                repo.set_url_credentials(username, password, True)
         return repo
     return None
 
@@ -543,6 +543,7 @@ def clear_project():
     clear_cache(cache, project_id)
     clear_cache(cache, "_inflight::" + project_id)
     if os.path.isdir(project_dir):
+        logger.info("clear_project: removing %s", project_dir)
         rmtree(project_dir, logger)
     else:
         logger.info("clear_project: %s not found", project_id)
@@ -807,9 +808,8 @@ def _patch_environment(body: dict, project_id: str):
         elif typename == "DeploymentPath":
             update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
-    commit_msg = body.get("commit_msg", "Update environment")
     if not was_dirty:
-        err = _commit_and_push(repo, cast(str, localConfig.config.path), commit_msg)
+        err = _commit_and_push(repo, cast(str, localConfig.config.path), body)
         if err:
             return err  # err will be an error response
     else:
@@ -870,6 +870,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 
     cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
+    # set apply_url_credentials=True so that we reuse the credentials when cloning other repositories on this server
     overrides = dict(ENVIRONMENT=environment, UNFURL_CLOUD_VARS_URL=cloud_vars_url, apply_url_credentials=True)
     # don't validate in case we are still an incomplete draft
     manifest = LocalEnv(clone_location, overrides=overrides).get_manifest(skip_validation=True)
@@ -904,12 +905,18 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     if was_dirty:
         logger.warning("local repository at %s was dirty, not committing or pushing", clone_location)
     else:
+        username = body.get("username")
+        password = body.get("private_token", body.get("password"))
+        if not password and manifest.repo and manifest.repo.url.startswith("https:"):
+            return create_error_response("UNAUTHORIZED", "Missing credentials")
         commit_msg = body.get("commit_msg", "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, True)
         logger.info(f"committed to {committed} repositories")
         if manifest.repo:
             try:
+                if password:
+                    manifest.repo.add_transient_credentials(username, password)
                 manifest.repo.push()
                 logger.info("pushed")
             except Exception:
@@ -971,11 +978,18 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 #     return "OK"
 
 
-def _commit_and_push(repo: GitRepo, full_path: str, commit_msg: str):
+def _commit_and_push(repo: GitRepo, full_path: str, body: dict):
+    commit_msg = body.get("commit_msg", "Update environment")
+    username = body.get("username")
+    password = body.get("private_token", body.get("password"))
+    if not password and repo.url.startswith("https:"):
+        return create_error_response("UNAUTHORIZED", "Missing credentials")
     repo.add_all(full_path)
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
+    if password:
+        repo.add_transient_credentials(username, password)
     if repo.repo.remotes:
         try:
             repo.repo.remotes.origin.push().raise_if_error()

@@ -17,6 +17,7 @@ from .util import UnfurlError, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
+
 if TYPE_CHECKING:
     from .packages import Package
 
@@ -66,14 +67,17 @@ def normalize_git_url(url: str, hard: int = 0):
     return url
 
 
-def sanitize_url(url: str) -> str:
+def sanitize_url(url: str, redact=True) -> str:
     if "://" in url and "@" in url:  # sanitize
         parts = urlparse(url)
         # XXXX out user and password
         user, sep, host = parts.netloc.rpartition("@")
         if user:
-            user, sep, password = user.partition(':')
-            netloc = f"XXXXX{':XXXXX' if password else ''}@{host}"
+            user, sep, password = user.partition(":")
+            if redact:
+                netloc = f"XXXXX{':XXXXX' if password else ''}@{host}"
+            else:
+                netloc = host
             return parts._replace(netloc=netloc).geturl()
     return url
 
@@ -120,23 +124,25 @@ def split_git_url(url):
     return url, "", ""
 
 
-# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow 
+# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
 @lru_cache(None)  # XXX won't get up dates in server mode
 def get_remote_tags(url, pattern="*") -> List[str]:
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
     # -v:refname is version sort in reverse order
     # -c versionsort.suffix=- ensures 1.0.0-XXXXXX comes before 1.0.0.
-    blob = git.cmd.Git()(c="versionsort.suffix=-").ls_remote(url, pattern, sort='-v:refname', tags=True)
+    blob = git.cmd.Git()(c="versionsort.suffix=-").ls_remote(
+        url, pattern, sort="-v:refname", tags=True
+    )
     # len("b90df3d12413db22d051db1f7c7286cdd2f00b66\trefs/tags/") == 51
     # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
-    tags = [line[51:] for line in blob.split('\n') if not line.endswith("^{}")]
+    tags = [line[51:] for line in blob.split("\n") if not line.endswith("^{}")]
     logger.debug("got %s remote tags with pattern %s from %s", len(tags), pattern, url)
     return tags
 
 
 class _ProgressPrinter(git.RemoteProgress):
-    gitUrl = ''
+    gitUrl = ""
 
     def update(self, op_code, cur_count, max_count=None, message=""):
         # we use print instead of logging because we don't want to clutter logs with this message
@@ -161,7 +167,9 @@ class Repo(abc.ABC):
         return None
 
     @staticmethod
-    def find_git_working_dirs(rootDir, include_root, gitDir=".git") -> Dict[str, "RepoView"]:
+    def find_git_working_dirs(
+        rootDir, include_root, gitDir=".git"
+    ) -> Dict[str, "RepoView"]:
         working_dirs: Dict[str, "RepoView"] = {}
         for root, dirs, files in os.walk(rootDir):
             if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
@@ -170,7 +178,9 @@ class Repo(abc.ABC):
         return working_dirs
 
     @staticmethod
-    def update_git_working_dirs(working_dirs, root, dirs, gitDir=".git") -> Optional[str]:
+    def update_git_working_dirs(
+        working_dirs, root, dirs, gitDir=".git"
+    ) -> Optional[str]:
         if gitDir in dirs and is_git_worktree(root, gitDir):
             assert os.path.isdir(root), root
             repo = GitRepo(git.Repo(root))
@@ -242,10 +252,7 @@ class Repo(abc.ABC):
             # e.g. extract tosca-parser from https://github.com/onecommons/tosca-parser.git
             if name_only:
                 path = os.path.basename(path)
-            name = (
-                os.path.splitext(path)[0]
-                or parts.netloc
-            )
+            name = os.path.splitext(path)[0] or parts.netloc
         assert not name.endswith(".git"), name
         return name
 
@@ -319,7 +326,9 @@ def find_dirty_secrets(working_dir):
 class RepoView:
     # view of Repo optionally filtered by path
     # XXX and revision too
-    def __init__(self, repository: Union[dict, Repository], repo: Optional["GitRepo"], path="") -> None:
+    def __init__(
+        self, repository: Union[dict, Repository], repo: Optional["GitRepo"], path=""
+    ) -> None:
         if isinstance(repository, dict):
             # required keys: name, url
             tpl = repository.copy()
@@ -337,7 +346,9 @@ class RepoView:
         self.repo = repo
         self.path = path
         if repo and path and self.repository:
-            self.repository.url = repo.get_url_with_path(path, False, self.revision or "")
+            self.repository.url = repo.get_url_with_path(
+                path, False, self.revision or ""
+            )
         self.readOnly = not repo
 
     @property
@@ -497,18 +508,30 @@ class GitRepo(Repo):
         if remote:
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             self.url = remote.url
-  
+
     def add_transient_credentials(self, username, password):
         assert "@" not in self.url, self.url
-        replacement = f'url."{username}:{password}@{self.url}".insteadOf "{self.url}"'
-        self.repo.git.set_persistent_git_options(c=replacement)
+        url = add_user_to_url(self.url, username, password)
+        replacement = f'url."{username}:{password}@{url}".insteadOf "{self.url}"'
+        # _git_options get cleared after next git command is issued
+        self.repo.git._git_options = self.repo.git.self.transform_kwargs(
+            split_single_char_options=True, c=replacement
+        )
 
-    def set_url_credentials(self, username: str, password: str) -> None:
+    def set_url_credentials(
+        self, username: str, password: str, fetch_only=False
+    ) -> None:
         remote = self.remote
         if remote:
-            new_url = add_user_to_url(remote.url, username, password)
-            # replace the url
+            if username:
+                new_url = add_user_to_url(remote.url, username, password)
+            else:
+                # clear credentials
+                new_url = sanitize_url(remote.url, False)
             remote.set_url(new_url, remote.url)
+            if fetch_only:
+                # exclude credentials from the push url
+                remote.set_url(sanitize_url(remote.url, False), add=True, push=True)
 
     @property
     def working_dir(self) -> str:
@@ -599,7 +622,7 @@ class GitRepo(Repo):
         # note: sets cwd to working_dir
         return gitcmd.execute(  # type: ignore
             call, with_exceptions=with_exceptions, with_extended_output=True, **kw
-        )  
+        )
 
     def add_to_local_git_ignore(self, rule):
         path = os.path.join(self.repo.git_dir, "info")
