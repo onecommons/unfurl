@@ -550,7 +550,7 @@ spec:
 
     def test_remote_git_repo(self):
         runner = CliRunner()
-        with runner.isolated_filesystem("temp"):
+        with runner.isolated_filesystem():
             result = runner.invoke(cli, ["init", "--mono"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
