@@ -888,7 +888,7 @@ def _patch_environment(body: dict, project_id: str):
     assert repo
     username = cast(str, body.get("username"))
     password = cast(str, body.get("private_token", body.get("password")))
-    if not password and repo.url.startswith("https:"):
+    if not password and repo.url.startswith("http"):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
     was_dirty = repo.is_dirty()
     if already_exists and not was_dirty:
@@ -1056,7 +1056,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 
     username = body.get("username")
     password = body.get("private_token", body.get("password"))
-    if not password and manifest.repo and manifest.repo.url.startswith("https:"):
+    if not password and manifest.repo and manifest.repo.url.startswith("http:"):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     manifest.manifest.save()
@@ -1073,13 +1073,13 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
         if manifest.repo:
             try:
                 if password:
-                    manifest.repo.add_transient_credentials(username, password)
+                    manifest.repo.add_transient_push_credentials(username, password)
                 manifest.repo.push()
                 logger.info("pushed")
             except Exception:
                 # discard the last commit that we couldn't push
                 # this is mainly for security if we couldn't push because the user wasn't authorized
-                manifest.repo.reset()
+                manifest.repo.reset(f"--hard {latest_commit or 'HEAD~1'}")
                 logger.error("push failed", exc_info=True)
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not push repository"
@@ -1145,7 +1145,7 @@ def _commit_and_push(
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
     if password:
-        repo.add_transient_credentials(username, password)
+        repo.add_transient_push_credentials(username, password)
     if repo.repo.remotes:
         try:
             repo.repo.remotes.origin.push().raise_if_error()

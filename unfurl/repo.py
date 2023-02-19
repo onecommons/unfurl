@@ -508,10 +508,11 @@ class GitRepo(Repo):
         if remote:
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             self.url = remote.url
+        self.push_url = self.url
 
-    def add_transient_credentials(self, username, password):
+    def add_transient_push_credentials(self, username, password):
         url = add_user_to_url(self.url, username, password)
-        replacement = f'url."{url}".insteadOf="{self.url}"'
+        replacement = f'url."{url}".insteadOf="{self.push_url}"'
         # _git_options get cleared after next git command is issued
         self.repo.git._git_options = self.repo.git.transform_kwargs(
             split_single_char_options=True, c=replacement
@@ -528,9 +529,11 @@ class GitRepo(Repo):
                 # clear credentials
                 new_url = sanitize_url(remote.url, False)
             remote.set_url(new_url, remote.url)
+            self.url = new_url
             if fetch_only:
                 # exclude credentials from the push url
-                remote.set_url(sanitize_url(remote.url, False), add=True, push=True)
+                self.push_url = sanitize_url(remote.url, False)
+                remote.set_url(self.push_url, push=True)
 
     @property
     def working_dir(self) -> str:
@@ -627,8 +630,10 @@ class GitRepo(Repo):
         path = os.path.join(self.repo.git_dir, "info")
         if not os.path.exists(path):
             os.makedirs(path)
-        with open(os.path.join(path, "exclude"), "a") as f:
+        exclude_path = os.path.join(path, "exclude")
+        with open(exclude_path, "a") as f:
             f.write("\n" + rule + "\n")
+        return exclude_path
 
     def show(self, path, commitId):
         if self.working_dir and os.path.isabs(path):

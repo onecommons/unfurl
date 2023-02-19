@@ -550,16 +550,23 @@ spec:
 
     def test_remote_git_repo(self):
         runner = CliRunner()
-        with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["--home", "./unfurl_home", "init", "--mono"])
+        with runner.isolated_filesystem("temp"):
+            result = runner.invoke(cli, ["init", "--mono"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
-
             with open("ensemble/ensemble.yaml", "w") as f:
                 f.write(repoManifestContent)
             ensemble = LocalEnv().get_manifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
+            ensemble.commit("test", True)
+            assert ensemble.repo
+            assert not ensemble.repo.is_dirty()
+            rev = ensemble.repo.revision
+            ensemble.repo.reset()
+            assert rev != ensemble.repo.revision
+            with open("ensemble/ensemble.yaml") as f:
+                assert repoManifestContent != f.read()
 
             path = "base-payments"
             self.assertEqual(
@@ -569,6 +576,11 @@ spec:
                 ],
             )
             assert os.path.isdir(os.path.join(path, ".git"))
+            repo = GitRepo(Repo(path))
+            repo.set_url_credentials("a", "pw", True)
+            lines = repo.run_cmd(["remote", "-v"])[1].split("\n")
+            assert "(fetch)" in lines[0] and "a:pw" in lines[0], lines[0]  # fetch url
+            assert "(push)" in lines[1] and "a:pw@" not in lines[1], lines[1] # push url
 
     # XXX renable on CI -- this test has gotten really flaky on github actions for some reason
     @unittest.skipIf(os.getenv("CI"), reason="skipping due to flaky CI")
