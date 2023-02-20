@@ -73,6 +73,7 @@ if cors:
     CORS(app, origins=cors.split())
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
+
 def set_current_ensemble_git_url():
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
     if not project_or_ensemble_path:
@@ -969,6 +970,12 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     deployment_path = body.get("deployment_path") or ""
     existing_repo = _get_project_repo(project_id, body)
 
+    username = body.get("username")
+    password = body.get("private_token", body.get("password"))
+    push_url = existing_repo.url if existing_repo else app.config["UNFURL_CLOUD_SERVER"]
+    if push_url and not password and push_url.startswith("http"):
+        return create_error_response("UNAUTHORIZED", "Missing credentials")
+
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
     err, parent_localenv = _localenv_from_cache(
@@ -1053,11 +1060,6 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
                         doc = doc[key]
             if not deleted:
                 _patch_node_template(patch_inner, doc)
-
-    username = body.get("username")
-    password = body.get("private_token", body.get("password"))
-    if not password and manifest.repo and manifest.repo.url.startswith("http:"):
-        return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     manifest.manifest.save()
     if was_dirty:
