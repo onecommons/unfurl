@@ -28,7 +28,7 @@ from git.objects import Commit
 
 from unfurl.projectpaths import rmtree
 from .localenv import LocalEnv
-from .repo import GitRepo, normalize_git_url_hard, sanitize_url
+from .repo import GitRepo, add_user_to_url, normalize_git_url_hard, sanitize_url
 from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
@@ -1073,8 +1073,10 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
         if manifest.repo:
             try:
                 if password:
-                    manifest.repo.add_transient_push_credentials(username, password)
-                manifest.repo.push()
+                    url = add_user_to_url(manifest.repo.url, username, password)
+                else:
+                    url = None
+                manifest.repo.push(url)
                 logger.info("pushed")
             except Exception:
                 # discard the last commit that we couldn't push
@@ -1145,17 +1147,18 @@ def _commit_and_push(
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
     if password:
-        repo.add_transient_push_credentials(username, password)
-    if repo.repo.remotes:
-        try:
-            repo.repo.remotes.origin.push().raise_if_error()
-            logger.info("pushed")
-        except Exception:
-            # discard the last commit that we couldn't push
-            # this is mainly for security if we couldn't push because the user wasn't authorized
-            repo.reset()
-            logger.error("push failed", exc_info=True)
-            return create_error_response("INTERNAL_ERROR", "Could not push repository")
+        url = add_user_to_url(repo.url, username, password)
+    else:
+        url = None
+    try:
+        repo.push(url)
+        logger.info("pushed")
+    except Exception:
+        # discard the last commit that we couldn't push
+        # this is mainly for security if we couldn't push because the user wasn't authorized
+        repo.reset()
+        logger.error("push failed", exc_info=True)
+        return create_error_response("INTERNAL_ERROR", "Could not push repository")
     return None
 
 

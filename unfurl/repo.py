@@ -527,7 +527,7 @@ class GitRepo(Repo):
     ) -> None:
         remote = self.remote
         if remote:
-            if username:
+            if username or password:
                 new_url = add_user_to_url(remote.url, username, password)
             else:
                 # clear credentials
@@ -717,8 +717,10 @@ class GitRepo(Repo):
         else:
             return False
 
-    def push(self) -> None:
-        if self.remote:
+    def push(self, url: Optional[str]=None) -> None:
+        if url:
+            self.run_cmd(["push", url], with_exceptions=True)
+        elif self.remote:
             self.remote.push().raise_if_error()
 
     def clone(self, newPath):
