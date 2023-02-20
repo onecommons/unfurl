@@ -508,10 +508,14 @@ class GitRepo(Repo):
         if remote:
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             self.url = remote.url
-        self.push_url = self.url
+        self.push_url: Optional[str] = None
 
     def add_transient_push_credentials(self, username, password):
+        if not self.remote:
+            return
         url = add_user_to_url(self.url, username, password)
+        if self.push_url is None:
+            self.push_url = self.repo.git.remote("get-url", "--push", self.remote.name)
         replacement = f'url."{url}".insteadOf="{self.push_url}"'
         # _git_options get cleared after next git command is issued
         self.repo.git._git_options = self.repo.git.transform_kwargs(

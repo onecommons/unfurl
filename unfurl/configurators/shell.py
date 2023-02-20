@@ -22,7 +22,7 @@ inputs:
 # XXX add support for a stdin parameter
 
 from ..configurator import Status
-from ..util import which, truncate_str
+from ..util import which, truncate_str, clean_output
 from . import TemplateConfigurator
 import os
 import sys
@@ -30,7 +30,6 @@ import shlex
 import six
 import re
 from typing import Optional
-from click.termui import unstyle
 
 import subprocess
 
@@ -103,11 +102,6 @@ def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
         retcode = process.poll()
         assert isinstance(retcode, int)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
-
-
-def clean_output(value: str) -> str:
-    return re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(value))
-
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):

@@ -580,7 +580,9 @@ spec:
             repo.set_url_credentials("a", "pw", True)
             lines = repo.run_cmd(["remote", "-v"])[1].split("\n")
             assert "(fetch)" in lines[0] and "a:pw" in lines[0], lines[0]  # fetch url
-            assert "(push)" in lines[1] and "a:pw@" not in lines[1], lines[1] # push url
+            assert "(push)" in lines[1] and "a:pw@" not in lines[1], lines[1]  # push url
+            assert repo.push_url == repo.repo.git.remote("get-url", "--push", repo.remote.name)
+
 
     # XXX renable on CI -- this test has gotten really flaky on github actions for some reason
     @unittest.skipIf(os.getenv("CI"), reason="skipping due to flaky CI")
