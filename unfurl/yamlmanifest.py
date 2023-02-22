@@ -379,8 +379,8 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(resource_templates, node_templates, False)
         return True
 
-    def _configure_root(self, rootResource):
-        rootResource.imports = self.imports
+    def _configure_root(self, rootResource: TopologyInstance) -> None:
+        assert rootResource._templar
         if (
             self.manifest.vault and self.manifest.vault.secrets
         ):  # setBaseDir() may create a new templar
@@ -459,6 +459,7 @@ class YamlManifest(ReadOnlyManifest):
         for name, value in importsSpec.items():
             self.load_external_ensemble(name, value)
 
+        root.imports = self.imports
         return root
 
     def _load_resource_templates(self, templates, node_templates, virtual):

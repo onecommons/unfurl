@@ -29,7 +29,7 @@ from ansible.parsing.dataloader import DataLoader
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
 from .result import ResourceRef, ChangeAware
 
-from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
+from .support import AttributeManager, Defaults, Imports, Status, Priority, NodeState, Templar
 from .tosca import (
     EntitySpec,
     CapabilitySpec,
@@ -359,7 +359,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[bool, str]] = None
     protected: Optional[bool] = None
-    imports = None
+    imports: Optional[Imports] = None
     imported = None
     _baseDir = ""
     templateType = EntitySpec  # must defined by subtype
@@ -1042,6 +1042,7 @@ class TopologyInstance(HasInstancesInstance):
 
         self._relationships = None
         self._tmpDir = None
+        self.imports = None
 
     def set_base_dir(self, baseDir):
         self._baseDir = baseDir
