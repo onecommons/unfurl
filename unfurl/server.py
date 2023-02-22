@@ -353,15 +353,17 @@ class CacheEntry:
 
 
 def clear_cache(cache, starts_with) -> List[Any]:
-    simple = getattr(cache, "_cache", None)
-    if simple:
-        keys = [key for key in simple if key.startswith(starts_with)]
+    redis = getattr(cache, "_read_client", None)
+    if redis:
+        keys = redis.keys(cache.key_prefix + starts_with + "*")
     else:
-        redis = getattr(cache, "_read_client", None)
-        if redis:
-            keys = redis.keys(cache.key_prefix + starts_with + "*")
+        simple = getattr(cache, "_cache", None)
+        if simple:
+            keys = [key for key in simple if key.startswith(starts_with)]
         else:
+            logger.error(f"clearing cache: {starts_with} couldn't find cache")
             return []
+    logger.info(f"clearing cache {starts_with}, found keys: {keys}")
     return cache.delete_many(keys)
 
 
@@ -899,6 +901,7 @@ def _patch_environment(body: dict, project_id: str):
                 f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
             )
             return create_error_response("CONFLICT", "Repository at wrong revision")
+    starting_revision = localEnv.project.project_repoview.repo and localEnv.project.project_repoview.repo.revision
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
@@ -932,7 +935,12 @@ def _patch_environment(body: dict, project_id: str):
     if not was_dirty:
         commit_msg = body.get("commit_msg", "Update environment")
         err = _commit_and_push(
-            repo, cast(str, localConfig.config.path), commit_msg, username, password
+            repo,
+            cast(str, localConfig.config.path),
+            commit_msg,
+            username,
+            password,
+            starting_revision,
         )
         if err:
             return err  # err will be an error response
@@ -996,6 +1004,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
                 f"Conflict in {project_id}: {latest_commit} != {existing_repo.revision}"
             )
             return create_error_response("CONFLICT", "Repository at wrong revision")
+    starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
         blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
@@ -1083,7 +1092,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
             except Exception:
                 # discard the last commit that we couldn't push
                 # this is mainly for security if we couldn't push because the user wasn't authorized
-                manifest.repo.reset(f"--hard {latest_commit or 'HEAD~1'}")
+                manifest.repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
                 logger.error("push failed", exc_info=True)
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not push repository"
@@ -1142,7 +1151,12 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 
 
 def _commit_and_push(
-    repo: GitRepo, full_path: str, commit_msg: str, username: str, password: str
+    repo: GitRepo,
+    full_path: str,
+    commit_msg: str,
+    username: str,
+    password: str,
+    starting_revision: str,
 ):
     repo.add_all(full_path)
     # XXX catch exception and run git restore to rollback working dir
@@ -1158,7 +1172,7 @@ def _commit_and_push(
     except Exception:
         # discard the last commit that we couldn't push
         # this is mainly for security if we couldn't push because the user wasn't authorized
-        repo.reset()
+        repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
         logger.error("push failed", exc_info=True)
         return create_error_response("INTERNAL_ERROR", "Could not push repository")
     return None
