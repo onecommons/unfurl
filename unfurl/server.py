@@ -64,6 +64,7 @@ if flask_config["CACHE_TYPE"] == "RedisCache":
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
+cache.ignore_errors = True  # type: ignore
 app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
@@ -352,7 +353,7 @@ class CacheEntry:
         return err, value
 
 
-def clear_cache(cache, starts_with) -> List[Any]:
+def clear_cache(cache, starts_with) -> Optional[List[Any]]:
     redis = getattr(cache, "_read_client", None)
     if redis:
         keys = redis.keys(cache.key_prefix + starts_with + "*")
@@ -362,7 +363,7 @@ def clear_cache(cache, starts_with) -> List[Any]:
             keys = [key for key in simple if key.startswith(starts_with)]
         else:
             logger.error(f"clearing cache: {starts_with} couldn't find cache")
-            return []
+            return None
     logger.info(f"clearing cache {starts_with}, found keys: {keys}")
     return cache.delete_many(keys)
 
@@ -617,14 +618,16 @@ def populate_cache():
 def clear_project():
     project_id = get_project_id(request)
     project_dir = _get_project_repo_dir(project_id)
-    clear_cache(cache, project_id)
-    clear_cache(cache, "_inflight::" + project_id)
     if os.path.isdir(project_dir):
         logger.info("clear_project: removing %s", project_dir)
         rmtree(project_dir, logger)
     else:
         logger.info("clear_project: %s not found", project_id)
-    return "OK"
+    cleared = clear_cache(cache, project_id)
+    if cleared is None:
+        return create_error_response("INTERNAL_ERROR", "An internal error occurred")
+    clear_cache(cache, "_inflight::" + project_id)
+    return f"{len(cleared)}"
 
 
 def _make_readonly_localenv(clone_location, parent_localenv=None):
@@ -901,7 +904,7 @@ def _patch_environment(body: dict, project_id: str):
                 f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
             )
             return create_error_response("CONFLICT", "Repository at wrong revision")
-    starting_revision = localEnv.project.project_repoview.repo and localEnv.project.project_repoview.repo.revision
+    starting_revision = localEnv.project.project_repoview.repo and localEnv.project.project_repoview.repo.revision or ""
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
