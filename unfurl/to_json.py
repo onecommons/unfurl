@@ -48,7 +48,7 @@ def _print(*args):
 
 
 def js_timestamp(ts: datetime.datetime) -> str:
-    jsts = ts.isoformat(' ', 'seconds')
+    jsts = ts.isoformat(" ", "seconds")
     if ts.utcoffset() is None:
         # if no timezone assume utc and append the missing offset
         return jsts + "+00:00"
@@ -148,7 +148,7 @@ VALUE_TYPES.update(
 def tosca_type_to_jsonschema(spec, propdefs, toscatype):
     jsonschema = dict(
         type="object",
-        properties = {p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
+        properties={p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
     )
     # add typeid:
     if toscatype:
@@ -228,10 +228,12 @@ def tosca_schema_to_jsonschema(p, spec):
             if valuetype_schema.constraints:  # merge constraints
                 constraints = valuetype_schema.constraints + constraints
         else:  # it's a complex type with properties:
-            propdefs = [p for p in dt.get_properties_def_objects() if is_property_user_visible(p)]
-            type_schema = tosca_type_to_jsonschema(
-                spec, propdefs, dt.type
-            )
+            propdefs = [
+                p
+                for p in dt.get_properties_def_objects()
+                if is_property_user_visible(p)
+            ]
+            type_schema = tosca_type_to_jsonschema(spec, propdefs, dt.type)
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
     schema.update(type_schema)
@@ -339,7 +341,9 @@ def requirement_to_graphql(spec, req_dict):
     else:
         nodetype = req.get("capability")
         if not nodetype:
-            logger.warning("skipping constraint %s, there was no type specified ", req_dict)
+            logger.warning(
+                "skipping constraint %s, there was no type specified ", req_dict
+            )
             return None
     reqobj["resourceType"] = nodetype
     if req.get("node_filter"):
@@ -638,10 +642,10 @@ def add_capabilities_as_properties(schema, nodetype, spec):
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("properties"):
             continue
-        propdefs = [p for p in cap.get_properties_def_objects() if is_property_user_visible(p)]
-        schema[cap.name] = tosca_type_to_jsonschema(
-            spec, propdefs, cap.type
-        )
+        propdefs = [
+            p for p in cap.get_properties_def_objects() if is_property_user_visible(p)
+        ]
+        schema[cap.name] = tosca_type_to_jsonschema(spec, propdefs, cap.type)
 
 
 def add_capabilities_as_attributes(schema, nodetype, spec):
@@ -649,10 +653,10 @@ def add_capabilities_as_attributes(schema, nodetype, spec):
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("attributes"):
             continue
-        propdefs = [p for p in cap.get_attributes_def_objects() if is_property_user_visible(p)]
-        schema[cap.name] = tosca_type_to_jsonschema(
-            spec, propdefs, cap.type
-        )
+        propdefs = [
+            p for p in cap.get_attributes_def_objects() if is_property_user_visible(p)
+        ]
+        schema[cap.name] = tosca_type_to_jsonschema(spec, propdefs, cap.type)
 
 
 def _find_requirement_constraint(reqs, name):
@@ -737,7 +741,8 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     json = dict(
         type=nodetemplate.type,
         name=nodetemplate.name,
-        title=nodetemplate.entity_tpl.get("metadata", {}).get("title") or nodetemplate.name,
+        title=nodetemplate.entity_tpl.get("metadata", {}).get("title")
+        or nodetemplate.name,
         description=nodetemplate.entity_tpl.get("description") or "",
         directives=nodetemplate.directives,
     )
@@ -1121,7 +1126,9 @@ def get_blueprint_from_topology(manifest, db):
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
     last_commit_time = manifest.last_commit_time()
     if last_commit_time:
-        template["commitTime"] = js_timestamp(datetime.datetime.fromtimestamp(last_commit_time))
+        template["commitTime"] = js_timestamp(
+            datetime.datetime.fromtimestamp(last_commit_time)
+        )
     return blueprint, template
 
 
@@ -1224,8 +1231,11 @@ def add_graphql_deployment(manifest, db, dtemplate):
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
         deployment["summary"] = manifest.lastJob.get("summary")
-        deployment["deployTime"] = js_timestamp(datetime.datetime.strptime(
-            manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat))
+        deployment["deployTime"] = js_timestamp(
+            datetime.datetime.strptime(
+                manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat
+            )
+        )
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
@@ -1376,13 +1386,17 @@ def to_environments(localEnv, existing=None):
     for ensemble_info in deployments.values():
         env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
     defaults = localEnv.project.contexts.get("defaults")
-    default_imported_instances = _set_shared_instances(defaults and defaults.get("instances"))
+    default_imported_instances = _set_shared_instances(
+        defaults and defaults.get("instances")
+    )
     for name in localEnv.project.contexts:
         try:
             if name in env_deployments:
                 # we can reuse the localEnv if there's a distinct manifest that uses this environment
                 localEnv.manifest_context_name = name
-                localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml")
+                localEnv.manifestPath = os.path.join(
+                    localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml"
+                )
                 localLocalEnv = localEnv
             else:
                 # this environment doesn't have any deployments so we have to create a new localEnv
@@ -1425,7 +1439,9 @@ def to_deployments(localEnv, existing=None):
     for manifest_path, dp in db["DeploymentPath"].items():
         try:
             # optimization: reuse localenv
-            localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, manifest_path, "ensemble.yaml")
+            localEnv.manifestPath = os.path.join(
+                localEnv.project.projectRoot, manifest_path, "ensemble.yaml"
+            )
             environment = dp.get("environment") or "defaults"
             localEnv.manifest_context_name = environment
             deployments.append(to_deployment(localEnv))
@@ -1460,7 +1476,7 @@ def set_deploymentpaths(project, existing=None):
                 "project_id": ensemble_info.get("project_id"),
                 "pipelines": ensemble_info.get("pipelines", []),
                 "environment": ensemble_info["environment"],
-                "incremental_deploy": ensemble_info.get("incremental_deploy", False)
+                "incremental_deploy": ensemble_info.get("incremental_deploy", False),
             }
             if path in deployment_paths:
                 # merge duplicate entries

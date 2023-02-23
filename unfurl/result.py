@@ -3,12 +3,13 @@
 from collections.abc import Mapping, MutableSequence, MutableMapping
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+import io
 import logging
 from typing import TYPE_CHECKING, Any, Match, Optional, Tuple, cast
-import six
 import hashlib
 import re
 from toscaparser.common.exception import ValidationError
+
 if TYPE_CHECKING:
     from .tosca import EntitySpec
     from .support import Templar
@@ -51,7 +52,7 @@ def _get_digest(value, kw):
                 for d in _get_digest(v, kw):
                     yield d
         else:
-            out = six.BytesIO()
+            out = io.BytesIO()
             dump(serialize_value(value, redact=True), out)
             yield out.getvalue()
 
@@ -148,6 +149,7 @@ class ResourceRef(ABC):
     def environ(self):
         return self.root._environ
 
+
 class ChangeRecord:
     """
     A ChangeRecord represents a job or task in the change log file.
@@ -228,7 +230,7 @@ class ChangeRecord:
 
     @staticmethod
     def is_change_id(test: str) -> Optional[Match]:
-        if not isinstance(test, six.string_types):
+        if not isinstance(test, str):
             return None
         return re.match("^A[A-Za-z0-9]{11}$", test)
 
@@ -347,9 +349,11 @@ class ExternalValue(ChangeAware):
 class _Sentinal:
     pass
 
+
 _Deleted = _Sentinal()
 _Get = _Sentinal()
 _RecursionGuard = _Sentinal()
+
 
 class Result(ChangeAware):
     # ``original`` is managed by the Results that owns this Result
@@ -609,7 +613,9 @@ class Results(ABC):
                     # lazily evaluate lists and dicts
                     self.context.trace("Results._mapValue", key, val)
                     defs = self.get_datatype_defs(key)
-                    resolved = self._map_value(val, self.context, self.applyTemplates, defs)
+                    resolved = self._map_value(
+                        val, self.context, self.applyTemplates, defs
+                    )
                 # will return a Result if val was an expression that was evaluated
                 if isinstance(resolved, Result):
                     result: Result = resolved
@@ -661,7 +667,11 @@ class Results(ABC):
         try:
             if value is None:
                 # required attributes might be null depending on the state of the resource
-                if propDef.required and resource.template and key not in resource.template.attributeDefs:
+                if (
+                    propDef.required
+                    and resource.template
+                    and key not in resource.template.attributeDefs
+                ):
                     msg = f'Property "{key}" on "{resource.template.name}" cannot be null.'
                     raise ValidationError(message=msg)
             else:

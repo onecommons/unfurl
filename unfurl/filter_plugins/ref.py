@@ -45,6 +45,7 @@ def get_dir(context, relativeTo, mkdir=False):
     refContext.add_external_reference(filepath)
     return filepath.get()
 
+
 # XXX
 # override ansible built-in so we use our yaml object
 # @contextfilter

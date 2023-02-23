@@ -43,6 +43,7 @@ def make_regex_filter(logregex: re.Pattern, levels: list):
             # its a new log message
             return loglevel not in levels
         return skip
+
     return filter
 
 
@@ -102,6 +103,7 @@ def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
         retcode = process.poll()
         assert isinstance(retcode, int)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
@@ -167,7 +169,7 @@ class ShellConfigurator(TemplateConfigurator):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 input=None,
-                **kwargs
+                **kwargs,
             )
 
             # try to convert stdout and stderr to strings but leave as binary if that fails

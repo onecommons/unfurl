@@ -717,7 +717,7 @@ class GitRepo(Repo):
         else:
             return False
 
-    def push(self, url: Optional[str]=None) -> None:
+    def push(self, url: Optional[str] = None) -> None:
         if url:
             self.run_cmd(["push", url], with_exceptions=True)
         elif self.remote:

@@ -59,7 +59,9 @@ def map_value(
     return _map_value(value, resourceOrCxt, False, applyTemplates)
 
 
-def _map_value(value: Any, ctx: "RefContext", wantList: bool = False, applyTemplates: bool = True) -> Any:
+def _map_value(
+    value: Any, ctx: "RefContext", wantList: bool = False, applyTemplates: bool = True
+) -> Any:
     from .support import is_template, apply_template
 
     if Ref.is_ref(value):
@@ -484,6 +486,7 @@ def validate_schema_func(arg, ctx):
     assert_form(args, MutableSequence, len(args) == 2)  # type: ignore
     return validate_schema(args[0], args[1])
 
+
 if sys.version_info >= (3, 9):
     MutableSequence_Result = MutableSequence[Result]
 else:
@@ -492,6 +495,7 @@ else:
 ResultOrResultList = Union[Result, MutableSequence_Result]
 PairResultOrResultList = Tuple[Any, ResultOrResultList]
 MaybePairOrResultOrResultList = Union[PairResultOrResultList, ResultOrResultList]
+
 
 def _for_each(
     foreach: Union[MappingType[str, Any], str],
@@ -553,7 +557,9 @@ def _for_each(
                 yield valResult
 
     if keyExp:
-        return [Result(CommentedMap( cast(Iterable[PairResultOrResultList], make_items()) ))]
+        return [
+            Result(CommentedMap(cast(Iterable[PairResultOrResultList], make_items())))
+        ]
     else:
         return list(cast(Iterable[ResultOrResultList], make_items()))
 
@@ -564,11 +570,15 @@ def for_each(
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
         result = _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
     else:
-        result = _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
+        result = _for_each(
+            foreach, enumerate(r.external or r.resolved for r in results), ctx
+        )
     return ResultsList(result, ctx)  # ResultsList[List[ResultOrResultList]]]
 
 
-def for_each_func(foreach: Union[Mapping, str], ctx: RefContext) -> List[ResultOrResultList]:
+def for_each_func(
+    foreach: Union[Mapping, str], ctx: RefContext
+) -> List[ResultOrResultList]:
     results = ctx.currentResource
     if isinstance(results, Mapping):
         return _for_each(foreach, results.items(), ctx)
@@ -656,6 +666,7 @@ def eval_ref(
             ctx.trace("expr.resolve", results)
             return results
     return _eval_ref_results(val, ctx)
+
 
 def _eval_ref_results(val, ctx):
     mappedVal = Results._map_value(val, ctx)

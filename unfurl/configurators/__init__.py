@@ -52,26 +52,40 @@ class TemplateConfigurator(Configurator):
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         errors: Sequence[Exception] = []
         current_status = task.target.local_status
-        if resultTemplate:  # evaluate it now with the result    
+        if resultTemplate:  # evaluate it now with the result
             if os.getenv("UNFURL_TEST_DEBUG_EX"):
-                task.logger.error("evaluated result template (%s) with %s %s", type(resultTemplate), type(result), result)
+                task.logger.error(
+                    "evaluated result template (%s) with %s %s",
+                    type(resultTemplate),
+                    type(result),
+                    result,
+                )
             if isinstance(resultTemplate, Results):
                 resultTemplate = resultTemplate._attributes
             try:
                 if os.getenv("UNFURL_TEST_DEBUG_EX"):
-                    task.logger.error("result %s template is %s", type(resultTemplate), resultTemplate)   
+                    task.logger.error(
+                        "result %s template is %s", type(resultTemplate), resultTemplate
+                    )
                     trace = 2
                 else:
                     trace = 0
                 if Ref.is_ref(resultTemplate):
-                    results = task.query({"eval": resultTemplate}, vars=result, throw=True)
+                    results = task.query(
+                        {"eval": resultTemplate}, vars=result, throw=True
+                    )
                 else:
                     # lazily evaluated by update_instances() below
-                    results = Results._map_value(resultTemplate, task.inputs.context.copy(vars=result, trace=trace))
+                    results = Results._map_value(
+                        resultTemplate,
+                        task.inputs.context.copy(vars=result, trace=trace),
+                    )
             except Exception as e:
                 results = None
                 errors = [e]
-                task.logger.debug("exception when processing resultTemplate", exc_info=True)
+                task.logger.debug(
+                    "exception when processing resultTemplate", exc_info=True
+                )
             else:
                 if results:
                     jr, errors = task.update_instances(results)  # type: ignore
@@ -80,7 +94,7 @@ class TemplateConfigurator(Configurator):
                     "error processing resultTemplate: %s",
                     errors[0],
                 )
-        if task.target.local_status != current_status: 
+        if task.target.local_status != current_status:
             new_status = task.target.local_status
         else:
             new_status = None
@@ -115,7 +129,9 @@ class TemplateConfigurator(Configurator):
                 done["result"] = {"run": runResult, "outputs": done.get("outputs")}
             else:
                 done["result"] = runResult
-        errors, new_status = self.process_result_template(task, done.get("result") or {})
+        errors, new_status = self.process_result_template(
+            task, done.get("result") or {}
+        )
         if errors:
             done["success"] = False  # returned errors
         if new_status is not None:

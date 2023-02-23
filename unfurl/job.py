@@ -26,7 +26,15 @@ from typing import (
     cast,
     TYPE_CHECKING,
 )
-from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState, AttributeChanges
+from .support import (
+    Status,
+    Priority,
+    Defaults,
+    AttributeManager,
+    Reason,
+    NodeState,
+    AttributeChanges,
+)
 from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
@@ -79,6 +87,7 @@ class ConfigChange(OperationalInstance, ChangeRecord):
     1. Live resource attributes that the configuration's inputs depend on.
     2. Other configurations and resources it relies on to function properly.
     """
+
     def __init__(
         self,
         parentJob: Optional["Job"] = None,
@@ -506,7 +515,9 @@ class ConfigTask(TaskView, ConfigChange):
             operation=self.configSpec.operation,
             template=self.target.template.name,
             type=self.target.template.type,
-            targetStatus=None if self.target_status is None else self.target_status.name,
+            targetStatus=None
+            if self.target_status is None
+            else self.target_status.name,
             targetState=self.target_state and self.target_state.name or None,
             changed=self.modified_target,
             configurator=configurator,
@@ -526,7 +537,9 @@ class ConfigTask(TaskView, ConfigChange):
         return f"ConfigTask({self.target}:{self.name})"
 
 
-def _dependency_check(instance: Operational, state: Optional[NodeState] = None, operational=False):
+def _dependency_check(
+    instance: Operational, state: Optional[NodeState] = None, operational=False
+):
     missing = []
     for dep in instance.get_operational_dependencies():
         if dep.required:
@@ -651,7 +664,10 @@ class Job(ConfigChange):
                 yield e
 
     def _run(
-        self, rendered_requests: Optional[Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]] = None
+        self,
+        rendered_requests: Optional[
+            Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]
+        ] = None,
     ) -> ResourceRef:
         if rendered_requests:
             ready, notReady, errors = rendered_requests
@@ -686,8 +702,12 @@ class Job(ConfigChange):
             else:
                 # we ran all the ready tasks we could so now we can run left-over tasks that depend on
                 # live attributes that we no longer have to worry about being modified by another task
-                ready, notReady = set_fulfilled_stragglers(notReady, self.jobOptions.workflow == "deploy")
-            logger.trace("ready %s; not ready %s; completed: %s", ready, notReady, completed)
+                ready, notReady = set_fulfilled_stragglers(
+                    notReady, self.jobOptions.workflow == "deploy"
+                )
+            logger.trace(
+                "ready %s; not ready %s; completed: %s", ready, notReady, completed
+            )
 
             # the first time we render them all, after that only re-render requests if their dependencies were fulfilled
             # the last time (when completed is empty) don't have render valid dependencies as unfulfilled
@@ -837,9 +857,7 @@ class Job(ConfigChange):
                 continue
             if req.group and req.group.has_errors():
                 req.set_error("previous operation failed")
-                logger.debug(
-                    "Skipping task %s because previous operation failed", req
-                )
+                logger.debug("Skipping task %s because previous operation failed", req)
                 continue
             if isinstance(req, TaskRequestGroup):
                 # XXX this shouldn't happen now
@@ -866,7 +884,9 @@ class Job(ConfigChange):
                         continue
                 task = _task
                 if task.priority == Priority.critical:
-                    if not success or (task.result and task.result.status == Status.error):
+                    if not success or (
+                        task.result and task.result.status == Status.error
+                    ):
                         raise JobAborted(
                             f"Critical task failed: {task.name} for {task.target.name}"
                         )
@@ -971,7 +991,12 @@ class Job(ConfigChange):
                 reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies()
-                task.logger.debug("find missing %s %s %s", missing, task.configSpec.entry_state, task.configSpec.entry_state > NodeState.initial)
+                task.logger.debug(
+                    "find missing %s %s %s",
+                    missing,
+                    task.configSpec.entry_state,
+                    task.configSpec.entry_state > NodeState.initial,
+                )
                 if not missing:
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
@@ -1010,7 +1035,9 @@ class Job(ConfigChange):
                 resource.local_status = to_enum(Status, req.set_state)
         req.completed = True
 
-    def _entry_test(self, req: TaskRequest, workflow: Optional[str]) -> Tuple[bool, str]:
+    def _entry_test(
+        self, req: TaskRequest, workflow: Optional[str]
+    ) -> Tuple[bool, str]:
         """
         Operations can dynamically advance the state of a instance so that an operation
         added by the plan no longer needs to run.
@@ -1148,12 +1175,21 @@ class Job(ConfigChange):
             state_status = task.target.state.name if task.target.state else ""
             extra = dict(rich=dict(style=task.target.status.color))
             if task_success:
-                task.logger.info("Task succeeded, Resource Status: %s State: %s", status, state_status, extra=extra)
+                task.logger.info(
+                    "Task succeeded, Resource Status: %s State: %s",
+                    status,
+                    state_status,
+                    extra=extra,
+                )
             else:
-                task.logger.error("Task failed, Resource Status: %s State: %s", status, state_status, extra=extra)
+                task.logger.error(
+                    "Task failed, Resource Status: %s State: %s",
+                    status,
+                    state_status,
+                    extra=extra,
+                )
             return task, task_success
         return None, False
-
 
     def run_task(self, task: ConfigTask, depth: int = 0) -> ConfigTask:
         """

@@ -102,7 +102,9 @@ def get_default_topology():
             tosca_definitions_version=TOSCA_VERSION,
             topology_template=dict(
                 node_templates={"_default": {"type": "tosca.nodes.Root"}},
-                relationship_templates={"_default": {"type": "tosca.relationships.Root"}},
+                relationship_templates={
+                    "_default": {"type": "tosca.relationships.Root"}
+                },
             ),
         )
         __default_topology = ToscaTemplate(yaml_dict_tpl=tpl)
@@ -573,6 +575,7 @@ class ToscaSpec:
     def get_repository(self, name: str):
         return self.template and self.template.repositories.get(name)
 
+
 def find_env_vars(props_iter):
     for propdef, value in props_iter:
         datatype = propdef.entity
@@ -653,9 +656,9 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = toscaNodeTemplate.type
-        self._isReferencedBy: Sequence[EntitySpec] = (
-            []
-        )  # this is referenced by another template or via property traversal
+        self._isReferencedBy: Sequence[
+            EntitySpec
+        ] = []  # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -663,8 +666,8 @@ class EntitySpec(ResourceRef):
         self.propertyDefs = toscaNodeTemplate.get_properties()
         self.attributeDefs = {}
         self.properties = CommentedMap(
-                [(prop.name, prop.value) for prop in self.propertyDefs.values()]
-            )
+            [(prop.name, prop.value) for prop in self.propertyDefs.values()]
+        )
         if toscaNodeTemplate.type_definition:
             # add attributes definitions
             attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()
@@ -1054,9 +1057,9 @@ class RelationshipSpec(EntitySpec):
         # its connected through target, source, capability
         # its RelationshipType has valid_target_types
         if not template:
-            template = (
-                get_default_topology().topology_template.relationship_templates[0]
-            )
+            template = get_default_topology().topology_template.relationship_templates[
+                0
+            ]
             spec = ToscaSpec(get_default_topology())
         else:
             assert spec
@@ -1354,7 +1357,13 @@ class ArtifactSpec(EntitySpec):
         "file_extensions",
     )
 
-    def __init__(self, artifact_tpl, template: Optional[EntitySpec] = None, spec: Optional[ToscaSpec] = None, path=None):
+    def __init__(
+        self,
+        artifact_tpl,
+        template: Optional[EntitySpec] = None,
+        spec: Optional[ToscaSpec] = None,
+        path=None,
+    ):
         # 3.6.7 Artifact definition p. 84
         self.parentNode = template
         spec = template.spec if template else spec

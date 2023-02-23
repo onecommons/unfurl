@@ -24,7 +24,7 @@ from .runtime import (
     CapabilityInstance,
     RelationshipInstance,
     ArtifactInstance,
-    TopologyInstance
+    TopologyInstance,
 )
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir, taketwo
 from .repo import split_git_url, RepoView, GitRepo
@@ -46,8 +46,7 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict:
-    """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment.
-    """
+    """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment."""
     connections = environment.get(key)
     if not connections:
         return {}
@@ -87,7 +86,7 @@ class Manifest(AttributeManager):
 
     rootResource: Optional[TopologyInstance] = None
 
-    def __init__(self, path: Optional[str], localEnv: Optional["LocalEnv"]=None):
+    def __init__(self, path: Optional[str], localEnv: Optional["LocalEnv"] = None):
         super().__init__(yaml)
         self.localEnv = localEnv
         self.path = path
@@ -114,11 +113,14 @@ class Manifest(AttributeManager):
         for key, value in relabel_dict(context, self.localEnv, "repositories").items():
             if "." in key:  # assume it's a package not a repository name
                 assert isinstance(value, dict)
-                self.package_specs[key] = PackageSpec(key, value.get("url"), value.get("revision"))
+                self.package_specs[key] = PackageSpec(
+                    key, value.get("url"), value.get("revision")
+                )
             else:
                 repositories[key] = value
         env_package_spec = context.get("variables", {}).get(
-            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES"))
+            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
+        )
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 self.package_specs[key] = PackageSpec(key, value, None)
@@ -282,7 +284,9 @@ class Manifest(AttributeManager):
         configChange.previousId = changeSet.get("previousId")
         configChange.target = changeSet.get("target", "")
         assert isinstance(configChange.target, str)
-        configChange.operation = changeSet.get("implementation", {}).get("operation", "")
+        configChange.operation = changeSet.get("implementation", {}).get(
+            "operation", ""
+        )
         assert isinstance(configChange.operation, str)
 
         configChange.inputs = changeSet.get("inputs")  # type: ignore
@@ -373,7 +377,9 @@ class Manifest(AttributeManager):
                 requirement = self._create_requirement(key, val)
                 requirement._source = resource
                 # XXX investigate and re-enable this assert
-                assert requirement in resource.requirements, f"{requirement} not in {resource.requirements} for {rname}"
+                assert (
+                    requirement in resource.requirements
+                ), f"{requirement} not in {resource.requirements} for {rname}"
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
@@ -487,7 +493,9 @@ class Manifest(AttributeManager):
         )
         return repo, filePath, revision, bare
 
-    def add_repository(self, repo: Optional[GitRepo], toscaRepository: Repository, file_name: str) -> RepoView:
+    def add_repository(
+        self, repo: Optional[GitRepo], toscaRepository: Repository, file_name: str
+    ) -> RepoView:
         # add or replace the repository
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
@@ -499,13 +507,13 @@ class Manifest(AttributeManager):
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
-        repository = RepoView(
-            toscaRepository, repo, file_name
-        )
+        repository = RepoView(toscaRepository, repo, file_name)
         self.repositories[toscaRepository.name] = repository
         return repository
 
-    def _update_repositories(self, config, inlineRepositories=None, resolver: Optional[ImportResolver] = None) -> Dict[str, dict]:
+    def _update_repositories(
+        self, config, inlineRepositories=None, resolver: Optional[ImportResolver] = None
+    ) -> Dict[str, dict]:
         # Called during parse time when including files
         if not resolver:
             resolver = self.get_import_resolver(self)
@@ -609,7 +617,7 @@ class Manifest(AttributeManager):
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame
                 assert repo.get("url"), f"bad inline repository definition: {repo}"
-                inlineRepository = {reponame: dict(url=repo['url'])}
+                inlineRepository = {reponame: dict(url=repo["url"])}
         else:
             artifactTpl = dict(file=templatePath)
 
@@ -642,7 +650,9 @@ class Manifest(AttributeManager):
             tpl=tpl,
             resolver=resolver,
         )
-        import_spec = dict(file=artifactTpl["file"], repository=artifactTpl.get("repository"))
+        import_spec = dict(
+            file=artifactTpl["file"], repository=artifactTpl.get("repository")
+        )
         path, doc = loader._load_import_template(None, import_spec)
         if doc is None:
             logger.warning(
@@ -650,7 +660,9 @@ class Manifest(AttributeManager):
             )
         return path, doc
 
-    def get_import_resolver(self, ignoreFileNotFound=False, expand=False, config=None) -> ImportResolver:
+    def get_import_resolver(
+        self, ignoreFileNotFound=False, expand=False, config=None
+    ) -> ImportResolver:
         return ImportResolver(self, ignoreFileNotFound, expand, config)
 
     def last_commit_time(self) -> float:
@@ -661,12 +673,15 @@ class Manifest(AttributeManager):
         try:
             # find the revision that last modified this file before or equal to the current revision
             # (use current revision to handle branches)
-            commits = list(repo.repo.iter_commits(repo.revision, self.path or "", max_count=1))
+            commits = list(
+                repo.repo.iter_commits(repo.revision, self.path or "", max_count=1)
+            )
         except ValueError:
             return 0
         if commits:
             return commits[0].committed_date
         return 0
+
 
 # unused
 # class SnapShotManifest(Manifest):

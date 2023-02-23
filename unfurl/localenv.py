@@ -25,7 +25,14 @@ from typing import (
 from ansible.parsing.vault import VaultLib
 from unfurl.runtime import NodeInstance
 
-from .repo import GitRepo, Repo, add_user_to_url, split_git_url, RepoView, normalize_git_url_hard
+from .repo import (
+    GitRepo,
+    Repo,
+    add_user_to_url,
+    split_git_url,
+    RepoView,
+    normalize_git_url_hard,
+)
 from .util import (
     UnfurlError,
     filter_env,
@@ -51,6 +58,7 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 from .logs import getLogger
 
 logger = getLogger("unfurl")
+
 
 class Project:
     """
@@ -284,10 +292,14 @@ class Project:
                 candidate_parts = urlsplit(repo.url)
                 password = candidate_parts.password
                 if password:
-                    if (candidate_parts.hostname == repourl_parts.hostname
-                       and candidate_parts.port == repourl_parts.port):
+                    if (
+                        candidate_parts.hostname == repourl_parts.hostname
+                        and candidate_parts.port == repourl_parts.port
+                    ):
                         # rewrite repoUrl to add credentials
-                        repoURL = add_user_to_url(repoURL, candidate_parts.username, password)
+                        repoURL = add_user_to_url(
+                            repoURL, candidate_parts.username, password
+                        )
         return candidate or repoURL
 
     def find_git_repo(
@@ -334,7 +346,11 @@ class Project:
 
     def find_or_clone(self, repo: GitRepo) -> GitRepo:
         for dir, repository in self.workingDirs.items():
-            if repository.repo and repo.get_initial_revision() == repository.repo.get_initial_revision():
+            if (
+                repository.repo
+                and repo.get_initial_revision()
+                == repository.repo.get_initial_revision()
+            ):
                 return repository.repo
 
         gitUrl = repo.url
@@ -669,7 +685,9 @@ class LocalConfig:
         "instances",
     ]
 
-    def __init__(self, path=None, validate=True, yaml_include_hook=None, readonly=False):
+    def __init__(
+        self, path=None, validate=True, yaml_include_hook=None, readonly=False
+    ):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
@@ -677,7 +695,7 @@ class LocalConfig:
             validate,
             os.path.join(_basepath, "unfurl-schema.json"),
             yaml_include_hook,
-            readonly=readonly
+            readonly=readonly,
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -1273,7 +1291,10 @@ class LocalEnv:
             logger.debug(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
-            if not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK") and not repo.is_dirty():
+            if (
+                not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
+                and not repo.is_dirty()
+            ):
                 repo.pull(revision=revision)
         else:
             assert isinstance(

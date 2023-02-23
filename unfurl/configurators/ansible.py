@@ -11,7 +11,6 @@ from typing import Dict, Tuple
 import ansible.constants as C
 from ansible import context
 from ansible.cli.playbook import PlaybookCLI
-from ansible.module_utils import six
 from ansible.plugins.callback.default import CallbackModule
 from ansible.utils.display import Display
 
@@ -183,7 +182,7 @@ class AnsibleConfigurator(TemplateConfigurator):
 
     def get_inventory(self, task, cwd):
         inventory = task.inputs.get("inventory")
-        if inventory and isinstance(inventory, six.string_types):
+        if inventory and isinstance(inventory, str):
             # XXX if user set inventory file we can create a folder to merge them
             # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
             return inventory  # assume its a file path
@@ -230,7 +229,7 @@ class AnsibleConfigurator(TemplateConfigurator):
 
     def get_playbook(self, task, cwd):
         playbook = self.find_playbook(task)
-        if isinstance(playbook, six.string_types):
+        if isinstance(playbook, str):
             # assume it's file path
             return playbook
         playbook = self._make_playbook(playbook, task)

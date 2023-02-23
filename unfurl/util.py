@@ -562,7 +562,7 @@ class ChainMap(MutableMapping):
         self._maps = maps
 
     def copy(self):
-         # assume map implements copy()
+        # assume map implements copy()
         return ChainMap(*(m.copy() for m in self._maps))  # type: ignore
 
     def split(self) -> Tuple[MutableMapping, "ChainMap"]:
@@ -638,7 +638,7 @@ def substitute_env(contents, env=None, preserve_missing=False):
 
     def replace(m):
         if m.group(1):  # \ found
-            return m.group(0)[len(m.group(1)) - 1 or 1:]
+            return m.group(0)[len(m.group(1)) - 1 or 1 :]
         for name in m.group(2).split("|"):
             if name in env:
                 value = env[name]

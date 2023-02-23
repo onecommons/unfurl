@@ -904,7 +904,11 @@ def _patch_environment(body: dict, project_id: str):
                 f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
             )
             return create_error_response("CONFLICT", "Repository at wrong revision")
-    starting_revision = localEnv.project.project_repoview.repo and localEnv.project.project_repoview.repo.revision or ""
+    starting_revision = (
+        localEnv.project.project_repoview.repo
+        and localEnv.project.project_repoview.repo.revision
+        or ""
+    )
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)

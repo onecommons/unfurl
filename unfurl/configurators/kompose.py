@@ -208,8 +208,12 @@ class KomposeConfigurator(ShellConfigurator):
         task.logger.verbose(
             "Creating Kubernetes resources from these files: %s", ", ".join(files)
         )
-        return {Path(filename).stem: _load_resource_file(task, out_path, filename, ingress_extras)
-                for filename in files}
+        return {
+            Path(filename).stem: _load_resource_file(
+                task, out_path, filename, ingress_extras
+            )
+            for filename in files
+        }
 
     # XXX if updating delete previously created resources that are no longer referenced
     # XXX when updating compare resources, if nothing has yield the restart operation
@@ -279,9 +283,7 @@ def _render_template(task, rname: str, name: str, kind: str) -> dict:
             type="unfurl.nodes.K8sRawResource",
             properties=dict(definition=expr),
             interfaces=dict(
-                Standard=dict(
-                    inputs=configure_inputs(kind, task.configSpec.timeout)
-                )
+                Standard=dict(inputs=configure_inputs(kind, task.configSpec.timeout))
             ),
         ),
     )

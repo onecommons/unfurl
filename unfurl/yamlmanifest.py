@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Loads and saves a ensemble manifest.
 """
+import io
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
-import six
 import sys
 from collections.abc import MutableSequence, Mapping
 import numbers
@@ -28,6 +28,7 @@ from .logs import getLogger
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from ansible.parsing.dataloader import DataLoader
+
 if TYPE_CHECKING:
     from .job import Job
 
@@ -178,7 +179,12 @@ class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
     def __init__(
-        self, manifest=None, path: Optional[str]=None, validate=True, localEnv=None, vault=None
+        self,
+        manifest=None,
+        path: Optional[str] = None,
+        validate=True,
+        localEnv=None,
+        vault=None,
     ):
         path = path or localEnv and localEnv.manifestPath
         if path:
@@ -191,7 +197,7 @@ class ReadOnlyManifest(Manifest):
             os.path.join(_basepath, "manifest-schema.json"),
             self.load_yaml_include,
             vault,
-            localEnv and localEnv.readonly
+            localEnv and localEnv.readonly,
         )
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
@@ -420,9 +426,7 @@ class YamlManifest(ReadOnlyManifest):
         rules = self.context.get("variables") or CommentedMap()
         for rel in root.requirements:
             rules.update(rel.merge_props(find_env_vars, True))
-        rules = serialize_value(
-            map_value(rules, root), resolveExternal=True
-        )
+        rules = serialize_value(map_value(rules, root), resolveExternal=True)
         root._environ = filter_env(rules, os.environ)
         paths = self.localEnv and self.localEnv.get_paths()
         if paths:
@@ -505,7 +509,9 @@ class YamlManifest(ReadOnlyManifest):
             )
 
         if "project" in location:
-            importedManifest = self.localEnv and self.localEnv.get_external_manifest(location)
+            importedManifest = self.localEnv and self.localEnv.get_external_manifest(
+                location
+            )
             if not importedManifest:
                 raise UnfurlError(
                     f"Can not import external ensemble '{name}': can't find project '{location['project']}'"
@@ -640,7 +646,8 @@ class YamlManifest(ReadOnlyManifest):
 
     def save_requirement(self, resource) -> Optional[Dict[str, Dict]]:
         if not resource.last_change and (
-            not resource.local_status or resource.local_status <= Status.ok
+            not resource.local_status
+            or resource.local_status <= Status.ok
             or resource.local_status == Status.pending
         ):
             # no reason to serialize requirements that haven't been instantiated
@@ -649,7 +656,9 @@ class YamlManifest(ReadOnlyManifest):
         status["capability"] = resource.parent.key
         return {name: status}
 
-    def _save_entity_if_instantiated(self, resource, checkstatus=True) -> Optional[Tuple[str, Dict]]:
+    def _save_entity_if_instantiated(
+        self, resource, checkstatus=True
+    ) -> Optional[Tuple[str, Dict]]:
         if "virtual" in resource.template.directives:
             return None
         if not resource.last_change and (
@@ -674,7 +683,11 @@ class YamlManifest(ReadOnlyManifest):
             return ret
         name, status = ret
 
-        if self.tosca and self.tosca.discovered and resource.template.name in self.tosca.discovered:
+        if (
+            self.tosca
+            and self.tosca.discovered
+            and resource.template.name in self.tosca.discovered
+        ):
             discovered[resource.template.name] = self.tosca.discovered[
                 resource.template.name
             ]
@@ -967,7 +980,7 @@ class YamlManifest(ReadOnlyManifest):
                 )
             changes = itertools.chain([jobRecord], newChanges)
             changelog["changes"] = list(changes)
-            output = six.StringIO()
+            output = io.StringIO()
             self.yaml.dump(changelog, output)
             if not os.path.isdir(os.path.dirname(fullPath)):
                 os.makedirs(os.path.dirname(fullPath))

@@ -386,6 +386,7 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
 
 _initializing_environ = object()
 
+
 class TaskView:
     """The interface presented to configurators.
 
@@ -742,7 +743,7 @@ class TaskView:
             elif metadata_key:
                 attr_def = self.target.template.attributeDefs.get(key)
                 if attr_def and attr_def.schema.get("metadata", {}).get(metadata_key):
-                    self.target.attributes[key] = value      
+                    self.target.attributes[key] = value
 
     def done(
         self,
@@ -967,8 +968,12 @@ class TaskView:
             assert self._manifest.tosca
             if isinstance(template, dict):
                 tname = existingResource.template.name
-                existingResource.template = self._manifest.tosca.add_node_template(tname, template)
-            elif isinstance(template, str) and template != existingResource.template.name:
+                existingResource.template = self._manifest.tosca.add_node_template(
+                    tname, template
+                )
+            elif (
+                isinstance(template, str) and template != existingResource.template.name
+            ):
                 nodeSpec = self._manifest.tosca.nodeTemplates.get(template)
                 if not nodeSpec:
                     raise UnfurlTaskError(
@@ -1181,7 +1186,7 @@ class Dependency(Operational):
         self.wantList = wantList
         self.target = target
 
-    def __repr__(self) -> str: 
+    def __repr__(self) -> str:
         return f"Dependency('{self.name}')"
 
     @property
@@ -1204,7 +1209,9 @@ class Dependency(Operational):
     def _is_unexpected(self) -> bool:
         if self.target is None:
             return True
-        wantList: Union[str, bool] = "result" if isinstance(self.expected, Result) else self.wantList
+        wantList: Union[str, bool] = (
+            "result" if isinstance(self.expected, Result) else self.wantList
+        )
         result = Ref(self.expr).resolve(RefContext(self.target), wantList=wantList)
         return result != self.expected
 

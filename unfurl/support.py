@@ -8,11 +8,22 @@ from collections.abc import MutableSequence, Mapping
 import os
 import sys
 import os.path
-import six
 import re
 import ast
 import time
-from typing import TYPE_CHECKING, Iterator, List, MutableMapping, Tuple, Union, cast, Dict, Optional, Any, NewType
+from typing import (
+    TYPE_CHECKING,
+    Iterator,
+    List,
+    MutableMapping,
+    Tuple,
+    Union,
+    cast,
+    Dict,
+    Optional,
+    Any,
+    NewType,
+)
 from typing_extensions import Protocol
 from enum import Enum
 from urllib.parse import urlsplit
@@ -81,7 +92,7 @@ class Status(int, Enum):
             Status.pending: "white",
             Status.absent: "yellow",
         }[self]
- 
+
 
 # see "3.4.1 Node States" p74
 class NodeState(int, Enum):
@@ -167,14 +178,12 @@ set_eval_func("python", eval_python)
 #    return id(obj) in _secrets
 
 set_eval_func(
-    "sensitive",
-    lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)), safe=True
+    "sensitive", lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)), safe=True
 )
 
 
 set_eval_func(
-    "portspec",
-    lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
+    "portspec", lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
 
@@ -257,7 +266,7 @@ def is_template(val, ctx=None):
     if isinstance(val, (AnsibleUnsafeText, AnsibleUnsafeBytes)):
         # already evaluated in a template, don't evaluate again
         return False
-    return isinstance(val, six.string_types) and not not _clean_regex.search(val)
+    return isinstance(val, str) and not not _clean_regex.search(val)
 
 
 class _VarTrackerDict(dict):
@@ -314,7 +323,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, _UnfurlUndefined):
 
 
 def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
-    if not isinstance(value, six.string_types):
+    if not isinstance(value, str):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
         if ctx.strict:
             raise UnfurlError(msg)
@@ -656,6 +665,7 @@ class _EnvMapper(dict):
     """Resolve environment variable name to instance properties via the root template's requirements.
     Pattern should match _generate_env_names in to_json.py and set_context_vars above.
     """
+
     ctx: Optional[RefContext] = None
 
     def copy(self):
@@ -708,16 +718,25 @@ def to_env(args, ctx: RefContext):
 set_eval_func("to_env", to_env)
 
 
-def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z", start_prepend="x", **kw):
-    r"""Convert a string to q label with the given constraints. 
+def to_label(
+    arg,
+    allowed=r"\w",
+    max=63,
+    case="any",
+    replace="",
+    start="a-zA-Z",
+    start_prepend="x",
+    **kw,
+):
+    r"""Convert a string to q label with the given constraints.
         If a dictionary or list, all keys and string values are converted.
 
     Args:
         arg (str or dict or list): Convert to label
-        allowed (str, optional): Allowed characters. Regex character ranges and character classes. 
+        allowed (str, optional): Allowed characters. Regex character ranges and character classes.
                                Defaults to "\w"  (equivalent to [a-zA-Z0-9_])
         replace (str, optional): String Invalidate. Defaults to "" (remove the characters).
-        start (str, optional): Allowed characters for the first character. Regex character ranges and character classes. 
+        start (str, optional): Allowed characters for the first character. Regex character ranges and character classes.
                                Defaults to "a-zA-Z"
         start_prepend (str, optional): If the start character is invalid, prepend with this string (Default: "x")
         max (int, optional): max length of label. Defaults to 63 (the maximum for a DNS name).
@@ -734,11 +753,11 @@ def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z",
     elif isinstance(arg, list):
         return [to_label(n, allowed, max, case, replace) for n in arg]
     elif isinstance(arg, str):
-        if arg and re.match(fr"[^{start}]", arg[0]):
+        if arg and re.match(rf"[^{start}]", arg[0]):
             val = start_prepend + arg
         else:
             val = arg
-        val = re.sub(fr"[^{allowed}]", replace, val)
+        val = re.sub(rf"[^{allowed}]", replace, val)
         if case == "lower":
             val = val.lower()
         elif case == "upper":
@@ -749,8 +768,7 @@ def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z",
 
 
 set_eval_func(
-    "to_label",
-    lambda arg, ctx: to_label(map_value(arg, ctx), **ctx.kw), safe=True
+    "to_label", lambda arg, ctx: to_label(map_value(arg, ctx), **ctx.kw), safe=True
 )
 
 
@@ -767,7 +785,8 @@ def to_dns_label(arg, max=63, **kw):
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **ctx.kw), safe=True
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **ctx.kw),
+    safe=True,
 )
 
 
@@ -782,7 +801,8 @@ def to_kubernetes_label(arg):
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx)), safe=True
+    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx)),
+    safe=True,
 )
 
 
@@ -797,7 +817,8 @@ def to_googlecloud_label(arg, max=63, **kw):
 
 set_eval_func(
     "to_googlecloud_label",
-    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx), **ctx.kw), safe=True
+    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx), **ctx.kw),
+    safe=True,
 )
 
 
@@ -807,7 +828,7 @@ def get_ensemble_metadata(arg, ctx):
     ensemble = ctx.task._manifest
     metadata = dict(
         deployment=os.path.basename(os.path.dirname(ensemble.path)),
-        job=ctx.task.job.changeId
+        job=ctx.task.job.changeId,
     )
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()
@@ -818,7 +839,9 @@ def get_ensemble_metadata(arg, ctx):
     if arg:
         key = map_value(arg, ctx)
         if key == "project_namespace_subdomain" and ensemble.repo:
-            return ".".join(reversed(os.path.dirname(ensemble.repo.project_path()).split("/")))
+            return ".".join(
+                reversed(os.path.dirname(ensemble.repo.project_path()).split("/"))
+            )
         return metadata.get(key, "")
     else:
         return metadata
@@ -1267,7 +1290,10 @@ class DelegateAttributes:
                 return result
 
 
-AttributeChanges = NewType("AttributeChanges", Dict["InstanceKey", MutableMapping[str, Any]])
+AttributeChanges = NewType(
+    "AttributeChanges", Dict["InstanceKey", MutableMapping[str, Any]]
+)
+
 
 class ResourceChanges(collections.OrderedDict):
     """
@@ -1301,7 +1327,9 @@ class ResourceChanges(collections.OrderedDict):
     def sync(self, resource: "EntityInstance", changeId=None):
         """Update self to only include changes that are still live"""
         for k, v in list(self.items()):
-            current = cast(Optional["EntityInstance"], Ref(k).resolve_one(RefContext(resource)))
+            current = cast(
+                Optional["EntityInstance"], Ref(k).resolve_one(RefContext(resource))
+            )
             if current is not None:
                 attributes = v[self.attributesIndex]
                 if attributes:
@@ -1328,7 +1356,7 @@ class ResourceChanges(collections.OrderedDict):
 
     def add_statuses(self, changes):
         for name, change in changes.items():
-            assert not isinstance(change[1], six.string_types)
+            assert not isinstance(change[1], str)
             old = self.get(name)
             if old:
                 old[self.statusIndex] = change[1]
@@ -1339,7 +1367,9 @@ class ResourceChanges(collections.OrderedDict):
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
-    def update_changes(self, changes: AttributeChanges, statuses, resource, changeId=None):
+    def update_changes(
+        self, changes: AttributeChanges, statuses, resource, changeId=None
+    ):
         self.add_changes(changes)
         self.add_statuses(statuses)
         if resource:
@@ -1372,9 +1402,13 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendents()))
 
 
-LiveDependencies = NewType('LiveDependencies',
-                           Dict["InstanceKey", Tuple["EntityInstance",
-                                           Dict[str, Tuple[bool, Union[Result, Any]]]]])
+LiveDependencies = NewType(
+    "LiveDependencies",
+    Dict[
+        "InstanceKey",
+        Tuple["EntityInstance", Dict[str, Tuple[bool, Union[Result, Any]]]],
+    ],
+)
 
 
 class AttributeManager:
@@ -1389,6 +1423,7 @@ class AttributeManager:
     -- if a configurator wants to re-evaluate that attribute, it can create a dependency on it
     so to treat that as changed configuration.
     """
+
     validate = True
 
     # what about an attribute that is added to the spec that already exists in status?
@@ -1490,7 +1525,8 @@ class AttributeManager:
 
     def find_live_dependencies(self) -> Dict["InstanceKey", List["Dependency"]]:
         from .configurator import Dependency
-        dependencies: Dict[InstanceKey, List["Dependency"]] = {} 
+
+        dependencies: Dict[InstanceKey, List["Dependency"]] = {}
         for resource, attributes in self.attributes.values():
             overrides, specd = attributes._attributes.split()
             # items in overrides of type Result have been accessed during this transaction
@@ -1498,7 +1534,9 @@ class AttributeManager:
                 if isinstance(value, Result):
                     changed, isLive = self._check_attribute(specd, key, value, resource)
                     if isLive:
-                        dep = Dependency(resource.key + "::" + key, value, target=resource)
+                        dep = Dependency(
+                            resource.key + "::" + key, value, target=resource
+                        )
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
 

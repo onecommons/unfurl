@@ -29,7 +29,7 @@ def _get_connection_config(instance):
     # https://github.com/ansible-collections/kubernetes.core/blob/7f7008fecc9e5d16340e9b0bff510b7cde2f2cfd/plugins/connection/kubectl.py
     if not instance:
         return {}
-    connection : Dict[str, Union[str, bool]] = {}
+    connection: Dict[str, Union[str, bool]] = {}
     if isinstance(instance, RelationshipInstance):
         connect = instance.attributes
         # the parent of a relationship will be the capability it connects to

@@ -17,7 +17,14 @@ from pathlib import Path
 
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
-from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets, sanitize_url
+from .repo import (
+    GitRepo,
+    Repo,
+    is_url_or_git_path,
+    split_git_url,
+    commit_secrets,
+    sanitize_url,
+)
 from .util import UnfurlError, get_random_password, substitute_env
 from .yamlloader import make_yaml, make_vault_lib
 
@@ -146,7 +153,12 @@ def write_service_template(projectdir):
 
 
 def write_ensemble_manifest(
-    destDir: str, manifestName: str, specRepo, specDir=None, extraVars=None, templateDir=None
+    destDir: str,
+    manifestName: str,
+    specRepo,
+    specDir=None,
+    extraVars=None,
+    templateDir=None,
 ):
     if specDir:
         specDir = os.path.abspath(specDir)
@@ -195,7 +207,7 @@ def render_project(
     use_context=None,
     mono=False,
     no_secrets=False,
-    skeleton_vars: Optional[Dict[str, Any]]=None,
+    skeleton_vars: Optional[Dict[str, Any]] = None,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -237,7 +249,8 @@ def render_project(
     if "vaultid" not in vars:
         # use project name plus a couple of random digits to avoid collisions
         vars["vaultid"] = (
-            Project.get_name_from_dir(projectdir) + get_random_password(2, "", "").upper()
+            Project.get_name_from_dir(projectdir)
+            + get_random_password(2, "", "").upper()
         )
     vaultid = vars["vaultid"]
 
@@ -793,7 +806,9 @@ class EnsembleBuilder:
             )
         else:
             destProject.register_ensemble(manifest.path, context=self.environment)
-        destProject.project_repoview.repo.commit_files([destProject.localConfig.config.path], "Add ensemble")
+        destProject.project_repoview.repo.commit_files(
+            [destProject.localConfig.config.path], "Add ensemble"
+        )
         self.manifest = manifest
         return destDir
 

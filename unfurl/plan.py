@@ -1,7 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from typing import Dict, List, Optional
-import six
 
 from .runtime import InstanceKey, NodeInstance, EntityInstance
 from .util import UnfurlError
@@ -341,7 +340,11 @@ class Plan:
                     # we're the source
                     for relationship in resource.requirements:
                         req = create_task_request(
-                            self.jobOptions, "Configure.add_source", relationship, reason, inputs
+                            self.jobOptions,
+                            "Configure.add_source",
+                            relationship,
+                            reason,
+                            inputs,
                         )
                         if req:
                             yield req
@@ -353,11 +356,14 @@ class Plan:
                     for relationship in capability.relationships:
                         # we're the target
                         req = create_task_request(
-                            self.jobOptions, "Configure.add_target", relationship, reason, inputs
+                            self.jobOptions,
+                            "Configure.add_target",
+                            relationship,
+                            reason,
+                            inputs,
                         )
                         if req:
                             yield req
-
 
     def generate_delete_configurations(self, include):
         for resource in get_operational_dependents(self.root):
@@ -367,9 +373,9 @@ class Plan:
                 skip = "read-only instance"
             elif not resource.created and not self.jobOptions.destroyunmanaged:
                 skip = "instance wasn't created by this ensemble"
-            elif isinstance(
-                resource.created, six.string_types
-            ) and not ChangeRecord.is_change_id(resource.created):
+            elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
+                resource.created
+            ):
                 skip = "creation and deletion is managed by another instance"
             elif "protected" in resource.template.directives:
                 skip = 'instance with "protected" directive'
@@ -414,7 +420,9 @@ class Plan:
                         return
                 assert False, self.root.requirements
 
-    def _generate_configurations(self, resource: "EntityInstance", reason: str, workflow: Optional[str] = None):
+    def _generate_configurations(
+        self, resource: "EntityInstance", reason: str, workflow: Optional[str] = None
+    ):
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
@@ -441,7 +449,9 @@ class Plan:
                     # if taskRequest.target == group.target:
                     group.add_request(taskRequest)
                     if isinstance(taskRequest, TaskRequest):
-                        taskRequest.set_final_for_workflow(bool(self.is_last_workflow_op(taskRequest)))
+                        taskRequest.set_final_for_workflow(
+                            bool(self.is_last_workflow_op(taskRequest))
+                        )
                 else:
                     yield taskRequest
         if not task_found:
@@ -745,10 +755,19 @@ class DeployPlan(Plan):
         if interface == "Standard":
             order = ["create", "configure", "start"]
         elif interface == "Configure":
-            order = ["pre_configure_target", "pre_configure_source", "post_configure_target", "post_configure_source"]
+            order = [
+                "pre_configure_target",
+                "pre_configure_source",
+                "post_configure_target",
+                "post_configure_source",
+            ]
         else:
             return ""
-        implemented = [op for op in order if _find_implementation(interface, op, taskrequest.target.template)]
+        implemented = [
+            op
+            for op in order
+            if _find_implementation(interface, op, taskrequest.target.template)
+        ]
         if taskrequest.configSpec.operation in implemented:
             index = implemented.index(taskrequest.configSpec.operation)
             if len(implemented) == index + 1:
@@ -781,7 +800,11 @@ class UndeployPlan(Plan):
             order = ["remove_target", "remove_source"]
         else:
             return ""
-        implemented = [op for op in order if _find_implementation(interface, op, taskrequest.target.template)]
+        implemented = [
+            op
+            for op in order
+            if _find_implementation(interface, op, taskrequest.target.template)
+        ]
         if taskrequest.configSpec.operation in implemented:
             index = implemented.index(taskrequest.configSpec.operation)
             if len(implemented) == index + 1:

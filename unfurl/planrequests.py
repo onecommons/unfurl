@@ -16,7 +16,6 @@ from typing import (
     Union,
     cast,
 )
-import six
 import shlex
 import sys
 import os
@@ -1158,7 +1157,7 @@ def set_default_command(kw, implementation):
         cwd = inputs.get("cwd")
         if cwd:
             playbookTask["chdir"] = cwd
-        if shell and isinstance(shell, six.string_types):
+        if shell and isinstance(shell, str):
             playbookTask["executable"] = shell
         shellArgs = dict(playbook=[{module: playbookTask}])
 

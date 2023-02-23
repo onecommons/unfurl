@@ -28,14 +28,14 @@ def _get_env(env, verbose, dataDir):
 
 def get_echo_args(verbosity):
     if verbosity == -1:  # quiet mode
-        return dict(echo=False) # no stdout or stderr
+        return dict(echo=False)  # no stdout or stderr
     else:
         logregex = re.compile(r"\[(TRACE|DEBUG|INFO|WARN|ERROR)\]")
         if verbosity == 0:  # default
             levels = "INFO|WARN|ERROR"
         else:  # verbose == 1
             levels = "TRACE|DEBUG|INFO|WARN|ERROR"
-        stderr_filter = make_regex_filter(logregex, levels.split('|'))
+        stderr_filter = make_regex_filter(logregex, levels.split("|"))
     return dict(echo=True, stderr_filter=stderr_filter)
 
 
@@ -96,9 +96,11 @@ def mark_sensitive(schemas, state, task, sensitive_names=()):
 
 
 def _get_tfvars_from_properties(instance):
-    return {p.name: instance.attributes[p.name]
-            for p in instance.template.propertyDefs.values()
-            if p.schema.get("metadata", {}).get("tfvar")}
+    return {
+        p.name: instance.attributes[p.name]
+        for p in instance.template.propertyDefs.values()
+        if p.schema.get("metadata", {}).get("tfvar")
+    }
 
 
 _main_tf_template = """\
@@ -221,8 +223,11 @@ class TerraformConfigurator(ShellConfigurator):
             return None
 
     def _get_outputs(self, task):
-        outputs = [p.name for p in task.target.template.attributeDefs.values()
-                   if p.schema.get("metadata", {}).get(self.attribute_output_metadata_key)]
+        outputs = [
+            p.name
+            for p in task.target.template.attributeDefs.values()
+            if p.schema.get("metadata", {}).get(self.attribute_output_metadata_key)
+        ]
         if task.configSpec.outputs:
             if isinstance(task.configSpec.outputs, (str, int)):
                 raise UnfurlTaskError(
@@ -275,9 +280,7 @@ class TerraformConfigurator(ShellConfigurator):
                         write_vars = False
                         outputs = self._get_outputs(task)
                         tfvars = self._get_tfvars(task)
-                        path, contents = generate_main(
-                            relpath, tfvars, outputs
-                        )
+                        path, contents = generate_main(relpath, tfvars, outputs)
 
                     # set this as FilePath so we can monitor changes to it
                     result = task.inputs._attributes["main"]
@@ -375,7 +378,10 @@ class TerraformConfigurator(ShellConfigurator):
                 action.append("-state=" + statePath)
             if task.configSpec.operation == "delete":
                 action.append("-destroy")
-        elif task.configSpec.operation == "delete" or task.configSpec.workflow == "undeploy":
+        elif (
+            task.configSpec.operation == "delete"
+            or task.configSpec.workflow == "undeploy"
+        ):
             action = ["destroy", "-auto-approve"]
             if statePath:
                 action.append("-state=" + statePath)
@@ -420,11 +426,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         echo_args = get_echo_args(task.verbose)
         result = self.run_process(
-            cmd,
-            timeout=task.configSpec.timeout,
-            env=env,
-            cwd=cwd.cwd,
-            **echo_args
+            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, **echo_args
         )
         if result.returncode and _needs_init(clean_output(result.stderr)):
             # modules or plugins out of date, re-run terraform init
@@ -437,7 +439,7 @@ class TerraformConfigurator(ShellConfigurator):
                     timeout=task.configSpec.timeout,
                     env=env,
                     cwd=cwd.cwd,
-                    **echo_args
+                    **echo_args,
                 )
             else:
                 raise UnfurlTaskError(

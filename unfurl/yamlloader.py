@@ -84,7 +84,7 @@ def load_yaml(yaml, stream, path=None, readonly: bool = False):
         loader = AnsibleLoader(stream, path, yaml.constructor.vault.secrets)
         loader.vault = yaml.constructor.vault
         doc = loader.get_single_data()
-    yaml_perf += (perf_counter() - start_time)
+    yaml_perf += perf_counter() - start_time
     return doc
 
 
@@ -211,7 +211,9 @@ class UnfurlVaultLib(VaultLib):
     skip_decode = False
 
 
-def make_vault_lib(passwordBytes: Union[str, bytes], vaultId="default") -> Optional[VaultLib]:
+def make_vault_lib(
+    passwordBytes: Union[str, bytes], vaultId="default"
+) -> Optional[VaultLib]:
     if passwordBytes:
         if isinstance(passwordBytes, str):
             passwordBytes = to_bytes(passwordBytes)
@@ -241,7 +243,9 @@ GetURLType = Optional[Tuple[str, bool, Optional[str]]]
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    def __init__(self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None):
+    def __init__(
+        self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None
+    ):
         self.manifest = manifest
         self.readonly = bool(manifest.localEnv and manifest.localEnv.readonly)
         self.ignoreFileNotFound = ignoreFileNotFound
@@ -269,16 +273,21 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = "ssh://" + url.replace(":", "/", 1)
             tpl["url"] = url
 
-        if tpl.get('credential'):
-            credential = tpl['credential']
+        if tpl.get("credential"):
+            credential = tpl["credential"]
             # support expressions to resolve credential secrets
             if self.manifest.rootResource:
                 from .eval import map_value
-                tpl['credential'] = map_value(credential, self.manifest.rootResource)
+
+                tpl["credential"] = map_value(credential, self.manifest.rootResource)
             elif self.manifest.localEnv:
                 # we're including or importing before we finished initializing
-                context = self.manifest.localEnv.get_context(self.config.get("environment"))
-                tpl['credential'] = self.manifest.localEnv.map_value(credential, context.get("variables"))
+                context = self.manifest.localEnv.get_context(
+                    self.config.get("environment")
+                )
+                tpl["credential"] = self.manifest.localEnv.map_value(
+                    credential, context.get("variables")
+                )
 
         return Repository(name, tpl)
 
@@ -296,8 +305,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.repo_refs[url] = repo
         return f"{url}#{revision}:{filePath}"
 
-    def _get_repository_path(self, importsLoader: toscaparser.imports.ImportsLoader,
-                             repository_name: str) -> Tuple[str, bool, Optional["RepoView"]]:
+    def _get_repository_path(
+        self, importsLoader: toscaparser.imports.ImportsLoader, repository_name: str
+    ) -> Tuple[str, bool, Optional["RepoView"]]:
         path = cast(str, self.get_repository_url(importsLoader, repository_name))
         if path.startswith("file:"):
             path = path[5:]
@@ -307,7 +317,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             repoview = self.manifest.repositories.get(repository_name)
             if not repoview:
-                repository = self.get_repository(repository_name, importsLoader.repositories[repository_name])
+                repository = self.get_repository(
+                    repository_name, importsLoader.repositories[repository_name]
+                )
                 repoview = self.manifest.add_repository(None, repository, "")
             assert repoview
             if repoview.package is None:
@@ -315,11 +327,18 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 # if repoview.repository references a package, set the repository's url
                 # and register this reference with the package
                 # might raise error if version conflict
-                resolve_package(repoview, self.manifest.packages, self.manifest.package_specs)
+                resolve_package(
+                    repoview, self.manifest.packages, self.manifest.package_specs
+                )
             return repoview.url, False, repoview
 
-    def get_url(self, importsLoader: toscaparser.imports.ImportsLoader,
-                repository_name: Optional[str], file_name: str, isFile: Optional[bool] = None) -> GetURLType:
+    def get_url(
+        self,
+        importsLoader: toscaparser.imports.ImportsLoader,
+        repository_name: Optional[str],
+        file_name: str,
+        isFile: Optional[bool] = None,
+    ) -> GetURLType:
         # called by ImportsLoader when including or importing a file
         # or resolving path to an artifact in a repository (see ToscaSpec.get_repository_path)
         # returns url or path, isFile, fragment
@@ -327,12 +346,16 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         repo_view = None
         if repository_name:
             file_name, sep, fragment = file_name.partition("#")
-            path, isFile, repo_view = self._get_repository_path(importsLoader, repository_name)
+            path, isFile, repo_view = self._get_repository_path(
+                importsLoader, repository_name
+            )
             # if not isFile path will be git url possibly including revision in fragment
             if repo_view and repo_view.repo:
                 return os.path.join(repo_view.working_dir, file_name), True, fragment
         else:
-            url_info = cast(GetURLType, super().get_url(importsLoader, None, file_name, isFile))
+            url_info = cast(
+                GetURLType, super().get_url(importsLoader, None, file_name, isFile)
+            )
             if not url_info:
                 return url_info
             path, isFile, fragment = url_info
@@ -347,13 +370,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if not repo:
                 raise UnfurlError("Could not resolve git URL: " + path)
             if bare:
-                path = self._get_bare_path(path, repo, filePath, revision, file_name, importsLoader)
+                path = self._get_bare_path(
+                    path, repo, filePath, revision, file_name, importsLoader
+                )
                 return path, False, fragment
             else:
                 if repo_view:
                     assert not repo_view.repo
                     repo_view.set_repo_and_path(repo, filePath)
-                path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip("/")
+                path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip(
+                    "/"
+                )
         elif file_name:
             path = os.path.join(path, file_name)
 
@@ -416,7 +443,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 if isinstance(doc, yaml_dict):
                     if self.expand:
                         includes, doc = expand_doc(
-                            doc, cls=make_map_with_base(doc, get_base_dir(path), yaml_dict)
+                            doc,
+                            cls=make_map_with_base(doc, get_base_dir(path), yaml_dict),
                         )
                         doc.includes = includes
                     doc.path = path
@@ -441,7 +469,7 @@ class YamlConfig:
         schema=None,
         loadHook=None,
         vault=None,
-        readonly=False
+        readonly=False,
     ):
         try:
             self._yaml = None
@@ -482,7 +510,8 @@ class YamlConfig:
             self.baseDirs = [self.get_base_dir()]
             yaml_dict = yaml_dict_type(self.readonly)
             self.includes, expandedConfig = expand_doc(
-                self.config, cls=make_map_with_base(self.config, self.baseDirs[0], yaml_dict)
+                self.config,
+                cls=make_map_with_base(self.config, self.baseDirs[0], yaml_dict),
             )
             self.expanded = expandedConfig
             errors = schema and self.validate(expandedConfig)
@@ -546,9 +575,7 @@ class YamlConfig:
 
     def save(self):
         if self.readonly:
-            raise UnfurlError(
-                f'Can not save "{self.path}", it is set to readonly'
-            )
+            raise UnfurlError(f'Can not save "{self.path}", it is set to readonly')
         output = io.StringIO()
         self.dump(output)
         if self.path:

@@ -19,9 +19,8 @@ from typing import (
     TYPE_CHECKING,
     cast,
     NewType,
-    AnyStr
+    AnyStr,
 )
-import six
 from collections.abc import Mapping
 
 from ansible.parsing.dataloader import DataLoader
@@ -29,7 +28,15 @@ from ansible.parsing.dataloader import DataLoader
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
 from .result import ResourceRef, ChangeAware
 
-from .support import AttributeManager, Defaults, Imports, Status, Priority, NodeState, Templar
+from .support import (
+    AttributeManager,
+    Defaults,
+    Imports,
+    Status,
+    Priority,
+    NodeState,
+    Templar,
+)
 from .tosca import (
     EntitySpec,
     CapabilitySpec,
@@ -49,11 +56,13 @@ logger = getLogger("unfurl")
 
 InstanceKey = NewType("InstanceKey", str)
 
+
 class Operational(ChangeAware):
     """
     This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
     and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
     """
+
     # XXX3 add repairable, messages?
     name = ""
 
@@ -195,7 +204,9 @@ class Operational(ChangeAware):
         return False
 
     @staticmethod
-    def aggregate_status(statuses: Iterable["Operational"], seen: Dict[int, "Operational"]) -> Optional[Status]:
+    def aggregate_status(
+        statuses: Iterable["Operational"], seen: Dict[int, "Operational"]
+    ) -> Optional[Status]:
         """
         Returns: ok, degraded, pending or None
 
@@ -382,7 +393,6 @@ class EntityInstance(OperationalInstance, ResourceRef):
         assert isinstance(self.template, self.templateType)
         self._properties = {}
 
-
     @property
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         return None
@@ -453,7 +463,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
     @property
     def key(self) -> InstanceKey:
         assert self.parent and self.parentRelation
-        return cast(InstanceKey, f"{self.parent.key}::.{self.parentRelation[1:]}::{self.name}")
+        return cast(
+            InstanceKey, f"{self.parent.key}::.{self.parentRelation[1:]}::{self.name}"
+        )
 
     def as_ref(self, options=None):
         return {"ref": self.key}
@@ -672,7 +684,9 @@ class CapabilityInstance(EntityInstance):
     def key(self) -> InstanceKey:
         # XXX implement something like _ChildResources to enable ::name instead of [.name]
         assert self.parent
-        return cast(InstanceKey, f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]")
+        return cast(
+            InstanceKey, f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]"
+        )
 
 
 class RelationshipInstance(EntityInstance):
@@ -685,7 +699,12 @@ class RelationshipInstance(EntityInstance):
     _source: Optional["NodeInstance"] = None
 
     def __init__(
-        self, name="", attributes=None, parent=None, template=None, status=Status.pending
+        self,
+        name="",
+        attributes=None,
+        parent=None,
+        template=None,
+        status=Status.pending,
     ):
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
@@ -714,11 +733,15 @@ class RelationshipInstance(EntityInstance):
     def key(self) -> InstanceKey:
         # XXX implement something like _ChildResources to enable ::name instead of [.name=name]
         if self.source:
-            return cast(InstanceKey, f"{self.source.key}::.requirements::[.name={self.name}]")
+            return cast(
+                InstanceKey, f"{self.source.key}::.requirements::[.name={self.name}]"
+            )
         elif not self.parent or self.parent is self.root:  # it's a default relationship
             return cast(InstanceKey, f"::.requirements::[.name={self.name}]")
         elif self.parent:  # capability is parent
-            return cast(InstanceKey, f"{self.parent.key}::.relationships::[.name={self.name}]")
+            return cast(
+                InstanceKey, f"{self.parent.key}::.relationships::[.name={self.name}]"
+            )
 
     def merge_props(self, matchfn, delete_if_none=False) -> Dict[str, str]:
         env: Dict[str, str] = {}
@@ -766,7 +789,7 @@ class ArtifactInstance(EntityInstance):
     @property
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         return self.template.repository
-  
+
     def get_path(self, resolver=None):
         return self.template.get_path_and_fragment(resolver)
 
@@ -820,7 +843,9 @@ class NodeInstance(HasInstancesInstance):
         # find the Capability instance that corresponds to this relationship template's capability
         targetNodeInstance = self.root.find_resource(relationship.target.name)
         if not targetNodeInstance:
-            logger.warning(f"target instance {relationship.target.name} should have already been created -- is {self.name} out of sync with latest templates?")
+            logger.warning(
+                f"target instance {relationship.target.name} should have already been created -- is {self.name} out of sync with latest templates?"
+            )
             return None
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
@@ -842,7 +867,9 @@ class NodeInstance(HasInstancesInstance):
                 if id(template.relationship) not in instantiated:
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
-                        logger.warning(f'can not find relation instance for requirement "{name}" on node "{self.name}"')
+                        logger.warning(
+                            f'can not find relation instance for requirement "{name}" on node "{self.name}"'
+                        )
                         continue
                     assert template.relationship is relInstance.template
                     assert self.template is relInstance.template.source
@@ -1005,7 +1032,7 @@ class NodeInstance(HasInstancesInstance):
         yield from super().get_operational_dependents(seen)
 
     def add_interface(self, klass, name=None):
-        if not isinstance(klass, six.string_types):
+        if not isinstance(klass, str):
             klass = klass.__module__ + "." + klass.__name__
         current = self._attributes.setdefault(".interfaces", {})
         current[name or klass] = klass
@@ -1016,7 +1043,7 @@ class NodeInstance(HasInstancesInstance):
         if ".interfaces" not in self._attributes:
             return None  # no interfaces
 
-        if not isinstance(name, six.string_types):
+        if not isinstance(name, str):
             name = name.__module__ + "." + name.__name__
         instance = self._interfaces.get(name)
         if instance:

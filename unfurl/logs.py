@@ -19,6 +19,8 @@ except ImportError:
 HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
 DEFAULT_TRUNCATE_LENGTH = 748
+
+
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH) -> str:
     if not s:
         return ""
@@ -131,7 +133,9 @@ class ColorHandler(logging.StreamHandler):
         level = Levels[record.levelname]
         try:
             console = getConsole(file=self.stream)
-            console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end="")
+            console.print(
+                f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end=""
+            )
             console.print(f" {record.name.upper()}", end="")
             console.print(f" {message}", **getattr(record, "rich", {}))
         except Exception:
@@ -245,7 +249,10 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
 
     handler = logging.FileHandler(filename)
     f = SensitiveFilter()
-    fmt = os.getenv("UNFURL_LOG_FORMAT") or "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
+    fmt = (
+        os.getenv("UNFURL_LOG_FORMAT")
+        or "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
+    )
     formatter = logging.Formatter(fmt)
     handler.setFormatter(formatter)
     log_level = min(console_level, Levels.DEBUG)

@@ -3,7 +3,6 @@
 import itertools
 import re
 from typing import Any, Dict, List, MutableMapping, Optional, Tuple
-import six
 from collections import namedtuple
 from collections.abc import Mapping, MutableSequence, Sequence
 
@@ -274,7 +273,9 @@ def get_template(doc, key, value, path, cls, includes=None):
     return template
 
 
-def _find_template(doc: MutableMapping, key, path, cls, fail) -> Optional[Tuple[Any, Optional[List[str]]]]:
+def _find_template(
+    doc: MutableMapping, key, path, cls, fail
+) -> Optional[Tuple[Any, Optional[List[str]]]]:
     template = doc
     templatePath = None
     if key.anchor:
@@ -396,7 +397,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
     templates = []
     assert isinstance(current, Mapping), current
     for (key, value) in current.items():
-        if not isinstance(key, six.string_types):
+        if not isinstance(key, str):
             cp[key] = value
             continue
         if key.startswith("+"):
