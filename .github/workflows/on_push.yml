@@ -86,7 +86,7 @@ jobs:
       release: ${{ steps.get_tag_name.outputs.release }}
     steps:
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           username: ${{ env.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKER_HUB }}
@@ -135,7 +135,7 @@ jobs:
       DOCKERHUB_USER: "ocbuilds"
     steps:
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           username: ${{ env.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKER_HUB }}
