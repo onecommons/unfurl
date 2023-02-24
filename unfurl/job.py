@@ -699,19 +699,25 @@ class Job(ConfigChange):
             completed = ready
             if completed:
                 ready, notReady = set_fulfilled(notReady, completed)
+                check_target = ""
             else:
+                if self.jobOptions.workflow == "deploy":
+                    check_target = "operational"
+                else:
+                    check_target = "any"
+
                 # we ran all the ready tasks we could so now we can run left-over tasks that depend on
                 # live attributes that we no longer have to worry about being modified by another task
-                ready, notReady = set_fulfilled_stragglers(
-                    notReady, self.jobOptions.workflow == "deploy"
-                )
+                ready, notReady = set_fulfilled_stragglers(notReady, check_target)
             logger.trace(
                 "ready %s; not ready %s; completed: %s", ready, notReady, completed
             )
 
             # the first time we render them all, after that only re-render requests if their dependencies were fulfilled
             # the last time (when completed is empty) don't have render valid dependencies as unfulfilled
-            ready, unfulfilled, errors = do_render_requests(self, ready, not completed)
+            ready, unfulfilled, errors = do_render_requests(
+                self, ready, notReady, check_target
+            )
             if not ready and not completed:
                 break  # none of the stragglers are ready, give up
             if unfulfilled:

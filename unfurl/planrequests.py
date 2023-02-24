@@ -257,6 +257,32 @@ class PlanRequest:
                 #     )
                 yield error
 
+    def _set_dependencies(
+        self,
+        live_dependencies: Dict[InstanceKey, List["Dependency"]],
+        requests: Sequence["PlanRequest"],
+    ) -> None:
+        # iterate through the live attributes the given task depends
+        # if the attribute's instance might be modified by another task, mark that task as a dependency
+        self.dependencies = []  # reset
+        for r in requests:
+            if self.target.key == r.target.key:
+                continue  # skip self
+            if r.task and r.task.completed:
+                continue  # already ran
+            if self.required is not None and not self.required:
+                logger.trace(f"skipping not required {self}")
+                continue  # skip requests that aren't going to run
+            dependencies = live_dependencies.get(r.target.key)
+            if dependencies:
+                logger.trace(
+                    "%s dependencies on future task %s: %s",
+                    self.target.key,
+                    r.target.key,
+                    dependencies,
+                )
+                self.add_dependencies(dependencies)
+
     @property
     def previous(self) -> Optional["PlanRequest"]:
         return self.group and self.group.get_previous(self) or None
@@ -654,34 +680,6 @@ def get_render_requests(
         else:
             assert not req, f"unexpected type of request: {req}"
 
-
-def _get_deps(
-    req: PlanRequest,
-    live_dependencies: Dict[InstanceKey, List["Dependency"]],
-    requests: Sequence[PlanRequest],
-) -> None:
-    # iterate through the live attributes the given task depends
-    # if the attribute's instance might be modified by another task, mark that task as a dependency
-    req.dependencies = []  # reset
-    for r in requests:
-        if req.target.key == r.target.key:
-            continue  # skip self
-        if r.task and r.task.completed:
-            continue  # already ran
-        if req.required is not None and not req.required:
-            logger.trace(f"skipping not required {req}")
-            continue  # skip requests that aren't going to run
-        dependencies = live_dependencies.get(r.target.key)
-        if dependencies:
-            logger.trace(
-                "%s dependencies on future task %s: %s",
-                req.target.key,
-                r.target.key,
-                dependencies,
-            )
-            req.add_dependencies(dependencies)
-
-
 def set_fulfilled(
     upcoming: List[PlanRequest], completed: List[PlanRequest]
 ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
@@ -717,7 +715,8 @@ def set_fulfilled(
 
 
 def set_fulfilled_stragglers(
-    upcoming: List[PlanRequest], deploying: bool
+    upcoming: List[PlanRequest],
+    check_target: str,
 ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
     # we ran all the tasks we could so now we can run left-over tasks
     # that depend on live attributes that we no longer have to worry about changing
@@ -732,8 +731,8 @@ def set_fulfilled_stragglers(
             #     f"Previous {previous} not ready in final round: {previous.get_notready_message()}."
             # )
             ok = False
-        elif deploying:
-            for dep in req.get_unfulfilled_refs("operational"):
+        elif check_target == "operational":
+            for dep in req.get_unfulfilled_refs(check_target):
                 ok = False  # not ready yet
                 # logger.trace(
                 #     f"Dependency for {req} not ready in final round: {req.get_notready_message()}."
@@ -833,7 +832,7 @@ def _render_request(
         liveDependencies = task._attributeManager.find_live_dependencies()
         task.logger.trace(f"live dependencies for {task.target}: {liveDependencies}")
         # a future request may change the value of these attributes
-        _get_deps(req, liveDependencies, requests)
+        req._set_dependencies(liveDependencies, requests)
         dependent_refs = [dep.name for dep in req.get_unfulfilled_refs(check_target)]
     else:
         dependent_refs = req.render_errors  # type: ignore
@@ -883,7 +882,8 @@ def _reevaluate_not_required(not_required, render_requests):
 def do_render_requests(
     job,
     requests: Sequence[PlanRequest],
-    stragglers=False,
+    future_requests: List[PlanRequest] = [],
+    check_target: str = "",
 ) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
     ready: List[PlanRequest] = []
     notReady: List[PlanRequest] = []
@@ -893,13 +893,6 @@ def do_render_requests(
     )
     not_required = []
     render_requests = collections.deque(flattened_requests)
-    if stragglers:
-        if job.workflow == "deploy":
-            check_target = "operational"
-        else:
-            check_target = "any"
-    else:
-        check_target = ""
 
     notready_group = None
     while render_requests:
@@ -925,7 +918,7 @@ def do_render_requests(
                 _add_to_req_list(ready, request)
                 continue
             deps, error = _render_request(
-                job, request, flattened_requests, check_target
+                job, request, flattened_requests + future_requests, check_target
             )
             if error:
                 errors.append(error)
