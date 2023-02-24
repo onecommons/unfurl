@@ -64,7 +64,6 @@ if flask_config["CACHE_TYPE"] == "RedisCache":
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
-cache.ignore_errors = True  # type: ignore
 app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
@@ -354,18 +353,20 @@ class CacheEntry:
 
 
 def clear_cache(cache, starts_with) -> Optional[List[Any]]:
-    redis = getattr(cache, "_read_client", None)
+    backend = cache.cache
+    backend.ignore_errors = True
+    redis = getattr(backend, "_read_client", None)
     if redis:
-        keys = redis.keys(cache.key_prefix + starts_with + "*")
+        keys = redis.keys(backend.key_prefix + starts_with + "*")
     else:
-        simple = getattr(cache, "_cache", None)
+        simple = getattr(backend, "_cache", None)
         if simple:
             keys = [key for key in simple if key.startswith(starts_with)]
         else:
-            logger.error(f"clearing cache: {starts_with} couldn't find cache")
+            logger.error(f"clearing cache prefix '{starts_with}': couldn't find cache {type(backend)}")
             return None
     logger.info(f"clearing cache {starts_with}, found keys: {keys}")
-    return cache.delete_many(keys)
+    return cache.delete_many(*keys)
 
 
 @app.before_request
@@ -623,10 +624,10 @@ def clear_project():
         rmtree(project_dir, logger)
     else:
         logger.info("clear_project: %s not found", project_id)
-    cleared = clear_cache(cache, project_id)
+    cleared = clear_cache(cache, project_id + ":")
     if cleared is None:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred")
-    clear_cache(cache, "_inflight::" + project_id)
+    clear_cache(cache, "_inflight::" + project_id + ":")
     return f"{len(cleared)}"
 
 

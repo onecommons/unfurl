@@ -23,6 +23,7 @@ set_start_method("fork")
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
+    # e.g. "unix:/home/user/gdk/redis/redis.socket?db=2"
     os.environ["CACHE_TYPE"] = "RedisCache"
     os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
@@ -455,6 +456,12 @@ def test_server_update_deployment():
                 # check that the environment was added and an ensemble was created
                 assert data["environments"]["gcp"]["connections"]["primary_provider"]["type"] == "unfurl.relationships.ConnectsTo.GoogleCloudProject"
                 assert data["ensembles"][0]["alias"] == "primary_provider"
+
+            res = requests.post(
+                f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",
+            )
+            assert res.content == b'1'  # one key deleted
+            assert res.status_code == 200
 
         finally:
             if p:
