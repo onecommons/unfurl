@@ -19,17 +19,18 @@ from unfurl.yamlloader import yaml
 from base64 import b64encode
 
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
-set_start_method("fork")
+# (with -s only)
+# but fork doesn't inherit the environment so UNFURL_TEST_REDIS_URL breaks
+# set_start_method("fork")
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
-    # e.g. "unix:/home/user/gdk/redis/redis.socket?db=2"
+    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2"
     os.environ["CACHE_TYPE"] = "RedisCache"
     os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
     # time out in 2 minutes so we don't fill up the cache with cruft:
     os.environ["CACHE_DEFAULT_TIMEOUT"] = "120"
-
 
 # Very minimal deployment
 deployment = """

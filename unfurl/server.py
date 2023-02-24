@@ -60,10 +60,10 @@ if flask_config["CACHE_TYPE"] == "RedisCache":
             os.environ.get("CACHE_REDIS_PORT") or 6379
         )
         flask_config["CACHE_REDIS_DB"] = int(os.environ.get("CACHE_REDIS_DB") or 0)
-
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
+logger.info("created cache %s", flask_config["CACHE_TYPE"])
 app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
@@ -352,21 +352,25 @@ class CacheEntry:
         return err, value
 
 
-def clear_cache(cache, starts_with) -> Optional[List[Any]]:
+def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend = cache.cache
     backend.ignore_errors = True
     redis = getattr(backend, "_read_client", None)
     if redis:
-        keys = redis.keys(backend.key_prefix + starts_with + "*")
+        keys = [k.decode() for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
     else:
         simple = getattr(backend, "_cache", None)
         if simple:
             keys = [key for key in simple if key.startswith(starts_with)]
         else:
-            logger.error(f"clearing cache prefix '{starts_with}': couldn't find cache {type(backend)}")
+            logger.error(
+                f"clearing cache prefix '{starts_with}': couldn't find cache {type(backend)}"
+            )
             return None
-    logger.info(f"clearing cache {starts_with}, found keys: {keys}")
-    return cache.delete_many(*keys)
+    logger.info(f"clearing cache {starts_with}, found keys: {repr(keys)}, {len(keys)}")
+    cache.delete_many(*keys)  # type: ignore
+    # cache.delete_many() return value on redis backend is unreliable, so just return keys
+    return keys
 
 
 @app.before_request
