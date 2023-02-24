@@ -33,7 +33,7 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
       - name: Setup helm
-        uses: azure/setup-helm@v2
+        uses: azure/setup-helm@v3
         with:
           version: ${{ env.HELM_VERSION }}
       - name: Setup kubectl
@@ -70,7 +70,7 @@ jobs:
         run: tox -e docs -- -W
       - name: upload docs
         if: matrix.python == 3.9
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
           name: DocumentationHTML
           path: .tox/docs/html/
@@ -115,7 +115,7 @@ jobs:
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}
       - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v4
         with:
           context: ./
           file: ./docker/Dockerfile
@@ -164,7 +164,7 @@ jobs:
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}-podman
       - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v4
         with:
           context: ./
           file: ./docker/Dockerfile.podman
@@ -190,7 +190,7 @@ jobs:
       - name: build python package
         run: python setup.py sdist bdist_wheel
       - name: release to pypi
-        uses: pypa/gh-action-pypi-publish@v1.4.2
+        uses: pypa/gh-action-pypi-publish@v1.6.4
         with:
           user: __token__
           password: ${{ secrets.PYPI }}
@@ -202,7 +202,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download documentation
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: DocumentationHTML
           path: build
