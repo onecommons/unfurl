@@ -7,7 +7,7 @@ RUN apt-get -qq update && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 # add alias script like podman-docker (which is not available in debian currently)
-RUN echo -e '#!/bin/sh\nexec /usr/bin/podman $@' > /usr/local/bin/docker && \
+RUN echo '#!/bin/sh\nexec /usr/bin/podman $@' > /usr/local/bin/docker && \
     chmod +x /usr/local/bin/docker
 
 # add config to use host (outer container) namespaces and such
