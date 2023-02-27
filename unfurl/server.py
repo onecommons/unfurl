@@ -357,7 +357,7 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend.ignore_errors = True
     redis = getattr(backend, "_read_client", None)
     if redis:
-        keys = [k.decode() for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
+        keys = [k.decode()[len(backend.key_prefix):] for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
     else:
         simple = getattr(backend, "_cache", None)
         if simple:
@@ -368,9 +368,7 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
             )
             return None
     logger.info(f"clearing cache {starts_with}, found keys: {repr(keys)}, {len(keys)}")
-    cache.delete_many(*keys)  # type: ignore
-    # cache.delete_many() return value on redis backend is unreliable, so just return keys
-    return keys
+    return cache.delete_many(*keys)  # type: ignore
 
 
 @app.before_request
@@ -495,6 +493,18 @@ def _cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
 def _validate_export(
     value: Any, entry: CacheEntry, cache: Cache, latest_commit: Optional[str]
 ) -> bool:
+    # _, deps = value
+    # # dependencies from repo files
+    # # version specified or explicit -> not a dependency
+    # # no revision specified -> use key for latest remote tags cache of repo
+    # # branch or tag that isn't a semver -> dep, save commit hash as latest_commit
+    # # have package manager generate deps
+    # for dep in deps:
+    #     # we only care about deps when the revision is mutable (not a version tag)
+    #     # if the dependent repo? file? has changed we need to
+    #     value, found = CacheEntry(dep.cache_key).get_cache(cache, dep.revision)
+    #     if found is not True:
+    #         return False
     return True
 
 
