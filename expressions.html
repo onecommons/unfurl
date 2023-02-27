@@ -747,19 +747,32 @@ following the rules found here <a class="reference external" href="https://kuber
 <section id="to-label">
 <h3>to_label<a class="headerlink" href="#to-label" title="Permalink to this headline"></a></h3>
 <p>Convert a string to a label with the constraints specified as keyword parameters
-defined in the table below. If given a dictionary or list, all keys and string values are converted</p>
-<p>This example returns “X1_CONVERT”</p>
+defined in the table below. If given a dictionary, all keys and string values are converted.
+If give a list, <code class="docutils literal notranslate"><span class="pre">to_label</span></code> is applied to each item and concatenated using <code class="docutils literal notranslate"><span class="pre">sep</span></code>.</p>
+<p>When given a list each item is truncated proportionally. The example below returns “longpr.name.suffi.RC”
+(“RC” is a digest of the original value, added when truncating to reduce the likelihood of duplicate name clashes.)</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">to_label</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">longprefix</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">name</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suffix</span>
+<span class="w">  </span><span class="nt">sep</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.</span>
+<span class="w">  </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+</pre></div>
+</div>
+<p>This following example returns “X1_CONVERT”. <code class="docutils literal notranslate"><span class="pre">digestlen</span></code> is set to 0 to skip appending a digest.</p>
 <div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">to_label</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1</span><span class="nv"> </span><span class="s">convert</span><span class="nv"> </span><span class="s">me&quot;</span>
 <span class="w">  </span><span class="nt">replace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_</span>
 <span class="w">  </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 <span class="w">  </span><span class="nt">case</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">upper</span>
+<span class="w">  </span><span class="nt">digestlen</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 </pre></div>
 </div>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 10%" />
-<col style="width: 90%" />
+<col style="width: 7%" />
+<col style="width: 93%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Key</p></th>
@@ -779,14 +792,23 @@ defined in the table below. If given a dictionary or list, all keys and string v
 <tr class="row-odd"><td><p>start_prepend</p></td>
 <td><p>If the start character is invalid, prepend with this string (Default: “x”)</p></td>
 </tr>
-<tr class="row-even"><td><p>max</p></td>
+<tr class="row-even"><td><p>end</p></td>
+<td><p>Allowed trailing characters. Regex character ranges and character classes. Invalid characters are removed. Defaults to “w” (equivalent to <code class="docutils literal notranslate"><span class="pre">a-zA-Z0-9_</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>max</p></td>
 <td><p>Maximum length of label (Default: 63 (the maximum for a DNS name))</p></td>
 </tr>
-<tr class="row-odd"><td><p>case</p></td>
-<td><p>“lower”, “upper”, “any” (no conversion) (Default: “any”)</p></td>
+<tr class="row-even"><td><p>case</p></td>
+<td><p>Case for label, one of “lower”, “upper”, “any” (no conversion) (Default: “any”)</p></td>
 </tr>
-<tr class="row-even"><td><p>allowed</p></td>
-<td><p>Additional characters to accept</p></td>
+<tr class="row-odd"><td><p>sep</p></td>
+<td><p>Separator to use when concatenating a list. (Default: “”)</p></td>
+</tr>
+<tr class="row-even"><td><p>digest</p></td>
+<td><p>If present, append a short digest of derived from concatenating the label with this digest. If omitted, a digest is only appended when the label is truncated. (Default: null)</p></td>
+</tr>
+<tr class="row-odd"><td><p>digestlen</p></td>
+<td><p>If a digest is needed, the length of the digest to include in the label. 0 to disable. Default: 3 or 2 if max &lt; 32</p></td>
 </tr>
 </tbody>
 </table>
