@@ -526,6 +526,8 @@ class ImportTest(unittest.TestCase):
                 """
 apiVersion: %s
 kind: Ensemble
+metadata:
+  uri: https://myrepos.com/foo.git#:ensemble/ensemble.yaml
 environment:
  external:
   test:
@@ -575,6 +577,9 @@ spec:
             manifest = YamlManifest(path="ensemble.yaml")
             root = manifest.get_root_resource()
             importerResource = root.find_resource("importer")
+            assert manifest.uri == "https://myrepos.com/foo.git#:ensemble/ensemble.yaml", manifest.uri
+            assert root.uri == manifest.uri + "?::root"
+            assert importerResource.uri == manifest.uri + "?::importer"
             # assert importing.attributes['test']
             assert root.imports["test"]
             self.assertEqual(importerResource.attributes["mapped1"], "ok")

@@ -50,6 +50,8 @@ from .logs import getLogger
 if TYPE_CHECKING:
     from unfurl.configurator import Dependency
     import toscaparser.repositories
+    from .yamlmanifest import YamlManifest
+
 
 logger = getLogger("unfurl")
 
@@ -488,6 +490,18 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return self.shadow.base_dir
         else:
             return self.root._baseDir
+
+    @property
+    def uri(self) -> str:
+        tosca_template = self.template.spec.template
+        if tosca_template and tosca_template.import_resolver:
+            manifest: "YamlManifest" = tosca_template.import_resolver.manifest
+            if "#" in manifest.uri:
+                return manifest.uri + "?" + self.key
+            else:
+                return manifest.uri + "#" + self.key
+        return "#" + self.key
+
 
     @property
     def artifacts(self):
