@@ -3,9 +3,13 @@
 """
 Internal classes supporting the runtime.
 """
+import base64
 import collections
 from collections.abc import MutableSequence, Mapping
+import hashlib
+import math
 import os
+from random import choice
 import sys
 import os.path
 import re
@@ -616,13 +620,13 @@ def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
 
     If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
     """
-    env = cast(Dict[str, str], ctx.environ)
+    env = ctx.environ
     if not args:
         return env
 
     if isinstance(args, list):
         name = args[0]
-        default: Union[str, None] = args[1] if len(args) > 1 else None
+        default: Optional[str] = args[1] if len(args) > 1 else None
     else:
         name = args
         default = None
@@ -630,7 +634,7 @@ def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
     if name in env:
         return env[name]
     else:
-        default = cast(Union[str, None], map_value(default, ctx))
+        default = cast(Optional[str], map_value(default, ctx))
         return default
 
 
@@ -718,18 +722,53 @@ def to_env(args, ctx: RefContext):
 set_eval_func("to_env", to_env)
 
 
-def to_label(
-    arg,
+def _digest(arg: str, case: str, digest: Optional[str]=None) -> str:
+    m = hashlib.sha1()  # use same digest function as git
+    m.update(arg.encode("utf-8"))
+    if digest:
+        m.update(digest.encode("utf-8"))
+    if case == "any":
+        digest = (
+            base64.urlsafe_b64encode(m.digest())
+            .decode()
+            .strip("=")
+            .replace("_", "")
+            .replace("-", "")
+        )
+    else:
+        digest = base64.b32encode(m.digest()).decode().strip("=")
+    return digest
+
+
+def _mid_truncate(label: str, replace: str, trunc: int) -> str:
+    if len(label) > trunc:
+        replace_len = len(replace)
+        mid = (trunc - replace_len) / 2
+        if mid <= 4:
+            return label[:trunc]
+        # trunc is odd, take one more from the beginning
+        return label[: math.ceil(mid)] + replace + label[-math.floor(mid):]
+    return label
+
+
+_label_defaults = dict(
     allowed=r"\w",
     max=63,
     case="any",
     replace="",
     start="a-zA-Z",
     start_prepend="x",
-    **kw,
-):
-    r"""Convert a string to q label with the given constraints.
-        If a dictionary or list, all keys and string values are converted.
+    end=r"\w",
+    sep="",
+    digest=None,
+    digestlen=-1,
+)
+
+
+def to_label(arg, **kw):
+    r"""Convert a string to a label with the given constraints.
+        If a dictionary, all keys and string values are converted.
+        If list, to_label is applied to each item and concatenated using ``sep``
 
     Args:
         arg (str or dict or list): Convert to label
@@ -739,40 +778,106 @@ def to_label(
         start (str, optional): Allowed characters for the first character. Regex character ranges and character classes.
                                Defaults to "a-zA-Z"
         start_prepend (str, optional): If the start character is invalid, prepend with this string (Default: "x")
+        end (str, optional): Allowed trailing characters. Regex character ranges and character classes.
+                            Invalid characters are stripped. Defaults to "\w"  (equivalent to [a-zA-Z0-9_])
         max (int, optional): max length of label. Defaults to 63 (the maximum for a DNS name).
         case (str, optional): "upper", "lower" or "any" (no conversion). Defaults to "any".
+        sep (str, optional): Separator to use when concatenating a list. Defaults to ""
+        digestlen (int, optional): If a label is truncated, the length of the digest to include in the label. 0 to disable.
+                                Default: 3 or 2 if max < 32
     """
+    case: str = kw.get("case", _label_defaults["case"])
+    sep: str = kw.get("sep", _label_defaults["sep"])
+    digest: Optional[str] = kw.pop("digest", _label_defaults["digest"])
+    replace: str = kw.get("replace", _label_defaults["replace"])
+    elide_chars = replace
+
     if isinstance(arg, Mapping):
+        # convert keys and string values of the mapping, filtering out nulls
+        # only apply digest to values
         return {
-            to_label(n, allowed, max, case, replace): to_label(
-                v, allowed, max, case, replace
-            )
+            to_label(n, **kw): to_label(v, digest=digest, **kw)
             for n, v in arg.items()
             if v is not None
         }
-    elif isinstance(arg, list):
-        return [to_label(n, allowed, max, case, replace) for n in arg]
+
+    trunc: int = kw.pop("max", _label_defaults["max"])
+    assert trunc >= 1, trunc
+    checksum: int = kw.pop("digestlen", _label_defaults["digestlen"])
+
+    if checksum == -1:
+        checksum = 2 if trunc < 32 else 3
+    if checksum:
+        maxchecksum = min(trunc, checksum)
+    else:
+        maxchecksum = 0
+    if isinstance(arg, list):
+        if not arg:
+            return ""
+        # concatentate list
+        # adjust max for length of separators
+        trunc_chars = trunc - min(len(sep) * (len(arg) - 1), trunc - 1)
+        seg_max = max(trunc_chars // len(arg), 1)
+        segments = [str(n) for n in arg]
+        labels = [to_label(n, digestlen=0, max=9999, **kw) for n in segments]
+        length = sum(map(len, labels))
+        if length > trunc_chars or digest is not None:
+            # needs truncation and/or digest
+            # redistribute space from short segments
+            leftover = sum(map(lambda n: max(seg_max - len(n), 0), labels))
+            seg_max += leftover // len(labels)
+            labels = [_mid_truncate(seg, elide_chars, seg_max) for seg in labels]
+            if checksum:
+                # one of the labels was truncated, add a digest
+                trunc -= len(sep) + maxchecksum
+                hash = _digest("".join(segments), case, digest)[:maxchecksum]
+                if trunc <= 0:
+                    return hash
+                return sep.join(labels)[:trunc] + sep + hash
+        return sep.join(labels)[:trunc]
     elif isinstance(arg, str):
+        start: str = kw.get("start", _label_defaults["start"])
+        start_prepend: str = kw.get("start_prepend", _label_defaults["start_prepend"])
+        allowed: str = kw.get("allowed", _label_defaults["allowed"])
+        end: str = kw.get("end", _label_defaults["end"])
+
         if arg and re.match(rf"[^{start}]", arg[0]):
             val = start_prepend + arg
         else:
             val = arg
+        if len(val) > trunc:
+            # heuristic: if we need to truncate, just remove the invalid characters
+            replace = ""
         val = re.sub(rf"[^{allowed}]", replace, val)
+        while val and re.match(rf"[^{end}]", val[-1]):
+            val = val[:-1]
         if case == "lower":
             val = val.lower()
         elif case == "upper":
             val = val.upper()
-        return val[:max]
+
+        if maxchecksum and (digest is not None or len(val) > trunc):
+            trunc -= min(trunc, maxchecksum)
+            return (
+                _mid_truncate(val, elide_chars, trunc)
+                + _digest(arg, case, digest)[:maxchecksum]
+            )
+        else:
+            return _mid_truncate(val, elide_chars, trunc)
     else:
         return arg
 
 
 set_eval_func(
-    "to_label", lambda arg, ctx: to_label(map_value(arg, ctx), **ctx.kw), safe=True
+    "to_label",
+    lambda arg, ctx: to_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    safe=True,
 )
 
 
-def to_dns_label(arg, max=63, **kw):
+def to_dns_label(
+    arg, allowed=r"\w-", start=r"\w", replace="--", case="lower", max=63, **kw
+):
     """
     Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
     The maximum length of each label is 63 characters and can include
@@ -780,44 +885,50 @@ def to_dns_label(arg, max=63, **kw):
 
     Invalid characters are replaced with "--".
     """
-    return to_label(arg, allowed=r"\w-", start=r"\w", replace="--", max=max)
+    return to_label(
+        arg, allowed=allowed, start=start, replace=replace, case=case, max=max, **kw
+    )
 
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **ctx.kw),
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
     safe=True,
 )
 
 
-def to_kubernetes_label(arg):
+def to_kubernetes_label(arg, allowed=r"\w_.-", replace="__", **kw):
     """
     See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
 
     Invalid characters are replaced with "__".
     """
-    return to_label(arg, allowed=r"\w_.-", replace="__")
+    return to_label(arg, allowed=allowed, replace=replace, **kw)
 
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx)),
+    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
     safe=True,
 )
 
 
-def to_googlecloud_label(arg, max=63, **kw):
+def to_googlecloud_label(
+    arg, allowed=r"\w_-", case="lower", replace="__", max=63, **kw
+):
     """
     See https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
 
     Invalid characters are replaced with "__".
     """
-    return to_label(arg, allowed=r"\w_-", case="lower", replace="__", max=max)
+    return to_label(arg, allowed=allowed, case=case, replace=replace, max=max, **kw)
 
 
 set_eval_func(
     "to_googlecloud_label",
-    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx), **ctx.kw),
+    lambda arg, ctx: to_googlecloud_label(
+        map_value(arg, ctx), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 

@@ -162,14 +162,14 @@ class RefContext:
         self.kw: MappingType[str, Any] = {}
 
     @property
-    def strict(self):
+    def strict(self) -> bool:
         if self.task:
             return not self.task._rendering
         else:
             return self._strict
 
     @property
-    def environ(self):
+    def environ(self) -> Dict[str, str]:
         if self.task:
             return self.task.environ
         else:

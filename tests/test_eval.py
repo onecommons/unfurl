@@ -648,12 +648,13 @@ SUB: '1'
             to_googlecloud_label:
               Url: https://foo-bar.com
               Missing: null
+            digest: d80912dc
           """
         yaml = make_yaml()
         expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
         labels = map_value(expr, ctx)
-        assert labels == {'url': "https______foo-bar__com"}
+        assert labels == {'url': "https______foo-bar__comVIT"}
 
         src = """
           eval:
@@ -662,13 +663,89 @@ SUB: '1'
             max: 10
             case: upper
             start_prepend: _
+            digestlen: 0  # disable digest on truncation
           """
         yaml = make_yaml()
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert label == "_1_CONVERT"
+        assert label == "_1CON_RTME"
 
+        src = """
+          eval:
+            to_label: "1 convert me"
+            replace: _
+            max: "{{ 5 + 5 }}"
+            case: upper
+            start_prepend: _
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(self._getTestResource())
+        label = map_value(expr, ctx)
+        assert label == "_1CONVERLC"
+
+        src = """
+          eval:
+            to_label:
+            - longprefix
+            - name
+            - suffix
+            sep: .
+            max: 10
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(self._getTestResource())
+        label = map_value(expr, ctx)
+        assert label == "lo.na.s.RC"
+
+        src = """
+          eval:
+            to_label:
+            - longprefix
+            - name
+            - suffix
+            sep: .
+            replace: "-"
+            max: 20
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(self._getTestResource())
+        label = map_value(expr, ctx)
+        assert label == "longpr.name.suffi.RC"
+
+        src = """
+          eval:
+            to_label:
+            - reallyreallylongprefix
+            - short
+            sep: .
+            replace: "-"
+            max: 20
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(self._getTestResource())
+        label = map_value(expr, ctx)
+        assert len(label) == 20
+        assert label == "reall-refix.short.yi"
+
+        src = """
+          eval:
+            to_label:
+            - longprefix
+            - name
+            - suffix
+            sep: .
+            max: 1
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(self._getTestResource())
+        label = map_value(expr, ctx)
+        assert label == "R"
 
 
 def pairs(iterable):

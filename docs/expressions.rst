@@ -417,9 +417,24 @@ to_label
 ^^^^^^^^
 
 Convert a string to a label with the constraints specified as keyword parameters
-defined in the table below. If given a dictionary or list, all keys and string values are converted
+defined in the table below. If given a dictionary, all keys and string values are converted.
+If give a list, ``to_label`` is applied to each item and concatenated using ``sep``.
 
-This example returns "X1_CONVERT"      
+When given a list each item is truncated proportionally. The example below returns "longpr.name.suffi.RC"
+("RC" is a digest of the original value, added when truncating to reduce the likelihood of duplicate name clashes.)
+
+.. code-block:: YAML
+
+  eval:
+    to_label:
+    - longprefix
+    - name
+    - suffix
+    sep: .
+    max: 20
+
+
+This following example returns "X1_CONVERT". ``digestlen`` is set to 0 to skip appending a digest.
 
 .. code-block:: YAML
 
@@ -428,6 +443,7 @@ This example returns "X1_CONVERT"
     replace: _
     max: 10
     case: upper
+    digestlen: 0
 
 ============= ==========================================================================================
 Key           Value
@@ -436,9 +452,12 @@ allowed       Allowed characters. Regex character ranges and character classes. 
 replace       String Invalidate. Defaults to "" (remove the characters).
 start         Allowed characters for the first character. Regex character ranges and character classes. Defaults to "a-zA-Z"
 start_prepend If the start character is invalid, prepend with this string (Default: "x")
+end           Allowed trailing characters. Regex character ranges and character classes. Invalid characters are removed. Defaults to "\w" (equivalent to ``a-zA-Z0-9_``)
 max           Maximum length of label (Default: 63 (the maximum for a DNS name))
-case          "lower", "upper", "any" (no conversion) (Default: "any")
-allowed       Additional characters to accept
+case          Case for label, one of "lower", "upper", "any" (no conversion) (Default: "any")
+sep           Separator to use when concatenating a list. (Default: "")
+digest        If present, append a short digest of derived from concatenating the label with this digest. If omitted, a digest is only appended when the label is truncated. (Default: null)
+digestlen     If a digest is needed, the length of the digest to include in the label. 0 to disable. Default: 3 or 2 if max < 32
 ============= ==========================================================================================
 
 
