@@ -443,7 +443,7 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
     if repo:
         logger.info(f"found repo at {repo.working_dir}")
         if pull and not repo.is_dirty():
-            repo.pull()
+            repo.pull(with_exceptions=True)
     else:
         # repo doesn't exists, clone it
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
@@ -632,6 +632,10 @@ def populate_cache():
 @app.route("/clear_project_file_cache", methods=["POST"])
 def clear_project():
     project_id = get_project_id(request)
+    return _clear_project(project_id)
+
+
+def _clear_project(project_id):
     project_dir = _get_project_repo_dir(project_id)
     if os.path.isdir(project_dir):
         logger.info("clear_project: removing %s", project_dir)
@@ -682,12 +686,14 @@ def _localenv_from_cache(
     deployment_path: str,
     latest_commit: str,
     args: dict,
-) -> Tuple[Any, Any]:
+) -> Tuple[Any, Optional[LocalEnv]]:
     # we want to make cloning a project cache work to prevent concurrent cloning
     def _cache_localenv_work(
         cache_entry: CacheEntry, latest_commit: str
     ) -> Tuple[Any, Any]:
-        clone_location = _fetch_working_dir(cache_entry.project_id, args, True)
+        # don't try to pull -- cache will have already pulled
+        # or _localenv_from_cache_pull will do it next if needed
+        clone_location = _fetch_working_dir(cache_entry.project_id, args, False)
         if clone_location is None:
             return (
                 create_error_response("INTERNAL_ERROR", "Could not find repository"),
@@ -700,6 +706,50 @@ def _localenv_from_cache(
     return CacheEntry(project_id, branch, "unfurl.yaml", "localenv", repo).get_or_set(
         cache, _cache_localenv_work, latest_commit, _validate_localenv
     )
+
+
+def _localenv_from_cache_pull(
+    cache,
+    project_id: str,
+    branch: Optional[str],
+    deployment_path: str,
+    latest_commit: str,
+    args: dict,
+    pull: bool = True,
+) -> Tuple[Any, Any]:
+    already_exists = os.path.isdir(_get_project_repo_dir(project_id))
+    err, readonly_localEnv = _localenv_from_cache(
+        cache, project_id, branch, deployment_path, latest_commit, args
+    )
+    if err:
+        return err, readonly_localEnv
+    assert readonly_localEnv
+    assert readonly_localEnv.project
+    repo = readonly_localEnv.project.project_repoview.repo
+    assert repo
+    was_dirty = repo.is_dirty()
+    if pull and already_exists and not was_dirty:
+        try:
+            repo.pull(with_exceptions=True)
+        except Exception:
+            logger.warning("pull failed for %s, reverting local repo", project_id, exc_info=1)
+            # delete the local repository and reclone
+            _clear_project(project_id)
+            # XXX if we don't want to clear all the project's entries:
+            # CacheEntry(project_id, branch, "unfurl.yaml", "localenv").delete_cache(cache)
+            # _cancel_inflight() too
+            err, readonly_localEnv = _localenv_from_cache(
+                cache, project_id, branch, deployment_path, latest_commit, args
+            )
+            if err:
+                return err, readonly_localEnv
+        if latest_commit and repo.revision != latest_commit:
+            logger.warning(
+                f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
+            )
+            err = create_error_response("CONFLICT", "Repository at wrong revision")
+            return err, readonly_localEnv
+    return None, readonly_localEnv
 
 
 def _do_export(
@@ -724,7 +774,7 @@ def _do_export(
             # use the current ensemble
             working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
         else:
-            working_dir = _fetch_working_dir(project_id, args, False)
+            working_dir = _fetch_working_dir(project_id, args, True)
             if working_dir is None:
                 return (
                     create_error_response(
@@ -896,8 +946,7 @@ def _patch_environment(body: dict, project_id: str):
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
-    already_exists = os.path.isdir(_get_project_repo_dir(project_id))
-    err, readonly_localEnv = _localenv_from_cache(
+    err, readonly_localEnv = _localenv_from_cache_pull(
         cache, project_id, branch, "", latest_commit, body
     )
     if err:
@@ -912,13 +961,6 @@ def _patch_environment(body: dict, project_id: str):
     if not password and repo.url.startswith("http"):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
     was_dirty = repo.is_dirty()
-    if already_exists and not was_dirty:
-        repo.pull()
-        if latest_commit and repo.revision != latest_commit:
-            logger.warning(
-                f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
-            )
-            return create_error_response("CONFLICT", "Repository at wrong revision")
     starting_revision = (
         localEnv.project.project_repoview.repo
         and localEnv.project.project_repoview.repo.revision
@@ -1008,8 +1050,8 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
-    err, parent_localenv = _localenv_from_cache(
-        cache, project_id, branch, "", latest_commit, body
+    err, parent_localenv = _localenv_from_cache_pull(
+        cache, project_id, branch, "", latest_commit, body, pull
     )
     if err:
         return err
@@ -1019,13 +1061,6 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 
     invalidate_cache(body, "deployment", project_id)
     was_dirty = existing_repo and existing_repo.is_dirty()
-    if pull and existing_repo and not was_dirty:
-        existing_repo.pull()
-        if latest_commit and existing_repo.revision != latest_commit:
-            logger.warning(
-                f"Conflict in {project_id}: {latest_commit} != {existing_repo.revision}"
-            )
-            return create_error_response("CONFLICT", "Repository at wrong revision")
     starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
@@ -1201,7 +1236,7 @@ def _commit_and_push(
 
 
 def _fetch_working_dir(
-    project_path: str, args: dict, pull: bool = False
+    project_path: str, args: dict, pull: bool
 ) -> Optional[str]:
     # if successful, returns the repository's working directory or None if clone failed
     current_working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."

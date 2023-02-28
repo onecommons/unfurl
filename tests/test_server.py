@@ -143,7 +143,16 @@ def runner():
         server_process.join()   # Wait for the server to terminate
 
 
+def commit_foo(val: str):
+    with open("foo", "w") as foo:
+        foo.write(val)
+    os.system("ls -la")
+    os.system("git add foo")
+    os.system(f"git commit -m'{val}'")
+
 def set_up_deployment(runner, deployment):
+    # create git repo in "remote" and bare clone of it in "remote.git"
+    # configure the server to clone into "." and push into "remote.git"
     init_project(
         runner,
         args=["init", "--mono", "--var", "vaultpass", "", "remote"],
@@ -392,9 +401,17 @@ def test_server_update_deployment():
             assert res.status_code == 200
             assert res.json()["ResourceTemplate"]["container_service"]["properties"][0]["name"] == "container"
 
-            os.chdir("remote")
-            # server pushed to remote.git
+            # test that the server recovers from a bad repo before trying to patch
+            # by creating a conflict between the server's local repo and the remote repo
+            os.chdir("server/remote")
+            commit_foo("foo")
+            os.chdir("../../remote")
             os.system("git pull ../remote.git")
+            commit_foo("bar")
+            os.system("git push ../remote.git")  # push to remote.git
+
+            # server pushes to remote.git which needs to be a bare repository
+            # so pull from there to verify the push
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert (data['spec']
@@ -408,6 +425,8 @@ def test_server_update_deployment():
                             ['VAR']
                         ) == "target"
 
+            # test deleting
+
             res = requests.post(
                 f"http://localhost:{port}/update_ensemble?auth_project=remote",
                 json={
@@ -419,7 +438,7 @@ def test_server_update_deployment():
 
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
-            os.system("git pull ../remote.git")
+            os.system("git pull --commit --no-edit ../remote.git")
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert not data['spec']['service_template']['topology_template']['node_templates']
@@ -451,7 +470,7 @@ def test_server_update_deployment():
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
 
-            os.system("git pull ../remote.git")
+            os.system("git pull --commit --no-edit ../remote.git")
             with open("unfurl.yaml", "r") as f:
                 data = yaml.load(f.read())
                 # check that the environment was added and an ensemble was created

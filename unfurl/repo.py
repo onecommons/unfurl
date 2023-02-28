@@ -691,12 +691,14 @@ class GitRepo(Repo):
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
 
-    def pull(self, remote="origin", revision=None, ff_only=True, **kw):
+    def pull(
+        self, remote="origin", revision=None, ff_only=True, with_exceptions=False, **kw
+    ) -> bool:
         if remote in self.repo.remotes:
             cmd = ["pull", remote, revision or "HEAD"]
             if ff_only:
                 cmd.append("--ff-only")
-            code, out, err = self.run_cmd(cmd, **kw)
+            code, out, err = self.run_cmd(cmd, with_exceptions=with_exceptions, **kw)
             if code:
                 logger.info(
                     "attempt to pull latest from %s into %s failed: %s %s",
@@ -705,6 +707,7 @@ class GitRepo(Repo):
                     out,
                     err,
                 )
+                return False
             else:
                 logger.verbose(
                     "pull latest from %s into %s: %s %s",
@@ -713,7 +716,7 @@ class GitRepo(Repo):
                     out,
                     err,
                 )
-            return not code
+                return True
         else:
             return False
 
