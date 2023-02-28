@@ -16,6 +16,7 @@ import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
+from unfurl.util import change_cwd
 from base64 import b64encode
 
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
@@ -146,13 +147,12 @@ def runner():
 def commit_foo(val: str):
     with open("foo", "w") as foo:
         foo.write(val)
-    os.system("ls -la")
     os.system("git add foo")
     os.system(f"git commit -m'{val}'")
 
 def set_up_deployment(runner, deployment):
     # create git repo in "remote" and bare clone of it in "remote.git"
-    # configure the server to clone into "." and push into "remote.git"
+    # configure the server to clone into "server" and push into "remote.git"
     init_project(
         runner,
         args=["init", "--mono", "--var", "vaultpass", "", "remote"],
@@ -169,6 +169,10 @@ def set_up_deployment(runner, deployment):
 
     # we need a bare repo for push to work
     os.system("git clone --bare remote remote.git")
+    with change_cwd("remote"):
+        os.system('git config user.email "unittest@onecommons.org"')
+        os.system('git config user.name "Test Robot"')
+        os.system('git config push.autoSetupRemote true')
 
     port = _next_port()
 
