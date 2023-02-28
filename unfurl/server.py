@@ -716,7 +716,7 @@ def _localenv_from_cache_pull(
     latest_commit: str,
     args: dict,
     pull: bool = True,
-) -> Tuple[Any, Any]:
+) -> Tuple[Any, Optional[LocalEnv]]:
     already_exists = os.path.isdir(_get_project_repo_dir(project_id))
     err, readonly_localEnv = _localenv_from_cache(
         cache, project_id, branch, deployment_path, latest_commit, args
@@ -732,7 +732,7 @@ def _localenv_from_cache_pull(
         try:
             repo.pull(with_exceptions=True)
         except Exception:
-            logger.warning("pull failed for %s, reverting local repo", project_id, exc_info=1)
+            logger.warning("pull failed for %s, reverting local repo", project_id, exc_info=True)
             # delete the local repository and reclone
             _clear_project(project_id)
             # XXX if we don't want to clear all the project's entries:
@@ -767,6 +767,7 @@ def _do_export(
         )
         if err:
             return err, None
+        assert parent_localenv and parent_localenv.project and parent_localenv.project.project_repoview.repo
         working_dir = parent_localenv.project.project_repoview.repo.working_dir
     else:
         err, parent_localenv = None, None
@@ -774,7 +775,7 @@ def _do_export(
             # use the current ensemble
             working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
         else:
-            working_dir = _fetch_working_dir(project_id, args, True)
+            working_dir = _fetch_working_dir(project_id, args, True)  # type: ignore
             if working_dir is None:
                 return (
                     create_error_response(
@@ -951,6 +952,7 @@ def _patch_environment(body: dict, project_id: str):
     )
     if err:
         return err
+    assert readonly_localEnv and readonly_localEnv.project
     invalidate_cache(body, "environments", project_id)
     localEnv = LocalEnv(readonly_localEnv.project.projectRoot, can_be_empty=True)
     assert localEnv.project
@@ -1055,6 +1057,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     )
     if err:
         return err
+    assert parent_localenv and parent_localenv.project and parent_localenv.project.project_repoview.repo
     clone_location = os.path.join(
         parent_localenv.project.project_repoview.repo.working_dir, deployment_path
     )
