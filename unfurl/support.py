@@ -722,7 +722,7 @@ def to_env(args, ctx: RefContext):
 set_eval_func("to_env", to_env)
 
 
-def _digest(arg: str, case: str, digest: Optional[str]=None) -> str:
+def _digest(arg: str, case: str, digest: Optional[str] = None) -> str:
     m = hashlib.sha1()  # use same digest function as git
     m.update(arg.encode("utf-8"))
     if digest:
@@ -737,6 +737,10 @@ def _digest(arg: str, case: str, digest: Optional[str]=None) -> str:
         )
     else:
         digest = base64.b32encode(m.digest()).decode().strip("=")
+        if case == "lower":
+            return digest.lower()
+        elif case == "upper":
+            return digest.upper()
     return digest
 
 
@@ -747,7 +751,7 @@ def _mid_truncate(label: str, replace: str, trunc: int) -> str:
         if mid <= 4:
             return label[:trunc]
         # trunc is odd, take one more from the beginning
-        return label[: math.ceil(mid)] + replace + label[-math.floor(mid):]
+        return label[: math.ceil(mid)] + replace + label[-math.floor(mid) :]
     return label
 
 
