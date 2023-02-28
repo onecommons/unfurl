@@ -396,6 +396,6 @@ def test_gcp_configurator():
 
         # check that get_ensemble_metadata() evaluated correctly:
         result = list(job.workDone.values())[-1].result.result
-        assert result.pop("commit")
+        assert result.pop("revision")
         assert result == dict(deployment="ensemble", job="A01110000000",
                               environment="testing", unfurlproject='my/dashboard')

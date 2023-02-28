@@ -3,7 +3,7 @@
 """Loads and saves a ensemble manifest.
 """
 import io
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING, cast
 import sys
 from collections.abc import MutableSequence, Mapping
 import numbers
@@ -259,9 +259,9 @@ class ReadOnlyManifest(Manifest):
         self.manifest.dump(out)
 
 
-def clone(localEnv, destPath):
+def clone(localEnv: LocalEnv, destPath) -> ReadOnlyManifest:
     clone = ReadOnlyManifest(localEnv=localEnv)
-    config = clone.manifest.config
+    config = cast(dict, clone.manifest.config)
     for key in ["status", "changes", "lastJob", "lock"]:
         config.pop(key, None)
     if "metadata" in config:

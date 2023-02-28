@@ -210,6 +210,10 @@ class Manifest(AttributeManager):
         return "."
 
     @property
+    def deployment(self) -> str:
+        return os.path.basename(os.path.dirname(self.path)) if self.path else ""
+
+    @property
     def loader(self) -> Optional["AnsibleLoader"]:
         return (
             self.rootResource

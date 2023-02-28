@@ -353,7 +353,7 @@ class ToscaSpec:
 
     def _get_project_dir(self, home=False):
         # hacky
-        if self.template.import_resolver:
+        if self.template and self.template.import_resolver:
             manifest = self.template.import_resolver.manifest
             if manifest.localEnv:
                 if home:
@@ -364,6 +364,7 @@ class ToscaSpec:
         return None
 
     def add_node_template(self, name, tpl, discovered=True):
+        assert self.template
         custom_types = None
         if "custom_types" in tpl:
             custom_types = tpl.pop("custom_types")

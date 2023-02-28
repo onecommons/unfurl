@@ -942,12 +942,12 @@ def get_ensemble_metadata(arg, ctx):
         return {}
     ensemble = ctx.task._manifest
     metadata = dict(
-        deployment=os.path.basename(os.path.dirname(ensemble.path)),
+        deployment=ensemble.deployment,
         job=ctx.task.job.changeId,
     )
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()
-        metadata["commit"] = ensemble.repo.revision[:8]
+        metadata["revision"] = ensemble.repo.revision[:8]
     environment = ensemble.localEnv and ensemble.localEnv.manifest_context_name
     if environment:
         metadata["environment"] = environment

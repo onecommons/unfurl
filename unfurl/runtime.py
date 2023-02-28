@@ -492,16 +492,26 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return self.root._baseDir
 
     @property
-    def uri(self) -> str:
+    def _manifest(self) -> Optional["YamlManifest"]:
         tosca_template = self.template.spec.template
         if tosca_template and tosca_template.import_resolver:
-            manifest: "YamlManifest" = tosca_template.import_resolver.manifest
-            if "#" in manifest.uri:
-                return manifest.uri + "?" + self.key
-            else:
-                return manifest.uri + "#" + self.key
-        return "#" + self.key
+            return tosca_template.import_resolver.manifest
+        return None
 
+    @property
+    def uri(self) -> str:
+        manifest = self._manifest
+        if not manifest:
+            return "#" + self.key
+        if "#" in manifest.uri:
+            return manifest.uri + "?" + self.key
+        else:
+            return manifest.uri + "#" + self.key
+
+    @property
+    def deployment(self) -> str:
+        manifest = self._manifest
+        return manifest.deployment if manifest else ""
 
     @property
     def artifacts(self):
