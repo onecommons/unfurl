@@ -73,6 +73,7 @@ def make_map_with_base(doc, baseDir, cls):
 # other values besides delete not supported because current code can leave those keys in final result
 mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
+
 # b is the merge patch, a is original dict
 def merge_dicts(
     b,
@@ -132,44 +133,16 @@ def merge_dicts(
                 val = None
         elif isinstance(val, MutableSequence) and key in b:
             bval = b[key]
-            if isinstance(bval, MutableSequence) and listStrategy == "append_unique":
-                # XXX allow more strategies beyond append
-                #     if appendlists == 'all' or key in appendlists:
-                bval = bval[:]
-                for i, item in enumerate(val):
-                    if (
-                        isinstance(item, Mapping)
-                        and item.get(mergeStrategyKey) == "merge"
-                    ):
-                        if i >= len(bval):
-                            bval.append(item)
-                        else:
-                            bitem = bval[i]
-                            if isinstance(bitem, Mapping):
-                                bval[i] = merge_dicts(
-                                    bitem,
-                                    item,
-                                    cls,
-                                    defaultStrategy=childStrategy,
-                                    replaceKeys=replaceKeys,
-                                    listStrategy=listStrategy,
-                                )
-                            else:
-                                bval[i] = item
-                    elif item not in bval:
-                        bval.append(item)
-                cp[key] = bval
+            if isinstance(bval, MutableSequence):
+                cp[key] = _merge_lists(
+                    val,
+                    bval,
+                    cls,
+                    childStrategy,
+                    replaceKeys,
+                    listStrategy,
+                )
                 continue
-        #     elif mergelists == 'all' or key in mergelists:
-        #       newlist = []
-        #       for ai, bi in zip(val, bval):
-        #         if isinstance(ai, Mapping) and isinstance(bi, Mapping):
-        #           newlist.append(mergeDicts(bi, ai, cls))
-        #         elif a1 != deletemarker:
-        #           newlist.append(a1)
-        #       cp[key] == newlist
-        #       continue
-
         # otherwise a replaces b
         cp[key] = val
 
@@ -181,6 +154,70 @@ def merge_dicts(
             # note: val is shared not copied
             cp[key] = val
     return cp
+
+
+def _find_key_in_list(seq, key):
+    for i, item in enumerate(seq):
+        if isinstance(item, Mapping) and len(item) == 1 and key in item:
+            return i
+    return -1
+
+
+def _merge_lists(
+    val,
+    bval,
+    cls,
+    childStrategy,
+    replaceKeys,
+    listStrategy,
+):
+    if listStrategy == "append_unique":
+        # XXX allow more strategies beyond append
+        #     if appendlists == 'all' or key in appendlists:
+        bval = bval[:]
+        for i, item in enumerate(val):
+            if isinstance(item, Mapping):
+                if item.get(mergeStrategyKey) == "merge":
+                    if i >= len(bval):
+                        bval.append(item)
+                    else:
+                        bitem = bval[i]
+                        if isinstance(bitem, Mapping):
+                            bval[i] = merge_dicts(
+                                bitem,
+                                item,
+                                cls,
+                                defaultStrategy=childStrategy,
+                                replaceKeys=replaceKeys,
+                                listStrategy=listStrategy,
+                            )
+                        else:
+                            bval[i] = item
+                    continue
+                elif len(item) == 1:
+                    key = next(iter(item))
+                    index = _find_key_in_list(bval, key)
+                    if index > -1:
+                        bval[index] = merge_dicts(
+                            bval[index],
+                            item,
+                            cls,
+                            defaultStrategy=childStrategy,
+                            replaceKeys=replaceKeys,
+                            listStrategy=listStrategy,
+                        )
+                        continue
+            if item not in bval:
+                bval.append(item)
+    #   elif mergelists == 'all' or key in mergelists:
+    #       newlist = []
+    #       for ai, bi in zip(val, bval):
+    #         if isinstance(ai, Mapping) and isinstance(bi, Mapping):
+    #           newlist.append(mergeDicts(bi, ai, cls))
+    #         elif a1 != deletemarker:
+    #           newlist.append(a1)
+    #       return newlist
+    return bval
 
 
 def _cache_anchors(_anchorCache, obj):

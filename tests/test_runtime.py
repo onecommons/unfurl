@@ -148,15 +148,31 @@ class ExpandDocTest(unittest.TestCase):
 
     def test_listmerge(self):
         a = {
-          "spec": [{"a": "a"}],
+            "spec": [{"a": "a"}],
         }
         b = {
-          "spec": [{"+%": "merge", "b": "b"}]
+            "spec": [{"+%": "merge", "b": "b"}]
         }
 
         expected = {
             "spec": [{"a": "a", "b": "b"}]
         }
+        # second argument overrides first
+        expanded = merge_dicts(a, b)
+        assert expanded == expected
+
+    def test_listmerge_dicts(self):
+        a = {
+            "spec": [{"a": {1: 1}}, "foo", {"c": "base"}],
+        }
+        b = {
+            "spec": [{"b": "b"}, {"c": "override"}, {"a": {2:2}}]
+        }
+
+        expected = {
+            "spec": [{"a": {1: 1, 2: 2}}, "foo", {"c": "override"}, {"b": "b"}]
+        }
+        # second argument overrides first
         expanded = merge_dicts(a, b)
         assert expanded == expected
 
