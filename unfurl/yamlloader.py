@@ -8,20 +8,19 @@ import json
 import os
 from typing import Optional, TextIO, Union, Tuple, List, cast, TYPE_CHECKING, Dict
 import urllib
+import urllib.request
 from urllib.parse import urljoin, urlsplit
 import ssl
 import certifi
-
-if TYPE_CHECKING:
-    from .manifest import Manifest
-
-pathname2url = urllib.request.pathname2url
 from jsonschema import RefResolver
-
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
+if TYPE_CHECKING:
+    from .manifest import Manifest
+
+pathname2url = urllib.request.pathname2url
 
 from .util import (
     filter_env,

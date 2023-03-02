@@ -60,6 +60,17 @@ def test_jsonexport_requirement_visibility():
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
     jsonExport = to_deployment(local)
     assert jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"]["visibility"] == "visible"
+    container_host_type = jsonExport["ResourceType"]["ContainerHost"]
+    assert "image" not in container_host_type["inputsSchema"]["properties"], container_host_type
+
+    compute_schema = jsonExport["ResourceType"]["Compute"]["inputsSchema"]["properties"]
+    # check that description was overridden:
+    assert container_host_type["requirements"][0]["description"] == "A compute instance with at least 2000MB RAM"
+    # check that the constraint was added:
+    assert compute_schema["Memory"]["minimum"] == 2000
+    assert compute_schema["Memory"]["maximum"] == 20000
+
+
 
 
 class ManifestSyntaxTest(unittest.TestCase):

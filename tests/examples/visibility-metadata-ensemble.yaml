@@ -2,6 +2,50 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
+    node_types:
+      App:
+        derived_from: tosca:Root
+        requirements:
+        - host:
+            node: dockerhost
+            node_filter:
+              properties:
+                # set the value of the "image" property
+                - image: foo:latest
+              # we need to constrain the properties on the compute instance that hosts the dockerhost
+              # so we set the requirements on the dockerhost so it passes on that requirment
+              requirements:
+                - host:
+                    description: A compute instance with at least 2000MB RAM
+                    node_filter:
+                        properties:
+                          - Memory:
+                              in_range: [2gb, 20gb]
+
+      ContainerHost:
+        derived_from: tosca:Root
+        properties:
+          image:
+            type: string
+          domain:
+            type: string
+        requirements:
+        - host:
+            description: A compute instance to host this container on    
+            node: Compute
+
+      Compute:
+        derived_from: tosca:Root
+        metadata:
+          badge: COMPUTE
+        properties:
+          CPUs:
+            type: integer
+          Memory:
+            type: scalar-unit.size
+            metadata:
+              default_unit: MB
+
     topology_template:
       node_templates:
         template1:
@@ -13,3 +57,9 @@ spec:
                   visibility: visible
         template2:
           type: tosca:Root
+
+        the_app:
+          type: App
+
+        dockerhost:
+          type: ContainerHost

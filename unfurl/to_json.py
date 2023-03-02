@@ -33,6 +33,7 @@ from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
+from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
 from .tosca import is_function, get_nodefilters
 from .util import to_enum, UnfurlError
@@ -1305,19 +1306,28 @@ def annotate_properties(types):
         for req in jsontype.get("requirements") or []:
             if req.get("node_filter"):
                 annotations[req["resourceType"]] = req
+    # first patch requirements because that might add new property node_filters
     for jsontype in types.values():
         for typename in jsontype["extends"]:
             node_filter = annotations.get(typename)
             if node_filter:
-                map_nodefilter(node_filter, jsontype["inputsSchema"]["properties"])
+                # there's a node filter associated with this type
+                map_nodefilter_requirements(node_filter, jsontype["requirements"], annotations)
+    # apply property constraints
+    for jsontype in types.values():
+        for typename in jsontype["extends"]:
+            node_filter = annotations.get(typename)
+            if node_filter:
+                # there's a node filter associated with this type
+                map_nodefilter_properties(node_filter, jsontype["inputsSchema"]["properties"])
 
 
-def map_nodefilter(filters, jsonprops):
+def map_nodefilter_properties(filters, jsonprops):
     ONE_TO_ONE_MAP = dict(object="map", array="list")
     for name, value in get_nodefilters(filters, "properties"):
-        if name not in jsonprops or not isinstance(value, dict):
+        if name not in jsonprops:
             continue
-        if "eval" in value:
+        if not isinstance(value, dict) or "eval" in value:
             # the filter declared an expression to set the property's value
             # delete the annotated property from the target to it hide from the user
             # (since they can't shouldn't set this property now)
@@ -1330,6 +1340,16 @@ def map_nodefilter(filters, jsonprops):
             )
             constraints = ConditionClause(name, value, tosca_datatype).conditions
             schema.update(map_constraints(schema["type"], constraints, schema))
+
+
+def map_nodefilter_requirements(filters, reqs, annotations):
+    for name, value in get_nodefilters(filters, "requirements"):
+        for req in reqs:
+            if req["name"] == name:
+                patch_dict(req, value, True)
+                if req.get("node_filter"):
+                    annotations[req["resourceType"]] = req
+
 
 
 def _set_shared_instances(instances):
