@@ -168,12 +168,21 @@ class ToscaSpec:
         for nodespec in self.nodeTemplates.values():
             for req in nodespec.requirements.values():
                 for prop, value in req.get_nodefilter_properties():
-                    # annotate the target's properties
+                    # the target already has a node so treat the node filter
+                    # as coersive by annotating the target's properties
                     target = req.relationship and req.relationship.target
-                    if target and isinstance(value, dict) and "eval" in value:
-                        value.setdefault("vars", {})["SOURCE"] = dict(
-                            eval="::" + nodespec.name
-                        )
+                    if target:
+                        if isinstance(value, dict):
+                            if "eval" in value:
+                                value.setdefault("vars", {})["SOURCE"] = dict(
+                                    eval="::" + nodespec.name
+                                )
+                            elif "q" in value:
+                                value = value["q"]
+                            else:
+                                # we assume this is a constraint, so don't assign the value
+                                # XXX only continue if it actually looks like one
+                                continue
                         patch = dict(properties={prop: value})
                         _patch(target, patch, quote=True)
                         patched = True
@@ -182,10 +191,11 @@ class ToscaSpec:
                     target = req.relationship and req.relationship.target
                     if target:
                         matching_target_req = target.requirements.get(name)
-                        _patch(
-                            nodespec, value, tpl=matching_target_req.entity_tpl[name]
-                        )
-                        patched = True
+                        if matching_target_req:
+                            _patch(
+                                nodespec, value, tpl=matching_target_req.entity_tpl[name]
+                            )
+                            patched = True
 
         return patched
 
@@ -1172,7 +1182,7 @@ def get_nodefilters(entity_tpl, key):
     if not isinstance(entity_tpl, dict):
         return
     nodefilter = entity_tpl.get("node_filter")
-    if nodefilter and key in nodefilter:
+    if nodefilter and nodefilter.get(key):
         for filter in nodefilter[key]:
             name, value = next(iter(filter.items()))
             yield name, value
