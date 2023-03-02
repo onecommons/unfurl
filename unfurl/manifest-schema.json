@@ -253,6 +253,7 @@
             "previousId": { "$ref": "#/definitions/changeId" },
             "startCommit": { "type": "string" },
             "startTime": { "$ref": "#/definitions/timestamp" },
+            "endTime": { "$ref": "#/definitions/timestamp" },
             "workflow": { "type": "string" },
             "options": { "type": "object" },
             "summary": { "type": "string" },

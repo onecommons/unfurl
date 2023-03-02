@@ -7,7 +7,7 @@ Each task tracks and records its modifications to the system's state
 """
 
 import collections
-from datetime import datetime
+from datetime import datetime, timedelta
 import types
 import itertools
 import os
@@ -134,6 +134,7 @@ class JobOptions:
     )
 
     parentJob = None
+    masterJob: Optional["Job"] =None
     instance = None
     workflow = Defaults.workflow
     planOnly = False
@@ -1273,6 +1274,9 @@ class Job(ConfigChange):
     def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
         return JobReporter.stats(self.workDone.values(), asMessage)
 
+    def get_end_time(self) -> str:
+        return (self.startTime + timedelta(seconds=self.timeElapsed)).strftime(self.DateTimeFormat)
+
     def print_summary_table(self) -> str:
         return JobReporter.summary_table(self)
 
@@ -1414,7 +1418,7 @@ def start_job(manifestPath=None, _opts=None):
     return job, rendered, count and not errors
 
 
-def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) -> Job:
+def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) -> "Job":
     """
     Loads the given Ensemble and creates and runs a job.
 
@@ -1429,7 +1433,7 @@ def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) ->
     """
     job, rendered, proceed = start_job(manifestPath, _opts)
     if job:
-        if not job.unexpectedAbort and not job.planOnly and proceed:
+        if not job.unexpectedAbort and not job.jobOptions.planOnly and proceed:
             job.run(rendered)
     return job
 

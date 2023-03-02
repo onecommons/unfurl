@@ -243,6 +243,7 @@ spec:
     runner = Runner(YamlManifest(manifest))
     job = runner.run()
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    assert job.get_end_time() > job.get_start_time()
     for record in caplog.records:
         if record.levelname == "WARNING":
             assert (

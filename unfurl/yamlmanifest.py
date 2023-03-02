@@ -753,7 +753,7 @@ class YamlManifest(ReadOnlyManifest):
         )
         return status
 
-    def save_job_record(self, job):
+    def save_job_record(self, job: "Job"):
         """
         .. code-block:: YAML
 
@@ -769,15 +769,17 @@ class YamlManifest(ReadOnlyManifest):
         output = CommentedMap()
         output["changeId"] = job.changeId
         output["startTime"] = job.get_start_time()
+        output["endTime"] = job.get_end_time()
         if job.previousId:
             output["previousId"] = job.previousId
-        if job.masterJob:
+        if job.jobOptions.masterJob:
+            master_job = job.jobOptions.masterJob
             # if this was run by another ensemble's job
             masterJob = CommentedMap()
-            masterJob["path"] = job.masterJob.manifest.path
-            masterJob["changeId"] = job.masterJob.changeId
-            if job.masterJob.manifest.currentCommitId:
-                masterJob["startCommit"] = job.masterJob.manifest.currentCommitId
+            masterJob["path"] = master_job.manifest.path
+            masterJob["changeId"] = master_job.changeId
+            if master_job.manifest.currentCommitId:
+                masterJob["startCommit"] = master_job.manifest.currentCommitId
             output["masterJob"] = masterJob
         options = job.jobOptions.get_user_settings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)

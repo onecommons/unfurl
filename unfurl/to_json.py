@@ -1232,9 +1232,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
         deployment["summary"] = manifest.lastJob.get("summary")
+        deployTimeString = manifest.lastJob.get("endTime", manifest.lastJob["startTime"])
         deployment["deployTime"] = js_timestamp(
             datetime.datetime.strptime(
-                manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat
+                deployTimeString, ChangeRecord.DateTimeFormat
             )
         )
 
