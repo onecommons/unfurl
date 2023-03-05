@@ -33,6 +33,7 @@
               # env: "{{ SELF.env }}" # currently only container.environment is supported
 """
 
+from typing import cast
 from toscaparser.elements.portspectype import PortSpec
 from .shell import ShellConfigurator
 from .k8s import make_pull_secret, mark_sensitive
@@ -177,7 +178,6 @@ class KomposeConfigurator(ShellConfigurator):
         expose = task.inputs.get("expose")
         if expose:
             labels["kompose.service.expose"] = expose
-        # XXX  (unreleased) kompose.service.expose.ingress-class-name see https://github.com/kubernetes/kompose/pull/1486
         _add_labels(main_service, labels)
 
         # map files to configmap
@@ -260,11 +260,12 @@ def configure_inputs(kind, timeout):
 
 def _load_resource_file(task, out_path, filename, ingress_extras):
     with open(Path(out_path) / filename) as f:
-        definition = f.read()
-    definition = yaml.load(definition)
+        definition_str = f.read()
+    definition = yaml.load(definition_str)
     assert isinstance(definition, dict)
     if definition["kind"] == "Ingress" and ingress_extras:
-        definition = merge_dicts(definition, ingress_extras)
+        assert isinstance(ingress_extras, dict)
+        definition = cast(dict, merge_dicts(definition, ingress_extras))
     annotations = task.inputs.get("annotations")
     if annotations:
         definition.setdefault("metadata", {}).setdefault("annotations", {}).update(
