@@ -1429,7 +1429,7 @@ class ArtifactSpec(EntitySpec):
             resolver = self.spec.template.import_resolver
 
         loader = toscaparser.imports.ImportsLoader(
-            None, self.base_dir, tpl=tpl, resolver=resolver
+            None, self.base_dir, repositories=tpl.get("repositories"), resolver=resolver
         )
         path, isFile, fragment = loader._resolve_import_template(
             None, self.as_import_spec()

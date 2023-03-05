@@ -644,15 +644,14 @@ class Manifest(AttributeManager):
                 return "", None
             raise UnfurlError(msg)
 
-        tpl = CommentedMap()
         resolver = self.get_import_resolver(warnWhenNotFound, config=expanded)
-        tpl["repositories"] = self._update_repositories(
+        repositories = self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
         loader = toscaparser.imports.ImportsLoader(
             None,
             get_base_dir(baseDir),
-            tpl=tpl,
+            repositories=repositories,
             resolver=resolver,
         )
         import_spec = dict(
