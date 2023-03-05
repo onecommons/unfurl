@@ -105,6 +105,7 @@ class Manifest(AttributeManager):
         self.imports = Imports()
         self.imports.manifest = self
         self._importedManifests: Dict = {}
+        self.cache: Dict[str, Any] = {}
 
     def _add_repositories_from_environment(self):
         assert self.localEnv

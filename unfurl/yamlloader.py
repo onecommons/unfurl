@@ -258,6 +258,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         state["yamlloader"] = None
         return state
 
+    def set_cache(self, url, val):
+        self.manifest.cache[url] = val
+
+    def get_cache(self, url):
+        return self.manifest.cache.get(url)
+
     def get_repository(self, name: str, tpl: dict) -> Repository:
         # don't create another Repository instance
         if name in self.manifest.repositories:
@@ -392,6 +398,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
             )
             originalPath = path
+            doc = self.get_cache(path)
+            if doc is not None:
+                if fragment and doc:
+                    return _refResolver.resolve_fragment(doc, fragment)
+                else:
+                    return doc
 
             if path.startswith("git-ref:"):
                 url, filePath, revision = split_git_url(path)
@@ -447,6 +459,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         )
                         doc.includes = includes
                     doc.path = path
+            self.set_cache(path, doc)
             if fragment and doc:
                 return _refResolver.resolve_fragment(doc, fragment)
             else:
