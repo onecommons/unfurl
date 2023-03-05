@@ -140,8 +140,8 @@ class RefContext:
         wantList: Optional[Union[bool, str]] = False,
         resolveExternal: bool = False,
         trace: Optional[int] = None,
-        strict: bool = _defaultStrictness,
-        task: "TaskView" = None,
+        strict: Optional[bool] = None,
+        task: Optional["TaskView"] = None,
     ) -> None:
         self.vars = vars or {}
         # the original context:
@@ -163,10 +163,12 @@ class RefContext:
 
     @property
     def strict(self) -> bool:
-        if self.task:
+        if self._strict is not None:
+            return self._strict
+        elif self.task:
             return not self.task._rendering
         else:
-            return self._strict
+            return _defaultStrictness
 
     @property
     def environ(self) -> Dict[str, str]:
@@ -342,7 +344,7 @@ class Ref:
         self,
         ctx: RefContext,
         wantList: Union[bool, str] = True,
-        strict: bool = _defaultStrictness,
+        strict: Optional[bool] = None,
     ) -> Optional[Union[ResultsList, Result, List[Result], Any]]:
         """
         If wantList=True (default) returns a ResultList of matches
@@ -396,7 +398,8 @@ class Ref:
                     return list(results)
 
     def resolve_one(
-        self, ctx: RefContext, strict: bool = _defaultStrictness
+        self, ctx: RefContext,
+        strict: Optional[bool] = None,
     ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         """
         If no match return None
