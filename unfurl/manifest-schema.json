@@ -81,7 +81,7 @@
           ]
         },
         "instances": { "$ref": "#/definitions/namedObjects" },
-        "repositories": { "$ref": "#/definitions/namedObjects" },
+        "repositories": { "type": "object" },
         "imports": { "type": "array" },
         "external": {
           "type": "object",
