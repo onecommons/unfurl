@@ -3,6 +3,7 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli
 import git
+from unfurl.localenv import LocalEnv
 from unfurl.packages import Package, get_package_id_from_url
 
 
@@ -31,7 +32,7 @@ def test_package_rules():
                     "clone",
                     "--mono",
                     "--skeleton=dashboard",
-                    "https://gitlab.com/onecommons/project-templates/application-blueprint.git"
+                    "https://gitlab.com/onecommons/project-templates/application-blueprint.git",
                 ],
             )
             # uncomment this to see output:
@@ -39,6 +40,19 @@ def test_package_rules():
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
+
+            localConfig = LocalEnv("application-blueprint").project.localConfig
+            localConfig.config.config["environments"] = dict(
+                defaults={
+                    "repositories": {
+                        "gitlab.com/onecommons/unfurl-types": dict(
+                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.1.0"
+                        )
+                    }
+                }
+            )
+            localConfig.config.save()
+
             result = runner.invoke(
                 cli, ["--home", "", "plan", "--starttime=1", "application-blueprint"]
             )
@@ -57,7 +71,9 @@ def test_package_rules():
             # assert clonedtypes.describe() == "v"+latest_version_tag
 
             # add a rule to set the version to the "main" branch
-            os.environ["UNFURL_PACKAGE_RULES"] = package_rules_envvar + " unfurl.cloud/onecommons/* #main"
+            os.environ["UNFURL_PACKAGE_RULES"] = (
+                package_rules_envvar + " unfurl.cloud/onecommons/* #main"
+            )
             result = runner.invoke(
                 cli, ["--home", "", "plan", "--starttime=1", "application-blueprint"]
             )

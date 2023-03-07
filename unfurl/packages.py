@@ -32,8 +32,8 @@ or replace the package with another package.
 environments:
   defaults:
     repositories:
-        # set the repository URL and optionally the version for the given package
-        unfurl.cloud/onecommons/blueprints/wordpress:
+      # set the repository URL and optionally the version for the given package
+      unfurl.cloud/onecommons/blueprints/wordpress:
         url: https://unfurl.cloud/user/repo.git#main # choose an explicit repository and revision or replace with another package?
         revision: 1.2.15 # (optional) pin explicit revision for this package
 
@@ -142,8 +142,9 @@ class PackageSpec:
             package.url = self.url
         if self.package_id:
             replaced_id = package.package_id
-            package.package_id = self.package_id
-            return replaced_id
+            if replaced_id != self.package_id:
+                package.package_id = self.package_id
+                return replaced_id
         return ""
 
     @staticmethod
