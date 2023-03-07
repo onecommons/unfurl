@@ -28,7 +28,7 @@ from typing import (
     Any,
     NewType,
 )
-from typing_extensions import Protocol
+from typing_extensions import Protocol, NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -70,7 +70,7 @@ import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
-from jinja2.runtime import DebugUndefined, make_logging_undefined
+from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 
 import logging
@@ -343,6 +343,30 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     class _UnfurlUndefined(DebugUndefined):
         __slots__ = ()
 
+        def _fail_with_undefined_error(  # type: ignore
+            self, *args: Any, **kwargs: Any
+        ) -> "NoReturn":
+            try:
+                super()._fail_with_undefined_error(*args, **kwargs)
+            except self._undefined_exception as e:
+                msg = "Template: %s" % self._undefined_message
+                logger.warning(msg)
+                if ctx.task:  # already logged, so don't log
+                    UnfurlTaskError(ctx.task, msg, False)
+                raise e
+
+        # copied from Undefined, we need to reset _fail_with_undefined_error
+        __add__ = __radd__ = __sub__ = __rsub__ = _fail_with_undefined_error
+        __mul__ = __rmul__ = __div__ = __rdiv__ = _fail_with_undefined_error
+        __truediv__ = __rtruediv__ = _fail_with_undefined_error
+        __floordiv__ = __rfloordiv__ = _fail_with_undefined_error
+        __mod__ = __rmod__ = _fail_with_undefined_error
+        __pos__ = __neg__ = _fail_with_undefined_error
+        __call__ = _fail_with_undefined_error
+        __lt__ = __le__ = __gt__ = __ge__ = _fail_with_undefined_error
+        __int__ = __float__ = __complex__ = _fail_with_undefined_error
+        __pow__ = __rpow__ = _fail_with_undefined_error
+
         def __getattr__(self, name):
             if name == "__UNSAFE__":
                 # see AnsibleUndefined
@@ -356,11 +380,10 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
 
         def _log_message(self) -> None:
             msg = "Template: %s" % self._undefined_message
-            # XXX override _undefined_message: if self._undefined_obj is a Results then add its ctx._lastResource to the msg
-            #     see https://github.com/pallets/jinja/blob/7d72eb7fefb7dce065193967f31f805180508448/src/jinja2/runtime.py#L824
+            # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
             logger.warning(msg)
             if ctx.task:  # already logged, so don't log
-                ctx.task._errors.append(UnfurlTaskError(ctx.task, msg, False))
+                UnfurlTaskError(ctx.task, msg, False)
 
         # see LoggingUndefined:
         def __str__(self) -> str:
@@ -450,7 +473,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                 logger.warning(value[2:100] + "... see debug log for full report")
                 logger.debug(value, exc_info=True)
                 if ctx.task:
-                    ctx.task._errors.append(UnfurlTaskError(ctx.task, msg))
+                    UnfurlTaskError(ctx.task, msg)
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
@@ -476,6 +499,8 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
 
                 # wrap result as AnsibleUnsafe so it isn't evaluated again
                 return wrap_var(value)
+            else:
+                ctx.trace("no modification after processing template:", value)
     finally:
         ctx.referenced.stop()
         if overrides:

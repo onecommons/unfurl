@@ -138,7 +138,6 @@ class UnfurlTaskError(UnfurlError):
         dependency=None,
     ):
         task = cast("ConfigTask", task)
-        message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
         self.task = task
         task._errors.append(self)

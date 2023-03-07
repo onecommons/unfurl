@@ -1,3 +1,4 @@
+import logging
 import unittest
 import os
 import json
@@ -500,14 +501,27 @@ a_dict:
 
     def test_template_path(self):
         resource = self._getTestResource()
-        template_contents = "{{ foo }}"
+        template_contents = """\
+{%   if str(image)  -%}
+foo
+{% endif %}
+"""
         # write template_contents to a temp file and have the template function read that file
         template = dict(
             eval={"template": dict(path={"eval": {"tempfile": template_contents}})},
-            vars={"foo": "resolved"},
+            vars={"image": "foo/bar"},
         )
-        result = map_value(template, resource)
-        self.assertEqual(result, "resolved")
+        ctx = RefContext(resource, strict=False, trace=0)
+        class mock_task:
+            _errors = []
+            logger = logging.getLogger("test")
+        ctx.task = mock_task()
+        assert not ctx.strict
+        assert not ctx.task._errors
+        result = map_value(template, ctx)
+        # templating failed so it returned the original template 
+        self.assertEqual(result, template_contents.strip(), len(result))
+        assert ctx.task._errors
 
     def test_changerecord(self):
         assert ChangeRecord.is_change_id("A01110000005")
