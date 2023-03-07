@@ -553,6 +553,9 @@ def _get_base_dir(ctx, name=None):
         return instance.base_dir
     elif name == "src":
         # folder of the source file
+        base_dir = getattr(ctx.kw, "base_dir", None)  # ctx.kw is the "eval:" dict
+        if base_dir and os.path.isabs(base_dir):
+            return base_dir
         if os.path.isabs(ctx.base_dir):
             return ctx.base_dir
         else:  # XXX ctx.base_dir should be abs
