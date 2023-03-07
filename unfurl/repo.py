@@ -702,7 +702,7 @@ class GitRepo(Repo):
             if code:
                 logger.info(
                     "attempt to pull latest from %s into %s failed: %s %s",
-                    self.url,
+                    sanitize_url(self.url, True),
                     self.working_dir,
                     out,
                     err,
@@ -711,7 +711,7 @@ class GitRepo(Repo):
             else:
                 logger.verbose(
                     "pull latest from %s into %s: %s %s",
-                    self.url,
+                    sanitize_url(self.url, True),
                     self.working_dir,
                     out,
                     err,

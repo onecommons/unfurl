@@ -247,6 +247,7 @@ class CacheEntry:
                     "cache hit for %s, but error with client's commit %s",
                     full_key,
                     latest_commit,
+                    exc_info=True
                 )
                 # got an error resolving latest_commit, just return the cached value
                 self.hit = True
@@ -449,7 +450,7 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
         git_url = get_project_url(project_id, username, password)
         result = init.clone(git_url, repo_path, empty=True)
-        clean_url = sanitize_url(git_url)
+        clean_url = sanitize_url(git_url, True)
         logger.info(f"cloned {clean_url}: {result} in pid {os.getpid()}")
         repo = _get_project_repo(project_id)
         if repo:
@@ -1068,7 +1069,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
         blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
-        logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
+        logger.info("creating deployment at %s for %s", clone_location, sanitize_url(blueprint_url, True))
         msg = init.clone(
             blueprint_url,
             clone_location,
@@ -1080,7 +1081,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
         )
         logger.info(msg)
     # elif clone:
-    #     logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
+    #     logger.info("creating deployment at %s for %s", clone_location, sanitize_url(blueprint_url, True))
     #     msg = init.clone(clone_location, clone_location, existing=True, mono=True, skeleton="dashboard",
     #                      use_environment=environment, use_deployment_blueprint=deployment_blueprint)
     #     logger.info(msg)
