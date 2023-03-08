@@ -1278,7 +1278,11 @@ class Job(ConfigChange):
         return (self.startTime + timedelta(seconds=self.timeElapsed)).strftime(self.DateTimeFormat)
 
     def print_summary_table(self) -> str:
-        return JobReporter.summary_table(self)
+        try:
+            return JobReporter.summary_table(self)
+        except Exception:
+            logger.error("Error while creating job summary", exc_info=True)
+            return "Error while creating job summary"
 
     def _plan_summary(
         self,

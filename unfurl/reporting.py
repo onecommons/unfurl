@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 from rich.segment import Segment
+from rich.markup import escape
 import re
 import os
 
@@ -335,7 +336,7 @@ class JobReporter:
             state = task.target_state and task.target_state.name or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:
-                result = f"Output: {task.result.result}"
+                result = escape(f"Output: {task.result.result}")
             else:
                 result = ""
             table.add_row(
