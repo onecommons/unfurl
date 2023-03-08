@@ -17,7 +17,7 @@ import sys
 import itertools
 import json
 import datetime
-from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Union, cast, TYPE_CHECKING
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
 from urllib.parse import urlparse
@@ -275,7 +275,7 @@ def _requirement_visibility(spec, name, req):
     return "inherit"
 
 
-def _get_req(req_dict):
+def _get_req(req_dict) -> Tuple[str, dict]:
     name, req = list(req_dict.items())[0]
     if isinstance(req, str):
         req = dict(node=req)
@@ -286,6 +286,35 @@ def _get_req(req_dict):
 
 def expand_prefix(spec, nodetype: str):
     return nodetype.replace("tosca:", "tosca.nodes.")  # XXX
+
+
+def _make_req(req_dict: dict, types=None, reqtypes=None) -> Tuple[str, dict, dict]:
+    name, req = _get_req(req_dict)
+    reqobj: Dict[str, Any] = dict(
+        name=name, title=name, description=req.get("description") or ""
+    )
+    metadata = req.get("metadata")
+
+    if metadata:
+        if "badge" in metadata:
+            reqobj["badge"] = metadata["badge"]
+        if "title" in metadata:
+            reqobj["title"] = metadata["title"]
+        if "icon" in metadata:
+            reqobj["icon"] = metadata["icon"]
+
+    if "occurrences" in req:
+        reqobj["min"] = req["occurrences"][0]
+        reqobj["max"] = req["occurrences"][1]
+
+    if req.get("node_filter"):
+        reqobj["node_filter"] = req["node_filter"]
+        if types is not None:
+            assert reqtypes is not None
+            # we're called from annotate_requirements annotating a nested requirements constraint
+            _annotate_requirement(reqobj, reqtypes[name], types)
+
+    return name, req, reqobj
 
 
 def requirement_to_graphql(spec, req_dict):
@@ -301,32 +330,22 @@ def requirement_to_graphql(spec, req_dict):
         badge: String
         visibility: String
         icon: String
+        inputsSchema: JSON
+        requirementsFilter: [RequirementConstraint!]
     }
     """
-    name, req = _get_req(req_dict)
+    name, req, reqobj = _make_req(req_dict)
+    if "min" not in reqobj:
+        # set defaults
+        reqobj["min"] = 1
+        reqobj["max"] = 1
+
     visibility = _requirement_visibility(spec, name, req)
     if visibility == "omit":
         return None
 
-    reqobj = dict(name=name, title=name, description=req.get("description") or "")
     if visibility != "inherit":
         reqobj["visibility"] = visibility
-    metadata = req.get("metadata")
-
-    if metadata:
-        if "badge" in metadata:
-            reqobj["badge"] = metadata["badge"]
-        if "title" in metadata:
-            reqobj["title"] = metadata["title"]
-        if "icon" in metadata:
-            reqobj["icon"] = metadata["icon"]
-
-    if "occurrences" in req:
-        reqobj["min"] = req["occurrences"][0]
-        reqobj["max"] = req["occurrences"][1]
-    else:
-        reqobj["min"] = 1
-        reqobj["max"] = 1
 
     if reqobj["max"] == 0:
         return None
@@ -347,8 +366,6 @@ def requirement_to_graphql(spec, req_dict):
             )
             return None
     reqobj["resourceType"] = nodetype
-    if req.get("node_filter"):
-        reqobj["node_filter"] = req["node_filter"]
     return reqobj
 
 
@@ -619,7 +636,7 @@ def to_graphql_nodetypes(spec):
             node_type_to_graphql(spec, type_definition, types)
 
     mark_leaf_types(types)
-    annotate_properties(types)
+    annotate_requirements(types)
     return types
 
 
@@ -1232,11 +1249,11 @@ def add_graphql_deployment(manifest, db, dtemplate):
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
         deployment["summary"] = manifest.lastJob.get("summary")
-        deployTimeString = manifest.lastJob.get("endTime", manifest.lastJob["startTime"])
+        deployTimeString = manifest.lastJob.get(
+            "endTime", manifest.lastJob["startTime"]
+        )
         deployment["deployTime"] = js_timestamp(
-            datetime.datetime.strptime(
-                deployTimeString, ChangeRecord.DateTimeFormat
-            )
+            datetime.datetime.strptime(deployTimeString, ChangeRecord.DateTimeFormat)
         )
 
     url = manifest.rootResource.attributes["outputs"].get("url")
@@ -1301,56 +1318,60 @@ def mark_leaf_types(types):
             jsontype["implementations"] = []
 
 
-def annotate_properties(types):
-    annotations = {}
+def annotate_requirements(types):
     for jsontype in types.values():
         for req in jsontype.get("requirements") or []:
             if req.get("node_filter"):
-                annotations[req["resourceType"]] = req
-    # first patch requirements because that might add new property node_filters
-    for jsontype in types.values():
-        for typename in jsontype["extends"]:
-            node_filter = annotations.get(typename)
-            if node_filter:
-                # there's a node filter associated with this type
-                map_nodefilter_requirements(node_filter, jsontype["requirements"], annotations)
-    # apply property constraints
-    for jsontype in types.values():
-        for typename in jsontype["extends"]:
-            node_filter = annotations.get(typename)
-            if node_filter:
-                # there's a node filter associated with this type
-                map_nodefilter_properties(node_filter, jsontype["inputsSchema"]["properties"])
+                _annotate_requirement(req, req["resourceType"], types)
 
 
-def map_nodefilter_properties(filters, jsonprops):
-    ONE_TO_ONE_MAP = dict(object="map", array="list")
-    for name, value in get_nodefilters(filters, "properties"):
-        if name not in jsonprops:
+def _annotate_requirement(req, reqtypename, types):
+    node_filter = req["node_filter"]
+    reqtype = types[reqtypename]
+    req_filters = node_filter.get("requirements")
+    # node_filter properties might refer to properties that are only present on some subtypes
+    prop_filters: Dict = {}
+    reqtypes = {}
+    for typename in reqtype["extends"]:
+        if typename not in types:
             continue
+        subtype: Dict = types[typename]
+        if req_filters:
+            # requirement filter maybe incomplete and not have a resourceType so we need
+            # to find them on the target type's requirements
+            for target_reqs in subtype["requirements"]:
+                reqtypes[target_reqs["name"]] = target_reqs["resourceType"]
+        inputsSchemaProperties = subtype["inputsSchema"]["properties"]
+        _map_nodefilter_properties(req, inputsSchemaProperties, prop_filters)
+
+    if prop_filters:
+        req["inputsSchema"] = prop_filters
+    if req_filters:
+        req["requirementsFilter"] = [
+            _make_req(rf, types, reqtypes)[2] for rf in req_filters
+        ]
+    req.pop("node_filter")
+
+
+def _map_nodefilter_properties(filters, inputsSchemaProperties, jsonprops) -> dict:
+    ONE_TO_ONE_MAP = dict(object="map", array="list")
+    # {i["name"]: inputsSchemaProperties
+    for name, value in get_nodefilters(filters, "properties"):
         if not isinstance(value, dict) or "eval" in value:
             # the filter declared an expression to set the property's value
-            # delete the annotated property from the target to it hide from the user
+            # mark the property to be deleted from the target inputschema so the user can't set it
             # (since they can't shouldn't set this property now)
-            del jsonprops[name]
-        else:
-            # update schema definition with the node filter's constraints
-            schema = jsonprops[name]
+            jsonprops[name] = None
+        elif name not in jsonprops and name in inputsSchemaProperties:
+            # check name in jsonprops so we only do this once
+            # use the inputs schema definition to determine the node filter's constraints
+            schema = inputsSchemaProperties[name]
             tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(
                 schema["type"], schema["type"]
             )
             constraints = ConditionClause(name, value, tosca_datatype).conditions
-            schema.update(map_constraints(schema["type"], constraints, schema))
-
-
-def map_nodefilter_requirements(filters, reqs, annotations):
-    for name, value in get_nodefilters(filters, "requirements"):
-        for req in reqs:
-            if req["name"] == name:
-                patch_dict(req, value, True)
-                if req.get("node_filter"):
-                    annotations[req["resourceType"]] = req
-
+            jsonprops[name] = map_constraints(schema["type"], constraints, schema)
+    return jsonprops
 
 
 def _set_shared_instances(instances):
