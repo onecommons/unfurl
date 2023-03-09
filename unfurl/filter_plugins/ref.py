@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 from unfurl.eval import Ref, map_value
 from unfurl.projectpaths import _abspath, _getdir
+from unfurl.support import to_dns_label, to_googlecloud_label, to_kubernetes_label, to_label
 from unfurl.util import which, wrap_sensitive_value
 from jinja2.filters import contextfilter  # type: ignore
 
@@ -76,6 +77,7 @@ def get_dir(context, relativeTo, mkdir=False):
 #     return to_text(transformed)
 
 
+
 class FilterModule:
     def filters(self):
         return {
@@ -87,4 +89,8 @@ class FilterModule:
             "get_dir": get_dir,
             "which": which,
             "sensitive": wrap_sensitive_value,
+            "to_label": to_label,
+            "to_dns_label": to_dns_label,
+            "to_kubernetes_label": to_kubernetes_label,
+            "to_googlecloud_label": to_googlecloud_label,
         }
