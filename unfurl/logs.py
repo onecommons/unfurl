@@ -136,11 +136,15 @@ class ColorHandler(logging.StreamHandler):
             console.print(
                 f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end=""
             )
+            kw = dict(markup=False)
+            if hasattr(record, "rich"):
+                kw.update(record.rich)  # type: ignore
             console.print(f" {record.name.upper()}", end="")
-            console.print(f" {message}", **getattr(record, "rich", {}))
+            console.print(f" {message}", **kw)  # type: ignore
         except Exception:
             if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
                 raise
+            self.stream.write(f"Log error: exception while logging {message}")
 
 
 class sensitive:
