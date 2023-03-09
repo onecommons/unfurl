@@ -56,7 +56,6 @@ def test_jsonexport():
 
 def test_jsonexport_requirement_visibility():
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
-    # loads yaml with with a json include
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
     jsonExport = to_deployment(local)
     assert jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"]["visibility"] == "visible"
@@ -68,6 +67,8 @@ def test_jsonexport_requirement_visibility():
         'description': 'A compute instance with at least 2000MB RAM',
         'inputsSchema': {'properties': {'Memory': {'minimum': 2000, 'maximum': 20000}}}}
         ]
+    assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"][0]["constraint"] == hostRequirement
+
 
 
 class ManifestSyntaxTest(unittest.TestCase):

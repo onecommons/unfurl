@@ -254,8 +254,9 @@ def tosca_schema_to_jsonschema(p, spec):
 
 
 def _requirement_visibility(spec, name, req):
-    if name == "dependency":
-        return "omit"  # skip base TOSCA relationship type that every node has
+    if name in ["dependency", "installer"]:
+        # skip artifact requirements and the base TOSCA relationship type that every node has
+        return "omit"
     node = req.get("node")
     metadata = req.get("metadata") or {}
     if metadata.get("visibility"):
@@ -289,7 +290,12 @@ def expand_prefix(spec, nodetype: str):
 
 
 def _find_req_typename(types, typename, reqname) -> str:
-    # XXX not very efficient, at least have types[typename] go first
+    # have types[typename] go first
+    for target_reqs in types[typename]["requirements"]:
+        if target_reqs["name"] == reqname:
+            return target_reqs["resourceType"]
+
+    # XXX not very efficient
     for t in types.values():
         # mark_leaf_types() sets implementations, assume its has already been called
         if "requirements" in t and not t["implementations"]:
@@ -693,21 +699,6 @@ def add_capabilities_as_attributes(schema, nodetype, spec):
         schema[cap.name] = tosca_type_to_jsonschema(spec, propdefs, cap.type)
 
 
-def _find_requirement_constraint(reqs, name):
-    for reqconstraint in reqs:
-        if reqconstraint["name"] == name:
-            return reqconstraint
-
-    # no requirement defined, use default
-    return dict(
-        name=name,
-        min=1,
-        max=1,
-        resourceType="tosca.nodes.Root",
-        __typename="RequirementConstraint",
-    )
-
-
 def _get_typedef(name: str, spec):
     typedef = spec.template.topology_template.custom_defs.get(name)
     if not typedef:
@@ -737,6 +728,28 @@ def template_properties_to_json(nodetemplate, visitor):
         yield dict(name=p.name, value=value)
 
 
+def _get_requirement(req, nodetemplate, spec, types):
+    name, req_dict = _get_req(req)
+    # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
+    # _get_explicit_relationship returns req_dict merged with its type definition
+    req_dict, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
+    if "constraint" in req_dict.get("metadata", {}):
+        # this happens when we import graphql json directly
+        reqconstraint = req_dict["metadata"]["constraint"]
+    else:
+        reqconstraint = requirement_to_graphql(spec, {name: req_dict})
+    if reqconstraint is None:
+        return None
+    _annotate_requirement(reqconstraint, reqconstraint["resourceType"], types)
+    reqjson = dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
+    if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
+        # it's not a type, assume it's a node template
+        # (the node template name might not match a template if it is only defined in the deployment blueprints)
+        match = req_dict["node"]
+        reqjson["match"] = match
+    return reqjson
+
+
 def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     """
     Returns json object as a ResourceTemplate:
@@ -760,7 +773,6 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     type Requirement {
       name: String!
       constraint: RequirementConstraint!
-      visibility: String
       match: ResourceTemplate
       target: Resource
     }
@@ -783,7 +795,6 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     if "imported" in nodetemplate.entity_tpl:
         json["imported"] = nodetemplate.entity_tpl.get("imported")
 
-    jsonnodetype = types[nodetemplate.type]
     visitor = PropertyVisitor()
     json["properties"] = list(template_properties_to_json(nodetemplate, visitor))
     # if visitor.redacted and "predefined" not in nodetemplate.directives:
@@ -816,36 +827,10 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     has_visible_dependency = False
     ExceptionCollector.start()
     for req in nodetemplate.all_requirements:
-        name, req_dict = _get_req(req)
-        if name in ["dependency", "installer"]:
-            # skip artifact requirements and the base TOSCA relationship type that every node has
+        reqjson = _get_requirement(req, nodetemplate, spec, types)
+        if reqjson is None:
             continue
-        occurrences = req_dict.get("occurrences")
-        if occurrences and occurrences[1] == 0:
-            continue  # skip when max occurrences is 0
-
-        # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
-        reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
-        reqconstraint = _find_requirement_constraint(jsonnodetype["requirements"], name)
-        reqjson = dict(constraint=reqconstraint, name=name, __typename="Requirement")
-        req_metadata = req_dict.get("metadata") or req_dict.get("constraint") or {}
-        visibility = req_metadata and req_metadata.get("visibility")
-        if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
-            # it's not a type, assume it's a node template
-            # (the node template name might not match a template if it is only defined in the deployment blueprints)
-            match = req_dict["node"]
-            reqjson["match"] = match
-        if not visibility and reqjson.get("match"):
-            # user-defined templates should always have visibility set, so if it doesn't and the requirement is already set to a node
-            # assume it is internal and set to hidden.
-            if reqconstraint.get("visibility") != "visible" and not req_metadata.get(
-                "user_settable"
-            ):
-                # unless visibility wasn't explicitly set to visibile
-                visibility = "hidden"
-        if visibility:
-            reqjson["constraint"] = dict(reqjson["constraint"], visibility=visibility)
-        if visibility != "hidden":
+        if reqjson["constraint"].get("visibility") != "hidden":
             has_visible_dependency = True
         json["dependencies"].append(reqjson)
 
@@ -1337,11 +1322,13 @@ def mark_leaf_types(types):
 def annotate_requirements(types):
     for jsontype in types.values():
         for req in jsontype.get("requirements") or []:
-            if req.get("node_filter"):
-                _annotate_requirement(req, req["resourceType"], types)
+            _annotate_requirement(req, req["resourceType"], types)
 
 
-def _annotate_requirement(req, reqtypename, types):
+def _annotate_requirement(req: dict, reqtypename: str, types: dict) -> None:
+    # req is a RequirementConstraint dict
+    if "node_filter" not in req:
+        return
     node_filter = req["node_filter"]
     reqtype = types[reqtypename]
     req_filters = node_filter.get("requirements")

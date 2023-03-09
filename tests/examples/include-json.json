@@ -83,7 +83,8 @@
             "resourceType": "Mail"
           },
           "name": "mail",
-          "__typename": "Requirement"
+          "__typename": "Requirement",
+          "match": null
         }
       ]
     },
