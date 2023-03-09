@@ -7,7 +7,7 @@ spec:
         derived_from: tosca:Root
         requirements:
         - host:
-            node: dockerhost
+            node: ServiceHost
             node_filter:
               properties:
                 # set the value of the "image" property
@@ -22,8 +22,11 @@ spec:
                           - Memory:
                               in_range: [2gb, 20gb]
 
-      ContainerHost:
+      ServiceHost:
         derived_from: tosca:Root
+
+      ContainerHost:
+        derived_from: ServiceHost
         properties:
           image:
             type: string

@@ -288,7 +288,21 @@ def expand_prefix(spec, nodetype: str):
     return nodetype.replace("tosca:", "tosca.nodes.")  # XXX
 
 
-def _make_req(req_dict: dict, types=None, reqtypes=None) -> Tuple[str, dict, dict]:
+def _find_req_typename(types, typename, reqname) -> str:
+    # XXX not very efficient, at least have types[typename] go first
+    for t in types.values():
+        # mark_leaf_types() sets implementations, assume its has already been called
+        if "requirements" in t and not t["implementations"]:
+            continue  # not a leaf type
+        if typename in t["extends"]:
+            # type is typename or derived from typename
+            for target_reqs in t["requirements"]:
+                if target_reqs["name"] == reqname:
+                    return target_reqs["resourceType"]
+    return ""  # not found
+
+
+def _make_req(req_dict: dict, types=None, typename=None) -> Tuple[str, dict, dict]:
     name, req = _get_req(req_dict)
     reqobj: Dict[str, Any] = dict(
         name=name, title=name, description=req.get("description") or ""
@@ -310,9 +324,11 @@ def _make_req(req_dict: dict, types=None, reqtypes=None) -> Tuple[str, dict, dic
     if req.get("node_filter"):
         reqobj["node_filter"] = req["node_filter"]
         if types is not None:
-            assert reqtypes is not None
+            assert typename is not None
             # we're called from annotate_requirements annotating a nested requirements constraint
-            _annotate_requirement(reqobj, reqtypes[name], types)
+            reqtypename = _find_req_typename(types, typename, name)
+            if reqtypename:
+                _annotate_requirement(reqobj, reqtypename, types)
 
     return name, req, reqobj
 
@@ -1331,24 +1347,18 @@ def _annotate_requirement(req, reqtypename, types):
     req_filters = node_filter.get("requirements")
     # node_filter properties might refer to properties that are only present on some subtypes
     prop_filters: Dict = {}
-    reqtypes = {}
     for typename in reqtype["extends"]:
         if typename not in types:
             continue
         subtype: Dict = types[typename]
-        if req_filters:
-            # requirement filter maybe incomplete and not have a resourceType so we need
-            # to find them on the target type's requirements
-            for target_reqs in subtype["requirements"]:
-                reqtypes[target_reqs["name"]] = target_reqs["resourceType"]
         inputsSchemaProperties = subtype["inputsSchema"]["properties"]
         _map_nodefilter_properties(req, inputsSchemaProperties, prop_filters)
 
     if prop_filters:
-        req["inputsSchema"] = prop_filters
+        req["inputsSchema"] = dict(properties=prop_filters)
     if req_filters:
         req["requirementsFilter"] = [
-            _make_req(rf, types, reqtypes)[2] for rf in req_filters
+            _make_req(rf, types, reqtypename)[2] for rf in req_filters
         ]
     req.pop("node_filter")
 

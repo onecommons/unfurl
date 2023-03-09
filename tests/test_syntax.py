@@ -62,11 +62,11 @@ def test_jsonexport_requirement_visibility():
     assert jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"]["visibility"] == "visible"
     app_type = jsonExport["ResourceType"]["App"]
     hostRequirement = app_type['requirements'][0]
-    assert hostRequirement['inputsSchema'] == {'image': None}
+    assert hostRequirement['inputsSchema'] == {'properties': {'image': None}}
     assert hostRequirement['requirementsFilter'] == [{
         'name': 'host', 'title': 'host',
         'description': 'A compute instance with at least 2000MB RAM',
-        'inputsSchema': {'Memory': {'minimum': 2000, 'maximum': 20000}}}
+        'inputsSchema': {'properties': {'Memory': {'minimum': 2000, 'maximum': 20000}}}}
         ]
 
 
