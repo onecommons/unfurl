@@ -311,7 +311,9 @@ def _find_req_typename(types, typename, reqname) -> str:
 def _make_req(req_dict: dict, types=None, typename=None) -> Tuple[str, dict, dict]:
     name, req = _get_req(req_dict)
     reqobj: Dict[str, Any] = dict(
-        name=name, title=name, description=req.get("description") or ""
+        name=name,
+        description=req.get("description") or "",
+        __typename="RequirementConstraint",
     )
     metadata = req.get("metadata")
 
@@ -741,7 +743,9 @@ def _get_requirement(req, nodetemplate, spec, types):
     if reqconstraint is None:
         return None
     _annotate_requirement(reqconstraint, reqconstraint["resourceType"], types)
-    reqjson = dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
+    reqjson = dict(
+        constraint=reqconstraint, name=name, match=None, __typename="Requirement"
+    )
     if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
         # it's not a type, assume it's a node template
         # (the node template name might not match a template if it is only defined in the deployment blueprints)
@@ -791,6 +795,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         or nodetemplate.name,
         description=nodetemplate.entity_tpl.get("description") or "",
         directives=nodetemplate.directives,
+        # __typename="ResourceTemplate",  # XXX
     )
     if "imported" in nodetemplate.entity_tpl:
         json["imported"] = nodetemplate.entity_tpl.get("imported")

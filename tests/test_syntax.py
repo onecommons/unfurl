@@ -63,13 +63,12 @@ def test_jsonexport_requirement_visibility():
     hostRequirement = app_type['requirements'][0]
     assert hostRequirement['inputsSchema'] == {'properties': {'image': None}}
     assert hostRequirement['requirementsFilter'] == [{
-        'name': 'host', 'title': 'host',
+        '__typename': 'RequirementConstraint',
+        'name': 'host',
         'description': 'A compute instance with at least 2000MB RAM',
         'inputsSchema': {'properties': {'Memory': {'minimum': 2000, 'maximum': 20000}}}}
         ]
     assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"][0]["constraint"] == hostRequirement
-
-
 
 class ManifestSyntaxTest(unittest.TestCase):
     def test_hasVersion(self):
