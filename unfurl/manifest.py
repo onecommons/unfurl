@@ -347,13 +347,14 @@ class Manifest(AttributeManager):
     #         postConditions=spec.get("postConditions"),
     #     )
 
-    def _create_requirement(self, key, val) -> RelationshipInstance:
+    def _create_requirement(self, key, val) -> Optional[RelationshipInstance]:
         # parent will be the capability, should have already been created
         capabilityId = val.get("capability")
         if not capabilityId:
             nodeId = val.get("node")
             if not nodeId:
-                raise UnfurlError(f"requirement is missing capability {key}")
+                logger.warning(f"skipping requirement {key}: no node or capability specified")
+                return None
         capability = capabilityId and self.get_root_resource().query(capabilityId)
         if not capability or not isinstance(capability, CapabilityInstance):
             raise UnfurlError(f"can not find capability {capabilityId}")
@@ -380,6 +381,8 @@ class Manifest(AttributeManager):
             for req in resourceSpec["requirements"]:
                 key, val = next(iter(req.items()))
                 requirement = self._create_requirement(key, val)
+                if not requirement:
+                    continue
                 requirement._source = resource
                 # XXX investigate and re-enable this assert
                 assert (
