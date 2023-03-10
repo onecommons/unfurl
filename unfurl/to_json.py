@@ -33,6 +33,7 @@ from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
+from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
 from .tosca import is_function, get_nodefilters
@@ -1111,8 +1112,9 @@ def _project_path(url):
     return pp
 
 
-def get_blueprint_from_topology(manifest, db):
+def get_blueprint_from_topology(manifest: YamlManifest, db):
     spec = manifest.tosca
+    assert spec
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db)
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
@@ -1126,7 +1128,7 @@ def get_blueprint_from_topology(manifest, db):
     # the deployment template created for this deployment will have a "source" key
     # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
     if "source" not in template:
-        title = os.path.basename(os.path.dirname(manifest.path))
+        title = os.path.basename(os.path.dirname(manifest.path)) if manifest.path else 'untitled'
         slug = slugify(title)
         template.update(
             dict(
@@ -1150,9 +1152,7 @@ def get_blueprint_from_topology(manifest, db):
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
     last_commit_time = manifest.last_commit_time()
     if last_commit_time:
-        template["commitTime"] = js_timestamp(
-            datetime.datetime.fromtimestamp(last_commit_time)
-        )
+        template["commitTime"] = js_timestamp(last_commit_time)
     return blueprint, template
 
 

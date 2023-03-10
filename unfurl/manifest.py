@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping
+import datetime
 import os.path
 import hashlib
 import json
@@ -672,11 +673,11 @@ class Manifest(AttributeManager):
     ) -> ImportResolver:
         return ImportResolver(self, ignoreFileNotFound, expand, config)
 
-    def last_commit_time(self) -> float:
+    def last_commit_time(self) -> Optional[datetime.datetime]:
         # return seconds (0 if not found)
         repo = self.repo
         if not repo:
-            return 0
+            return None
         try:
             # find the revision that last modified this file before or equal to the current revision
             # (use current revision to handle branches)
@@ -684,10 +685,10 @@ class Manifest(AttributeManager):
                 repo.repo.iter_commits(repo.revision, self.path or "", max_count=1)
             )
         except ValueError:
-            return 0
+            return None
         if commits:
-            return commits[0].committed_date
-        return 0
+            return commits[0].committed_datetime
+        return None
 
 
 # unused
