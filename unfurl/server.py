@@ -987,13 +987,15 @@ def _patch_environment(body: dict, project_id: str):
                 for key in patch_inner:
                     if key == "instances" or key == "connections":
                         target = environment.get(key) or {}
+                        new_target = {}
                         for node_name, node_patch in patch_inner[key].items():
                             tpl = target.setdefault(node_name, {})
                             if not isinstance(tpl, dict):
                                 # connections keys can be a string or null
                                 tpl = {}
                             _patch_node_template(node_patch, tpl)
-                        environment[key] = target  # replace
+                            new_target[node_name] = node_patch
+                        environment[key] = new_target  # replace
         elif typename == "DeploymentPath":
             update_deployment(
                 localEnv.project, patch_inner["name"], patch_inner, False, deleted
