@@ -155,6 +155,7 @@ class CacheEntry:
     file_path: str  # relative to project root
     key: str
     repo: Optional[GitRepo] = None
+    strict: bool = False
     commitinfo: Union[bool, Optional["Commit"]] = None
     hit: Optional[bool] = None
 
@@ -201,7 +202,7 @@ class CacheEntry:
             return  # we don't have a local copy of the repo
         try:
             self.repo.repo.commit(commit)
-        except ValueError:
+        except Exception:
             # newer not in repo, repo probably is out of date
             self.repo.pull(with_exceptions=True)  # raise if pull fails
 
@@ -243,15 +244,21 @@ class CacheEntry:
                     cached_latest_commit, latest_commit
                 )
             except Exception:
-                logger.info(
-                    "cache hit for %s, but error with client's commit %s",
-                    full_key,
-                    latest_commit,
-                    exc_info=True
-                )
-                # got an error resolving latest_commit, just return the cached value
-                self.hit = True
-                return response, True
+                if self.strict:
+                    logger.warning("pull failed for %s, reverting local repo", self.project_id, exc_info=True)
+                    # delete the local repository
+                    _clear_project(self.project_id)
+                    return response, False  # treat as cache miss
+                else:
+                    logger.info(
+                        "cache hit for %s, but error with client's commit %s",
+                        full_key,
+                        latest_commit,
+                        exc_info=True
+                    )
+                    # got an error resolving latest_commit, just return the cached value
+                    self.hit = True
+                    return response, True
             if not cached_is_older:
                 # the client has an older commit than the cache had, so treat as a cache hit
                 logger.info("cache hit for %s with %s", full_key, latest_commit)
@@ -308,13 +315,20 @@ class CacheEntry:
     def _cancel_inflight(self, cache: Cache):
         return cache.delete(self._inflight_key())
 
-    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any]:
+    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any, str]:
         try:
             err, value = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
-            err, value = exc, None
-        return err, value
+            return exc, None, latest_commit
+        if not self.repo or self.strict:
+            # self.strict might reclone the repo
+            self._set_project_repo()
+        assert self.repo
+        latest = self.repo.revision
+        if latest:  # if revision is valid
+            latest_commit = latest
+        return err, value, latest_commit
 
     def get_or_set(
         self,
@@ -325,7 +339,7 @@ class CacheEntry:
     ) -> Tuple[Optional[Any], Any]:
         if latest_commit is None:
             # don't use the cache
-            return self._do_work(work, latest_commit)
+            return self._do_work(work, latest_commit)[0:2]
 
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
@@ -345,7 +359,7 @@ class CacheEntry:
             # there was already work inflight and use that instead
             return None, value
 
-        err, value = self._do_work(work, latest_commit)
+        err, value, latest_commit = self._do_work(work, latest_commit)
         found_inflight = self._cancel_inflight(cache)
         # skip caching work if not `found_inflight` -- that means invalidate_cache deleted it
         if found_inflight and not err:
@@ -704,7 +718,7 @@ def _localenv_from_cache(
         return _make_readonly_localenv(clone_location)
 
     repo = _get_project_repo(project_id, args)
-    return CacheEntry(project_id, branch, "unfurl.yaml", "localenv", repo).get_or_set(
+    return CacheEntry(project_id, branch, "unfurl.yaml", "localenv", repo, bool(latest_commit)).get_or_set(
         cache, _cache_localenv_work, latest_commit, _validate_localenv
     )
 
@@ -718,7 +732,6 @@ def _localenv_from_cache_pull(
     args: dict,
     pull: bool = True,
 ) -> Tuple[Any, Optional[LocalEnv]]:
-    already_exists = os.path.isdir(_get_project_repo_dir(project_id))
     err, readonly_localEnv = _localenv_from_cache(
         cache, project_id, branch, deployment_path, latest_commit, args
     )
@@ -728,28 +741,12 @@ def _localenv_from_cache_pull(
     assert readonly_localEnv.project
     repo = readonly_localEnv.project.project_repoview.repo
     assert repo
-    was_dirty = repo.is_dirty()
-    if pull and already_exists and not was_dirty:
-        try:
-            repo.pull(with_exceptions=True)
-        except Exception:
-            logger.warning("pull failed for %s, reverting local repo", project_id, exc_info=True)
-            # delete the local repository and reclone
-            _clear_project(project_id)
-            # XXX if we don't want to clear all the project's entries:
-            # CacheEntry(project_id, branch, "unfurl.yaml", "localenv").delete_cache(cache)
-            # _cancel_inflight() too
-            err, readonly_localEnv = _localenv_from_cache(
-                cache, project_id, branch, deployment_path, latest_commit, args
-            )
-            if err:
-                return err, readonly_localEnv
-        if latest_commit and repo.revision != latest_commit:
-            logger.warning(
-                f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
-            )
-            err = create_error_response("CONFLICT", "Repository at wrong revision")
-            return err, readonly_localEnv
+    if latest_commit and repo.revision != latest_commit:
+        logger.warning(
+            f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
+        )
+        err = create_error_response("CONFLICT", "Repository at wrong revision")
+        return err, readonly_localEnv
     return None, readonly_localEnv
 
 
