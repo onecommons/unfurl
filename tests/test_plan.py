@@ -3,6 +3,8 @@ import json
 import os
 import traceback
 from click.testing import CliRunner
+from unfurl.eval import RefContext
+from unfurl.projectpaths import _get_base_dir
 from .utils import init_project, run_job_cmd
 from string import Template
 
@@ -126,6 +128,9 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
         )[0]
         assert relinstance.required
         assert not relinstance.is_computed()
+
+        render_dir = _get_base_dir(RefContext(relinstance), "tasks")
+        assert render_dir.endswith("tasks/my_server~r~local_storage")
 
         planoutput = result.output.strip()
         assert planoutput

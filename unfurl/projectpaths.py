@@ -205,13 +205,13 @@ class WorkFolder:
     def _get_job_path(task, name, pending):
         instance = task.target
         if name in [Folders.artifacts, Folders.secrets, Folders.local, Folders.tasks]:
-            return os.path.join(instance.base_dir, pending, name, instance.name)
+            return os.path.join(instance.base_dir, pending, name, _get_instance_dir_name(instance))
         elif name == Folders.operation:
             return os.path.join(
                 instance.base_dir,
                 pending,
                 "tasks",
-                instance.name,
+                _get_instance_dir_name(instance),
                 task.configSpec.operation,
             )
         elif name == Folders.workflow:
@@ -219,11 +219,11 @@ class WorkFolder:
                 instance.base_dir,
                 pending,
                 "tasks",
-                instance.name,
+                _get_instance_dir_name(instance),
                 task.configSpec.workflow,
             )
         elif name == Folders.tasks:
-            return os.path.join(instance.base_dir, pending, "tasks", instance.name)
+            return os.path.join(instance.base_dir, pending, "tasks", _get_instance_dir_name(instance))
         else:
             assert False, f"unexpected name '{name}' for workfolder"
 
@@ -527,10 +527,8 @@ def write_file(ctx, obj, path, relativeTo=None, encoding=None, yaml=None):
 
 
 def _get_instance_dir_name(instance):
-    from .runtime import RelationshipInstance
-
-    if isinstance(instance, RelationshipInstance):
-        return instance.template.name
+    if instance.template:
+        return instance.template.get_uri()
     else:
         return instance.name
 
