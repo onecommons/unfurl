@@ -884,10 +884,10 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
                 tpl.setdefault("metadata", {})["title"] = value
         elif key == "properties":
             props = tpl.setdefault("properties", {})
-            assert isinstance(props, dict)
-            assert isinstance(value, list)
+            assert isinstance(props, dict), f"bad props {props} in {tpl}"
+            assert isinstance(value, list), f"bad patch value {value} for {key} in {patch}"
             for prop in value:
-                assert isinstance(prop, dict), prop
+                assert isinstance(prop, dict), f"bad {prop} in {value} for {key} in {patch}"
                 props[prop["name"]] = prop["value"]
         elif key == "dependencies":
             requirements = [
