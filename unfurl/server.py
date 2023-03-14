@@ -884,6 +884,7 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
                 tpl.setdefault("metadata", {})["title"] = value
         elif key == "properties":
             props = tpl.setdefault("properties", {})
+            assert isinstance(props, dict)
             assert isinstance(value, list)
             for prop in value:
                 assert isinstance(prop, dict), prop
