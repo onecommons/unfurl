@@ -999,7 +999,7 @@ def _patch_environment(body: dict, project_id: str):
                                 # connections keys can be a string or null
                                 tpl = {}
                             _patch_node_template(node_patch, tpl)
-                            new_target[node_name] = node_patch
+                            new_target[node_name] = tpl
                         environment[key] = new_target  # replace
         elif typename == "DeploymentPath":
             update_deployment(
