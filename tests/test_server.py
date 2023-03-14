@@ -489,11 +489,9 @@ def test_server_update_deployment():
             os.system("git pull --commit --no-edit ../remote.git")
             with open("unfurl.yaml", "r") as f:
                 data = yaml.load(f.read())
-                print("unfurl.yaml", data)
                 # check that the environment was added and an ensemble was created
                 assert data["environments"]["gcp"]["connections"]["primary_provider"]["type"] == "unfurl.relationships.ConnectsTo.GoogleCloudProject"
-                # XXX!
-                # assert data["ensembles"][0]["alias"] == "primary_provider", data
+                assert data["ensembles"][0]["alias"] == "primary_provider", data
 
             res = requests.post(
                 f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",

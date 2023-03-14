@@ -1157,7 +1157,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
         commit_msg = body.get("commit_msg", "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, True)
-        if committed:
+        if committed or create:
             logger.info(f"committed to {committed} repositories")
             if manifest.repo:
                 try:
