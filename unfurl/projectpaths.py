@@ -527,9 +527,10 @@ def write_file(ctx, obj, path, relativeTo=None, encoding=None, yaml=None):
 
 
 def _get_instance_dir_name(instance):
-    source = getattr(instance, "source", None)
-    if source:
-        return f"{source.name}__{instance.name}"
+    from .runtime import RelationshipInstance
+
+    if isinstance(instance, RelationshipInstance):
+        return instance.template.name
     else:
         return instance.name
 
