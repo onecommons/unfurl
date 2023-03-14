@@ -11,7 +11,7 @@ def test_package_rules():
     # test:
     # * following multiple UNFURL_PACKAGE_RULES
     # * resolving remote tags work
-    package_id, revision, url = get_package_id_from_url("unfurl.cloud/onecommons/*")
+    package_id, url, revision = get_package_id_from_url("unfurl.cloud/onecommons/*")
     assert package_id, (package_id, revision, url)
     assert not url, (package_id, revision, url)
     types_url = "https://unfurl.cloud/onecommons/unfurl-types.git"

@@ -78,8 +78,8 @@ def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
 
 class Package_Url_Info(NamedTuple):
     package_id: Optional[str]
-    revision: Optional[str]
     url: Optional[str]
+    revision: Optional[str]
 
 
 class PackageSpec:
@@ -89,7 +89,7 @@ class PackageSpec:
         # url can be package, and url prefix, url with a revision or branch, #
         self.package_spec = package_spec
         if url:
-            self.package_id, revision, self.url = get_package_id_from_url(url)
+            self.package_id, self.url, revision = get_package_id_from_url(url)
         else:
             self.url = None
             self.package_id = None
@@ -196,7 +196,7 @@ class PackageSpec:
 def get_package_id_from_url(url: str) -> Package_Url_Info:
     if url.startswith(".") or url.startswith("file:"):
         # this isn't a package id or a git url
-        return Package_Url_Info(None, None, url)
+        return Package_Url_Info(None, url, None)
 
     # package_ids can have a revision in the fragment
     url, repopath, revision = split_git_url(url)
@@ -213,7 +213,7 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
         package_id += ".git/" + repopath
 
     # don't set url if url was just a package_id (so it didn't have a scheme)
-    return Package_Url_Info(package_id, revision, url if parts.scheme else None)
+    return Package_Url_Info(package_id, url if parts.scheme else None, revision)
 
 
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
@@ -225,11 +225,29 @@ def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
         return f"https://{repoloc}.git"
 
 
+def get_package_from_url(url_: str):
+    package_id, url, revision = get_package_id_from_url(url_)
+    if package_id is None:
+        return None
+    return Package(package_id, url, revision)
+
+
+def get_url_with_latest_revision(url: str) -> str:
+    pkg = get_package_from_url(url)
+    if not pkg:
+        return url
+    pkg.set_version_from_repo()
+    pkg.set_url_from_package_id()
+    return pkg.url
+
+
 class Package:
-    def __init__(self, package_id: str, url: str, minimum_version: Optional[str]):
+    def __init__(self, package_id: str, url: Optional[str], minimum_version: Optional[str]):
         self.package_id = package_id
-        self.url = url
         self.revision = minimum_version
+        if url is None:
+            self.set_url_from_package_id()
+        self.url = cast(str, url)
         self.repositories: List[RepoView] = []
         self.discovered_revision = False
 
@@ -330,7 +348,7 @@ def resolve_package(
     If repository references a package, register it with existing package or create a new one.
     A error is raised if a package's version conficts with the repository's version requirement.
     """
-    package_id, revision, url = get_package_id_from_url(repoview.url)
+    package_id, url, revision = get_package_id_from_url(repoview.url)
     if not package_id:
         repoview.package = False
         return None
