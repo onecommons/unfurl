@@ -526,6 +526,14 @@ def write_file(ctx, obj, path, relativeTo=None, encoding=None, yaml=None):
     return file.get_full_path()
 
 
+def _get_instance_dir_name(instance):
+    source = getattr(instance, "source", None)
+    if source:
+        return f"{source.name}__{instance.name}"
+    else:
+        return instance.name
+
+
 def _get_base_dir(ctx, name=None):
     """
     Returns an absolute path based on the given folder name:
@@ -561,16 +569,19 @@ def _get_base_dir(ctx, name=None):
         else:  # XXX ctx.base_dir should be abs
             return os.path.join(instance.template.base_dir, ctx.base_dir or "")
     elif name == "tmp":
-        return os.path.join(instance.root.tmp_dir, instance.name)
+        return os.path.join(instance.root.tmp_dir, _get_instance_dir_name(instance))
     elif name in Folders.Persistent:
-        return os.path.join(instance.base_dir, name, instance.name)
+        return os.path.join(instance.base_dir, name, _get_instance_dir_name(instance))
     elif name in Folders.Job:
         # these will always in "planned" while a task is running
         if ctx.task and instance is ctx.task.target:
             return WorkFolder._get_job_path(ctx.task, name, Folders.Planned)
         elif name == "tasks":  # in case we don't have a ctx.task
             return os.path.join(
-                instance.base_dir, Folders.Planned, Folders.tasks, instance.name
+                instance.base_dir,
+                Folders.Planned,
+                Folders.tasks,
+                _get_instance_dir_name(instance),
             )
         else:
             assert (
