@@ -205,13 +205,13 @@ class WorkFolder:
     def _get_job_path(task, name, pending):
         instance = task.target
         if name in [Folders.artifacts, Folders.secrets, Folders.local, Folders.tasks]:
-            return os.path.join(instance.base_dir, pending, name, instance.name)
+            return os.path.join(instance.base_dir, pending, name, _get_instance_dir_name(instance))
         elif name == Folders.operation:
             return os.path.join(
                 instance.base_dir,
                 pending,
                 "tasks",
-                instance.name,
+                _get_instance_dir_name(instance),
                 task.configSpec.operation,
             )
         elif name == Folders.workflow:
@@ -219,11 +219,11 @@ class WorkFolder:
                 instance.base_dir,
                 pending,
                 "tasks",
-                instance.name,
+                _get_instance_dir_name(instance),
                 task.configSpec.workflow,
             )
         elif name == Folders.tasks:
-            return os.path.join(instance.base_dir, pending, "tasks", instance.name)
+            return os.path.join(instance.base_dir, pending, "tasks", _get_instance_dir_name(instance))
         else:
             assert False, f"unexpected name '{name}' for workfolder"
 
@@ -526,6 +526,13 @@ def write_file(ctx, obj, path, relativeTo=None, encoding=None, yaml=None):
     return file.get_full_path()
 
 
+def _get_instance_dir_name(instance):
+    if instance.template:
+        return instance.template.get_uri()
+    else:
+        return instance.name
+
+
 def _get_base_dir(ctx, name=None):
     """
     Returns an absolute path based on the given folder name:
@@ -561,16 +568,19 @@ def _get_base_dir(ctx, name=None):
         else:  # XXX ctx.base_dir should be abs
             return os.path.join(instance.template.base_dir, ctx.base_dir or "")
     elif name == "tmp":
-        return os.path.join(instance.root.tmp_dir, instance.name)
+        return os.path.join(instance.root.tmp_dir, _get_instance_dir_name(instance))
     elif name in Folders.Persistent:
-        return os.path.join(instance.base_dir, name, instance.name)
+        return os.path.join(instance.base_dir, name, _get_instance_dir_name(instance))
     elif name in Folders.Job:
         # these will always in "planned" while a task is running
         if ctx.task and instance is ctx.task.target:
             return WorkFolder._get_job_path(ctx.task, name, Folders.Planned)
         elif name == "tasks":  # in case we don't have a ctx.task
             return os.path.join(
-                instance.base_dir, Folders.Planned, Folders.tasks, instance.name
+                instance.base_dir,
+                Folders.Planned,
+                Folders.tasks,
+                _get_instance_dir_name(instance),
             )
         else:
             assert (
