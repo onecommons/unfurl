@@ -162,8 +162,7 @@ def set_up_deployment(runner, deployment):
     with open("remote/ensemble/ensemble.yaml", "w") as f:
         f.write(deployment)
 
-    repo = Repo.init('remote')
-    repo = GitRepo(repo)
+    repo = GitRepo(Repo.init('remote'))
     repo.add_all('remote')
     repo.commit_files(["remote/ensemble/ensemble.yaml"], "Add deployment")
 
@@ -184,7 +183,8 @@ def set_up_deployment(runner, deployment):
     )
     assert start_server_process(p, port)
 
-    return p, port
+    assert repo.revision
+    return p, port, repo.revision
 
 
 def test_server_health(runner):
@@ -383,17 +383,20 @@ def test_server_update_deployment():
         p = None
         try:
             initial_deployment = deployment.format("initial")
-            p, port = set_up_deployment(runner, initial_deployment)
+            p, port, last_commit = set_up_deployment(runner, initial_deployment)
 
             target_patch = patch.format("target")
             res = requests.post(
                 f"http://localhost:{port}/update_ensemble?auth_project=remote",
                 json={
                     "patch": json.loads(target_patch),
+                    "latest_commit": last_commit
                 },
             )
             assert res.status_code == 200
-            last_commit = res.json()["commit"]
+            new_commit = res.json()["commit"]
+            assert last_commit != new_commit
+            last_commit = new_commit
 
             res = requests.get(
                 f"http://localhost:{port}/export",
@@ -406,17 +409,11 @@ def test_server_update_deployment():
             assert res.status_code == 200
             assert res.json()["ResourceTemplate"]["container_service"]["properties"][0]["name"] == "container"
 
-            # test that the server recovers from a bad repo before trying to patch
-            # by creating a conflict between the server's local repo and the remote repo
-            os.chdir("server/remote")
-            commit_foo("foo")
-            os.chdir("../../remote")
-            os.system("git pull ../remote.git")
-            commit_foo("bar")
-            os.system("git push ../remote.git")  # push to remote.git
-
+            os.chdir("remote")
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
+            os.system("git pull ../remote.git")
+
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert (data['spec']
@@ -430,20 +427,32 @@ def test_server_update_deployment():
                             ['VAR']
                         ) == "target"
 
+            # test that the server recovers from a bad repo before trying to patch
+            # by creating a conflict between the server's local repo and the remote repo
+            commit_foo("bar")
+            os.system("git push ../remote.git")  # push to remote.git
+            client_repo = GitRepo(Repo.init('.'))
+            last_commit = client_repo.revision
+            os.chdir("../server/remote")
+            commit_foo("foo")
+            os.chdir("../../remote")
+
             # test deleting
 
             res = requests.post(
                 f"http://localhost:{port}/update_ensemble?auth_project=remote",
                 json={
                     "patch": json.loads(delete_patch),
+                    "latest_commit": last_commit,
                 }
             )
             assert res.status_code == 200
-            assert res.content.startswith(b'{"commit":')
+            last_commit = res.json()["commit"]
+            assert last_commit
 
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
-            os.system("git pull --commit --no-edit ../remote.git")
+            os.system("git pull  ../remote.git")
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert not data['spec']['service_template']['topology_template']['node_templates']
@@ -469,7 +478,9 @@ def test_server_update_deployment():
                 json={
                     "environment":"gcp", "deployment_blueprint":None, "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
-                    "commit_msg": "Create environment gcp"
+                    "commit_msg": "Create environment gcp",
+                    # XXX how to avoid 409 error?
+                    # "latest_commit": last_commit,
                 }
             )
             assert res.status_code == 200
@@ -480,7 +491,7 @@ def test_server_update_deployment():
                 data = yaml.load(f.read())
                 # check that the environment was added and an ensemble was created
                 assert data["environments"]["gcp"]["connections"]["primary_provider"]["type"] == "unfurl.relationships.ConnectsTo.GoogleCloudProject"
-                assert data["ensembles"][0]["alias"] == "primary_provider"
+                assert data["ensembles"][0]["alias"] == "primary_provider", data
 
             res = requests.post(
                 f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",

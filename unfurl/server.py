@@ -155,6 +155,7 @@ class CacheEntry:
     file_path: str  # relative to project root
     key: str
     repo: Optional[GitRepo] = None
+    strict: bool = False
     commitinfo: Union[bool, Optional["Commit"]] = None
     hit: Optional[bool] = None
 
@@ -201,7 +202,7 @@ class CacheEntry:
             return  # we don't have a local copy of the repo
         try:
             self.repo.repo.commit(commit)
-        except ValueError:
+        except Exception:
             # newer not in repo, repo probably is out of date
             self.repo.pull(with_exceptions=True)  # raise if pull fails
 
@@ -243,15 +244,25 @@ class CacheEntry:
                     cached_latest_commit, latest_commit
                 )
             except Exception:
-                logger.info(
-                    "cache hit for %s, but error with client's commit %s",
-                    full_key,
-                    latest_commit,
-                    exc_info=True
-                )
-                # got an error resolving latest_commit, just return the cached value
-                self.hit = True
-                return response, True
+                if self.strict:
+                    logger.warning(
+                        "pull failed for %s, reverting local repo",
+                        self.project_id,
+                        exc_info=True,
+                    )
+                    # delete the local repository
+                    _clear_project(self.project_id)
+                    return response, False  # treat as cache miss
+                else:
+                    logger.info(
+                        "cache hit for %s, but error with client's commit %s",
+                        full_key,
+                        latest_commit,
+                        exc_info=True,
+                    )
+                    # got an error resolving latest_commit, just return the cached value
+                    self.hit = True
+                    return response, True
             if not cached_is_older:
                 # the client has an older commit than the cache had, so treat as a cache hit
                 logger.info("cache hit for %s with %s", full_key, latest_commit)
@@ -308,13 +319,20 @@ class CacheEntry:
     def _cancel_inflight(self, cache: Cache):
         return cache.delete(self._inflight_key())
 
-    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any]:
+    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any, str]:
         try:
             err, value = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
-            err, value = exc, None
-        return err, value
+            return exc, None, latest_commit
+        if not self.repo or self.strict:
+            # self.strict might reclone the repo
+            self._set_project_repo()
+        assert self.repo
+        latest = self.repo.revision
+        if latest:  # if revision is valid
+            latest_commit = latest
+        return err, value, latest_commit
 
     def get_or_set(
         self,
@@ -325,7 +343,7 @@ class CacheEntry:
     ) -> Tuple[Optional[Any], Any]:
         if latest_commit is None:
             # don't use the cache
-            return self._do_work(work, latest_commit)
+            return self._do_work(work, latest_commit)[0:2]
 
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
@@ -345,7 +363,7 @@ class CacheEntry:
             # there was already work inflight and use that instead
             return None, value
 
-        err, value = self._do_work(work, latest_commit)
+        err, value, latest_commit = self._do_work(work, latest_commit)
         found_inflight = self._cancel_inflight(cache)
         # skip caching work if not `found_inflight` -- that means invalidate_cache deleted it
         if found_inflight and not err:
@@ -358,7 +376,7 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend.ignore_errors = True
     redis = getattr(backend, "_read_client", None)
     if redis:
-        keys = [k.decode()[len(backend.key_prefix):] for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
+        keys = [k.decode()[len(backend.key_prefix) :] for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
     else:
         simple = getattr(backend, "_cache", None)
         if simple:
@@ -704,9 +722,9 @@ def _localenv_from_cache(
         return _make_readonly_localenv(clone_location)
 
     repo = _get_project_repo(project_id, args)
-    return CacheEntry(project_id, branch, "unfurl.yaml", "localenv", repo).get_or_set(
-        cache, _cache_localenv_work, latest_commit, _validate_localenv
-    )
+    return CacheEntry(
+        project_id, branch, "unfurl.yaml", "localenv", repo, bool(latest_commit)
+    ).get_or_set(cache, _cache_localenv_work, latest_commit, _validate_localenv)
 
 
 def _localenv_from_cache_pull(
@@ -718,7 +736,6 @@ def _localenv_from_cache_pull(
     args: dict,
     pull: bool = True,
 ) -> Tuple[Any, Optional[LocalEnv]]:
-    already_exists = os.path.isdir(_get_project_repo_dir(project_id))
     err, readonly_localEnv = _localenv_from_cache(
         cache, project_id, branch, deployment_path, latest_commit, args
     )
@@ -728,28 +745,10 @@ def _localenv_from_cache_pull(
     assert readonly_localEnv.project
     repo = readonly_localEnv.project.project_repoview.repo
     assert repo
-    was_dirty = repo.is_dirty()
-    if pull and already_exists and not was_dirty:
-        try:
-            repo.pull(with_exceptions=True)
-        except Exception:
-            logger.warning("pull failed for %s, reverting local repo", project_id, exc_info=True)
-            # delete the local repository and reclone
-            _clear_project(project_id)
-            # XXX if we don't want to clear all the project's entries:
-            # CacheEntry(project_id, branch, "unfurl.yaml", "localenv").delete_cache(cache)
-            # _cancel_inflight() too
-            err, readonly_localEnv = _localenv_from_cache(
-                cache, project_id, branch, deployment_path, latest_commit, args
-            )
-            if err:
-                return err, readonly_localEnv
-        if latest_commit and repo.revision != latest_commit:
-            logger.warning(
-                f"Conflict in {project_id}: {latest_commit} != {repo.revision}"
-            )
-            err = create_error_response("CONFLICT", "Repository at wrong revision")
-            return err, readonly_localEnv
+    if latest_commit and repo.revision != latest_commit:
+        logger.warning(f"Conflict in {project_id}: {latest_commit} != {repo.revision}")
+        err = create_error_response("CONFLICT", "Repository at wrong revision")
+        return err, readonly_localEnv
     return None, readonly_localEnv
 
 
@@ -768,7 +767,11 @@ def _do_export(
         )
         if err:
             return err, None
-        assert parent_localenv and parent_localenv.project and parent_localenv.project.project_repoview.repo
+        assert (
+            parent_localenv
+            and parent_localenv.project
+            and parent_localenv.project.project_repoview.repo
+        )
         working_dir = parent_localenv.project.project_repoview.repo.working_dir
     else:
         err, parent_localenv = None, None
@@ -874,15 +877,17 @@ def _make_requirement(dependency) -> dict:
 
 def _patch_node_template(patch: dict, tpl: dict) -> None:
     for key, value in patch.items():
-        if key in ["type", "directives", "imported"]:
+        if key in ["type", "directives", "imported", "metadata"]:
             tpl[key] = value
         elif key == "title":
             if value != patch["name"]:
                 tpl.setdefault("metadata", {})["title"] = value
         elif key == "properties":
             props = tpl.setdefault("properties", {})
-            assert isinstance(value, list)
+            assert isinstance(props, dict), f"bad props {props} in {tpl}"
+            assert isinstance(value, list), f"bad patch value {value} for {key} in {patch}"
             for prop in value:
+                assert isinstance(prop, dict), f"bad {prop} in {value} for {key} in {patch}"
                 props[prop["name"]] = prop["value"]
         elif key == "dependencies":
             requirements = [
@@ -987,30 +992,33 @@ def _patch_environment(body: dict, project_id: str):
                 for key in patch_inner:
                     if key == "instances" or key == "connections":
                         target = environment.get(key) or {}
+                        new_target = {}
                         for node_name, node_patch in patch_inner[key].items():
                             tpl = target.setdefault(node_name, {})
                             if not isinstance(tpl, dict):
                                 # connections keys can be a string or null
                                 tpl = {}
                             _patch_node_template(node_patch, tpl)
-                        environment[key] = target  # replace
+                            new_target[node_name] = tpl
+                        environment[key] = new_target  # replace
         elif typename == "DeploymentPath":
             update_deployment(
                 localEnv.project, patch_inner["name"], patch_inner, False, deleted
             )
     localConfig.config.save()
     if not was_dirty:
-        commit_msg = body.get("commit_msg", "Update environment")
-        err = _commit_and_push(
-            repo,
-            cast(str, localConfig.config.path),
-            commit_msg,
-            username,
-            password,
-            starting_revision,
-        )
-        if err:
-            return err  # err will be an error response
+        if repo.is_dirty():
+            commit_msg = body.get("commit_msg", "Update environment")
+            err = _commit_and_push(
+                repo,
+                cast(str, localConfig.config.path),
+                commit_msg,
+                username,
+                password,
+                starting_revision,
+            )
+            if err:
+                return err  # err will be an error response
     else:
         logger.warning(
             "local repository at %s was dirty, not committing or pushing",
@@ -1058,7 +1066,11 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     )
     if err:
         return err
-    assert parent_localenv and parent_localenv.project and parent_localenv.project.project_repoview.repo
+    assert (
+        parent_localenv
+        and parent_localenv.project
+        and parent_localenv.project.project_repoview.repo
+    )
     clone_location = os.path.join(
         parent_localenv.project.project_repoview.repo.working_dir, deployment_path
     )
@@ -1069,7 +1081,11 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
         blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
-        logger.info("creating deployment at %s for %s", clone_location, sanitize_url(blueprint_url, True))
+        logger.info(
+            "creating deployment at %s for %s",
+            clone_location,
+            sanitize_url(blueprint_url, True),
+        )
         msg = init.clone(
             blueprint_url,
             clone_location,
@@ -1141,23 +1157,26 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
         commit_msg = body.get("commit_msg", "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, True)
-        logger.info(f"committed to {committed} repositories")
-        if manifest.repo:
-            try:
-                if password:
-                    url = add_user_to_url(manifest.repo.url, username, password)
-                else:
-                    url = None
-                manifest.repo.push(url)
-                logger.info("pushed")
-            except Exception:
-                # discard the last commit that we couldn't push
-                # this is mainly for security if we couldn't push because the user wasn't authorized
-                manifest.repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
-                logger.error("push failed", exc_info=True)
-                return create_error_response(
-                    "INTERNAL_ERROR", "Could not push repository"
-                )
+        if committed or create:
+            logger.info(f"committed to {committed} repositories")
+            if manifest.repo:
+                try:
+                    if password:
+                        url = add_user_to_url(manifest.repo.url, username, password)
+                    else:
+                        url = None
+                    manifest.repo.push(url)
+                    logger.info("pushed")
+                except Exception:
+                    # discard the last commit that we couldn't push
+                    # this is mainly for security if we couldn't push because the user wasn't authorized
+                    manifest.repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
+                    logger.error("push failed", exc_info=True)
+                    return create_error_response(
+                        "INTERNAL_ERROR", "Could not push repository"
+                    )
+        else:
+            logger.info(f"no changes where made, nothing commited")
     return _patch_response(manifest.repo)
 
 
@@ -1239,9 +1258,7 @@ def _commit_and_push(
     return None
 
 
-def _fetch_working_dir(
-    project_path: str, args: dict, pull: bool
-) -> Optional[str]:
+def _fetch_working_dir(project_path: str, args: dict, pull: bool) -> Optional[str]:
     # if successful, returns the repository's working directory or None if clone failed
     current_working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
     if not project_path or project_path == ".":
