@@ -168,12 +168,6 @@ def set_up_deployment(runner, deployment):
 
     # we need a bare repo for push to work
     os.system("git clone --bare remote remote.git")
-    with change_cwd("remote"):
-        if os.getenv("CI"):
-            os.system('git config --global user.email "unittest@onecommons.org"')
-            os.system('git config --global user.name "Test Robot"')
-            os.system('git config --global push.autoSetupRemote true')
-
     port = _next_port()
 
     os.makedirs("server")

@@ -61,6 +61,9 @@ jobs:
       - name: Run mypy and Tox
         # Run tox using the version of Python in `PATH`
         run: |
+          git config --global user.email "unittest@onecommons.org"
+          git config --global user.name "Test Robot"
+          git config --global push.autoSetupRemote true
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
