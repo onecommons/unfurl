@@ -136,7 +136,9 @@ def _create_repo(gitDir, ignore=True):
         os.makedirs(gitDir)
     repo = git.Repo.init(gitDir)
     repo.index.add(add_hidden_git_files(gitDir))
-    repo.index.commit(f"Initial Commit for {uuid.uuid1()}")
+    msg = f"Initial Commit for {uuid.uuid1()}"
+    repo.index.commit(msg)
+    repo.create_tag("INITIAL", message=msg)
 
     if ignore:
         Repo.ignore_dir(gitDir)
