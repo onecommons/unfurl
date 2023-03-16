@@ -648,10 +648,10 @@ class GitRepo(Repo):
         # return self.repo.submodules[submodule].git.show(submoduleCommit+':'+path[len(submodule)+1:])
         return self.repo.git.show(commitId + ":" + path)
 
-    def checkout(self, revision=""):
+    def checkout(self, revision="", **kw):
         # if revision isn't specified and repo is not pinned:
         #  save the ref of current head
-        self.repo.git.checkout(revision)
+        self.repo.git.checkout(revision, **kw)
         logger.info(
             "checking out '%s' at %s to %s",
             self.url,

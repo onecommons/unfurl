@@ -1311,7 +1311,10 @@ class LocalEnv:
         assert isinstance(repo, GitRepo)
         if revision:
             if repo.revision != repo.resolve_rev_spec(revision):
-                repo.checkout(revision)
+                if repo.is_dirty():
+                    logger.warning(f"{repo.working_dir} is dirty, skipping checking out revision {revision}")
+                else:
+                    repo.checkout(revision)
             return repo, repo.revision, False
         else:
             return repo, repo.revision, False
