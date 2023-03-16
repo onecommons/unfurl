@@ -493,9 +493,10 @@ def _find_missing_includes(includes):
 
 
 def _delete_deleted_keys(expanded):
-    for key, value in expanded.items():
+    for key in list(expanded):
+        value = expanded[key]
         if isinstance(value, Mapping):
-            if value.get(mergeStrategyKey) == "whiteout":
+            if value.get(mergeStrategyKey) in ["whiteout", "nullout"]:
                 del expanded[key]
             else:
                 _delete_deleted_keys(value)
@@ -515,7 +516,7 @@ def expand_doc(doc, current=None, cls=dict):
     while True:
         missing = list(_find_missing_includes(includes))
         if len(missing) == 0:
-            # remove any stray keys with delete merge directive
+            # remove any stray merge directive that weren't applied
             _delete_deleted_keys(expanded)
             return includes, expanded
         if len(missing) == last:  # no progress
