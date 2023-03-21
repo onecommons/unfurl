@@ -711,7 +711,6 @@ def _localenv_from_cache(
         cache_entry: CacheEntry, latest_commit: str
     ) -> Tuple[Any, Any]:
         # don't try to pull -- cache will have already pulled
-        # or _localenv_from_cache_pull will do it next if needed
         clone_location = _fetch_working_dir(cache_entry.project_id, args, False)
         if clone_location is None:
             return (
@@ -734,7 +733,7 @@ def _localenv_from_cache_pull(
     deployment_path: str,
     latest_commit: str,
     args: dict,
-    pull: bool = True,
+    check_lastcommit: bool = True,
 ) -> Tuple[Any, Optional[LocalEnv]]:
     err, readonly_localEnv = _localenv_from_cache(
         cache, project_id, branch, deployment_path, latest_commit, args
@@ -745,7 +744,7 @@ def _localenv_from_cache_pull(
     assert readonly_localEnv.project
     repo = readonly_localEnv.project.project_repoview.repo
     assert repo
-    if latest_commit and repo.revision != latest_commit:
+    if check_lastcommit and latest_commit and repo.revision != latest_commit:
         logger.warning(f"Conflict in {project_id}: {latest_commit} != {repo.revision}")
         err = create_error_response("CONFLICT", "Repository at wrong revision")
         return err, readonly_localEnv
@@ -1046,7 +1045,7 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     return False
 
 
-def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str:
+def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=True) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
@@ -1062,7 +1061,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
     err, parent_localenv = _localenv_from_cache_pull(
-        cache, project_id, branch, "", latest_commit, body, pull
+        cache, project_id, branch, "", latest_commit, body, check_lastcommit
     )
     if err:
         return err

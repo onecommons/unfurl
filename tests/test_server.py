@@ -473,8 +473,7 @@ def test_server_update_deployment():
                     "environment":"gcp", "deployment_blueprint":None, "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
                     "commit_msg": "Create environment gcp",
-                    # XXX how to avoid 409 error?
-                    # "latest_commit": last_commit,
+                    "latest_commit": last_commit,
                 }
             )
             assert res.status_code == 200
