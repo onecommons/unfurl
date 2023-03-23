@@ -881,7 +881,7 @@ class EnsembleBuilder:
 
     def set_dest_project_and_path(
         self, existingSourceProject, existingDestProject, dest
-    ) -> bool:
+    ):
         assert self.dest_project is None
         if existingDestProject:
             #  set that as the dest_project
@@ -1034,15 +1034,14 @@ def clone(
 
     ##### step 2: create destination project if neccessary
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
+    if options.get("empty"):
+        # don't create an ensemble
+        return "Cloned empty project to " + builder.dest_project.projectRoot
 
     ##### step 3: examine source for template details and determine shared project
     builder.configure()
 
     ##### step 4 create ensemble in destination project if needed
-    if options.get("empty"):
-        # don't create an ensemble
-        return "Cloned empty project to " + builder.dest_project.projectRoot
-
     return builder.set_ensemble(isRemote, sourceProject, currentProject)
 
 

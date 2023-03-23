@@ -489,7 +489,7 @@ def test_server_update_deployment():
             res = requests.post(
                 f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",
             )
-            assert res.content == b'1'  # one key deleted
+            assert res.content == b'2'  # 2 keys deleted
             assert res.status_code == 200
 
         finally:

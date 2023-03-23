@@ -27,8 +27,8 @@ import git
 from git.objects import Commit
 
 from unfurl.projectpaths import rmtree
-from .localenv import LocalEnv
-from .repo import GitRepo, add_user_to_url, normalize_git_url_hard, sanitize_url
+from .localenv import LocalEnv, Project
+from .repo import GitRepo, Repo, add_user_to_url, normalize_git_url_hard, sanitize_url
 from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
@@ -107,15 +107,18 @@ def get_project_id(request):
     return ""
 
 
-def _get_project_repo_dir(project_id: str) -> str:
+def _get_project_repo_dir(project_id: str, branch: str) -> str:
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
-    return os.path.join(clone_root, project_id)
+    if not project_id:
+        return clone_root
+    return os.path.join(clone_root, project_id, branch)
 
 
 def _get_project_repo(
-    project_id: str, args: Optional[dict] = None
+    project_id: str, branch: str, args: Optional[dict] = None
 ) -> Optional[GitRepo]:
-    path = _get_project_repo_dir(project_id)
+    path = _get_project_repo_dir(project_id, branch)
+    print("!!!", path, os.path.isdir(path), os.path.isdir(os.path.dirname(path)))
     if os.path.isdir(path):
         repo = GitRepo(git.Repo(path))
         if args:
@@ -160,7 +163,7 @@ class CacheEntry:
     hit: Optional[bool] = None
 
     def _set_project_repo(self) -> Optional[GitRepo]:
-        self.repo = _get_project_repo(self.project_id)
+        self.repo = _get_project_repo(self.project_id, self.branch or "main")
         return self.repo
 
     def cache_key(self) -> str:
@@ -379,7 +382,7 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
         keys = [k.decode()[len(backend.key_prefix) :] for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
     else:
         simple = getattr(backend, "_cache", None)
-        if simple:
+        if simple is not None:
             keys = [key for key in simple if key.startswith(starts_with)]
         else:
             logger.error(
@@ -448,7 +451,7 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
     return urljoin(base_url, project_id + ".git")
 
 
-def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
+def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[str]:
     """
     Clones or pulls the latest from the given project repository and returns the repository's working directory
     or None if clone failed.
@@ -457,8 +460,8 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
         "private_token", args.get("password")
     )
     repo = None
-    repo_path = _get_project_repo_dir(project_id)
-    repo = _get_project_repo(project_id, args)
+    repo_path = _get_project_repo_dir(project_id, branch)
+    repo = _get_project_repo(project_id, branch, args)
     if repo:
         logger.info(f"found repo at {repo.working_dir}")
         if pull and not repo.is_dirty():
@@ -467,12 +470,10 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
         # repo doesn't exists, clone it
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
         git_url = get_project_url(project_id, username, password)
-        result = init.clone(git_url, repo_path, empty=True)
-        clean_url = sanitize_url(git_url, True)
-        logger.info(f"cloned {clean_url}: {result} in pid {os.getpid()}")
-        repo = _get_project_repo(project_id)
+        Repo.create_working_dir(git_url, repo_path, branch)
+        repo = _get_project_repo(project_id, branch)
         if repo:
-            logger.info("clone success: %s to %s", clean_url, repo.working_dir)
+            logger.info("clone success: %s to %s", repo.safe_url, repo.working_dir)
     return repo and repo.working_dir or None
 
 
@@ -498,7 +499,7 @@ def format_from_path(path):
         return "deployment"
 
 
-def _cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
+def _export_cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
     return _do_export(
         cache_entry.project_id,
         cache_entry.key,
@@ -561,7 +562,7 @@ def export():
     deployment_path = request.args.get("deployment_path") or ""
     cache_entry = None
     file_path = _get_filepath(requested_format, deployment_path)
-    branch = request.args.get("branch")
+    branch = request.args.get("branch", "main")
     if request.headers.get("X-Git-Credentials"):
         args = dict(request.args)
         args["username"], args["password"] = (
@@ -570,8 +571,8 @@ def export():
     else:
         args = request.args
 
-    repo = _get_project_repo(project_id, args)
-    workfn = partial(_cache_work, args)
+    repo = _get_project_repo(project_id, branch, args)
+    workfn = partial(_export_cache_work, args)
     cache_entry = CacheEntry(project_id, branch, file_path, requested_format, repo)
     err, json_summary = cache_entry.get_or_set(
         cache, workfn, latest_commit, _validate_export
@@ -612,7 +613,7 @@ def export():
 @app.route("/populate_cache", methods=["POST"])
 def populate_cache():
     project_id = get_project_id(request)
-    branch = request.args.get("branch")
+    branch = request.args.get("branch", "main")
     path = request.args["path"]
     latest_commit = request.args["latest_commit"]
     requested_format = format_from_path(path)
@@ -630,14 +631,14 @@ def populate_cache():
         cache_entry.delete_cache(cache)
         cache_entry._cancel_inflight(cache)
         return "OK"
-    project_dir = _get_project_repo_dir(project_id)
+    project_dir = _get_project_repo_dir(project_id, branch)
     if not os.path.isdir(project_dir):
         # don't try to clone private repository
         if visibility != "public":
             logger.info("skipping populate cache for private repository %s", project_id)
             return "OK"
     err, json_summary = cache_entry.get_or_set(
-        cache, partial(_cache_work, request.args), latest_commit
+        cache, partial(_export_cache_work, request.args), latest_commit
     )
     if err:
         if isinstance(err, Exception):
@@ -655,7 +656,7 @@ def clear_project():
 
 
 def _clear_project(project_id):
-    project_dir = _get_project_repo_dir(project_id)
+    project_dir = _get_project_repo_dir(project_id, "")
     if os.path.isdir(project_dir):
         logger.info("clear_project: removing %s", project_dir)
         rmtree(project_dir, logger)
@@ -701,7 +702,7 @@ def _validate_localenv(
 def _localenv_from_cache(
     cache,
     project_id: str,
-    branch: Optional[str],
+    branch: str,
     deployment_path: str,
     latest_commit: str,
     args: dict,
@@ -711,7 +712,7 @@ def _localenv_from_cache(
         cache_entry: CacheEntry, latest_commit: str
     ) -> Tuple[Any, Any]:
         # don't try to pull -- cache will have already pulled
-        clone_location = _fetch_working_dir(cache_entry.project_id, args, False)
+        clone_location = _fetch_working_dir(cache_entry.project_id, branch, args, False)
         if clone_location is None:
             return (
                 create_error_response("INTERNAL_ERROR", "Could not find repository"),
@@ -720,7 +721,7 @@ def _localenv_from_cache(
         clone_location = os.path.join(clone_location, deployment_path)
         return _make_readonly_localenv(clone_location)
 
-    repo = _get_project_repo(project_id, args)
+    repo = _get_project_repo(project_id, branch, args)
     return CacheEntry(
         project_id, branch, "unfurl.yaml", "localenv", repo, bool(latest_commit)
     ).get_or_set(cache, _cache_localenv_work, latest_commit, _validate_localenv)
@@ -729,7 +730,7 @@ def _localenv_from_cache(
 def _localenv_from_cache_pull(
     cache,
     project_id: str,
-    branch: Optional[str],
+    branch: str,
     deployment_path: str,
     latest_commit: str,
     args: dict,
@@ -761,6 +762,7 @@ def _do_export(
 ) -> Tuple[Optional[Any], Optional[str]]:
     # load the ensemble
     if cache_entry:
+        assert cache_entry.branch
         err, parent_localenv = _localenv_from_cache(
             cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
         )
@@ -947,39 +949,13 @@ def _patch_response(repo: Optional[GitRepo]):
     return jsonify(dict(commit=repo and repo.revision or None))
 
 
-def _patch_environment(body: dict, project_id: str):
-    patch = body.get("patch")
-    assert isinstance(patch, list)
-    latest_commit = body.get("latest_commit") or ""
-    branch = body.get("branch")
-    err, readonly_localEnv = _localenv_from_cache_pull(
-        cache, project_id, branch, "", latest_commit, body
-    )
-    if err:
-        return err
-    assert readonly_localEnv and readonly_localEnv.project
-    invalidate_cache(body, "environments", project_id)
-    localEnv = LocalEnv(readonly_localEnv.project.projectRoot, can_be_empty=True)
-    assert localEnv.project
-    repo = localEnv.project.project_repoview.repo
-    assert repo
-    username = cast(str, body.get("username"))
-    password = cast(str, body.get("private_token", body.get("password")))
-    if not password and repo.url.startswith("http"):
-        return create_error_response("UNAUTHORIZED", "Missing credentials")
-    was_dirty = repo.is_dirty()
-    starting_revision = (
-        localEnv.project.project_repoview.repo
-        and localEnv.project.project_repoview.repo.revision
-        or ""
-    )
-    localConfig = localEnv.project.localConfig
+def _apply_environment_patch(patch: list, project: Project):
+    localConfig = project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
         deleted = patch_inner.get("__deleted") or False
         assert isinstance(deleted, bool)
-        assert localEnv.project
         if typename == "DeploymentEnvironment":
             environments = localConfig.config.config.setdefault("environments", {})
             name = patch_inner["name"]
@@ -1002,8 +978,38 @@ def _patch_environment(body: dict, project_id: str):
                         environment[key] = new_target  # replace
         elif typename == "DeploymentPath":
             update_deployment(
-                localEnv.project, patch_inner["name"], patch_inner, False, deleted
+                project, patch_inner["name"], patch_inner, False, deleted
             )
+
+
+def _patch_environment(body: dict, project_id: str):
+    patch = body.get("patch")
+    assert isinstance(patch, list)
+    latest_commit = body.get("latest_commit") or ""
+    branch = body.get("branch", "main")
+    err, readonly_localEnv = _localenv_from_cache_pull(
+        cache, project_id, branch, "", latest_commit, body
+    )
+    if err:
+        return err
+    assert readonly_localEnv and readonly_localEnv.project
+    invalidate_cache(body, "environments", project_id)
+    localEnv = LocalEnv(readonly_localEnv.project.projectRoot, can_be_empty=True)
+    assert localEnv.project
+    repo = localEnv.project.project_repoview.repo
+    assert repo
+    username = cast(str, body.get("username"))
+    password = cast(str, body.get("private_token", body.get("password")))
+    if not password and repo.url.startswith("http"):
+        return create_error_response("UNAUTHORIZED", "Missing credentials")
+    was_dirty = repo.is_dirty()
+    starting_revision = (
+        localEnv.project.project_repoview.repo
+        and localEnv.project.project_repoview.repo.revision
+        or ""
+    )
+    localConfig = localEnv.project.localConfig
+    _apply_environment_patch(patch, localEnv.project)
     localConfig.config.save()
     if not was_dirty:
         if repo.is_dirty():
@@ -1045,12 +1051,47 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     return False
 
 
+def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
+    for patch_inner in patch:
+        assert isinstance(patch_inner, dict)
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted") or False
+        assert isinstance(deleted, bool)
+        if typename == "DeploymentTemplate":
+            _patch_deployment_blueprint(patch_inner, manifest, deleted)
+        elif typename == "ResourceTemplate":
+            # notes: only update or delete node_templates declared directly in the manifest
+            doc = manifest.manifest.config
+            for key in [
+                "spec",
+                "service_template",
+                "topology_template",
+                "node_templates",
+                patch_inner["name"],
+            ]:
+                if deleted:
+                    if key not in doc:
+                        break
+                    elif key == patch_inner["name"]:
+                        del doc[key]
+                    else:
+                        doc = doc[key]
+                else:
+                    if not doc.get(key):
+                        doc[key] = doc = {}
+                    else:
+                        doc = doc[key]
+            if not deleted:
+                _patch_node_template(patch_inner, doc)
+
+
 def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=True) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
     deployment_path = body.get("deployment_path") or ""
-    existing_repo = _get_project_repo(project_id, body)
+    branch = body.get("branch", "main")
+    existing_repo = _get_project_repo(project_id, branch, body)
 
     username = body.get("username")
     password = body.get("private_token", body.get("password"))
@@ -1059,7 +1100,6 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
         return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     latest_commit = body.get("latest_commit") or ""
-    branch = body.get("branch")
     err, parent_localenv = _localenv_from_cache_pull(
         cache, project_id, branch, "", latest_commit, body, check_lastcommit
     )
@@ -1114,38 +1154,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
         skip_validation=True
     )
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
-    for patch_inner in patch:
-        assert isinstance(patch_inner, dict)
-        typename = patch_inner.get("__typename")
-        deleted = patch_inner.get("__deleted") or False
-        assert isinstance(deleted, bool)
-        if typename == "DeploymentTemplate":
-            _patch_deployment_blueprint(patch_inner, manifest, deleted)
-        elif typename == "ResourceTemplate":
-            # notes: only update or delete node_templates declared directly in the manifest
-            doc = manifest.manifest.config
-            for key in [
-                "spec",
-                "service_template",
-                "topology_template",
-                "node_templates",
-                patch_inner["name"],
-            ]:
-                if deleted:
-                    if key not in doc:
-                        break
-                    elif key == patch_inner["name"]:
-                        del doc[key]
-                    else:
-                        doc = doc[key]
-                else:
-                    if not doc.get(key):
-                        doc[key] = doc = {}
-                    else:
-                        doc = doc[key]
-            if not deleted:
-                _patch_node_template(patch_inner, doc)
-
+    _apply_ensemble_patch(patch, manifest)
     manifest.manifest.save()
     if was_dirty:
         logger.warning(
@@ -1257,7 +1266,7 @@ def _commit_and_push(
     return None
 
 
-def _fetch_working_dir(project_path: str, args: dict, pull: bool) -> Optional[str]:
+def _fetch_working_dir(project_path: str, branch: str, args: dict, pull: bool) -> Optional[str]:
     # if successful, returns the repository's working directory or None if clone failed
     current_working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
     if not project_path or project_path == ".":
@@ -1274,7 +1283,7 @@ def _fetch_working_dir(project_path: str, args: dict, pull: bool) -> Optional[st
         else:
             # otherwise clone the project if necessary
             # root of repo not necessarily unfurl project
-            clone_location = _stage(project_path, args, pull)
+            clone_location = _stage(project_path, branch, args, pull)
         if not clone_location:
             return clone_location
     # XXX: deployment_path must be in the project repo, split repos are not supported
