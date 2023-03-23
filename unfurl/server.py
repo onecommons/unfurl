@@ -73,6 +73,7 @@ if cors:
     CORS(app, origins=cors.split())
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
+DEFAULT_BRANCH = "main"
 
 def set_current_ensemble_git_url():
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
@@ -163,7 +164,7 @@ class CacheEntry:
     hit: Optional[bool] = None
 
     def _set_project_repo(self) -> Optional[GitRepo]:
-        self.repo = _get_project_repo(self.project_id, self.branch or "main")
+        self.repo = _get_project_repo(self.project_id, self.branch or DEFAULT_BRANCH)
         return self.repo
 
     def cache_key(self) -> str:
@@ -562,7 +563,7 @@ def export():
     deployment_path = request.args.get("deployment_path") or ""
     cache_entry = None
     file_path = _get_filepath(requested_format, deployment_path)
-    branch = request.args.get("branch", "main")
+    branch = request.args.get("branch", DEFAULT_BRANCH)
     if request.headers.get("X-Git-Credentials"):
         args = dict(request.args)
         args["username"], args["password"] = (
@@ -613,7 +614,7 @@ def export():
 @app.route("/populate_cache", methods=["POST"])
 def populate_cache():
     project_id = get_project_id(request)
-    branch = request.args.get("branch", "main")
+    branch = request.args.get("branch", DEFAULT_BRANCH)
     path = request.args["path"]
     latest_commit = request.args["latest_commit"]
     requested_format = format_from_path(path)
@@ -986,7 +987,7 @@ def _patch_environment(body: dict, project_id: str):
     patch = body.get("patch")
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
-    branch = body.get("branch", "main")
+    branch = body.get("branch", DEFAULT_BRANCH)
     err, readonly_localEnv = _localenv_from_cache_pull(
         cache, project_id, branch, "", latest_commit, body
     )
@@ -1090,7 +1091,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
     deployment_path = body.get("deployment_path") or ""
-    branch = body.get("branch", "main")
+    branch = body.get("branch", DEFAULT_BRANCH)
     existing_repo = _get_project_repo(project_id, branch, body)
 
     username = body.get("username")
