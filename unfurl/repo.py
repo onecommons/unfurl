@@ -6,7 +6,7 @@ import os.path
 from pathlib import Path
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 from typing_extensions import Literal
 import git
 import git.exc
@@ -47,7 +47,10 @@ def normalize_git_url(url: str, hard: int = 0):
 
     if "://" not in url:  # not an absolute URL, convert some common patterns
         if url.startswith("/"):
-            return "file://" + url
+            return "file://" + os.path.abspath(url)  # abspath also normalizes the path
+        elif url.startswith("file:"):
+            # git doesn't like relative file URLs
+            return "file://" + os.path.abspath(url[5:])
         elif "@" in url:  # scp style used by git: user@server:project.git
             # convert to ssh://user@server/project.git
             url = "ssh://" + url.replace(":", "/", 1)
@@ -209,6 +212,10 @@ class Repo(abc.ABC):
     def revision(self) -> str:
         ...
 
+    @property
+    def safe_url(self):
+        return sanitize_url(self.url, True)
+
     def find_repo_path(self, path):
         localPath = self.find_path(path)[0]
         if localPath is not None and not self.is_path_excluded(localPath):
@@ -260,7 +267,7 @@ class Repo(abc.ABC):
         return self.get_path_for_git_repo(self.url, False)
 
     @classmethod
-    def create_working_dir(cls, gitUrl, localRepoPath, revision=None):
+    def create_working_dir(cls, gitUrl, localRepoPath, revision=None, depth=1):
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
             if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
@@ -272,8 +279,13 @@ class Repo(abc.ABC):
             os.makedirs(parent_dir, exist_ok=True)
         cleanurl = sanitize_url(gitUrl)
         logger.info("Fetching %s %s to %s", cleanurl, revision or "", localRepoPath)
-        kwargs = dict(recurse_submodules=True, depth=1, no_single_branch=True)
-        non_interactive = os.getenv("CI") or not PY_COLORS  # or color out disabled
+        kwargs: Dict[str, Any] = dict(recurse_submodules=True, no_single_branch=True)
+        if depth == 1:
+            kwargs["depth"] = depth
+            kwargs["shallow_submodules"] = True
+        non_interactive = (
+            os.getenv("CI") or not PY_COLORS
+        )  # if CI or color output disabled
         if not non_interactive:
             # we're running in an interactive session
             progress = _ProgressPrinter()
