@@ -1075,6 +1075,9 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
                 # nodes here overrides node_templates
                 node_spec = spec.add_node_template(node_name, node_tpl, False)
                 node_template = node_spec.toscaEntityTemplate
+            # convert to json in second-pass template requirements can reference each other
+            for node_name, node_tpl in resource_templates.items():
+                node_template = spec.nodeTemplates[node_name].toscaEntityTemplate
                 t = nodetemplate_to_json(node_template, spec, db["ResourceType"])
                 if t.get("visibility") == "omit":
                     continue
