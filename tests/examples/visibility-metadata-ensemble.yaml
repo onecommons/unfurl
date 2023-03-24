@@ -12,6 +12,8 @@ spec:
               properties:
                 # set the value of the "image" property
                 - image: foo:latest
+                - domain:
+                    default: foo.com
               # we need to constrain the properties on the compute instance that hosts the dockerhost
               # so we set the requirements on the dockerhost so it passes on that requirment
               requirements:
@@ -21,6 +23,8 @@ spec:
                         properties:
                           - Memory:
                               in_range: [2gb, 20gb]
+                          - CPUs: 
+                              default: 2
 
       ServiceHost:
         derived_from: tosca:Root

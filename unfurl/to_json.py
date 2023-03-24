@@ -1131,7 +1131,11 @@ def get_blueprint_from_topology(manifest: YamlManifest, db):
     # the deployment template created for this deployment will have a "source" key
     # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
     if "source" not in template:
-        title = os.path.basename(os.path.dirname(manifest.path)) if manifest.path else 'untitled'
+        title = (
+            os.path.basename(os.path.dirname(manifest.path))
+            if manifest.path
+            else "untitled"
+        )
         slug = slugify(title)
         template.update(
             dict(
@@ -1367,6 +1371,8 @@ def _map_nodefilter_properties(filters, inputsSchemaProperties, jsonprops) -> di
             # mark the property to be deleted from the target inputschema so the user can't set it
             # (since they can't shouldn't set this property now)
             jsonprops[name] = None
+        elif "default" in value:
+            jsonprops.setdefault(name, {})["default"] = value["default"]
         elif name not in jsonprops and name in inputsSchemaProperties:
             # check name in jsonprops so we only do this once
             # use the inputs schema definition to determine the node filter's constraints
@@ -1375,7 +1381,9 @@ def _map_nodefilter_properties(filters, inputsSchemaProperties, jsonprops) -> di
                 schema["type"], schema["type"]
             )
             constraints = ConditionClause(name, value, tosca_datatype).conditions
-            jsonprops[name] = map_constraints(schema["type"], constraints, schema)
+            jsonprops.setdefault(name, {}).update(
+                map_constraints(schema["type"], constraints, schema)
+            )
     return jsonprops
 
 
