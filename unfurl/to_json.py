@@ -1370,12 +1370,15 @@ def _map_nodefilter_properties(filters, inputsSchemaProperties, jsonprops) -> di
         elif name not in jsonprops and name in inputsSchemaProperties:
             # check name in jsonprops so we only do this once
             # use the inputs schema definition to determine the node filter's constraints
-            schema = inputsSchemaProperties[name]
-            tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(
-                schema["type"], schema["type"]
-            )
-            constraints = ConditionClause(name, value, tosca_datatype).conditions
-            jsonprops[name] = map_constraints(schema["type"], constraints, schema)
+            if "default" in value:
+                jsonprops[name] = dict(default=value["default"])
+            else:
+                schema = inputsSchemaProperties[name]
+                tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(
+                    schema["type"], schema["type"]
+                )
+                constraints = ConditionClause(name, value, tosca_datatype).conditions
+                jsonprops[name] = map_constraints(schema["type"], constraints, schema)
     return jsonprops
 
 
