@@ -821,6 +821,7 @@ def _render_request(
         # we turned off strictness so templating errors got saved here instead
         req.render_errors = task._errors
         error = task._errors[0]
+        error_info = error.stackInfo  # type: ignore
         task._errors = []
     task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
