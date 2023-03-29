@@ -757,50 +757,32 @@ def _do_export(
     project_id: str,
     requested_format: str,
     deployment_path: str,
-    cache_entry: Optional[CacheEntry],
+    cache_entry: CacheEntry,
     latest_commit: str,
     args: dict,
 ) -> Tuple[Optional[Any], Optional[str]]:
-    # load the ensemble
-    if cache_entry:
-        assert cache_entry.branch
-        err, parent_localenv = _localenv_from_cache(
-            cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
-        )
-        if err:
-            return err, None
-        assert (
-            parent_localenv
-            and parent_localenv.project
-            and parent_localenv.project.project_repoview.repo
-        )
-        working_dir = parent_localenv.project.project_repoview.repo.working_dir
-    else:
-        err, parent_localenv = None, None
-        if not project_id:
-            # use the current ensemble
-            working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
-        else:
-            working_dir = _fetch_working_dir(project_id, args, True)  # type: ignore
-            if working_dir is None:
-                return (
-                    create_error_response(
-                        "INTERNAL_ERROR", "Could not find repository"
-                    ),
-                    None,
-                )
-
+    assert cache_entry.branch
+    err, parent_localenv = _localenv_from_cache(
+        cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
+    )
+    if err:
+        return err, None
+    assert (
+        parent_localenv
+        and parent_localenv.project
+        and parent_localenv.project.project_repoview.repo
+    )
+    working_dir = parent_localenv.project.project_repoview.repo.working_dir
     clone_location = os.path.join(working_dir, deployment_path)
-    if not err:
-        err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
-        if args.get("environment"):
-            local_env.manifest_context_name = args["environment"]
-
+    err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
     if err:
         return (
             create_error_response("INTERNAL_ERROR", "An internal error occurred"),
             None,
         )
+    assert local_env
+    if args.get("environment"):
+        local_env.manifest_context_name = args["environment"]
 
     exporter = getattr(to_json, "to_" + requested_format)
     json_summary = exporter(local_env)
