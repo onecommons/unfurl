@@ -81,7 +81,7 @@ jobs:
 
   publish_dockerhub:
     needs: test
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USER: "ocbuilds"
@@ -114,7 +114,7 @@ jobs:
           images: |
             onecommons/unfurl
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=raw,value=stable,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}
       - name: Build and push
@@ -133,7 +133,7 @@ jobs:
 
   publish_dockerhub_podman:
     needs: publish_dockerhub
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USER: "ocbuilds"
@@ -163,7 +163,7 @@ jobs:
           images: |
             onecommons/unfurl
           tags: |
-            type=raw,value=latest-podman,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=raw,value=latest-podman,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=raw,value=stable-podman,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}-podman
       - name: Build and push
@@ -202,7 +202,7 @@ jobs:
 
   docs:
     needs: publish_dockerhub
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/publish-docs'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/publish-docs'
     runs-on: ubuntu-latest
     steps:
       - name: Download documentation
@@ -223,7 +223,7 @@ jobs:
           # The above command will fail if no changes were present, so we ignore
           # that.
       - name: Push docs to gh-pages branch
-        uses: ad-m/github-push-action@master
+        uses: ad-m/github-push-action@main
         with:
           branch: gh-pages
           directory: gh-pages
