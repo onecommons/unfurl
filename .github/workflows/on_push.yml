@@ -223,7 +223,7 @@ jobs:
           # The above command will fail if no changes were present, so we ignore
           # that.
       - name: Push docs to gh-pages branch
-        uses: ad-m/github-push-action@main
+        uses: ad-m/github-push-action@master
         with:
           branch: gh-pages
           directory: gh-pages
