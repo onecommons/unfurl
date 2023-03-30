@@ -707,14 +707,15 @@ class GitRepo(Repo):
         self, remote="origin", revision=None, ff_only=True, with_exceptions=False, **kw
     ) -> bool:
         if remote in self.repo.remotes:
-            cmd = ["pull", remote, revision or "HEAD"]
+            cmd = ["pull", remote, revision or "HEAD", "--tags"]
             if ff_only:
                 cmd.append("--ff-only")
             code, out, err = self.run_cmd(cmd, with_exceptions=with_exceptions, **kw)
             if code:
                 logger.info(
-                    "attempt to pull latest from %s into %s failed: %s %s",
+                    "attempt to pull latest from %s %s into %s failed: %s %s",
                     sanitize_url(self.url, True),
+                    revision or "",
                     self.working_dir,
                     out,
                     err,
@@ -722,8 +723,9 @@ class GitRepo(Repo):
                 return False
             else:
                 logger.verbose(
-                    "pull latest from %s into %s: %s %s",
+                    "pull latest from %s %s into %s: %s %s",
                     sanitize_url(self.url, True),
+                    revision or "",
                     self.working_dir,
                     out,
                     err,

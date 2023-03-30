@@ -1285,6 +1285,7 @@ class LocalEnv:
         repoURL: str,
         revision: Optional[str] = None,
         basepath: Optional[str] = None,
+        checkout_args: dict = {},
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
         repo = self._find_git_repo(repoURL, revision)
         if isinstance(repo, GitRepo):
@@ -1310,11 +1311,11 @@ class LocalEnv:
 
         assert isinstance(repo, GitRepo)
         if revision:
-            if repo.revision != repo.resolve_rev_spec(revision):
+            if repo.revision != repo.resolve_rev_spec(revision) or checkout_args:
                 if repo.is_dirty():
                     logger.warning(f"{repo.working_dir} is dirty, skipping checking out revision {revision}")
                 else:
-                    repo.checkout(revision)
+                    repo.checkout(revision, **checkout_args)
             return repo, repo.revision, False
         else:
             return repo, repo.revision, False
