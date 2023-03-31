@@ -6,7 +6,7 @@ import sys
 import codecs
 import json
 import os
-from typing import Optional, TextIO, Union, Tuple, List, cast, TYPE_CHECKING, Dict
+from typing import Any, Optional, TextIO, Union, Tuple, List, cast, TYPE_CHECKING, Dict
 import urllib
 import urllib.request
 from urllib.parse import urljoin, urlsplit
@@ -17,6 +17,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
+
 if TYPE_CHECKING:
     from .manifest import Manifest
 
@@ -392,7 +393,58 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         # always a local file path at this point
         return path, True, fragment
 
-    def load_yaml(self, importsLoader, path, isFile=True, fragment=None):
+    def _open(self, path: str, isFile: bool) -> Optional[TextIO]:
+        if path.startswith("git-ref:"):
+            url, filePath, revision = split_git_url(path)
+            return io.StringIO(self.repo_refs[url].show(filePath, revision))
+        else:
+            try:
+                if isFile:
+                    ignoreFileNotFound = self.ignoreFileNotFound
+                    if ignoreFileNotFound and not os.path.isfile(path):
+                        return None
+
+                    if self.yamlloader:
+                        # show == True if file was decrypted
+                        contents, show = self.yamlloader._get_file_contents(path)
+                        f: TextIO = io.StringIO(codecs.decode(contents))
+                    else:
+                        f = codecs.open(path, encoding="utf-8", errors="strict")
+                else:
+                    f = urlopen(path)
+                return f
+            except urllib.error.URLError as e:
+                if hasattr(e, "reason"):
+                    msg = _(
+                        (
+                            'Failed to reach server "%(path)s". Reason is: '
+                            + "%(reason)s."
+                        )
+                    ) % {"path": path, "reason": e.reason}
+                    ExceptionCollector.appendException(URLException(what=msg))
+                    return None
+                elif hasattr(e, "code"):
+                    msg = _(
+                        (
+                            'The server "%(path)s" couldn\'t fulfill the request. '
+                            + 'Error code: "%(code)s".'
+                        )
+                    ) % {
+                        "path": path,
+                        "code": e.code,  # type: ignore
+                    }
+                    ExceptionCollector.appendException(URLException(what=msg))
+                    return None
+                else:
+                    raise
+
+    def load_yaml(
+        self,
+        importsLoader: toscaparser.imports.ImportsLoader,
+        path: str,
+        isFile=True,
+        fragment=None,
+    ) -> Any:
         try:
             logger.trace(
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
@@ -405,48 +457,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 else:
                     return doc
 
-            if path.startswith("git-ref:"):
-                url, filePath, revision = split_git_url(path)
-                f: TextIO = io.StringIO(self.repo_refs[url].show(filePath, revision))
-            else:
-                try:
-                    if isFile:
-                        ignoreFileNotFound = self.ignoreFileNotFound
-                        if ignoreFileNotFound and not os.path.isfile(path):
-                            return None
+            f = self._open(path, isFile)
+            if f is None:
+                return None
 
-                        if self.yamlloader:
-                            # show == True if file was decrypted
-                            contents, show = self.yamlloader._get_file_contents(path)
-                            f = io.StringIO(codecs.decode(contents))
-                        else:
-                            f = codecs.open(path, encoding="utf-8", errors="strict")
-                    else:
-                        f = urlopen(path)
-                except urllib.error.URLError as e:
-                    if hasattr(e, "reason"):
-                        msg = _(
-                            (
-                                'Failed to reach server "%(path)s". Reason is: '
-                                + "%(reason)s."
-                            )
-                        ) % {"path": path, "reason": e.reason}
-                        ExceptionCollector.appendException(URLException(what=msg))
-                        return
-                    elif hasattr(e, "code"):
-                        msg = _(
-                            (
-                                'The server "%(path)s" couldn\'t fulfill the request. '
-                                + 'Error code: "%(code)s".'
-                            )
-                        ) % {
-                            "path": path,
-                            "code": e.code,  # type: ignore
-                        }
-                        ExceptionCollector.appendException(URLException(what=msg))
-                        return
-                    else:
-                        raise
             with f:
                 contents = f.read()
                 doc = load_yaml(yaml, contents, path, self.readonly)
