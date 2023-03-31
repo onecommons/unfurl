@@ -174,6 +174,8 @@ class ToscaSpec:
                     if target:
                         if isinstance(value, dict):
                             if "eval" in value:
+                                if value["eval"] is None:
+                                    continue
                                 value.setdefault("vars", {})["SOURCE"] = dict(
                                     eval="::" + nodespec.name
                                 )

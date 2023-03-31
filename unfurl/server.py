@@ -119,7 +119,6 @@ def _get_project_repo(
     project_id: str, branch: str, args: Optional[dict] = None
 ) -> Optional[GitRepo]:
     path = _get_project_repo_dir(project_id, branch)
-    print("!!!", path, os.path.isdir(path), os.path.isdir(os.path.dirname(path)))
     if os.path.isdir(path):
         repo = GitRepo(git.Repo(path))
         if args:
