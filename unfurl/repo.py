@@ -351,6 +351,7 @@ class RepoView:
         self.repository: Repository = repository
         self.yaml = None
         self.revision: Optional[str] = None
+        self.file_refs: List[str] = []
         self.set_repo_and_path(repo, path)
         self.package: Optional[Union[Literal[False], "Package"]] = None
 
@@ -407,6 +408,10 @@ class RepoView:
         for filepath, dotsecrets in find_dirty_secrets(self.working_dir):
             return True
         return self.repo.is_dirty(untracked_files=True, path=self.path)
+
+    def add_file_ref(self, file_name: str):
+        if file_name not in self.file_refs:
+            self.file_refs.append(file_name)
 
     def add_all(self):
         assert not self.readOnly and self.repo

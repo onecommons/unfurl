@@ -66,6 +66,9 @@ from toscaparser.utils.validateutils import TOSCAVersionProperty
 
 logger = getLogger("unfurl")
 
+class UnfurlPackageUpdateNeeded(UnfurlError):
+    pass
+
 
 def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
     """Return true if ``revision`` looks like a semver with major version >= 1"""
@@ -381,7 +384,8 @@ def resolve_package(
         # we already have. But we need to check if it compatible with the version requested here.
         if existing.repositories and not package.is_compatible_with(existing):
             # XXX if we need a later version, update the existing package and reload any content from it
-            # not yet implemented so just throw an error
+            # XXX update existing.repositories and invalidate associated file_refs in the cache
+            # XXX switch to raising UnfurlPackageUpdateNeeded after updating repositories and cache
             raise UnfurlError(
                 f"{package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use."
             )

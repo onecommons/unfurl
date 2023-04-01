@@ -45,7 +45,7 @@ from .merge import (
     restore_includes,
 )
 from .repo import RepoView, GitRepo, is_url_or_git_path, split_git_url
-from .packages import resolve_package
+from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -265,6 +265,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def get_cache(self, url):
         return self.manifest.cache.get(url)
 
+    def load_imports(self, importsLoader, importslist):
+        while True:
+            try:
+                return super().load_imports(importsLoader, importslist)
+            except UnfurlPackageUpdateNeeded:
+                pass  # reload
+
     def get_repository(self, name: str, tpl: dict) -> Repository:
         # don't create another Repository instance
         if name in self.manifest.repositories:
@@ -357,6 +364,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             )
             # if not isFile path will be git url possibly including revision in fragment
             if repo_view and repo_view.repo:
+                repo_view.add_file_ref(file_name)
                 return os.path.join(repo_view.working_dir, file_name), True, fragment
         else:
             url_info = cast(
@@ -384,6 +392,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 if repo_view:
                     assert not repo_view.repo
                     repo_view.set_repo_and_path(repo, filePath)
+                    repo_view.add_file_ref(file_name)
                 path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip(
                     "/"
                 )
@@ -532,21 +541,19 @@ class YamlConfig:
                     f'invalid YAML document with contents: "{self.config}"'
                 )
 
-            find_anchor(self.config, None)  # create _anchorCache
-            self._cachedDocIncludes = {}
             # schema should include defaults but can't validate because it doesn't understand includes
             # but should work most of time
             self.config.loadTemplate = self.load_include  # type: ignore
             self.loadHook = loadHook
-
             self.baseDirs = [self.get_base_dir()]
-            yaml_dict = yaml_dict_type(self.readonly)
-            self.includes, expandedConfig = expand_doc(
-                self.config,
-                cls=make_map_with_base(self.config, self.baseDirs[0], yaml_dict),
-            )
-            self.expanded = expandedConfig
-            errors = schema and self.validate(expandedConfig)
+            while True:
+                try:
+                    self.includes, self.expanded = self._expand()
+                except UnfurlPackageUpdateNeeded:
+                    pass  # reload
+                else:
+                    break
+            errors = schema and self.validate(self.expanded)
             if errors and validate:
                 (message, schemaErrors) = errors
                 raise UnfurlValidationError(
@@ -560,6 +567,15 @@ class YamlConfig:
             else:
                 msg = "Unable to parse yaml config"
             raise UnfurlError(msg, True)
+
+    def _expand(self) -> Tuple[dict, dict]:
+        find_anchor(self.config, None)  # create _anchorCache
+        self._cachedDocIncludes: Dict[str, Tuple[str, dict]] = {}
+        yaml_dict = yaml_dict_type(self.readonly)
+        return expand_doc(
+            self.config,
+            cls=make_map_with_base(self.config, self.baseDirs[0], yaml_dict),
+        )
 
     def load_yaml(self, path, baseDir=None, warnWhenNotFound=False):
         url = urlsplit(path)
@@ -761,5 +777,5 @@ class YamlConfig:
             )
         self.baseDirs.append(newBaseDir)
 
-        self._cachedDocIncludes[key] = [path, template]
+        self._cachedDocIncludes[key] = (path, template)
         return value, template, newBaseDir
