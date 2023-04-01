@@ -73,16 +73,15 @@ def make_map_with_base(doc, baseDir, cls):
 # other values besides delete not supported because current code can leave those keys in final result
 mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
-
 # b is the merge patch, a is original dict
 def merge_dicts(
-    b,
-    a,
+    b: Mapping,
+    a: Mapping,
     cls=None,
     replaceKeys=None,
     defaultStrategy="merge",
     listStrategy="append_unique",
-):
+) -> dict:
     """
     Returns a new dict (or cls) that recursively merges b into a.
     b is base, a overrides.
@@ -91,7 +90,7 @@ def merge_dicts(
     """
     if cls is not dict:
         cls = getattr(b, "mapCtor", cls or b.__class__)
-    cp = cls()
+    cp: dict = cls()
     skip = []
     for key, val in a.items():
         if key == mergeStrategyKey:
@@ -431,7 +430,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
     """
     cp = cls()
     # first merge any includes includes into cp
-    templates = []
+    templates: List[Mapping] = []
     assert isinstance(current, Mapping), current
     for (key, value) in current.items():
         if not isinstance(key, str):
@@ -686,7 +685,7 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
             # inclusion point no longer exists
             continue
 
-        mergedIncludes: Dict = {}
+        mergedIncludes: Mapping = {}
         for (includeKey, includeValue) in value:
             if includeKey.include:
                 ref = None

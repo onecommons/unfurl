@@ -32,7 +32,7 @@ import os
 from .logs import getLogger
 import logging
 import re
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence, cast
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -396,16 +396,16 @@ class ToscaSpec:
             tpl["custom_types"] = custom_types
         return nodeSpec
 
-    def load_decorators(self):
+    def load_decorators(self) -> CommentedMap:
         decorators = CommentedMap()
         for path, import_tpl in self.template.nested_tosca_tpls.items():
             imported = import_tpl.get("decorators")
             if imported:
-                decorators = merge_dicts(decorators, imported)
-        decorators = merge_dicts(decorators, self.template.tpl.get("decorators") or {})
+                decorators = cast(CommentedMap, merge_dicts(decorators, imported))
+        decorators = cast(CommentedMap, merge_dicts(decorators, self.template.tpl.get("decorators") or {}))
         return decorators
 
-    def load_imported_default_templates(self):
+    def load_imported_default_templates(self) -> None:
         for name, topology in self.template.nested_topologies.items():
             for nodeTemplate in topology.nodetemplates:
                 if (
@@ -415,7 +415,7 @@ class ToscaSpec:
                     nodeSpec = NodeSpec(nodeTemplate, self)
                     self.nodeTemplates[nodeSpec.name] = nodeSpec
 
-    def load_workflows(self):
+    def load_workflows(self) -> None:
         # we want to let different types defining standard workflows like deploy
         # so we need to support importing workflows
         workflows = {

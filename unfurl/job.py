@@ -366,7 +366,7 @@ class ConfigTask(TaskView, ConfigChange):
             changes = self.changeList
             accum = changes.pop(0)
             while changes:
-                accum = merge_dicts(accum, changes.pop(0))
+                accum = cast(AttributeChanges, merge_dicts(accum, changes.pop(0)))
 
             # note: this might set _lastConfigChange on instances other than this target
             self._resourceChanges.update_changes(
