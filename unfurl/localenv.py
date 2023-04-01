@@ -613,7 +613,7 @@ class Project:
         baseDir,
         warnWhenNotFound=False,
         expanded=None,
-        action=False,
+        action=None,
     ):
         """
         This is called while the YAML config is being loaded.
@@ -629,10 +629,11 @@ class Project:
         url_vars = {}
         url_vars.update(self.overrides)
         if action:
-            if isinstance(action, str):
-                return substitute_env(action, url_vars)
-            # check:
-            return True
+            if action.get_key:
+                return substitute_env(action.get_key, url_vars)
+            if action.check_include:
+                return True
+            return None  # unsupported action 
 
         if merge == "maplist" and "ENVIRONMENT" not in self.overrides:
             # don't load remote includes for LocalEnv that don't specify an environment

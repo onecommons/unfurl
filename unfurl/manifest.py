@@ -608,7 +608,7 @@ class Manifest(AttributeManager):
         baseDir,
         warnWhenNotFound=False,
         expanded=None,
-        check=False,
+        action=None,
     ):
         """
         This is called while the YAML config is being loaded.
@@ -630,16 +630,18 @@ class Manifest(AttributeManager):
         else:
             artifactTpl = dict(file=templatePath)
 
-        if check:
-            if isinstance(check, str):
-                return check
-            if not inlineRepository and "repository" in artifactTpl:
-                reponame = artifactTpl["repository"]
-                if reponame in ["spec", "self", "unfurl"]:  # builtin
-                    return True
-                repositories = self._get_repositories(expanded)
-                return reponame in repositories
-            return True
+        if action:
+            if action.get_key:
+                return action.get_key
+            if action.check_include:
+                if not inlineRepository and "repository" in artifactTpl:
+                    reponame = artifactTpl["repository"]
+                    if reponame in ["spec", "self", "unfurl"]:  # builtin
+                        return True
+                    repositories = self._get_repositories(expanded)
+                    return reponame in repositories
+                return True
+            return None  # unsupported action
 
         if not artifactTpl["file"]:
             msg = f"document include {templatePath} missing file (base: {baseDir})"

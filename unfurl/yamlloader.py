@@ -486,6 +486,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             raise UnfurlError(msg, True)
 
 
+class LoadIncludeAction:
+    def __init__(self, check_include=False, get_key=None):
+        self.get_key = get_key
+        self.check_include = check_include
+
+
 class YamlConfig:
     def __init__(
         self,
@@ -687,7 +693,7 @@ class YamlConfig:
                     self.baseDirs[-1],
                     warnWhenNotFound,
                     expanded,
-                    check,
+                    LoadIncludeAction(check_include=True),
                 )
             else:
                 return True
@@ -718,7 +724,7 @@ class YamlConfig:
                 self.baseDirs[-1],
                 warnWhenNotFound,
                 expanded,
-                key,
+                LoadIncludeAction(get_key=key),
             )
             if not key:
                 return value, None, ""
@@ -733,7 +739,7 @@ class YamlConfig:
             baseDir = self.baseDirs[-1]
             if self.loadHook:
                 path, template = self.loadHook(
-                    self, templatePath, baseDir, warnWhenNotFound, expanded
+                    self, templatePath, baseDir, warnWhenNotFound, expanded, None
                 )
             else:
                 path, template = self.load_yaml(key, baseDir, warnWhenNotFound)
