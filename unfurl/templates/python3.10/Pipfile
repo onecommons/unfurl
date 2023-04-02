@@ -10,7 +10,7 @@ click-log = "*"
 pyrsistent = "==0.15.7"
 jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
 "ruamel.yaml" = ">=0.16.13"
-ansible = ">=4.2.0,<5.0"
+ansible = ">=4.2.0,<8.0"
 pbr = "==5.9.0"
 cliff = "==3.10.1"
 python-dateutil = ">=2.8"
