@@ -82,6 +82,7 @@
         },
         "instances": { "$ref": "#/definitions/namedObjects" },
         "repositories": { "type": "object" },
+        "cloudmaps": { "type": "object" },
         "imports": { "type": "array" },
         "external": {
           "type": "object",

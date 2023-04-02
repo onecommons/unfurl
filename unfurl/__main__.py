@@ -23,7 +23,6 @@ from typing import Any, Optional, List, Union, TYPE_CHECKING
 from typing_extensions import Protocol
 
 import click
-import rich
 
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from . import init as initmod
@@ -1323,6 +1322,50 @@ def serve(
     from .server import serve as _serve
 
     _serve(address, port, secret, clone_root, project_or_ensemble_path, options)
+
+
+@cli.command(short_help="Manage a cloud map")
+@click.pass_context
+@click.argument("cloudmap", default="cloudmap")
+@click.option("--sync", default=None, help="Sync the given repository host.")
+@click.option(
+    "--namespace",
+    default=None,
+    help="Limit sync to the given repositories that match the given pattern",
+)
+@click.option(
+    "--clone-root",
+    type=click.Path(exists=True),
+    help="Directory to clone repositories to.",
+)
+def cloudmap(
+    ctx,
+    cloudmap: str,
+    sync: str,
+    namespace: Optional[str] = None,
+    clone_root: Optional[str] = None,
+    **options,
+):
+    """Manage a cloud map.
+
+    [CLOUDMAP] is either a named cloudmap, a git url, or a local path.
+    (Default: "cloudmap")
+    """
+    from .cloudmap import CloudMap
+
+    options.update(ctx.obj)
+    localEnv = LocalEnv(".", options.get("home"), can_be_empty=True, readonly=True)
+    cloud_map = CloudMap.from_name(
+        localEnv, cloudmap, clone_root or "", sync, namespace or ""
+    )
+    if sync:
+        # sync is the provider name
+        cloud_map.sync(cloud_map.get_host(localEnv, sync, namespace or ""))
+    # elif clone_root:
+    #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")
+    #     cloud_map.from_provider(namespace, download)
+    else:
+        print("nothing to do for", cloud_map)
 
 
 def main():

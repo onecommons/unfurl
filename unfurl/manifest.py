@@ -492,6 +492,7 @@ class Manifest(AttributeManager):
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
     def find_repo_from_git_url(self, path, isFile, importLoader):
+        revision: Optional[str]
         repoURL, filePath, revision = split_git_url(path)
         if not repoURL:
             raise UnfurlError(f"invalid git URL {path}")

@@ -6,7 +6,7 @@ import os.path
 from pathlib import Path
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 import git
 import git.exc
@@ -104,14 +104,14 @@ def is_url_or_git_path(url):
     return False
 
 
-def split_git_url(url):
+def split_git_url(url) -> Tuple[str, str, str]:
     """
     Returns (repoURL, filePath, revision)
     RepoURL will be an empty string if it isn't a path to a git repo
     """
     if url.startswith("--"):
         # security: see https://github.com/gitpython-developers/GitPython/issues/1517
-        return False
+        return "", "", ""
     parts = urlparse(url)
     if parts.scheme == "git-local":
         return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
