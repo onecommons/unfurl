@@ -16,7 +16,7 @@ grpcio==1.48.2; python_version<'3.7' # last 3.6 version
 grpcio==1.50.0; python_version>='3.7' # fix issue with m1 macs
 python-gitlab==3.13.0
 gunicorn==20.1.0
-redis==4.3.5
+redis==4.4.4
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # NB: this need to stay in in sync with [extras] in setup.cfg
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
