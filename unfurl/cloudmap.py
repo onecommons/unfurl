@@ -274,7 +274,6 @@ class Directory(_LocalGitRepos):
 
     def ensure_local(self):
         if not self.repos_root:
-            # create a temporary LocalRepoManager
             self.tmp_dir = tempfile.TemporaryDirectory(prefix="oc-repo-update-")
             self.repos_root = self.tmp_dir.name
             logger.debug(f"setting {self.tmp_dir.name} as repo_root")
@@ -364,7 +363,7 @@ class RepositoryHost:
         return repo
 
 
-class LocalRepoManager(RepositoryHost, _LocalGitRepos):
+class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
     Locally manage git repositories from any origin using the git protocol.
     """
@@ -380,8 +379,12 @@ class LocalRepoManager(RepositoryHost, _LocalGitRepos):
         for url, repo in self.repos.items():
             if self.include_local_repo(repo):
                 repo.pull()  # XXX make optional?
-                repo.repo.working_dir
-                path = str(Path().relative_to(Path(os.path.abspath(self.repos_root))))
+                assert repo.repo.working_dir
+                path = str(
+                    Path(repo.repo.working_dir).relative_to(
+                        Path(os.path.abspath(self.repos_root))
+                    )
+                )
                 repository = self.git_to_repository(repo, path)
                 directory.repositories[repository.git] = repository
 
@@ -769,16 +772,19 @@ class CloudMap:
             raise UnfurlError(f"couldn't clone {url}")
         return CloudMap(repo, branch, localrepo_root, path)
 
-    @classmethod
     def get_host(
-        cls, local_env: "LocalEnv", name: str, namespace: str
+        self, local_env: "LocalEnv", name: str, namespace: str
     ) -> RepositoryHost:
         environment = local_env.get_context().get("cloudmaps", {})
         provider_config: Optional[dict] = environment.get("hosts", {}).get(name)
+        clone_root = self.directory.repos_root
         if provider_config is None:
-            raise UnfurlError("no repository host named {provider} found")
-        # if provider_config["type"] == "local":
-        #   return LocalGitHost(provider_config["root_path"])
+            if name == "local":
+                provider_config = dict(type="local", clone_root=clone_root)
+            else:
+                raise UnfurlError("no repository host named {provider} found")
+        if provider_config["type"] == "local":
+            return LocalRepositoryHost(provider_config.get("clone_root", clone_root))
 
         assert provider_config["type"] in ["gitlab", "unfurl.cloud"]
         config = local_env.map_value(provider_config, environment.get("variables"))
