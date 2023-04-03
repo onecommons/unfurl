@@ -154,6 +154,12 @@ class Repository:
         # don't match on partial segments
         return self.path.startswith(os.path.join(path, ""))
 
+    @property
+    def key(self):
+        if self.git.endswith(".git"):
+            return self.git[:-4]
+        return self.git
+
     # match url and path?
     # def get_namespace(self, directory) -> Optional[Namespace]:
     #     path.split("/")
@@ -219,9 +225,6 @@ class _LocalGitRepos:
 class Directory(_LocalGitRepos):
     """
     Loads and saves a yaml file
-
-    version
-    repositories
     """
 
     DEFAULT_NAME = "cloudmap.yml"
@@ -242,9 +245,9 @@ class Directory(_LocalGitRepos):
             # os.path.join(_basepath, "cloudmap-schema.json"),
         )
         db = self.config.config
-        repositories = cast(List[Dict], db and db.get("repositories") or [])
+        repositories = cast(Dict, db and db.get("repositories") or {})
         self.repositories: RepositoryDict = {
-            r["git"]: Repository(**r) for r in repositories
+            url: Repository(**r) for url, r in repositories.items()
         }
         self.db = cast(Dict[str, Any], db)
 
@@ -285,9 +288,9 @@ class Directory(_LocalGitRepos):
     def save(self):
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
-        self.db["repositories"] = [
-            self.repositories[k].asdict() for k in sorted(self.repositories)
-        ]
+        self.db["repositories"] = {
+            k: self.repositories[k].asdict() for k in sorted(self.repositories)
+        }
         self.config.save()
 
     def find_repo(self, url: str) -> Optional[GitRepo]:
@@ -386,7 +389,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     )
                 )
                 repository = self.git_to_repository(repo, path)
-                directory.repositories[repository.git] = repository
+                directory.repositories[repository.key] = repository
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """Push cloudmap revisions to origin."""
@@ -479,7 +482,7 @@ class GitlabManager(RepositoryHost):
         for p in projects:
             dest_proj: Project = self.gitlab.projects.get(p.id)
             r = self.gitlab_project_to_repository(dest_proj)
-            repositories[r.git] = r
+            repositories[r.key] = r
             if directory.repos_root:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?

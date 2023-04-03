@@ -14,6 +14,7 @@ if not os.getenv("UNFURL_TEST_CLOUDMAP_URL"):
     )
 
 # XXX more tests:
+# add local test: unfurl cloudmap --sync local --clone-root local-repos
 # add commit in local repo and add a project to upstream cloudmap
 # verify that sync updates testProvider properly (and delete the created project)
 
@@ -66,21 +67,22 @@ def runner():
 expected_cloudmap = """apiVersion: unfurl/v1alpha1
 kind: CloudMap
 repositories:
-- git: unfurl.cloud/feb20a/dashboard.git
-  path: feb20a/dashboard
-  name: dashboard
-  protocols:
-  - https
-  - ssh
-  internal_id: '973'
-  project_url: https://unfurl.cloud/feb20a/dashboard
-  metadata:
-    issues_url: https://unfurl.cloud/feb20a/dashboard/-/issues
-    homepage_url: https://unfurl.cloud/feb20a/dashboard
-  private: true
-  default_branch: main
-  branches:
-    main:"""
+  unfurl.cloud/feb20a/dashboard:
+    git: unfurl.cloud/feb20a/dashboard.git
+    path: feb20a/dashboard
+    name: dashboard
+    protocols:
+    - https
+    - ssh
+    internal_id: '973'
+    project_url: https://unfurl.cloud/feb20a/dashboard
+    metadata:
+      issues_url: https://unfurl.cloud/feb20a/dashboard/-/issues
+      homepage_url: https://unfurl.cloud/feb20a/dashboard
+    private: true
+    default_branch: main
+    branches:
+      main:"""
 
 
 def test_create(runner, caplog):
