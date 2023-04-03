@@ -434,6 +434,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
 class GitlabManager(RepositoryHost):
     def __init__(self, name: str, config: Dict[str, str], namespace: str = ""):
         self.name = name
+        self.public_only = False
         url = config["url"]
         parts = urlparse(url)
         user, sep, host = parts.netloc.rpartition("@")
@@ -481,6 +482,8 @@ class GitlabManager(RepositoryHost):
         # XXX delete removed projects
         for p in projects:
             dest_proj: Project = self.gitlab.projects.get(p.id)
+            if self.public_only and dest_proj.visibility != "public":
+                continue
             r = self.gitlab_project_to_repository(dest_proj)
             repositories[r.key] = r
             if directory.repos_root:
@@ -784,8 +787,11 @@ class CloudMap:
         if provider_config is None:
             if name == "local":
                 provider_config = dict(type="local", clone_root=clone_root)
+            elif ":" in name:
+                # assume it's an url pointing to gitlab or unfurl cloud instance
+                provider_config = dict(type="gitlab", url=name)
             else:
-                raise UnfurlError("no repository host named {provider} found")
+                raise UnfurlError(f"no repository host named {name} found")
         if provider_config["type"] == "local":
             return LocalRepositoryHost(provider_config.get("clone_root", clone_root))
 

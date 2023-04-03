@@ -1327,21 +1327,29 @@ def serve(
 @cli.command(short_help="Manage a cloud map")
 @click.pass_context
 @click.argument("cloudmap", default="cloudmap")
-@click.option("--sync", default=None, help="Sync the given repository host.")
+@click.option("--sync", default=None, help='Sync the given repository host ("local", name or url).')
+@click.option("--import", default=None, help='Update the cloudmap with the given repository host ("local", name or url).')
 @click.option(
     "--namespace",
     default=None,
-    help="Limit sync to the given repositories that match the given pattern",
+    help="Limit sync to the given repositories that match the given pattern.",
 )
 @click.option(
     "--clone-root",
     type=click.Path(exists=True),
     help="Directory to clone repositories to.",
 )
+@click.option(
+    "--project",
+    type=click.Path(exists=True),
+    default=".",
+    help='Unfurl project to use. (Default: ".")',
+)
 def cloudmap(
     ctx,
     cloudmap: str,
     sync: str,
+    project: str,
     namespace: Optional[str] = None,
     clone_root: Optional[str] = None,
     **options,
@@ -1354,13 +1362,19 @@ def cloudmap(
     from .cloudmap import CloudMap
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(".", options.get("home"), can_be_empty=True, readonly=True)
+    localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
     cloud_map = CloudMap.from_name(
         localEnv, cloudmap, clone_root or "", sync, namespace or ""
     )
     if sync:
         # sync is the provider name
         cloud_map.sync(cloud_map.get_host(localEnv, sync, namespace or ""))
+    elif options.get("import"):
+        host = cloud_map.get_host(localEnv, options.get("import") or "", namespace or "")
+        host.from_host(cloud_map.directory)
+        cloud_map.save(
+            f"Update cloudmap with latest from {'/'.join([host.name, host.path])}"
+        )
     # elif clone_root:
     #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")
     #     cloud_map.from_provider(namespace, download)
