@@ -1,4 +1,5 @@
 import collections.abc
+import json
 import logging
 import logging.config
 from enum import IntEnum
@@ -133,6 +134,11 @@ class ColorHandler(logging.StreamHandler):
         level = Levels[record.levelname]
         try:
             console = getConsole(file=self.stream)
+            data = getattr(record, "json", None)
+            if data and os.environ.get("CI", False):
+                # Running in a CI environment (eg GitLab CI)
+                console.print(json.dumps(data), end="\x1b[2K\r")
+
             console.print(
                 f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end=""
             )

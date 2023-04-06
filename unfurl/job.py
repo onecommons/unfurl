@@ -1131,7 +1131,7 @@ class Job(ConfigChange):
         )
         if task:
             start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
-            task.logger.info("started task.")
+            task.logger.info("started task.", extra=dict(json=task.summary(asJson=True)))
 
             resource = req.target
             startingStatus = resource._localStatus
@@ -1180,7 +1180,8 @@ class Job(ConfigChange):
             task_success = task.result and task.result.success
             status = task.target.status.name.upper()
             state_status = task.target.state.name if task.target.state else ""
-            extra = dict(rich=dict(style=task.target.status.color))
+            extra = dict(rich=dict(style=task.target.status.color),
+                         json=task.summary(asJson=True))
             if task_success:
                 task.logger.info(
                     "Task succeeded, Resource Status: %s State: %s",
