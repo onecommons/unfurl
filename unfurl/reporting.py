@@ -20,9 +20,10 @@ import re
 import os
 
 if TYPE_CHECKING:
-    from unfurl.yamlmanifest import YamlManifest
+    from .yamlmanifest import YamlManifest
     from rich.console import RenderableType
     from rich.style import StyleType
+    from .job import Job
 
 logger = getLogger("unfurl")
 
@@ -154,7 +155,7 @@ class JobReporter:
 
     @staticmethod
     def json_plan_summary(
-        job, pretty: bool = False, include_rendered: bool = True
+        job: "Job", pretty: bool = False, include_rendered: bool = True
     ) -> Union[str, list]:
         """
         Return a list of items that look like:
@@ -204,7 +205,7 @@ class JobReporter:
 
     @staticmethod
     def plan_summary(
-        job,
+        job: "Job",
         plan_requests: List[TaskRequest],
         external_requests: Iterable[Tuple[Any, Any]],
     ) -> Tuple[str, int]:
@@ -279,7 +280,7 @@ class JobReporter:
         header = f"Plan for {job.workflow}"  # type: ignore
         if options:
             header += f" ({options})"
-        output = [header + ":\n"]
+        output: List[str] = [header + ":\n"]
 
         for m, jr in external_requests:
             if jr:
@@ -294,7 +295,7 @@ class JobReporter:
         return "\n".join(output), count
 
     @staticmethod
-    def summary_table(job) -> str:
+    def summary_table(job: "Job") -> str:
         console = getConsole(record=True)
         if not job.workDone:
             console.print(
@@ -302,6 +303,7 @@ class JobReporter:
             )
             return console.export_text()
 
+        logger.info("", extra=dict(json=job.json_summary()))
         title = "Job %s completed in %.3fs: [%s]%s[/]. %s:\n    " % (
             job.changeId,
             job.timeElapsed,
