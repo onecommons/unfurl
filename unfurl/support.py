@@ -518,7 +518,7 @@ def _template_func(args, ctx):
         with open(path) as f:
             value = f.read()
     else:
-        value = args
+        value = cast(str, args)
     return apply_template(value, ctx, ctx.kw.get("overrides"))
 
 
@@ -830,7 +830,7 @@ def to_label(arg, **kw):
             if v is not None
         }
 
-    trunc: int = kw.pop("max", _label_defaults["max"])
+    trunc = int(kw.pop("max", _label_defaults["max"]))
     assert trunc >= 1, trunc
     checksum: int = kw.pop("digestlen", _label_defaults["digestlen"])
 

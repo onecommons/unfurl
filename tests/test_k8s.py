@@ -313,6 +313,13 @@ KOMPOSE2 = """\
 
 KOMPOSE_MANIFEST = BASE % KOMPOSE_NS + KOMPOSE
 
+@pytest.mark.skipif(
+    "k8s" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP for k8s set"
+)
+# skip if we don't have kompose installed but require CI to have it
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
 def test_kompose_ingress():
     runner = CliRunner()
     with runner.isolated_filesystem():
