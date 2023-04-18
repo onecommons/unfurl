@@ -586,7 +586,7 @@ class Job(ConfigChange):
         self.rootResource = rootResource
         self.jobRequestQueue: List[JobRequest] = []
         self.unexpectedAbort: Optional[UnfurlError] = None
-        self.workDone: collections.OrderedDict = collections.OrderedDict()
+        self.workDone: Dict[int, ConfigTask] = collections.OrderedDict()
         self.timeElapsed: float = 0
         self.plan_requests: Optional[List[TaskRequestGroup]] = None
         self.task_count = 0
@@ -790,8 +790,7 @@ class Job(ConfigChange):
 
     def _apply_workfolders(self) -> None:
         for task in self.workDone.values():
-            if task.status == Status.ok:
-                task.apply_work_folders()
+            task.apply_work_folders()
 
     def _update_joboption_instances(self) -> None:
         if not self.jobOptions.instances:  # type: ignore

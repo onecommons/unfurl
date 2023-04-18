@@ -132,7 +132,6 @@ class AutoRegisterClass(type):
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator:
-
     short_name: Optional[str] = None
     """shortName can be used to customize the "short name" of the configurator
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
@@ -427,7 +426,7 @@ class TaskView:
         self._dependenciesChanged = False
         self.dependencies: List["Operational"] = dependencies or []
         self._resourceChanges = ResourceChanges()
-        self._workFolders: dict = {}
+        self._workFolders: Dict[str, WorkFolder] = {}
         self._rendering = False
         self._environ: object = None
         # public:
@@ -1100,13 +1099,17 @@ class TaskView:
         return None, errors
 
     def set_work_folder(
-        self, location: str = "operation", preserve: Optional[bool] = None
+        self,
+        location: str = "operation",
+        preserve: Optional[bool] = None,
+        always_apply: bool = False,
     ) -> WorkFolder:
         if location in self._workFolders:
             return self._workFolders[location]
         if preserve is None:
             preserve = True if location in Folders.Persistent else False
         wf = WorkFolder(self, location, preserve)
+        wf.always_apply = always_apply
         self._workFolders[location] = wf
         return wf
         # XXX multiple tasks can be accessing the same workfolder, so:
@@ -1141,7 +1144,7 @@ class TaskView:
             names = self._workFolders.keys()  # type: ignore
         for name in names:
             wf = self._workFolders.get(name)
-            if wf:
+            if wf and (wf.always_apply or self.status == Status.ok):  # type: ignore
                 wf.apply()
 
 

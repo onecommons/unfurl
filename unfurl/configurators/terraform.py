@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from typing import TYPE_CHECKING
 from ..util import save_to_file, UnfurlTaskError, wrap_var, which
 from .shell import ShellConfigurator, clean_output, make_regex_filter
 from ..support import Status
@@ -487,7 +488,9 @@ class TerraformConfigurator(ShellConfigurator):
                 )
                 # save state file in home as yaml, encrypting sensitive values
                 folderName = self._get_workfolder_name(task)
-                task.set_work_folder(folderName).write_file(
+                # set always_apply because we want to commit the terraform state file
+                # even if the terraform command failed (as it might have updated some resources)
+                task.set_work_folder(folderName, always_apply=True).write_file(
                     state, "terraform.tfstate.yaml"
                 )
                 outputs = {

@@ -124,6 +124,7 @@ class WorkFolder:
     If a task completes successfully ``apply()`` is called, which copies it back to the
     permanent location of the folder.
     """
+    always_apply = False
 
     def __init__(self, task, location, preserve):
         self.task = task  # owner
