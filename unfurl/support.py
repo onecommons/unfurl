@@ -162,7 +162,10 @@ def eval_python(arg, ctx):
     else:
         funcName = arg
     func = load_class(funcName)
-    assert callable(func)
+    if not func:
+        raise UnfurlError(f"Could not find python function {funcName}")
+    if not callable(func):
+        raise UnfurlError(f"Invalid python function {funcName}: {type(funcName)} is not callable.")
 
     kw = ctx.kw
     if "args" in kw:
