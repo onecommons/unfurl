@@ -325,6 +325,7 @@ class Ref:
 
         self.foreach = None
         self.select = None
+        self.strict = None
         trace = RefContext.DefaultTraceLevel if trace is None else trace
         self.trace = trace
         if isinstance(exp, Mapping):
@@ -334,6 +335,7 @@ class Ref:
                 self.foreach = exp.get("foreach")
                 self.select = exp.get("select")
                 self.trace = exp.get("trace", trace)
+                self.strict = exp.get("strict")
                 exp = exp.get("eval", exp.get("ref", exp))
 
         if vars:
@@ -352,6 +354,9 @@ class Ref:
         If wantList=False return `resolve_one` semantics
         If wantList='result' return a Result
         """
+        if self.strict is not None:
+            # overrides RefContext's strict
+            strict = self.strict
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
@@ -421,7 +426,7 @@ class Ref:
 
             if "ref" in value or "eval" in value:
                 return len(
-                    [x for x in ["vars", "trace", "foreach", "select"] if x in value]
+                    [x for x in ["vars", "trace", "foreach", "select", "strict"] if x in value]
                 ) + 1 == len(value)
             if len(value) == 1 and first in _FuncsTop:
                 return True
