@@ -415,33 +415,62 @@ relationship_types:
   unfurl.relationships.ConnectsTo.Azure:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
+      virtual_network:
+        type: string
+        description: Name of the virtual network
+        metadata:
+          title: Virtual Network
+          user_settable: true
+        required: true
+      resource_group:
+        type: string
+        description: Name of the resource group
+        metadata:
+          title: Resource Group
+          user_settable: true
+        required: true
+      subnet:
+        type: string
+        description: Subnet
+        metadata:
+          title: Subnet
+          user_settable: true
+        required: true
       AZURE_CLIENT_ID:
         type: string
         metadata:
-          env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
+          env_vars: [ARM_CLIENT_ID, AZURE_CLIENT_ID]
+          title: Client ID
+          user_settable: true
         default: { get_env: [ARM_CLIENT_ID, {get_env: AZURE_CLIENT_ID}] }
-        required: false
+        required: true
       AZURE_TENANT:
         type: string
         metadata:
-          env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
+          env_vars: [ARM_TENANT_ID, AZURE_TENANT]
+          title: Tenant
+          user_settable: true
         default: { get_env: [ARM_TENANT_ID, {get_env: AZURE_TENANT}] }
-        required: false
+        required: true
       AZURE_SUBSCRIPTION_ID:
         description: for authentication with service principal
         type: string
-        required: false
+        required: true
         metadata:
-          env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
+          env_vars: [ARM_SUBSCRIPTION_ID, AZURE_SUBSCRIPTION_ID]
+          title: Subscription
+          user_settable: true
         default: { get_env: [ARM_SUBSCRIPTION_ID, {get_env: AZURE_SUBSCRIPTION_ID}] }
       AZURE_SECRET:
         description: for authentication with service principal
         type: string
-        required: false
+        required: true
         default: { get_env: [ARM_CLIENT_SECRET, {get_env: AZURE_SECRET}] }
         metadata:
           env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
           sensitive: true
+          title: Client Secret
+          user_settable: true
       AZURE_AD_USER:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
