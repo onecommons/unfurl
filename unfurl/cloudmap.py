@@ -801,7 +801,7 @@ class CloudMap:
 
     def sync(self, host: RepositoryHost, force=False) -> None:
         """
-        Syncronize the cloudmap with the given the repository host.
+        Synchronize the cloudmap with the given the repository host.
 
         First, update a branch named "hosts/{host_name}/{namespace}" with the latest from the repository host.
         Then merge the provider branch into "main".

@@ -20,6 +20,7 @@ import shlex
 import sys
 import os
 import os.path
+from .tosca import EntitySpec
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
@@ -987,7 +988,7 @@ def find_parent_template(source):
     return None
 
 
-def find_parent_resource(root, source):
+def find_parent_resource(root: EntityInstance, source: EntitySpec):
     parentTemplate = find_parent_template(source.toscaEntityTemplate)
     if not parentTemplate:
         return root

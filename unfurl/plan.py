@@ -1,8 +1,11 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING, cast
 
-from .runtime import InstanceKey, NodeInstance, EntityInstance
+if TYPE_CHECKING:
+    from .job import JobOptions
+
+from .runtime import InstanceKey, NodeInstance, EntityInstance, TopologyInstance
 from .util import UnfurlError
 from .result import ChangeRecord
 from .support import Status, NodeState, Reason
@@ -17,7 +20,6 @@ from .planrequests import (
     find_parent_resource,
     find_resources_from_template_name,
     _find_implementation,
-    get_success_status,
 )
 from .tosca import NodeSpec, Workflow, find_standard_interface, EntitySpec, ToscaSpec
 from .logs import getLogger
@@ -61,7 +63,7 @@ class Plan:
 
     interface: Optional[str] = None
 
-    def __init__(self, root, toscaSpec: ToscaSpec, jobOptions):
+    def __init__(self, root: TopologyInstance, toscaSpec: ToscaSpec, jobOptions: JobOptions):
         self.jobOptions = jobOptions
         self.workflow = jobOptions.workflow
         self.root = root
@@ -80,6 +82,7 @@ class Plan:
 
     def find_shadow_instance(self, template, match=is_external_template_compatible):
         imported = template.tpl.get("imported")
+        assert self.root.imports is not None
         if imported:
             external = self.root.imports.find_import(imported)
             if not external:
@@ -116,6 +119,7 @@ class Plan:
 
     def create_shadow_instance(self, external, import_name, template):
         # create a local instance that "shadows" the external one we imported
+        assert self.root.imports is not None
         name = import_name + ":" + external.name
         instance_name = template.name
         # XXX import the parent too by creating a template and setting its name to name?
@@ -484,7 +488,7 @@ class Plan:
         finally:
             pass  # pop _workflow_inputs
 
-    def execute_steps(self, workflow: Workflow, steps: List, resource: EntityInstance):
+    def execute_steps(self, workflow: Workflow, steps: list, resource: EntityInstance):
         queue = steps[:]
         while queue:
             step = queue.pop()
@@ -547,11 +551,10 @@ class Plan:
         yield reqGroup
         yield step.on_success  # list of steps
 
-    def _get_templates(self):
+    def _get_templates(self) -> List[EntitySpec]:
         templates = (
             [] if not self.tosca.nodeTemplates else self.tosca.nodeTemplates.values()
         )
-
         # order by ancestors
         return list(
             order_templates(
@@ -888,7 +891,7 @@ class RunNowPlan(Plan):
             resources = [self.root]
 
         # userConfig has the job options explicitly set by the user
-        operation = self.jobOptions.userConfig.get("operation")
+        operation = cast(Optional[str], self.jobOptions.userConfig.get("operation"))
         operation_host = self.jobOptions.userConfig.get("host")
         if not operation:
             configSpec = self._create_configurator(self.jobOptions.userConfig, "run")
@@ -902,6 +905,7 @@ class RunNowPlan(Plan):
                 req = TaskRequest(configSpec, resource, "run")
                 yield filter_task_request(self.jobOptions, req)
             else:
+                assert operation
                 req = create_task_request(
                     self.jobOptions,
                     operation,

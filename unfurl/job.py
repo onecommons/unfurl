@@ -8,7 +8,6 @@ Each task tracks and records its modifications to the system's state
 
 import collections
 from datetime import datetime, timedelta
-import types
 import itertools
 import os
 import json
@@ -38,7 +37,7 @@ from .support import (
 from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
-from .runtime import EntityInstance, NodeInstance, Operational, OperationalInstance
+from .runtime import EntityInstance, TopologyInstance, Operational, OperationalInstance
 from .logs import end_collapsible, start_collapsible, getLogger
 from .configurator import (
     TaskView,
@@ -58,8 +57,9 @@ from .planrequests import (
     set_fulfilled,
     set_fulfilled_stragglers,
     create_instance_from_spec,
+    get_success_status,
 )
-from .plan import Plan, get_success_status
+from .plan import Plan
 from .localenv import LocalEnv
 from . import display
 from . import configurators  # need to import configurators even though it is unused
@@ -134,7 +134,7 @@ class JobOptions:
     )
 
     parentJob = None
-    masterJob: Optional["Job"] =None
+    masterJob: Optional["Job"] = None
     instance = None
     workflow = Defaults.workflow
     planOnly = False
@@ -142,6 +142,16 @@ class JobOptions:
     message: Optional[str] = None
     commit = False
     push = False
+    template: Optional[str] = None
+    add: bool = True
+    skip_new: bool = False
+    change_detection: str = "evaluate"
+    repair: str = "error"
+    force: bool = False
+    check: bool = False
+    prune: bool = False
+    destroyunmanaged: bool = False
+    upgrade: bool = False
 
     defaults = dict(
         global_defaults,
@@ -573,7 +583,7 @@ class Job(ConfigChange):
     def __init__(
         self,
         manifest: "YamlManifest",
-        rootResource: NodeInstance,
+        rootResource: TopologyInstance,
         jobOptions: JobOptions,
         previousId: Optional[str] = None,
     ) -> None:
@@ -1130,7 +1140,9 @@ class Job(ConfigChange):
         )
         if task:
             start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
-            task.logger.info("started task.", extra=dict(json=task.summary(asJson=True)))
+            task.logger.info(
+                "started task.", extra=dict(json=task.summary(asJson=True))
+            )
 
             resource = req.target
             startingStatus = resource._localStatus
@@ -1179,8 +1191,10 @@ class Job(ConfigChange):
             task_success = task.result and task.result.success
             status = task.target.status.name.upper()
             state_status = task.target.state.name if task.target.state else ""
-            extra = dict(rich=dict(style=task.target.status.color),
-                         json=task.summary(asJson=True))
+            extra = dict(
+                rich=dict(style=task.target.status.color),
+                json=task.summary(asJson=True),
+            )
             if task_success:
                 task.logger.info(
                     "Task succeeded, Resource Status: %s State: %s",
@@ -1275,7 +1289,9 @@ class Job(ConfigChange):
         return JobReporter.stats(self.workDone.values(), asMessage)
 
     def get_end_time(self) -> str:
-        return (self.startTime + timedelta(seconds=self.timeElapsed)).strftime(self.DateTimeFormat)
+        return (self.startTime + timedelta(seconds=self.timeElapsed)).strftime(
+            self.DateTimeFormat
+        )
 
     def print_summary_table(self) -> str:
         try:
