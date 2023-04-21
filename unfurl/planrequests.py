@@ -441,7 +441,7 @@ class TaskRequest(PlanRequest):
                 else:
                     return JobRequest([existing])
             else:
-                if not operation_host.template.spec.get_template(name):
+                if not operation_host.template.get_template(name):
                     # template isn't defined, define inline
                     artifact_tpl = artifact.toscaEntityTemplate.entity_tpl
                     template = dict(
@@ -453,10 +453,10 @@ class TaskRequest(PlanRequest):
                     artifact_type = artifact_tpl["type"]
                     if (
                         artifact_type
-                        not in operation_host.template.spec.template.topology_template.custom_defs
+                        not in operation_host.template.topology.topology_template.custom_defs
                     ):
                         # operation_host must be in an external ensemble that doesn't have the type def
-                        artifact_type_def = self.target.template.spec.template.topology_template.custom_defs[
+                        artifact_type_def = self.target.template.topology.topology_template.custom_defs[
                             artifact_type
                         ]
                         template["custom_types"] = {artifact_type: artifact_type_def}

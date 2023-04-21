@@ -63,7 +63,7 @@ class Plan:
 
     interface: Optional[str] = None
 
-    def __init__(self, root: TopologyInstance, toscaSpec: ToscaSpec, jobOptions: JobOptions):
+    def __init__(self, root: TopologyInstance, toscaSpec: ToscaSpec, jobOptions: "JobOptions"):
         self.jobOptions = jobOptions
         self.workflow = jobOptions.workflow
         self.root = root
@@ -76,7 +76,7 @@ class Plan:
                 raise UnfurlError(
                     f"specified template not found: {jobOptions.template}"
                 )
-            self.filterTemplate = filterTemplate
+            self.filterTemplate: Optional[EntitySpec] = filterTemplate
         else:
             self.filterTemplate = None
 
@@ -552,9 +552,8 @@ class Plan:
         yield step.on_success  # list of steps
 
     def _get_templates(self) -> List[EntitySpec]:
-        templates = (
-            [] if not self.tosca.nodeTemplates else self.tosca.nodeTemplates.values()
-        )
+        assert self.tosca.topology
+        templates = self.tosca.topology.node_templates.values()
         # order by ancestors
         return list(
             order_templates(
@@ -833,9 +832,9 @@ class WorkflowPlan(Plan):
             ):
                 continue
             if self.tosca.is_type_name(step.target):
-                templates = self.tosca.find_matching_templates(step.target)
+                templates = workflow.topology.find_matching_templates(step.target)
             else:
-                template = self.tosca.nodeTemplates.get(step.target)
+                template = workflow.topology.get_node_template(step.target)
                 if not template:
                     continue
                 templates = [template]

@@ -226,7 +226,7 @@ class Manifest(AttributeManager):
     def save_job(self, job):
         pass
 
-    def load_template(self, name, lastChange=None):
+    def load_template(self, name, parent, lastChange=None):
         if lastChange:
             return None
             # XXX implement revisions
@@ -234,8 +234,12 @@ class Manifest(AttributeManager):
             #     return self.revisions.get_revision(lastChange).tosca.get_template(name)
             # except Exception:
             #     return None
+        elif parent:
+            return parent.template.get_template(name)
+        elif self.tosca:
+            return self.tosca.get_template(name)
         else:
-            return self.tosca and self.tosca.get_template(name)
+            return None
 
     #  load instances
     #    create a resource with the given template
@@ -354,7 +358,9 @@ class Manifest(AttributeManager):
         if not capabilityId:
             nodeId = val.get("node")
             if not nodeId:
-                logger.warning(f"skipping requirement {key}: no node or capability specified")
+                logger.warning(
+                    f"skipping requirement {key}: no node or capability specified"
+                )
                 return None
         capability = capabilityId and self.get_root_resource().query(capabilityId)
         if not capability or not isinstance(capability, CapabilityInstance):
@@ -421,12 +427,12 @@ class Manifest(AttributeManager):
             operational = self.load_status(dict(readyState=imported.local_status))
         else:
             operational = self.load_status(status)
-        template = self.load_template(templateName)
+        template = self.load_template(templateName, parent)
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:
                 changerecord = self._get_last_change(operational)
-                template = self.load_template(templateName, changerecord)
+                template = self.load_template(templateName, parent, changerecord)
         if template is None:
             raise UnfurlError(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"

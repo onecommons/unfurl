@@ -1620,9 +1620,10 @@ class AttributeManager:
 
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
+                properties = resource.template.properties  # type: ignore
                 _attributes = ChainMap(
                     resource._attributes,
-                    resource.template.properties,
+                    properties,
                     specAttributes,
                 )
             else:

@@ -36,7 +36,7 @@ from toscaparser.activities import ConditionClause
 from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
-from .tosca import is_function, get_nodefilters
+from .tosca import is_function, get_nodefilters, ToscaSpec
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
 from .result import ChangeRecord
@@ -196,7 +196,7 @@ def get_scalar_unit(value_type, metadata):
     # regex: "|".join(get_scalarunit_class(value_type).SCALAR_UNIT_DICT)
 
 
-def tosca_schema_to_jsonschema(p, spec):
+def tosca_schema_to_jsonschema(p: PropertyDef, spec: ToscaSpec):
     # convert a PropertyDef to a property (this creates the Schema object we need)
     prop = Property(
         p.name,
@@ -254,7 +254,7 @@ def tosca_schema_to_jsonschema(p, spec):
     return schema
 
 
-def _requirement_visibility(spec, name, req):
+def _requirement_visibility(spec: ToscaSpec, name: str, req):
     if name in ["dependency", "installer"]:
         # skip artifact requirements and the base TOSCA relationship type that every node has
         return "omit"
@@ -264,16 +264,20 @@ def _requirement_visibility(spec, name, req):
         return metadata["visibility"]
     if metadata.get("internal"):
         return "hidden"
-    if node and node in spec.nodeTemplates:
-        # if there's already a resource template assigned and it is marked internal
-        node_metadata = (
-            spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.get("metadata")
-            or {}
-        )
-        if not node_metadata.get("user_settable") and not metadata.get("user_settable"):
-            return "hidden"
-        else:
-            return "visible"
+    if node:
+        assert spec.topology
+        nodespec = spec.topology.get_node_template(node)
+        if nodespec:
+            # if there's already a resource template assigned and it is marked internal
+            node_metadata = (
+                nodespec.toscaEntityTemplate.entity_tpl.get("metadata") or {}
+            )
+            if not node_metadata.get("user_settable") and not metadata.get(
+                "user_settable"
+            ):
+                return "hidden"
+            else:
+                return "visible"
     return "inherit"
 
 
@@ -342,7 +346,7 @@ def _make_req(req_dict: dict, types=None, typename=None) -> Tuple[str, dict, dic
     return name, req, reqobj
 
 
-def requirement_to_graphql(spec, req_dict):
+def requirement_to_graphql(spec: ToscaSpec, req_dict: dict):
     """
     type RequirementConstraint {
         name: String!
@@ -378,11 +382,12 @@ def requirement_to_graphql(spec, req_dict):
     reqobj["match"] = None
     nodetype = req.get("node")
     if nodetype:
+        assert spec.topology
         # req['node'] can be a node_template instead of a type
         expand_prefix(spec, nodetype)
-        if nodetype in spec.nodeTemplates:
+        if nodetype in spec.topology.node_templates:
             reqobj["match"] = nodetype
-            nodetype = spec.nodeTemplates[nodetype].type
+            nodetype = spec.topology.node_templates[nodetype].type
     else:
         nodetype = req.get("capability")
         if not nodetype:
@@ -515,7 +520,7 @@ def attribute_value_to_json(p, value):
 
 
 # XXX outputs: only include "public" attributes?
-def node_type_to_graphql(spec, type_definition, types: dict):
+def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
     """
     type ResourceType {
       name: String!
@@ -633,7 +638,7 @@ def _make_typedef(typename, custom_defs):
     return typedef
 
 
-def to_graphql_nodetypes(spec):
+def to_graphql_nodetypes(spec: ToscaSpec):
     # node types are readonly, so mapping doesn't need to be bijective
     types: Dict[str, Dict[str, Any]] = {}
     custom_defs = spec.template.topology_template.custom_defs
@@ -653,8 +658,8 @@ def to_graphql_nodetypes(spec):
             typedef = _make_typedef(typename, custom_defs)
             if typedef:
                 node_type_to_graphql(spec, typedef, types)
-
-    for node_spec in spec.nodeTemplates.values():
+    assert spec.topology
+    for node_spec in spec.topology.node_templates.values():
         type_definition = node_spec.toscaEntityTemplate.type_definition
         typename = type_definition.type
         if typename not in types:
@@ -859,7 +864,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
 primary_name = "__primary"
 
 
-def _generate_primary(spec, db, node_tpl=None):
+def _generate_primary(spec: ToscaSpec, db, node_tpl=None):
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
@@ -872,9 +877,10 @@ def _generate_primary(spec, db, node_tpl=None):
         derived_from=base_type, properties=topology._tpl_inputs(), attributes=attributes
     )
     # set as requirements all the node templates that aren't the target of any other requirements
+    assert spec.topology
     roots = [
         node.toscaEntityTemplate
-        for node in spec.nodeTemplates.values()
+        for node in spec.topology.node_templates.values()
         if not node.toscaEntityTemplate.get_relationship_templates()
         and "default" not in node.directives
     ]
@@ -1011,7 +1017,7 @@ def _generate_env_names_from_type(reqname, type_definition, custom_defs):
 
 
 def _generate_env_names(spec, root_name):
-    primary = spec.nodeTemplates[root_name]
+    primary = spec.topology.node_templates[root_name]
     custom_defs = spec.template.topology_template.custom_defs
     primary_type = primary.toscaEntityTemplate.type_definition
     yield from _generate_env_names_from_type("APP", primary_type, custom_defs)
@@ -1064,6 +1070,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
         manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
     )
     spec = manifest.tosca
+    assert spec.topology
     deployment_templates = {}
     for name, tpl in deployment_blueprints.items():
         slug = slugify(name)
@@ -1077,7 +1084,9 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
                 node_template = node_spec.toscaEntityTemplate
             # convert to json in second-pass template requirements can reference each other
             for node_name, node_tpl in resource_templates.items():
-                node_template = spec.nodeTemplates[node_name].toscaEntityTemplate
+                node_template = spec.topology.node_templates[
+                    node_name
+                ].toscaEntityTemplate
                 t = nodetemplate_to_json(node_template, spec, db["ResourceType"])
                 if t.get("visibility") == "omit":
                     continue
@@ -1163,11 +1172,12 @@ def get_blueprint_from_topology(manifest: YamlManifest, db):
     return blueprint, template
 
 
-def _to_graphql(localEnv):
+def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True)
-    db = {}
+    db: Dict[str, Any] = {}
     spec = manifest.tosca
+    assert spec
     types_repo = spec.template.tpl.get("repositories").get("types")
     if types_repo:  # only export types, avoid built-in repositories
         db["repositories"] = {"types": types_repo}
@@ -1176,7 +1186,7 @@ def _to_graphql(localEnv):
     db["ResourceTemplate"] = {}
     environment_instances = {}
     connection_types = {}
-    for node_spec in spec.nodeTemplates.values():
+    for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
         t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
         if t.get("visibility") == "omit":
@@ -1318,7 +1328,7 @@ def mark_leaf_types(types):
     for rt in types.values():
         for name in rt["extends"]:
             counts[name] += 1
-    for (name, count) in counts.most_common():
+    for name, count in counts.most_common():
         jsontype = types.get(name)
         if not jsontype:
             continue

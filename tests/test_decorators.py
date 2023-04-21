@@ -24,10 +24,10 @@ class DecoratorTest(unittest.TestCase):
 
             self.assertEqual(
                 {"test": "annotated"},
-                manifest.tosca.nodeTemplates["my_server2"].properties,
+                manifest.tosca.topology.node_templates["my_server2"].properties,
             )
             for name in ["anode", "anothernode"]:
-                node = manifest.tosca.nodeTemplates[name]
+                node = manifest.tosca.topology.node_templates[name]
                 self.assertEqual(
                     {"ports": [], "private_address": "annotated", "imported": "foo"},
                     node.properties,

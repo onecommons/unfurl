@@ -973,7 +973,7 @@ class TaskView:
             elif (
                 isinstance(template, str) and template != existingResource.template.name
             ):
-                nodeSpec = self._manifest.tosca.nodeTemplates.get(template)
+                nodeSpec = existingResource.template.topology.get_node_template(template)
                 if not nodeSpec:
                     raise UnfurlTaskError(
                         self,

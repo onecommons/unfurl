@@ -44,12 +44,12 @@ def test_jsonexport():
 
     manifest = local.get_manifest()
     # verify included json was parsed correctly
-    app_container = manifest.tosca.nodeTemplates.get("app_container")
+    app_container = manifest.tosca.topology.node_templates.get("app_container")
     assert app_container and len(app_container.relationships) == 2, app_container and [
                                                 r.source for r in app_container.relationships]
 
     # assert app_container and len(app_container.instances) == 1, app_container and app_container.instances
-    assert app_container.relationships[0].source == manifest.tosca.nodeTemplates.get("the_app")
+    assert app_container.relationships[0].source == manifest.tosca.topology.node_templates.get("the_app")
 
     # XXX verify that saving the manifest preserves the json include
 
@@ -172,7 +172,7 @@ spec:
 
 """
         manifest = YamlManifest(manifest)
-        app_template = manifest.tosca.nodeTemplates['the_app']
+        app_template = manifest.tosca.topology.node_templates['the_app']
         req_def = app_template.toscaEntityTemplate.type_definition.requirement_definitions['host']
         assert _find_implementation("Standard", "configure", app_template)
         
@@ -186,7 +186,7 @@ spec:
         # make sure "defaults" doesn't mess up _find_implementation
         assert not _find_implementation("Standard", "start", app_template)
         assert not _find_implementation("Standard", "delete", app_template)
-        base_template = manifest.tosca.nodeTemplates['base']
+        base_template = manifest.tosca.topology.node_templates['base']
         assert _find_implementation("Standard", "delete", base_template)
 
 class ToscaSyntaxTest(unittest.TestCase):

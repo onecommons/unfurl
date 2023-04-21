@@ -522,7 +522,11 @@ class YamlManifest(ReadOnlyManifest):
             artifact_tpl = dict(file=location["file"])
             if "repository" in location:
                 artifact_tpl = location["repository"]
-            artifact = ArtifactSpec(artifact_tpl, path=baseDir, spec=self.tosca)
+            artifact = ArtifactSpec(
+                artifact_tpl,
+                path=baseDir,
+                topology=self.tosca and self.tosca.topology or None,
+            )
             path = artifact.get_path()
             localEnv = LocalEnv(
                 path,

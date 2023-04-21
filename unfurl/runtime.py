@@ -683,7 +683,7 @@ class CapabilityInstance(EntityInstance):
     # 3.7.2 Capability definition p. 97
     # 3.8.1 Capability assignment p. 114
     parentRelation = "_capabilities"
-    templateType = CapabilitySpec
+    templateType = CapabilitySpec  # type: ignore
     _relationships: Optional[List["RelationshipInstance"]] = None
 
     @property
@@ -1085,7 +1085,7 @@ class NodeInstance(HasInstancesInstance):
 
 
 class TopologyInstance(HasInstancesInstance):
-    templateType = TopologySpec
+    templateType = TopologySpec  # type: ignore
 
     def __init__(self, template, status=None):
         attributes = dict(inputs=template.inputs, outputs=template.outputs)
@@ -1109,7 +1109,7 @@ class TopologyInstance(HasInstancesInstance):
         """
         if self._relationships is None:
             self._relationships = []
-            relTemplates = self.template.spec.relationshipTemplates
+            relTemplates = cast(TopologySpec, self.template).relationship_templates
             for name, template in relTemplates.items():
                 # template will be a RelationshipSpec
                 if template.toscaEntityTemplate.default_for:
