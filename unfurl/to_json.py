@@ -33,6 +33,7 @@ from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
+from toscaparser.nodetemplate import NodeTemplate
 from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
@@ -864,7 +865,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
 primary_name = "__primary"
 
 
-def _generate_primary(spec: ToscaSpec, db, node_tpl=None):
+def _generate_primary(spec: ToscaSpec, db, node_tpl=None) -> NodeTemplate:
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
@@ -895,7 +896,7 @@ def _generate_primary(spec: ToscaSpec, db, node_tpl=None):
     # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
     if not node_tpl:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
-    node_spec = spec.add_node_template(primary_name, tpl, False)
+    node_spec = spec.topology.add_node_template(primary_name, tpl, False)
     node_template = node_spec.toscaEntityTemplate
 
     types = db["ResourceType"]
@@ -907,7 +908,7 @@ def _generate_primary(spec: ToscaSpec, db, node_tpl=None):
 
 
 # if a node type or template is specified, use that, but it needs to be compatible with the generated type
-def _get_or_make_primary(spec, db):
+def _get_or_make_primary(spec: ToscaSpec, db) -> Tuple[str, str]:
     ExceptionCollector.start()  # topology.add_template may generate validation exceptions
     topology = spec.template.topology_template
     # we need to generate a root template
@@ -937,7 +938,8 @@ def _get_or_make_primary(spec, db):
                     name: dict(get_input=name) for name in topology._tpl_inputs()
                 }
                 tpl = dict(type=root_type.type, properties=properties)
-                node_spec = spec.add_node_template(primary_name, tpl, False)
+                assert spec.topology
+                node_spec = spec.topology.add_node_template(primary_name, tpl, False)
                 root = node_spec.toscaEntityTemplate
                 # XXX connections are missing
                 db["ResourceTemplate"][root.name] = nodetemplate_to_json(
@@ -950,7 +952,7 @@ def _get_or_make_primary(spec, db):
     return root.name, root.type
 
 
-def to_graphql_blueprint(spec, db):
+def to_graphql_blueprint(spec: ToscaSpec, db):
     """
     Returns json object as ApplicationBlueprint
 
@@ -1080,7 +1082,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
         if resource_templates:
             for node_name, node_tpl in resource_templates.items():
                 # nodes here overrides node_templates
-                node_spec = spec.add_node_template(node_name, node_tpl, False)
+                node_spec = spec.topology.add_node_template(node_name, node_tpl, False)
                 node_template = node_spec.toscaEntityTemplate
             # convert to json in second-pass template requirements can reference each other
             for node_name, node_tpl in resource_templates.items():
@@ -1294,8 +1296,9 @@ def add_graphql_deployment(manifest, db, dtemplate):
     return deployment
 
 
-def to_blueprint(localEnv, existing=None):
+def to_blueprint(localEnv: LocalEnv, existing=None) -> dict:
     db, manifest, env, env_types = _to_graphql(localEnv)
+    assert manifest.tosca
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db

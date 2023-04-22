@@ -391,7 +391,6 @@ class Manifest(AttributeManager):
                 if not requirement:
                     continue
                 requirement._source = resource
-                # XXX investigate and re-enable this assert
                 assert (
                     requirement in resource.requirements
                 ), f"{requirement} not in {resource.requirements} for {rname}"

@@ -134,6 +134,7 @@ class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
     substitution_template = None
     topology: Optional["TopologySpec"] = None
+    template: "ToscaTemplate"
 
     def evaluate_imports(self, toscaDef):
         if not toscaDef.get("imports"):
@@ -373,28 +374,6 @@ class ToscaSpec:
                 elif manifest.localEnv.project:
                     return manifest.localEnv.project.projectRoot
         return None
-
-    def add_node_template(self, name, tpl, discovered=True):
-        assert self.template
-        assert self.topology
-        custom_types = None
-        if "custom_types" in tpl:
-            custom_types = tpl.pop("custom_types")
-            if custom_types:
-                # XXX check for conflicts, throw error
-                self.template.topology_template.custom_defs.update(custom_types)
-
-        nodeTemplate = self.template.topology_template.add_template(name, tpl)
-        nodeSpec = NodeSpec(nodeTemplate, self.topology)
-        self.topology.node_templates[name] = nodeSpec
-        if discovered:
-            if self.discovered is None:
-                self.discovered = CommentedMap()
-            self.discovered[name] = tpl
-        # add custom_types back for serialization later
-        if custom_types:
-            tpl["custom_types"] = custom_types
-        return nodeSpec
 
     def load_decorators(self) -> CommentedMap:
         decorators = CommentedMap()
@@ -781,15 +760,15 @@ class EntitySpec(ResourceRef):
         return ArtifactSpec(tpl, self, path=path)
 
     @property
-    def abstract(self):
-        return None
+    def abstract(self) -> str:
+        return ''
 
     @property
     def directives(self):
         return []
 
     @property
-    def tpl(self):
+    def tpl(self) -> dict:
         return self.toscaEntityTemplate.entity_tpl
 
     def find_props(self, attributes):
@@ -1016,13 +995,13 @@ class NodeSpec(EntitySpec):
             ExceptionCollector.appendException(UnfurlValidationError(msg))
 
     @property
-    def abstract(self):
+    def abstract(self) -> str:
         if self.tpl.get("imported"):
-            return "select"
+            return "select"  # XXX might be "substitute"
         for name in ("select", "substitute"):
             if name in self.toscaEntityTemplate.directives:
                 return name
-        return None
+        return ''
 
     @property
     def directives(self):
@@ -1364,6 +1343,26 @@ class TopologySpec(EntitySpec):
             return ArtifactSpec(tpl, nodeTemplate, topology=self)
         else:
             return self.node_templates.get(name)
+
+    def add_node_template(self, name, tpl, discovered=True):
+        custom_types = None
+        if "custom_types" in tpl:
+            custom_types = tpl.pop("custom_types")
+            if custom_types:
+                # XXX check for conflicts, throw error
+                self.topology_template.custom_defs.update(custom_types)
+
+        nodeTemplate = self.topology_template.add_template(name, tpl)
+        nodeSpec = NodeSpec(nodeTemplate, self)
+        self.topology.node_templates[name] = nodeSpec
+        if discovered:
+            if self.spec.discovered is None:
+                self.spec.discovered = CommentedMap()
+            self.spec.discovered[name] = tpl
+        # add custom_types back for serialization later
+        if custom_types:
+            tpl["custom_types"] = custom_types
+        return nodeSpec
 
 
 class Workflow:

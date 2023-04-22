@@ -21,7 +21,7 @@ from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
 from .tosca import ArtifactSpec, find_env_vars
-from .runtime import TopologyInstance
+from .runtime import EntityInstance, TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
@@ -628,7 +628,7 @@ class YamlManifest(ReadOnlyManifest):
             return self.changeSets[changeId]
         return None
 
-    def save_entity_instance(self, resource) -> Tuple[str, Dict]:
+    def save_entity_instance(self, resource: EntityInstance) -> Tuple[str, Dict]:
         status = CommentedMap()
         status["template"] = resource.template.get_uri()
 

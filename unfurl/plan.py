@@ -80,7 +80,7 @@ class Plan:
         else:
             self.filterTemplate = None
 
-    def find_shadow_instance(self, template, match=is_external_template_compatible):
+    def find_shadow_instance(self, template: EntitySpec, match=is_external_template_compatible):
         imported = template.tpl.get("imported")
         assert self.root.imports is not None
         if imported:
@@ -137,7 +137,7 @@ class Plan:
         self.root.imports.set_shadow(name, shadowInstance, external)
         return shadowInstance
 
-    def find_resources_from_template(self, template):
+    def find_resources_from_template(self, template: EntitySpec):
         if template.abstract == "select":
             # XXX also match node_filter if present
             shadowInstance = self.find_shadow_instance(template)
@@ -153,7 +153,7 @@ class Plan:
             for resource in find_resources_from_template_name(self.root, template.name):
                 yield resource
 
-    def create_resource(self, template):
+    def create_resource(self, template: EntitySpec) -> NodeInstance:
         parent = find_parent_resource(self.root, template)
         if self.jobOptions.check:
             status = Status.unknown
@@ -840,6 +840,7 @@ class WorkflowPlan(Plan):
                 templates = [template]
 
             for template in templates:
+                assert template
                 for resource in self.find_resources_from_template(template):
                     gen = self.execute_steps(workflow, [step], resource)
                     result = None

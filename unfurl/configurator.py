@@ -678,17 +678,17 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection = self.query(
+        connection = cast(Optional[RelationshipInstance], self.query(
             f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
             vars=dict(target=target),
-        )
+        ))
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
         if not connection:
             # no connection, see if there's a default relationship template defined for this target
             endpoints = target.get_default_relationships(relation)
             if endpoints:
                 connection = endpoints[0]
-        if connection:  # type: ignore
+        if connection:
             assert isinstance(connection, RelationshipInstance)
             return connection
         return None
@@ -967,7 +967,7 @@ class TaskView:
             assert self._manifest.tosca
             if isinstance(template, dict):
                 tname = existingResource.template.name
-                existingResource.template = self._manifest.tosca.add_node_template(
+                existingResource.template = existingResource.template.topology.add_node_template(
                     tname, template
                 )
             elif (

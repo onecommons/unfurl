@@ -1000,18 +1000,21 @@ def find_parent_resource(root: EntityInstance, source: EntitySpec):
     )
 
 
-def create_instance_from_spec(_manifest, target, rname, resourceSpec):
+def create_instance_from_spec(_manifest, target: EntityInstance, rname: str, resourceSpec):
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:
         resourceSpec["parent"] = target.name
     elif pname == "HOST":
-        resourceSpec["parent"] = target.parent.name if target.parent else "root"
+        if target.parent:
+            resourceSpec["parent"] = target.parent.name
+        else:
+            resourceSpec["parent"] = "root"
 
     if isinstance(resourceSpec.get("template"), dict):
         # inline node template, add it to the spec
         tname = resourceSpec["template"].pop("name", rname)
-        nodeSpec = _manifest.tosca.add_node_template(tname, resourceSpec["template"])
+        nodeSpec = target.template.topology.add_node_template(tname, resourceSpec["template"])
         resourceSpec["template"] = nodeSpec.name
 
     if resourceSpec.get("readyState") and "created" not in resourceSpec:
@@ -1022,7 +1025,7 @@ def create_instance_from_spec(_manifest, target, rname, resourceSpec):
 
     if "parent" not in resourceSpec and "template" in resourceSpec:
         tname = resourceSpec["template"]
-        nodeSpec = _manifest.tosca.get_template(tname)
+        nodeSpec = target.template.topology.get_template(tname)
         if not nodeSpec:
             raise UnfurlError(
                 f'Can not find template "{tname}" when trying to create instance "{rname}".'
