@@ -1340,6 +1340,11 @@ def serve(
     help="Directory to clone repositories to.",
 )
 @click.option(
+    "--visibility",
+    type=click.Choice(["public", "any"]),
+    help='Only filter projects by visibility (overrides config).',
+)
+@click.option(
     "--project",
     type=click.Path(exists=True),
     default=".",
@@ -1352,6 +1357,7 @@ def cloudmap(
     project: str,
     namespace: Optional[str] = None,
     clone_root: Optional[str] = None,
+    visibility: Optional[str] = None,
     **options,
 ):
     """Manage a cloud map.
@@ -1368,9 +1374,9 @@ def cloudmap(
     )
     if sync:
         # sync is the provider name
-        cloud_map.sync(cloud_map.get_host(localEnv, sync, namespace or ""))
+        cloud_map.sync(cloud_map.get_host(localEnv, sync, namespace or "", visibility))
     elif options.get("import"):
-        host = cloud_map.get_host(localEnv, options.get("import") or "", namespace or "")
+        host = cloud_map.get_host(localEnv, options.get("import") or "", namespace or "", visibility)
         host.from_host(cloud_map.directory)
         cloud_map.save(
             f"Update cloudmap with latest from {'/'.join([host.name, host.path])}"

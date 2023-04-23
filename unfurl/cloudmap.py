@@ -199,25 +199,34 @@ def force_merge_local_and_push_to_remote(
 
 class _LocalGitRepos:
     def __init__(self, local_repo_root: str = "") -> None:
-        self._set_repos(local_repo_root)
+        self._set_repos(os.path.expanduser(local_repo_root))
+
+    @staticmethod
+    def _add_repo(working_dir: str, repos: Dict[str, GitRepo]):
+        repo = GitRepo(git.Repo(working_dir))
+        if not repo.remote:
+            logger.debug(f"skipping git repo in {working_dir}: no remote set")
+        else:
+            # XXX get all remotes
+            if "canonical" in repo.repo.remotes:
+                remote_url = repo.repo.remotes["canonical"].url
+            else:
+                remote_url = repo.remote.url
+            url = get_remote_git_url(remote_url)
+            if url:
+                logger.debug(f"found git repo {url} in {working_dir}")
+                repos[url] = repo
+                return repo
+            else:
+                logger.debug(f"skipping git repo in {working_dir}: no remote set")
+        return None
 
     def _set_repos(self, root: str):
         repos: Dict[str, GitRepo] = {}
+        logger.debug(f"looking for repos in {root}")
         if root:
             for working_dir in find_git_repos(root):
-                repo = GitRepo(git.Repo(working_dir))
-                if not repo.remote:
-                    logger.debug(f"skipping git repo in {working_dir}: no remote set")
-                    continue
-                # XXX get all remotes
-                if "canonical" in repo.repo.remotes:
-                    remote_url = repo.repo.remotes["canonical"].url
-                else:
-                    remote_url = repo.remote.url
-                url = get_remote_git_url(remote_url)
-                logger.debug(f"found git repo {url} in {working_dir}")
-                if url:
-                    repos[url] = repo
+                self._add_repo(working_dir, repos)
         self.repos = repos
         self.repos_root = root
 
@@ -263,7 +272,7 @@ class Directory(_LocalGitRepos):
                 yield repo, repo_info
 
     def find_mismatched_repo(self, host: "RepositoryHost") -> Optional[GitRepo]:
-        for (repo, repo_info) in self.find_local_repos_for_host(host):
+        for repo, repo_info in self.find_local_repos_for_host(host):
             if repo.revision != repo_info.branches["main"]:
                 return repo
         return None
@@ -434,7 +443,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
 class GitlabManager(RepositoryHost):
     def __init__(self, name: str, config: Dict[str, str], namespace: str = ""):
         self.name = name
-        self.public_only = False
+        self.visibility = config.get("visibility", "any")
         url = config["url"]
         parts = urlparse(url)
         user, sep, host = parts.netloc.rpartition("@")
@@ -486,7 +495,7 @@ class GitlabManager(RepositoryHost):
         repositories = directory.repositories
         for p in projects:
             dest_proj: Project = self.gitlab.projects.get(p.id)
-            if self.public_only and dest_proj.visibility != "public":
+            if self.visibility == "public" and dest_proj.visibility != "public":
                 continue
             r = self.gitlab_project_to_repository(dest_proj)
             repositories[r.key] = r
@@ -783,7 +792,11 @@ class CloudMap:
         return CloudMap(repo, branch, localrepo_root, path)
 
     def get_host(
-        self, local_env: "LocalEnv", name: str, namespace: str
+        self,
+        local_env: "LocalEnv",
+        name: str,
+        namespace: str,
+        visibility: Optional[str] = None,
     ) -> RepositoryHost:
         environment = local_env.get_context().get("cloudmaps", {})
         provider_config: Optional[dict] = environment.get("hosts", {}).get(name)
@@ -801,11 +814,13 @@ class CloudMap:
 
         assert provider_config["type"] in ["gitlab", "unfurl.cloud"]
         config = local_env.map_value(provider_config, environment.get("variables"))
+        if visibility:
+            config["visibility"] = visibility
         return GitlabManager(name, config, namespace)
 
     def sync(self, host: RepositoryHost, force=False) -> None:
         """
-        Syncronize the cloudmap with the given the repository host.
+        Synchronize the cloudmap with the given the repository host.
 
         First, update a branch named "hosts/{host_name}/{namespace}" with the latest from the repository host.
         Then merge the provider branch into "main".
