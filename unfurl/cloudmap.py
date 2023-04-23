@@ -324,7 +324,7 @@ class RepositoryHost:
 
     def from_host(self, directory: Directory):
         """
-        Update the directory with latest from this host
+        Update the directory with latest from this host.
         If the directory has local repositories associated with it, update those repositories too.
         """
 
@@ -460,26 +460,30 @@ class GitlabManager(RepositoryHost):
 
     def from_host(self, directory: Directory):
         """
-        Import projects from gitlab
-
-        If there's an existing record that conflicts and merge is true,
-        then merge and update the gitlab project and repository.
-        Otherwise, overwrite or skip the records for the project if there are conflicts.
+        Update the directory with projects on this gitlab instance.
+        If the directory has local repositories associated with it, update those repositories too.
         """
-        repositories = directory.repositories
-
         # Gather repo info
         if self.path:
             group = self._get_group(self.path)
             if not group:
                 raise Exception(f"Group {self.path} not found")
-            # XXX add/update namespace in cloudmap
-            # XXX doesn't include child groups
-            projects = group.projects.list(iterator=True)
+            self._import_group_from_host(group, directory)
         else:
             projects = self.gitlab.projects.list(iterator=True)
+            self._import_projects_from_host(projects, directory)
 
+    def _import_group_from_host(self, group: Group, directory: Directory):
+        # XXX add/update namespace in cloudmap
+        projects = group.projects.list(iterator=True)
+        logger.info(f"importing group {group.full_path}")
+        self._import_projects_from_host(projects, directory)
+        for subgroup in group.subgroups.list(iterator=True):
+            self._import_group_from_host(self.gitlab.groups.get(subgroup.id), directory)
+
+    def _import_projects_from_host(self, projects, directory: Directory):
         # XXX delete removed projects
+        repositories = directory.repositories
         for p in projects:
             dest_proj: Project = self.gitlab.projects.get(p.id)
             if self.public_only and dest_proj.visibility != "public":
@@ -581,7 +585,7 @@ class GitlabManager(RepositoryHost):
     # only fetch group, don't create it
     def _get_group(self, path: str) -> Optional[Group]:
         try:
-            return self.gitlab.groups.get(path)
+            return cast(Group, self.gitlab.groups.get(path))
         except Exception:
             return None
 
