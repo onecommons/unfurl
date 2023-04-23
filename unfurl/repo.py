@@ -47,10 +47,13 @@ def normalize_git_url(url: str, hard: int = 0):
 
     if "://" not in url:  # not an absolute URL, convert some common patterns
         if url.startswith("/"):
-            return "file://" + os.path.abspath(url)  # abspath also normalizes the path
+            # abspath also normalizes the path
+            return "file://" + os.path.abspath(url)
+        elif url.startswith("~"):
+            return "file://" + os.path.abspath(os.path.expanduser(url))
         elif url.startswith("file:"):
             # git doesn't like relative file URLs
-            return "file://" + os.path.abspath(url[5:])
+            return "file://" + os.path.abspath(os.path.expanduser(url[5:]))
         elif "@" in url:  # scp style used by git: user@server:project.git
             # convert to ssh://user@server/project.git
             url = "ssh://" + url.replace(":", "/", 1)
