@@ -1588,13 +1588,17 @@ group_types:
       <span class="n">AZURE_CLIENT_ID</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
         <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_SECRET</span><span class="p">,</span> <span class="n">AZURE_SECRET</span><span class="p">]</span>
+          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_ID</span><span class="p">,</span> <span class="n">AZURE_CLIENT_ID</span><span class="p">]</span>
+          <span class="n">title</span><span class="p">:</span> <span class="n">Client</span> <span class="n">ID</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_ID</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_CLIENT_ID</span><span class="p">}]</span> <span class="p">}</span>
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AZURE_TENANT</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
         <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_SECRET</span><span class="p">,</span> <span class="n">AZURE_SECRET</span><span class="p">]</span>
+          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_TENANT_ID</span><span class="p">,</span> <span class="n">AZURE_TENANT</span><span class="p">]</span>
+          <span class="n">title</span><span class="p">:</span> <span class="n">Tenant</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_TENANT_ID</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_TENANT</span><span class="p">}]</span> <span class="p">}</span>
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">:</span>
@@ -1602,7 +1606,9 @@ group_types:
         <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_SECRET</span><span class="p">,</span> <span class="n">AZURE_SECRET</span><span class="p">]</span>
+          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_SUBSCRIPTION_ID</span><span class="p">,</span> <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">]</span>
+          <span class="n">title</span><span class="p">:</span> <span class="n">Subscription</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_SUBSCRIPTION_ID</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">}]</span> <span class="p">}</span>
       <span class="n">AZURE_SECRET</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">service</span> <span class="n">principal</span>
@@ -1612,6 +1618,8 @@ group_types:
         <span class="n">metadata</span><span class="p">:</span>
           <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_SECRET</span><span class="p">,</span> <span class="n">AZURE_SECRET</span><span class="p">]</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+          <span class="n">title</span><span class="p">:</span> <span class="n">Client</span> <span class="n">Secret</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">AZURE_AD_USER</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>

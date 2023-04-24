@@ -261,9 +261,9 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 <blockquote>
 <div><table class="docutils align-default">
 <colgroup>
-<col style="width: 24%" />
-<col style="width: 41%" />
-<col style="width: 35%" />
+<col style="width: 13%" />
+<col style="width: 23%" />
+<col style="width: 65%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Key</p></th>
@@ -274,23 +274,27 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 <tbody>
 <tr class="row-even"><td><p>eval</p></td>
 <td><p>expr or func</p></td>
-<td></td>
+<td><p>the expression to evaluate</p></td>
 </tr>
 <tr class="row-odd"><td><p>vars?</p></td>
 <td><p>map</p></td>
-<td></td>
+<td><p>define variables for the expression</p></td>
 </tr>
 <tr class="row-even"><td><p>select?</p></td>
 <td><p>expr</p></td>
-<td></td>
+<td><p>apply expression to the result</p></td>
 </tr>
 <tr class="row-odd"><td><p>foreach?</p></td>
 <td><p>{key?, value?}</p></td>
-<td></td>
+<td><p>apply expression to each item in result</p></td>
 </tr>
 <tr class="row-even"><td><p>trace?</p></td>
 <td><p>integer</p></td>
-<td></td>
+<td><p>enable detailed logging of evaluation</p></td>
+</tr>
+<tr class="row-odd"><td><p>strict?</p></td>
+<td><p>boolean</p></td>
+<td><p>overrides strict evaluation</p></td>
 </tr>
 </tbody>
 </table>
