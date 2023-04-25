@@ -35,7 +35,7 @@ from .util import (
 )
 from .result import Result, ResultsList, serialize_value
 from .support import Defaults, NodeState, Priority, Status
-from .runtime import EntityInstance, InstanceKey
+from .runtime import EntityInstance, InstanceKey, HasInstancesInstance
 from .logs import getLogger
 import logging
 
@@ -972,9 +972,9 @@ def _find_implementation(interface, operation, template):
     return default
 
 
-def find_resources_from_template_name(root, name):
+def find_resources_from_template_name(root: HasInstancesInstance, name: str):
     # XXX make faster
-    for resource in root.get_self_and_descendents():
+    for resource in root.get_self_and_descendants():
         if resource.template.name == name:
             yield resource
 

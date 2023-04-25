@@ -335,7 +335,7 @@ class YamlManifest(ReadOnlyManifest):
             self.changeLogPath = DefaultNames.JobsLog
         self.load_changes(manifest.get("changes"), self.changeLogPath)
 
-        self.lastJob = manifest.get("lastJob")
+        self.lastJob: Optional[dict] = manifest.get("lastJob")
 
         if localEnv:
             for name in ["locals", "secrets"]:

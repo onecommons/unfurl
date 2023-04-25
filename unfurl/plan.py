@@ -78,7 +78,7 @@ class Plan:
         else:
             self.filterTemplate = None
 
-    def find_shadow_instance(self, template, match=is_external_template_compatible):
+    def find_shadow_instance(self, template: EntitySpec, match=is_external_template_compatible):
         imported = template.tpl.get("imported")
         if imported:
             external = self.root.imports.find_import(imported)
@@ -104,11 +104,11 @@ class Plan:
                     return self.create_shadow_instance(external, name, template)
             if record.spec.get("instance") in ["root", "*"]:
                 # add root instance
-                searchAll.append((name, record.external_instance))
+                searchAll.append((name, external))
 
         # look in the topologies where were are importing everything
         for name, root in searchAll:
-            for external in root.get_self_and_descendents():
+            for external in root.get_self_and_descendants():
                 if match(name, external.template, template):
                     return self.create_shadow_instance(external, name, template)
 
