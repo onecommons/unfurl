@@ -373,7 +373,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     created: Optional[Union[bool, str]] = None
     protected: Optional[bool] = None
     imports: Optional[Imports] = None
-    imported = None
+    imported: Optional[str] = None
     _baseDir = ""
     templateType = EntitySpec  # must defined by subtype
     parentRelation = ""
@@ -535,11 +535,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def names(self):
         return self.attributes
 
-    def get_default_relationships(self, relation=None):
+    def get_default_relationships(self, relation=None) -> List["RelationshipInstance"]:
         return self.root.get_default_relationships(relation)
 
     @property
-    def shadow(self):
+    def shadow(self) -> Optional["EntityInstance"]:
         if self.imported:
             imports = self.root.imports
             if imports and self.imported in imports:
@@ -631,12 +631,17 @@ class HasInstancesInstance(EntityInstance):
         return list(self.get_self_and_descendents())
 
     # XXX use find_instance instead and remove find_resource
-    def find_resource(self, resourceid):
+    def find_resource(self, qualified_name):
+        resourceid, sep, inner = qualified_name.partition(":")
         if self.name == resourceid:
+            if inner and self.shadow:
+                return self.shadow.root.find_resource(inner)
             return self
         for r in self.instances:
             child = r.find_resource(resourceid)
             if child:
+                if inner and child.shadow:
+                    return child.shadow.root.find_resource(inner)
                 return child
         return None
 
@@ -849,7 +854,7 @@ class NodeInstance(HasInstancesInstance):
 
         # next three may be initialized either by Manifest.createNodeInstance or by its property
         self._capabilities = []
-        self._requirements = []
+        self._requirements: List["RelationshipInstance"] = []
         self._artifacts = []
         self._named_artifacts = None
         HasInstancesInstance.__init__(self, name, attributes, parent, template, status)
@@ -859,7 +864,7 @@ class NodeInstance(HasInstancesInstance):
         self.get_interface("inherit")
         self.get_interface("default")
 
-    def _find_relationship(self, relationship) -> Optional[RelationshipInstance]:
+    def _find_relationship(self, relationship: RelationshipSpec) -> Optional[RelationshipInstance]:
         """
         Find RelationshipInstance that has the give relationship template
         """
@@ -871,6 +876,7 @@ class NodeInstance(HasInstancesInstance):
                 f"target instance {relationship.target.name} should have already been created -- is {self.name} out of sync with latest templates?"
             )
             return None
+        assert isinstance(targetNodeInstance, NodeInstance)
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
                 for relInstance in cap.relationships:
@@ -959,7 +965,7 @@ class NodeInstance(HasInstancesInstance):
                 if rel.template.matches_target(capability.template):
                     yield rel
 
-    def get_default_relationships(self, relation=None):
+    def get_default_relationships(self, relation=None) -> List[RelationshipInstance]:
         return list(self._get_default_relationships(relation))
 
     @property
@@ -1118,7 +1124,7 @@ class TopologyInstance(HasInstancesInstance):
 
         return self._relationships
 
-    def get_default_relationships(self, relation=None):
+    def get_default_relationships(self, relation=None) -> List[RelationshipInstance]:
         # for root, this is the same as self.requirements
         if not relation:
             return self.requirements

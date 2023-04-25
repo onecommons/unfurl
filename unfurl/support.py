@@ -1313,10 +1313,15 @@ class Imports(collections.OrderedDict):
             # fully qualified name already added
             return self[name].local_instance or self[name].external_instance
         iName, sep, rName = name.partition(":")
+        if not iName:
+            # name is in the current ensemble (but maybe a different topology)
+            assert self.manifest and self.manifest.rootResource
+            assert sep and rName
+            return self.manifest.rootResource.find_instance(rName)
         if iName not in self:
             return None
         # do a unqualified look up to find the declared import
-        imported = self[iName].external_instance.root.find_resource(rName or "root")
+        imported = self[iName].external_instance.root.find_instance(rName or "root")
         if imported:
             self.add_import(iName, imported)
         return imported

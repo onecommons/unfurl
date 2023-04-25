@@ -439,7 +439,7 @@ class YamlManifest(ReadOnlyManifest):
 
     def create_topology_instance(self, status: dict) -> TopologyInstance:
         """
-        If an instance of the toplogy is recorded in status, load it,
+        If an instance of the topology is recorded in status, load it,
         otherwise create a new resource using the the topology as its template
         """
         # XXX use the substitution_mapping (3.8.12) represent the resource
