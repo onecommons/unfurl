@@ -533,7 +533,7 @@ class YamlManifest(ReadOnlyManifest):
                 # don't import self (might happen when context is shared)
                 return
             logger.verbose("loading external ensemble at %s", localEnv.manifestPath)
-            importedManifest = localEnv.get_manifest()
+            importedManifest = localEnv.get_manifest(skip_validation=not self.validate)
 
         uri = value.get("uri")
         if uri and not importedManifest.has_uri(uri):
