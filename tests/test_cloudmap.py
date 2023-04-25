@@ -9,7 +9,7 @@ from tests.utils import init_project, run_cmd
 
 if not os.getenv("UNFURL_TEST_CLOUDMAP_URL"):
     pytest.skip(
-        reason="need UNFURL_TEST_CLOUDMAP_GITLAB_TOKEN set to run test",
+        reason="need UNFURL_TEST_CLOUDMAP_URL set to run test",
         allow_module_level=True,
     )
 
@@ -97,6 +97,8 @@ def test_create(runner, caplog):
             assert cloudmap.startswith(expected_cloudmap), cloudmap
         assert not os.system("git push origin main")
 
+    assert "importing group feb20a" in caplog.text
+    assert "importing group feb20a/feb20b" in caplog.text
     assert "syncing to feb20a" in caplog.text
     assert (
         "committed: Update hosts/testProvider/feb20a with latest from testProvider/feb20a"
