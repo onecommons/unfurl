@@ -1168,527 +1168,535 @@ group_types:
 </section>
 <section id="unfurl-types">
 <span id="id1"></span><h2><a class="toc-backref" href="#id4">Unfurl types</a><a class="headerlink" href="#unfurl-types" title="Permalink to this headline"></a></h2>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copyright (c) 2020 Adam Souzis</span>
-<span class="c1"># SPDX-License-Identifier: MIT</span>
-<span class="n">tosca_definitions_version</span><span class="p">:</span> <span class="n">tosca_simple_unfurl_1_0_0</span> <span class="c1"># unfurl/v1alpha1.ServiceTemplate</span>
-<span class="n">metadata</span><span class="p">:</span>
-  <span class="n">template_name</span><span class="p">:</span> <span class="n">Unfurl</span> <span class="n">types</span>
-  <span class="n">template_author</span><span class="p">:</span> <span class="n">onecommons</span><span class="o">.</span><span class="n">org</span>
-  <span class="n">template_version</span><span class="p">:</span> <span class="mf">1.0.0</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span># Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0 # unfurl/v1alpha1.ServiceTemplate
+metadata:
+  template_name: Unfurl types
+  template_author: onecommons.org
+  template_version: 1.0.0
 
-<span class="n">artifact_types</span><span class="p">:</span>
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Implementation</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">className</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Name</span> <span class="n">of</span> <span class="n">the</span> <span class="n">python</span> <span class="k">class</span> <span class="nc">that</span> <span class="n">implements</span> <span class="n">the</span> <span class="n">configurator</span> <span class="n">interface</span>
+artifact_types:
+  unfurl.artifacts.HasConfigurator:
+    derived_from: tosca.artifacts.Implementation
+    properties:
+      className:
+        type: string
+        description: Name of the python class that implements the configurator interface
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">TemplateOperation</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">className</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">TemplateConfigurator</span>
+  unfurl.artifacts.TemplateOperation:
+    derived_from: unfurl.artifacts.HasConfigurator
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.TemplateConfigurator
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">ShellExecutable</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">className</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span>
+  unfurl.artifacts.ShellExecutable:
+    derived_from: unfurl.artifacts.HasConfigurator
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.shell.ShellConfigurator
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">AnsiblePlaybook</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">className</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">AnsibleConfigurator</span>
+  unfurl.artifacts.AnsiblePlaybook:
+    derived_from: unfurl.artifacts.HasConfigurator
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.ansible.AnsibleConfigurator
 
-<span class="n">node_types</span><span class="p">:</span>
-  <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">:</span>
-    <span class="n">interfaces</span><span class="p">:</span>
-      <span class="n">Install</span><span class="p">:</span> <span class="c1"># all nodes can implement this interface</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Install</span>
+node_types:
+  tosca.nodes.Root:
+    interfaces:
+      Install: # all nodes can implement this interface
+        type: unfurl.interfaces.Install
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Repository</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-      <span class="n">Reification</span> <span class="n">of</span> <span class="n">a</span> <span class="n">TOSCA</span> <span class="n">repository</span><span class="o">.</span> <span class="n">Artifacts</span> <span class="n">listed</span> <span class="ow">in</span> <span class="n">the</span> <span class="s2">&quot;artifacts&quot;</span> <span class="n">section</span>
-      <span class="n">of</span> <span class="n">this</span> <span class="n">node</span> <span class="n">template</span> <span class="n">will</span> <span class="n">able</span> <span class="n">available</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">repository</span><span class="o">.</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">repository</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">name</span> <span class="n">of</span> <span class="n">the</span> <span class="n">repository</span> <span class="n">this</span> <span class="n">node</span> <span class="n">instance</span> <span class="n">represent</span><span class="o">.</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">url</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">url</span> <span class="n">of</span> <span class="n">this</span> <span class="n">repository</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">credential</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-          <span class="n">The</span> <span class="n">credential</span><span class="p">,</span> <span class="k">if</span> <span class="n">present</span><span class="p">,</span> <span class="n">of</span> <span class="n">the</span> <span class="n">repository</span> <span class="n">this</span> <span class="n">node</span> <span class="n">instance</span> <span class="n">represents</span><span class="o">.</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Credential</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+  unfurl.nodes.Repository:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      Reification of a TOSCA repository. Artifacts listed in the &quot;artifacts&quot; section
+      of this node template will able available in the repository.
+    properties:
+      repository:
+        description: The name of the repository this node instance represent.
+        type: string
+        required: false
+      url:
+        description: The url of this repository
+        type: string
+        required: false
+      credential:
+        description: &gt;
+          The credential, if present, of the repository this node instance represents.
+        type: tosca.datatypes.Credential
+        required: false
+        metadata:
+          sensitive: true
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">LocalRepository</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Repository</span>
-    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-      <span class="n">Represents</span> <span class="n">the</span> <span class="n">collection</span> <span class="n">of</span> <span class="n">artifacts</span> <span class="n">available</span> <span class="n">to</span> <span class="n">the</span> <span class="n">local</span> <span class="n">operation</span> <span class="n">host</span><span class="o">.</span>
+  unfurl.nodes.LocalRepository:
+    derived_from: unfurl.nodes.Repository
+    description: &gt;
+      Represents the collection of artifacts available to the local operation host.
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">ArtifactBuilder</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-      <span class="n">Creates</span> <span class="ow">or</span> <span class="n">builds</span> <span class="n">the</span> <span class="n">given</span> <span class="n">artifact</span> <span class="ow">and</span> <span class="s2">&quot;uploads&quot;</span> <span class="n">it</span> <span class="n">to</span> <span class="n">the</span> <span class="n">artifact</span><span class="s1">&#39;s repository.</span>
+  unfurl.nodes.ArtifactBuilder:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      Creates or builds the given artifact and &quot;uploads&quot; it to the artifact&#39;s repository.
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">ArtifactInstaller</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-      <span class="n">Reification</span> <span class="n">of</span> <span class="n">an</span> <span class="n">artifact</span> <span class="n">that</span> <span class="n">needs</span> <span class="n">to</span> <span class="n">be</span> <span class="n">installed</span><span class="o">.</span>
-      <span class="n">Node</span> <span class="n">templates</span> <span class="n">of</span> <span class="n">this</span> <span class="nb">type</span> <span class="n">are</span> <span class="s2">&quot;discovered&quot;</span> <span class="n">when</span> <span class="n">artifacts</span> <span class="n">need</span> <span class="n">to</span> <span class="n">be</span> <span class="n">installed</span> <span class="n">on</span> <span class="n">an</span> <span class="n">operation_host</span><span class="o">.</span>
-    <span class="n">artifacts</span><span class="p">:</span>
-      <span class="n">install</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">interfaces</span><span class="p">:</span>
-      <span class="n">defaults</span><span class="p">:</span>
-        <span class="c1"># delegate operations to the associated artifact</span>
-        <span class="n">implementation</span><span class="p">:</span>
-          <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">DelegateConfigurator</span>
-        <span class="n">inputs</span><span class="p">:</span>
-          <span class="n">target</span><span class="p">:</span>
-            <span class="nb">eval</span><span class="p">:</span> <span class="o">.</span><span class="n">artifacts</span><span class="p">::</span><span class="n">install</span>
-          <span class="n">inputs</span><span class="p">:</span> <span class="p">{}</span>
-      <span class="n">Standard</span><span class="p">:</span>
-        <span class="n">operations</span><span class="p">:</span>
-          <span class="n">delete</span><span class="p">:</span>
-          <span class="n">create</span><span class="p">:</span>
-          <span class="n">configure</span><span class="p">:</span>
-          <span class="n">start</span><span class="p">:</span>
-          <span class="n">stop</span><span class="p">:</span>
-      <span class="n">Install</span><span class="p">:</span>
-        <span class="n">operations</span><span class="p">:</span>
-          <span class="n">check</span><span class="p">:</span>
-      <span class="n">Mock</span><span class="p">:</span>
-        <span class="n">operations</span><span class="p">:</span>
-          <span class="n">delete</span><span class="p">:</span>
-          <span class="n">create</span><span class="p">:</span>
-          <span class="n">configure</span><span class="p">:</span>
-          <span class="n">start</span><span class="p">:</span>
-          <span class="n">stop</span><span class="p">:</span>
-          <span class="n">check</span><span class="p">:</span>
+  unfurl.nodes.ArtifactInstaller:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      Reification of an artifact that needs to be installed.
+      Node templates of this type are &quot;discovered&quot; when artifacts need to be installed on an operation_host.
+    artifacts:
+      install:
+        type: tosca.artifacts.Root
+    interfaces:
+      defaults:
+        # delegate operations to the associated artifact
+        implementation:
+          className: unfurl.configurators.DelegateConfigurator
+        inputs:
+          target:
+            eval: .artifacts::install
+          inputs: {}
+      Standard:
+        operations:
+          delete:
+          create:
+          configure:
+          start:
+          stop:
+      Install:
+        operations:
+          check:
+      Mock:
+        operations:
+          delete:
+          create:
+          configure:
+          start:
+          stop:
+          check:
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installer</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">capabilities</span><span class="p">:</span>
-      <span class="n">installer</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span>
+  unfurl.nodes.Installer:
+    derived_from: tosca.nodes.Root
+    capabilities:
+      installer:
+        type: unfurl.capabilities.Installer
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installation</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">requirements</span><span class="p">:</span>
-      <span class="o">-</span> <span class="n">installer</span><span class="p">:</span>
-          <span class="n">capability</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span>
-          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installer</span>
-          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">InstalledBy</span>
-          <span class="n">occurrences</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># it isn&#39;t necessarily required</span>
+  unfurl.nodes.Installation:
+    derived_from: tosca.nodes.Root
+    requirements:
+      - installer:
+          capability: unfurl.capabilities.Installer
+          node: unfurl.nodes.Installer
+          relationship: unfurl.relationships.InstalledBy
+          occurrences: [0, 1] # it isn&#39;t necessarily required
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Default</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installation</span>
-    <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Used if pre-existing instances are declared with no TOSCA template&quot;</span>
+  unfurl.nodes.Default:
+    derived_from: unfurl.nodes.Installation
+    description: &quot;Used if pre-existing instances are declared with no TOSCA template&quot;
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">attributes</span><span class="p">:</span>
-      <span class="n">account_id</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Cloud provider specific account identifier&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+  unfurl.nodes.CloudAccount:
+    derived_from: tosca.nodes.Root
+    attributes:
+      account_id:
+        description: &quot;Cloud provider specific account identifier&quot;
+        type: string
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudObject</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">attributes</span><span class="p">:</span>
-      <span class="n">uri</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Unique identifier&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-      <span class="n">name</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Human-friendly name of the resource&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-      <span class="n">console_url</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;URL for viewing this resource in its cloud provider&#39;s console&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="kc">False</span>
-    <span class="c1"># XXX re-enable this when we handle subtypes of requirements properly</span>
-    <span class="c1"># requirements:</span>
-    <span class="c1">#   - cloud:</span>
-    <span class="c1">#       node: unfurl.nodes.CloudAccount</span>
-    <span class="c1">#       relationship: unfurl.relationships.ConnectsTo.CloudAccount</span>
-    <span class="c1">#       occurrences: [0, 1] # make optional so we aren&#39;t forced to always explicitly declare this</span>
+  unfurl.nodes.CloudObject:
+    derived_from: tosca.nodes.Root
+    attributes:
+      uri:
+        description: &quot;Unique identifier&quot;
+        type: string
+      name:
+        description: &quot;Human-friendly name of the resource&quot;
+        type: string
+      console_url:
+        description: &quot;URL for viewing this resource in its cloud provider&#39;s console&quot;
+        type: string
+        required: False
+    # XXX re-enable this when we handle subtypes of requirements properly
+    # requirements:
+    #   - cloud:
+    #       node: unfurl.nodes.CloudAccount
+    #       relationship: unfurl.relationships.ConnectsTo.CloudAccount
+    #       occurrences: [0, 1] # make optional so we aren&#39;t forced to always explicitly declare this
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSAccount</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span>
+  unfurl.nodes.AWSAccount:
+    derived_from: unfurl.nodes.CloudAccount
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSResource</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudObject</span>
-    <span class="n">requirements</span><span class="p">:</span>
-      <span class="o">-</span> <span class="n">cloud</span><span class="p">:</span>
-          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSAccount</span>
-          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">AWSAccount</span>
-          <span class="n">occurrences</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># make optional so we aren&#39;t forced to always explicitly declare this</span>
-          <span class="n">metadata</span><span class="p">:</span>
-            <span class="n">visibility</span><span class="p">:</span> <span class="n">hidden</span>
+  unfurl.nodes.AWSResource:
+    derived_from: unfurl.nodes.CloudObject
+    requirements:
+      - cloud:
+          node: unfurl.nodes.AWSAccount
+          relationship: unfurl.relationships.ConnectsTo.AWSAccount
+          occurrences: [0, 1] # make optional so we aren&#39;t forced to always explicitly declare this
+          metadata:
+            visibility: hidden
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AzureAccount</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span>
+  unfurl.nodes.AzureAccount:
+    derived_from: unfurl.nodes.CloudAccount
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AzureResource</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudObject</span>
-    <span class="n">requirements</span><span class="p">:</span>
-      <span class="o">-</span> <span class="n">cloud</span><span class="p">:</span>
-          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AzureAccount</span>
-          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Azure</span>
-          <span class="n">occurrences</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># make optional so we aren&#39;t forced to always explicitly declare this</span>
-          <span class="n">metadata</span><span class="p">:</span>
-            <span class="n">visibility</span><span class="p">:</span> <span class="n">hidden</span>
+  unfurl.nodes.AzureResource:
+    derived_from: unfurl.nodes.CloudObject
+    requirements:
+      - cloud:
+          node: unfurl.nodes.AzureAccount
+          relationship: unfurl.relationships.ConnectsTo.Azure
+          occurrences: [0, 1] # make optional so we aren&#39;t forced to always explicitly declare this
+          metadata:
+            visibility: hidden
 
-<span class="n">data_types</span><span class="p">:</span>
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-    <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">value</span> <span class="n">of</span> <span class="n">an</span> <span class="n">environment</span> <span class="n">variable</span> <span class="n">whose</span> <span class="n">name</span> <span class="n">matches</span> <span class="n">the</span> <span class="nb">property</span><span class="s1">&#39;s name</span>
+data_types:
+  unfurl.datatypes.EnvVar:
+    derived_from: tosca.datatypes.Root
+    type: string
+    description: The value of an environment variable whose name matches the property&#39;s name
 
-<span class="n">capability_types</span><span class="p">:</span>
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Root</span>
+capability_types:
+  unfurl.capabilities.Installer:
+    derived_from: tosca.capabilities.Root
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Admin</span>
-    <span class="n">description</span><span class="p">:</span> <span class="n">Capability</span> <span class="n">to</span> <span class="n">connect</span> <span class="n">to</span> <span class="n">Ansible</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">connection</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">connection</span> <span class="nb">type</span> <span class="p">(</span><span class="n">sets</span> <span class="s2">&quot;ansible_connection&quot;</span><span class="p">)</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">local</span>
-      <span class="n">port</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="p">:</span><span class="n">PortDef</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">sets</span> <span class="s2">&quot;ansible_port&quot;</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">host</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Sets</span> <span class="s2">&quot;ansible_host&quot;</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">user</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Sets</span> <span class="s2">&quot;ansible_user&quot;</span> <span class="k">if</span> <span class="ow">not</span> <span class="nb">set</span> <span class="ow">in</span> <span class="n">credentials</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">authentication_type</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Type of authentication required, should match the credential&#39;s token_type&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">hostvars</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-          <span class="n">Passed</span> <span class="n">to</span> <span class="n">ansible</span> <span class="k">as</span> <span class="n">host</span> <span class="nb">vars</span>
-          <span class="n">See</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">docs</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">ansible</span><span class="o">/</span><span class="n">latest</span><span class="o">/</span><span class="n">user_guide</span><span class="o">/</span><span class="n">intro_inventory</span><span class="o">.</span><span class="n">html</span><span class="c1">#connecting-to-hosts-behavioral-inventory-parameters</span>
+  unfurl.capabilities.Endpoint.Ansible:
+    derived_from: tosca.capabilities.Endpoint.Admin
+    description: Capability to connect to Ansible
+    properties:
+      connection:
+        description: The connection type (sets &quot;ansible_connection&quot;)
+        type: string
+        default: local
+      port:
+        type: tosca:PortDef
+        description: sets &quot;ansible_port&quot;
+        required: false
+      host:
+        type: string
+        description: Sets &quot;ansible_host&quot;
+        required: false
+      user:
+        description: Sets &quot;ansible_user&quot; if not set in credentials
+        type: string
+        required: false
+      authentication_type:
+        description: &quot;Type of authentication required, should match the credential&#39;s token_type&quot;
+        type: string
+        required: false
+      hostvars:
+        type: map
+        required: false
+        description: &gt;
+          Passed to ansible as host vars
+          See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">SSH</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span>
-    <span class="n">description</span><span class="p">:</span> <span class="n">Capability</span> <span class="n">to</span> <span class="n">connect</span> <span class="n">to</span> <span class="n">the</span> <span class="n">host</span> <span class="n">via</span> <span class="n">SSH</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">protocol</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">value</span><span class="p">:</span> <span class="n">ssh</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">ssh</span>
-      <span class="n">connection</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">ssh</span>
-      <span class="n">port</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="p">:</span><span class="n">PortDef</span>
-        <span class="n">default</span><span class="p">:</span> <span class="mi">22</span>
+  unfurl.capabilities.Endpoint.SSH:
+    derived_from: unfurl.capabilities.Endpoint.Ansible
+    description: Capability to connect to the host via SSH
+    properties:
+      protocol:
+        type: string
+        value: ssh
+        default: ssh
+      connection:
+        type: string
+        default: ssh
+      port:
+        type: tosca:PortDef
+        default: 22
 
-<span class="n">relationship_types</span><span class="p">:</span>
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">InstalledBy</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">valid_target_types</span><span class="p">:</span> <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span><span class="p">]</span>
+relationship_types:
+  unfurl.relationships.InstalledBy:
+    derived_from: tosca.relationships.Root
+    valid_target_types: [unfurl.capabilities.Installer]
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Configures</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Root</span>
+  unfurl.relationships.Configures:
+    derived_from: tosca.relationships.Root
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConfiguringHostedOn</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span>
-      <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Configures</span><span class="p">,</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">HostedOn</span><span class="p">]</span>
+  unfurl.relationships.ConfiguringHostedOn:
+    derived_from:
+      [unfurl.relationships.Configures, tosca.relationships.HostedOn]
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Ansible</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span>
-    <span class="n">valid_target_types</span><span class="p">:</span> <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span><span class="p">]</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">credential</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Its</span> <span class="s2">&quot;user&quot;</span> <span class="nb">property</span> <span class="n">sets</span> <span class="s2">&quot;ansible_user&quot;</span><span class="p">,</span> <span class="n">add</span> <span class="n">properties</span> <span class="n">like</span> <span class="s2">&quot;ssh_private_key_file&quot;</span> <span class="n">to</span> <span class="s2">&quot;keys&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Credential</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">hostvars</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
-          <span class="n">Passed</span> <span class="n">to</span> <span class="n">ansible</span> <span class="k">as</span> <span class="n">host</span> <span class="nb">vars</span>
-          <span class="n">See</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">docs</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">ansible</span><span class="o">/</span><span class="n">latest</span><span class="o">/</span><span class="n">user_guide</span><span class="o">/</span><span class="n">intro_inventory</span><span class="o">.</span><span class="n">html</span><span class="c1">#connecting-to-hosts-behavioral-inventory-parameters</span>
+  unfurl.relationships.ConnectsTo.Ansible:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [unfurl.capabilities.Endpoint.Ansible]
+    properties:
+      credential:
+        description: Its &quot;user&quot; property sets &quot;ansible_user&quot;, add properties like &quot;ssh_private_key_file&quot; to &quot;keys&quot;
+        type: tosca.datatypes.Credential
+        required: false
+        metadata:
+          sensitive: true
+      hostvars:
+        type: map
+        required: false
+        description: &gt;
+          Passed to ansible as host vars
+          See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span>
-    <span class="c1"># valid_target_types: [unfurl.capabilities.Endpoint.CloudAccount]</span>
+  unfurl.relationships.ConnectsTo.CloudAccount:
+    derived_from: tosca.relationships.ConnectsTo
+    # valid_target_types: [unfurl.capabilities.Endpoint.CloudAccount]
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">GoogleCloudProject</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">CLOUDSDK_CORE_PROJECT</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="nb">id</span> <span class="n">of</span> <span class="n">the</span> <span class="n">project</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_CORE_PROJECT</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">CLOUDSDK_COMPUTE_REGION</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">default</span> <span class="n">region</span> <span class="n">to</span> <span class="n">use</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_COMPUTE_REGION</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">CLOUDSDK_COMPUTE_ZONE</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">default</span> <span class="n">zone</span> <span class="n">to</span> <span class="n">use</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_COMPUTE_ZONE</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">GOOGLE_APPLICATION_CREDENTIALS</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Path to file containing service account private keys in JSON format&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">GOOGLE_APPLICATION_CREDENTIALS</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+  unfurl.relationships.ConnectsTo.GoogleCloudProject:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      CLOUDSDK_CORE_PROJECT:
+        description: id of the project
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: CLOUDSDK_CORE_PROJECT }
+        required: false
+      CLOUDSDK_COMPUTE_REGION:
+        description: default region to use
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: CLOUDSDK_COMPUTE_REGION }
+        required: false
+      CLOUDSDK_COMPUTE_ZONE:
+        description: default zone to use
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: CLOUDSDK_COMPUTE_ZONE }
+        required: false
+      GOOGLE_APPLICATION_CREDENTIALS:
+        description: &quot;Path to file containing service account private keys in JSON format&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: GOOGLE_APPLICATION_CREDENTIALS }
+        required: false
 
-      <span class="c1"># other authentication options:</span>
-      <span class="n">GOOGLE_OAUTH_ACCESS_TOKEN</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">A</span> <span class="n">temporary</span> <span class="n">OAuth</span> <span class="mf">2.0</span> <span class="n">access</span> <span class="n">token</span> <span class="n">obtained</span> <span class="kn">from</span> <span class="nn">the</span> <span class="n">Google</span> <span class="n">Authorization</span> <span class="n">server</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">GOOGLE_OAUTH_ACCESS_TOKEN</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      # other authentication options:
+      GOOGLE_OAUTH_ACCESS_TOKEN:
+        description: A temporary OAuth 2.0 access token obtained from the Google Authorization server
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: GOOGLE_OAUTH_ACCESS_TOKEN }
+        required: false
 
-      <span class="n">GCP_SERVICE_ACCOUNT_CONTENTS</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Content of file containing service account private keys&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">json</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">GCP_SERVICE_ACCOUNT_CONTENTS</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-        <span class="c1"># some of the keys in the credential json:</span>
-        <span class="c1">#   project_id</span>
-        <span class="c1">#   type: auth_kind: type of authentication being used (choices: machineaccount, serviceaccount, application)</span>
-        <span class="c1">#   client_email: email associated with the project</span>
-        <span class="c1">#   scopes: The specific scopes that you want the actions to use.</span>
-      <span class="n">GCP_AUTH_KIND</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">constraints</span><span class="p">:</span>
-          <span class="o">-</span> <span class="n">valid_values</span><span class="p">:</span> <span class="p">[</span><span class="n">application</span><span class="p">,</span> <span class="n">machineaccount</span><span class="p">,</span> <span class="n">serviceaccount</span><span class="p">]</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">GCP_AUTH_KIND</span><span class="p">,</span> <span class="s2">&quot;serviceaccount&quot;</span><span class="p">]</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">scopes</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="nb">list</span>
-        <span class="n">entry_schema</span><span class="p">:</span>
-          <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-    <span class="n">interfaces</span><span class="p">:</span>
-      <span class="n">Install</span><span class="p">:</span>
-        <span class="n">check</span><span class="p">:</span>
-          <span class="n">implementation</span><span class="p">:</span>
-            <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">gcp</span><span class="o">.</span><span class="n">CheckGoogleCloudConnectionConfigurator</span>
-            <span class="c1"># XXX defined in artifacts.yaml</span>
-            <span class="c1"># dependencies:</span>
-            <span class="c1">#   - google-auth</span>
+      GCP_SERVICE_ACCOUNT_CONTENTS:
+        description: &quot;Content of file containing service account private keys&quot;
+        type: tosca.datatypes.json
+        default: { get_env: GCP_SERVICE_ACCOUNT_CONTENTS }
+        required: false
+        metadata:
+          sensitive: true
+        # some of the keys in the credential json:
+        #   project_id
+        #   type: auth_kind: type of authentication being used (choices: machineaccount, serviceaccount, application)
+        #   client_email: email associated with the project
+        #   scopes: The specific scopes that you want the actions to use.
+      GCP_AUTH_KIND:
+        type: unfurl.datatypes.EnvVar
+        constraints:
+          - valid_values: [application, machineaccount, serviceaccount]
+        default: { get_env: [GCP_AUTH_KIND, &quot;serviceaccount&quot;] }
+        required: false
+      scopes:
+        type: list
+        entry_schema:
+          type: string
+        required: false
+    interfaces:
+      Install:
+        check:
+          implementation:
+            className: unfurl.configurators.gcp.CheckGoogleCloudConnectionConfigurator
+            # XXX defined in artifacts.yaml
+            # dependencies:
+            #   - google-auth
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">AWSAccount</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">endpoints</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">custom</span> <span class="n">service</span> <span class="n">endpoints</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AWS_DEFAULT_REGION</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The default region to use, e.g. us-west-1, us-west-2, etc.&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_DEFAULT_REGION</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AWS_ACCESS_KEY_ID</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for your AWS account&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_ACCESS_KEY_ID</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AWS_SECRET_ACCESS_KEY</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The secret key for your AWS account.&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SECRET_ACCESS_KEY</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-      <span class="c1"># other authentication options:</span>
-      <span class="n">AWS_SESSION_TOKEN</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The session key for your AWS account.&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SESSION_TOKEN</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">AWS_PROFILE</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_PROFILE</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AWS_SHARED_CREDENTIALS_FILE</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SHARED_CREDENTIALS_FILE</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AWS_CONFIG_FILE</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_CONFIG_FILE</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-    <span class="c1"># see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables</span>
-    <span class="c1"># for more environment variables</span>
+  unfurl.relationships.ConnectsTo.AWSAccount:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      endpoints:
+        description: custom service endpoints
+        type: map
+        required: false
+      AWS_DEFAULT_REGION:
+        description: &quot;The default region to use, e.g. us-west-1, us-west-2, etc.&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_DEFAULT_REGION }
+        required: false
+      AWS_ACCESS_KEY_ID:
+        description: &quot;The access key for your AWS account&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_ACCESS_KEY_ID }
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        description: &quot;The secret key for your AWS account.&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_SECRET_ACCESS_KEY }
+        required: false
+        metadata:
+          sensitive: true
+      # other authentication options:
+      AWS_SESSION_TOKEN:
+        description: &quot;The session key for your AWS account.&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_SESSION_TOKEN }
+        required: false
+        metadata:
+          sensitive: true
+      AWS_PROFILE:
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_PROFILE }
+        required: false
+      AWS_SHARED_CREDENTIALS_FILE:
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_SHARED_CREDENTIALS_FILE }
+        required: false
+      AWS_CONFIG_FILE:
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AWS_CONFIG_FILE }
+        required: false
+    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
+    # for more environment variables
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">DigitalOcean</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">DIGITALOCEAN_TOKEN</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">DIGITALOCEAN_TOKEN</span> <span class="p">}</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">SPACES_ACCESS_KEY_ID</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for Spaces object storage.&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">SPACES_ACCESS_KEY_ID</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">SPACES_SECRET_ACCESS_KEY</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The secret key for Spaces object storage.&quot;</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">SPACES_SECRET_ACCESS_KEY</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">default_region</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">title</span><span class="p">:</span> <span class="n">Default</span> <span class="n">Region</span>
-        <span class="n">default</span><span class="p">:</span> <span class="n">nyc1</span>
-        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The default region to use, e.g. fra1, nyc2, etc.&quot;</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
+  unfurl.relationships.ConnectsTo.DigitalOcean:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      DIGITALOCEAN_TOKEN:
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: DIGITALOCEAN_TOKEN }
+        metadata:
+          user_settable: true
+          sensitive: true
+      SPACES_ACCESS_KEY_ID:
+        description: &quot;The access key for Spaces object storage.&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: SPACES_ACCESS_KEY_ID }
+        required: false
+        metadata:
+          user_settable: true
+      SPACES_SECRET_ACCESS_KEY:
+        description: &quot;The secret key for Spaces object storage.&quot;
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: SPACES_SECRET_ACCESS_KEY }
+        required: false
+        metadata:
+          user_settable: true
+          sensitive: true
+      default_region:
+        type: string
+        title: Default Region
+        default: nyc1
+        description: &quot;The default region to use, e.g. fra1, nyc2, etc.&quot;
+        metadata:
+          user_settable: true
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Azure</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">AZURE_CLIENT_ID</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_ID</span><span class="p">,</span> <span class="n">AZURE_CLIENT_ID</span><span class="p">]</span>
-          <span class="n">title</span><span class="p">:</span> <span class="n">Client</span> <span class="n">ID</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_ID</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_CLIENT_ID</span><span class="p">}]</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AZURE_TENANT</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_TENANT_ID</span><span class="p">,</span> <span class="n">AZURE_TENANT</span><span class="p">]</span>
-          <span class="n">title</span><span class="p">:</span> <span class="n">Tenant</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_TENANT_ID</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_TENANT</span><span class="p">}]</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">service</span> <span class="n">principal</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_SUBSCRIPTION_ID</span><span class="p">,</span> <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">]</span>
-          <span class="n">title</span><span class="p">:</span> <span class="n">Subscription</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_SUBSCRIPTION_ID</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">}]</span> <span class="p">}</span>
-      <span class="n">AZURE_SECRET</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">service</span> <span class="n">principal</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_SECRET</span><span class="p">,</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_SECRET</span><span class="p">}]</span> <span class="p">}</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">env_vars</span><span class="p">:</span> <span class="p">[</span><span class="n">ARM_CLIENT_SECRET</span><span class="p">,</span> <span class="n">AZURE_SECRET</span><span class="p">]</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-          <span class="n">title</span><span class="p">:</span> <span class="n">Client</span> <span class="n">Secret</span>
-          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">AZURE_AD_USER</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_AD_USER</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-      <span class="n">AZURE_PASSWORD</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_PASSWORD</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
-      <span class="n">AZURE_ADFS_AUTHORITY_URL</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="nb">set</span> <span class="k">if</span> <span class="n">you</span> <span class="n">have</span> <span class="n">your</span> <span class="n">own</span> <span class="n">ADFS</span> <span class="n">authority</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_ADFS_AUTHORITY_URL</span> <span class="p">}</span>
-        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+  unfurl.relationships.ConnectsTo.Azure:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      AZURE_CLIENT_ID:
+        description: &gt;
+          Also known as an Application ID or `appId`.
+          Can be created via [CLI](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_certificate)
+          or through the [Azure portal](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal).
+        type: string
+        metadata:
+          env_vars: [ARM_CLIENT_ID, AZURE_CLIENT_ID]
+          title: Client ID
+          user_settable: true
+        default: { get_env: [ARM_CLIENT_ID, {get_env: AZURE_CLIENT_ID}] }
+        required: false
+      AZURE_TENANT:
+        description: &gt;
+          [Find your Azure active directory tenant](https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-ad-tenant)
+        type: string
+        metadata:
+          env_vars: [ARM_TENANT_ID, AZURE_TENANT]
+          title: Tenant
+          user_settable: true
+        default: { get_env: [ARM_TENANT_ID, {get_env: AZURE_TENANT}] }
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        description: &gt;
+          [Find your Azure subscription](https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-subscription)
+        type: string
+        required: false
+        metadata:
+          env_vars: [ARM_SUBSCRIPTION_ID, AZURE_SUBSCRIPTION_ID]
+          title: Azure Subscription
+          user_settable: true
+        default: { get_env: [ARM_SUBSCRIPTION_ID, {get_env: AZURE_SUBSCRIPTION_ID}] }
+      AZURE_SECRET:
+        description: &gt;
+          For authentication with service principal. [(Portal link)](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal#option-2-create-a-new-application-secret)
+        type: string
+        required: false
+        default: { get_env: [ARM_CLIENT_SECRET, {get_env: AZURE_SECRET}] }
+        metadata:
+          env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
+          sensitive: true
+          title: Client Secret
+          user_settable: true
+      AZURE_AD_USER:
+        description: for authentication with Active Directory
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_AD_USER }
+        required: false
+      AZURE_PASSWORD:
+        description: for authentication with Active Directory
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_PASSWORD }
+        required: false
+        metadata:
+          sensitive: true
+      AZURE_ADFS_AUTHORITY_URL:
+        description: set if you have your own ADFS authority
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_ADFS_AUTHORITY_URL }
+        required: false
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Packet</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">project</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">UUID</span> <span class="n">to</span> <span class="n">packet</span> <span class="n">project</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-      <span class="n">PACKET_API_TOKEN</span><span class="p">:</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">PACKET_API_TOKEN</span> <span class="p">}</span>
-        <span class="n">metadata</span><span class="p">:</span>
-          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+  unfurl.relationships.ConnectsTo.Packet:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      project:
+        description: UUID to packet project
+        type: string
+      PACKET_API_TOKEN:
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: PACKET_API_TOKEN }
+        metadata:
+          sensitive: true
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">OpenStack</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
-    <span class="c1"># from pyrax (rackspace, openstack)</span>
-    <span class="c1"># RAX_CREDS_FILE</span>
-    <span class="c1"># CLOUD_ID_TYPE &quot;rackspace&quot; or &quot;keystone&quot;</span>
-    <span class="c1"># CLOUD_REGION default: &quot;DFW&quot;</span>
-    <span class="c1"># also CLOUD_* in https://github.com/pycontribs/pyrax/blob/master/docs/getting_started.md#available-configuration-settings</span>
+  unfurl.relationships.ConnectsTo.OpenStack:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    # from pyrax (rackspace, openstack)
+    # RAX_CREDS_FILE
+    # CLOUD_ID_TYPE &quot;rackspace&quot; or &quot;keystone&quot;
+    # CLOUD_REGION default: &quot;DFW&quot;
+    # also CLOUD_* in https://github.com/pycontribs/pyrax/blob/master/docs/getting_started.md#available-configuration-settings
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Rackspace</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">OpenStack</span>
+  unfurl.relationships.ConnectsTo.Rackspace:
+    derived_from: unfurl.relationships.ConnectsTo.OpenStack
 
-<span class="n">interface_types</span><span class="p">:</span>
-  <span class="n">Mock</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Root</span>
+interface_types:
+  Mock:
+    derived_from: tosca.interfaces.Root
 
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Install</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">operations</span><span class="p">:</span>
-      <span class="n">check</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Checks</span> <span class="ow">and</span> <span class="n">sets</span> <span class="n">the</span> <span class="n">status</span> <span class="ow">and</span> <span class="n">attributes</span> <span class="n">of</span> <span class="n">the</span> <span class="n">instance</span>
-      <span class="n">discover</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Discovers</span> <span class="n">current</span> <span class="n">state</span> <span class="n">of</span> <span class="n">the</span> <span class="n">current</span> <span class="n">instance</span> <span class="ow">and</span> <span class="p">(</span><span class="n">possibly</span><span class="p">)</span> <span class="n">related</span> <span class="n">instances</span><span class="p">,</span> <span class="n">updates</span> <span class="n">the</span> <span class="n">spec</span> <span class="k">as</span> <span class="n">needed</span><span class="o">.</span>
-      <span class="n">revert</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Restore</span> <span class="n">the</span> <span class="n">instance</span> <span class="n">to</span> <span class="n">the</span> <span class="n">state</span> <span class="n">it</span> <span class="n">was</span> <span class="n">original</span> <span class="n">found</span> <span class="ow">in</span><span class="o">.</span>
-      <span class="n">connect</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Connect</span> <span class="n">to</span> <span class="n">a</span> <span class="n">pre</span><span class="o">-</span><span class="n">existing</span> <span class="n">resource</span><span class="o">.</span>
-      <span class="n">restart</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Restart</span> <span class="n">the</span> <span class="n">resource</span><span class="o">.</span>
+  unfurl.interfaces.Install:
+    derived_from: tosca.interfaces.Root
+    operations:
+      check:
+        description: Checks and sets the status and attributes of the instance
+      discover:
+        description: Discovers current state of the current instance and (possibly) related instances, updates the spec as needed.
+      revert:
+        description: Restore the instance to the state it was original found in.
+      connect:
+        description: Connect to a pre-existing resource.
+      restart:
+        description: Restart the resource.
 
-<span class="n">group_types</span><span class="p">:</span>
-  <span class="n">unfurl</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">AnsibleInventoryGroup</span><span class="p">:</span>
-    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">description</span><span class="p">:</span> <span class="n">Use</span> <span class="n">this</span> <span class="n">to</span> <span class="n">place</span> <span class="n">hosts</span> <span class="ow">in</span> <span class="n">Ansible</span> <span class="n">inventory</span> <span class="n">groups</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">hostvars</span><span class="p">:</span>
-        <span class="n">description</span><span class="p">:</span> <span class="n">Ansible</span> <span class="n">hostvars</span> <span class="k">for</span> <span class="n">members</span> <span class="n">of</span> <span class="n">this</span> <span class="n">group</span>
-        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
-        <span class="n">default</span><span class="p">:</span> <span class="p">{}</span>
-    <span class="n">members</span><span class="p">:</span> <span class="p">[</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">,</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">ansibleInventoryGroup</span><span class="p">]</span>
+group_types:
+  unfurl.groups.AnsibleInventoryGroup:
+    derived_from: tosca.groups.Root
+    description: Use this to place hosts in Ansible inventory groups
+    properties:
+      hostvars:
+        description: Ansible hostvars for members of this group
+        type: map
+        default: {}
+    members: [tosca.nodes.Compute, unfurl.groups.ansibleInventoryGroup]
 </pre></div>
 </div>
 </section>
