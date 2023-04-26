@@ -532,8 +532,7 @@ def _make_etag(latest_commit: str):
     return f'W/"{latest_commit}"'
 
 
-def json_response(obj, pretty):
-    dump_args: Dict = {}
+def json_response(obj, pretty, **dump_args):
     if pretty:
         dump_args.setdefault("indent", 2)
     else:
@@ -599,7 +598,7 @@ def export():
             if latest_commit and _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
 
-        response = json_response(json_summary, request.args.get("pretty"))
+        response = json_response(json_summary, request.args.get("pretty"), sort_keys=False)
         if latest_commit:
             response.headers["Etag"] = _make_etag(latest_commit)
         return response
