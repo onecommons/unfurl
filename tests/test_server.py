@@ -32,7 +32,7 @@ if UNFURL_TEST_REDIS_URL:
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
     # time out in 2 minutes so we don't fill up the cache with cruft:
     os.environ["CACHE_DEFAULT_TIMEOUT"] = "120"
-
+os.environ["CACHE_CLEAR_ON_START"] = "1"
 # Very minimal deployment
 deployment = """
 apiVersion: unfurl/v1alpha1

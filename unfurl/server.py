@@ -73,7 +73,27 @@ if cors:
     CORS(app, origins=cors.split())
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
+
+def clear_all(cache, prefix):
+    backend = cache.cache
+    redis = getattr(backend, "_write_client", None)
+    if redis:
+        keys = redis.keys(pattern=prefix + "*")
+        if keys:
+            redis.delete(*keys)
+    else:
+        clear_cache(cache, "")
+
+
+if os.environ.get("CACHE_CLEAR_ON_START"):
+    prefix = os.environ.get("CACHE_CLEAR_ON_START")
+    # if set, use the given prefix, otherwise the current prefix
+    if prefix in ["1", "true"]:
+        prefix = flask_config["CACHE_KEY_PREFIX"]
+    clear_all(cache, prefix)
+
 DEFAULT_BRANCH = "main"
+
 
 def set_current_ensemble_git_url():
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
@@ -412,7 +432,9 @@ def hook():
         try:
             # Remove "Bearer " from header
             header_secret = header_secret.split(" ")[1]
-        except IndexError:  # Quick sanity check to make sure the header is formatted correctly
+        except (
+            IndexError
+        ):  # Quick sanity check to make sure the header is formatted correctly
             return create_error_response(
                 "BAD_REQUEST",
                 "The Authorization header must be in the format 'Bearer <secret>'",
@@ -598,7 +620,9 @@ def export():
             if latest_commit and _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
 
-        response = json_response(json_summary, request.args.get("pretty"), sort_keys=False)
+        response = json_response(
+            json_summary, request.args.get("pretty"), sort_keys=False
+        )
         if latest_commit:
             response.headers["Etag"] = _make_etag(latest_commit)
         return response
@@ -867,9 +891,13 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
-            assert isinstance(value, list), f"bad patch value {value} for {key} in {patch}"
+            assert isinstance(
+                value, list
+            ), f"bad patch value {value} for {key} in {patch}"
             for prop in value:
-                assert isinstance(prop, dict), f"bad {prop} in {value} for {key} in {patch}"
+                assert isinstance(
+                    prop, dict
+                ), f"bad {prop} in {value} for {key} in {patch}"
                 props[prop["name"]] = prop["value"]
         elif key == "dependencies":
             requirements = [
@@ -958,9 +986,7 @@ def _apply_environment_patch(patch: list, project: Project):
                             new_target[node_name] = tpl
                         environment[key] = new_target  # replace
         elif typename == "DeploymentPath":
-            update_deployment(
-                project, patch_inner["name"], patch_inner, False, deleted
-            )
+            update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
 
 
 def _patch_environment(body: dict, project_id: str):
@@ -1066,7 +1092,9 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                 _patch_node_template(patch_inner, doc)
 
 
-def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=True) -> str:
+def _patch_ensemble(
+    body: dict, create: bool, project_id: str, check_lastcommit=True
+) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
@@ -1247,7 +1275,9 @@ def _commit_and_push(
     return None
 
 
-def _fetch_working_dir(project_path: str, branch: str, args: dict, pull: bool) -> Optional[str]:
+def _fetch_working_dir(
+    project_path: str, branch: str, args: dict, pull: bool
+) -> Optional[str]:
     # if successful, returns the repository's working directory or None if clone failed
     current_working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
     if not project_path or project_path == ".":
