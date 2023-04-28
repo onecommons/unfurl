@@ -1099,7 +1099,6 @@ class TopologyInstance(HasInstancesInstance):
 
         self._relationships = None
         self._tmpDir = None
-        self.imports = None
 
     def set_base_dir(self, baseDir):
         self._baseDir = baseDir

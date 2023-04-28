@@ -193,12 +193,14 @@ class PlanRequest:
     def include_in_plan(self):
         if self.task and self.task.priority == Priority.critical:
             return True  # XXX hackish, just used for primary_provider
-        if self.target.priority is not None:
-            return self.target.priority >= Priority.required
+        # calls self.target.template.required if _priority is None
+        priority = self.target.priority
+        if priority is not None:
+            return priority >= Priority.required
         if self.target.created:
             #  if already created then always include the resource
             return True
-        return self.target.template.required
+        return False
 
     def has_unfulfilled_refs(self) -> bool:
         for dep in self.get_unfulfilled_refs():
