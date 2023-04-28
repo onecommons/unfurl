@@ -1233,7 +1233,7 @@ def status(ctx, ensemble, **options):
 def validate(ctx, ensemble, **options):
     """Validate the given ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"))
+    localEnv = LocalEnv(ensemble, options.get("home"), override_context="")
     localEnv.get_manifest()
 
 
