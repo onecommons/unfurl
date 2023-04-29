@@ -13,6 +13,7 @@ from typing import (
     Any,
     Dict,
     Iterable,
+    Iterator,
     List,
     Optional,
     Union,
@@ -362,10 +363,10 @@ class _ChildResources(Mapping):
         return self.resource.find_resource(key)
 
     def __iter__(self):
-        return iter(r.name for r in self.resource.get_self_and_descendents())
+        return iter(r.name for r in self.resource.get_self_and_descendants())
 
     def __len__(self):
-        return len(tuple(self.resource.get_self_and_descendents()))
+        return len(tuple(self.resource.get_self_and_descendants()))
 
 
 class EntityInstance(OperationalInstance, ResourceRef):
@@ -608,7 +609,7 @@ class HasInstancesInstance(EntityInstance):
                     f'can not create node instance "{name}", its name is already in use'
                 )
 
-        self.instances = []
+        self.instances: List[HasInstancesInstance] = []
         EntityInstance.__init__(self, name, attributes, parent, template, status)
         if self.root is self:
             self._all = _ChildResources(self)
@@ -619,16 +620,21 @@ class HasInstancesInstance(EntityInstance):
     def key(self) -> InstanceKey:
         return cast(InstanceKey, f"::{self.name}")
 
-    def get_self_and_descendents(self):
+    def get_self_and_descendants(self) -> Iterator["HasInstancesInstance"]:
         "Recursive descendent including self"
         yield self
         for r in self.instances:
-            for descendent in r.get_self_and_descendents():
+            for descendent in r.get_self_and_descendants():
                 yield descendent
 
     @property
+    def descendants(self):
+        return list(self.get_self_and_descendants())
+
+    @property
     def descendents(self):
-        return list(self.get_self_and_descendents())
+        # backward compatibility
+        return self.descendants
 
     # XXX use find_instance instead and remove find_resource
     def find_resource(self, qualified_name):
@@ -1099,7 +1105,6 @@ class TopologyInstance(HasInstancesInstance):
 
         self._relationships = None
         self._tmpDir = None
-        self.imports = None
 
     def set_base_dir(self, baseDir):
         self._baseDir = baseDir

@@ -36,7 +36,7 @@ from .util import (
 )
 from .result import Result, ResultsList, serialize_value
 from .support import Defaults, NodeState, Priority, Status
-from .runtime import EntityInstance, InstanceKey
+from .runtime import EntityInstance, InstanceKey, HasInstancesInstance
 from .logs import getLogger
 import logging
 
@@ -194,12 +194,14 @@ class PlanRequest:
     def include_in_plan(self):
         if self.task and self.task.priority == Priority.critical:
             return True  # XXX hackish, just used for primary_provider
-        if self.target.priority is not None:
-            return self.target.priority >= Priority.required
+        # calls self.target.template.required if _priority is None
+        priority = self.target.priority
+        if priority is not None:
+            return priority >= Priority.required
         if self.target.created:
             #  if already created then always include the resource
             return True
-        return self.target.template.required
+        return False
 
     def has_unfulfilled_refs(self) -> bool:
         for dep in self.get_unfulfilled_refs():
@@ -973,9 +975,9 @@ def _find_implementation(interface, operation, template):
     return default
 
 
-def find_resources_from_template_name(root, name):
+def find_resources_from_template_name(root: HasInstancesInstance, name: str):
     # XXX make faster
-    for resource in root.get_self_and_descendents():
+    for resource in root.get_self_and_descendants():
         if resource.template.name == name:
             yield resource
 

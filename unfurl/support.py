@@ -1027,10 +1027,10 @@ def get_attribute(args, ctx: RefContext):
 set_eval_func("get_attribute", get_attribute, True, True)
 
 
-def get_nodes_of_type(type_name, ctx: RefContext):
+def get_nodes_of_type(type_name: str, ctx: RefContext) :
     return [
         r
-        for r in ctx.currentResource.root.get_self_and_descendents()
+        for r in ctx.currentResource.root.get_self_and_descendants()
         if r.template.is_compatible_type(type_name)
         and r.name not in ["inputs", "outputs"]
     ]
@@ -1544,10 +1544,10 @@ class TopologyMap(dict):
             raise KeyError(key)
 
     def __iter__(self):
-        return iter(r.name for r in self.resource.get_self_and_descendents())
+        return iter(r.name for r in self.resource.get_self_and_descendants())
 
     def __len__(self):
-        return len(tuple(self.resource.get_self_and_descendents()))
+        return len(tuple(self.resource.get_self_and_descendants()))
 
 
 LiveDependencies = NewType(

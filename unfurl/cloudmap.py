@@ -4,7 +4,7 @@
 A cloud map is document containing metadata on collections of repositories include the artifacts and blueprints they contain.
 You can use a cloud map to discover blueprints to deploy.
 
-You can use a cloud map to manage servers that host git repositories and syncronize mirrors of git repositories.
+You can use a cloud map to manage servers that host git repositories and synchronize mirrors of git repositories.
 Three types of repository hosts are currently supported: local, gitlab, and unfurl.cloud
 For example, the following commands can be used push projects on a staging instance to production:
 

@@ -107,11 +107,11 @@ class Plan:
                     return self.create_shadow_instance(external, name, template)
             if record.spec.get("instance") in ["root", "*"]:
                 # add root instance
-                searchAll.append((name, record.external_instance))
+                searchAll.append((name, external))
 
         # look in the topologies where were are importing everything
         for name, root in searchAll:
-            for external in root.get_self_and_descendents():
+            for external in root.get_self_and_descendants():
                 if match(name, external.template, template):
                     return self.create_shadow_instance(external, name, template)
 
@@ -969,8 +969,7 @@ def order_templates(templates: Dict[str, NodeSpec], filter=None, interface=None)
                     seen.add(operationHostSpec)
                     yield operationHostSpec
 
-        for ancestor in get_ancestor_templates(source.toscaEntityTemplate):
-            spec = templates.get(ancestor.name)
+        for spec in get_ancestor_templates(source, templates):
             if spec:
                 if spec is not source:
                     # ancestor is required by source
@@ -981,12 +980,16 @@ def order_templates(templates: Dict[str, NodeSpec], filter=None, interface=None)
                 yield spec
 
 
-def get_ancestor_templates(source):
-    # note: opposite direction as NodeSpec.relationships
-    for (rel, req, reqDef) in source.relationships:
-        if rel.target is not source:
-            for ancestor in get_ancestor_templates(rel.target):
-                yield ancestor
+def get_ancestor_templates(source, templates):
+    if not source.abstract:
+        # NodeTemplate.relationships return the node's requirements
+        # (the opposite of NodeSpec.relationships)
+        for (rel, req, reqDef) in source.toscaEntityTemplate.relationships:
+            if rel.target is not source.toscaEntityTemplate:
+                target = rel.target and templates.get(rel.target.name)
+                if target:
+                    for ancestor in get_ancestor_templates(target, templates):
+                        yield ancestor
     yield source
 
 

@@ -416,6 +416,10 @@ relationship_types:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
       AZURE_CLIENT_ID:
+        description: >
+          Also known as an Application ID or `appId`.
+          Can be created via [CLI](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_certificate)
+          or through the [Azure portal](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal).
         type: string
         metadata:
           env_vars: [ARM_CLIENT_ID, AZURE_CLIENT_ID]
@@ -424,6 +428,8 @@ relationship_types:
         default: { get_env: [ARM_CLIENT_ID, {get_env: AZURE_CLIENT_ID}] }
         required: false
       AZURE_TENANT:
+        description: >
+          [Find your Azure active directory tenant](https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-ad-tenant)
         type: string
         metadata:
           env_vars: [ARM_TENANT_ID, AZURE_TENANT]
@@ -432,16 +438,18 @@ relationship_types:
         default: { get_env: [ARM_TENANT_ID, {get_env: AZURE_TENANT}] }
         required: false
       AZURE_SUBSCRIPTION_ID:
-        description: for authentication with service principal
+        description: >
+          [Find your Azure subscription](https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-subscription)
         type: string
         required: false
         metadata:
           env_vars: [ARM_SUBSCRIPTION_ID, AZURE_SUBSCRIPTION_ID]
-          title: Subscription
+          title: Azure Subscription
           user_settable: true
         default: { get_env: [ARM_SUBSCRIPTION_ID, {get_env: AZURE_SUBSCRIPTION_ID}] }
       AZURE_SECRET:
-        description: for authentication with service principal
+        description: >
+          For authentication with service principal. [(Portal link)](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal#option-2-create-a-new-application-secret)
         type: string
         required: false
         default: { get_env: [ARM_CLIENT_SECRET, {get_env: AZURE_SECRET}] }

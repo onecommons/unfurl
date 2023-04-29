@@ -1230,7 +1230,7 @@ def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
     return db, manifest, env, connection_types
 
 
-def add_graphql_deployment(manifest, db, dtemplate):
+def add_graphql_deployment(manifest: YamlManifest, db, dtemplate):
     """
     type Deployment {
       title: String!
@@ -1254,9 +1254,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
             for c in t["dependencies"]:
                 if c.get("match"):
                     relationships.setdefault(c["match"], []).append(c)
+    assert manifest.rootResource
     resources = [
         to_graphql_resource(instance, manifest, db, relationships)
-        for instance in manifest.rootResource.get_self_and_descendents()
+        for instance in manifest.rootResource.get_self_and_descendants()
         if instance is not manifest.rootResource
     ]
     db["Resource"] = {r["name"]: r for r in resources if r}
