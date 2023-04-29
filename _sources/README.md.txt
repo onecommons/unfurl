@@ -28,7 +28,7 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live clo
 
 - Cloud provider and SaaS services account credentials and other secrets organized into environments.
 - Code repositories and container image registries.
-- A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the [TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) standard.
+- A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard.
 - Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).
 
 3\. Use `unfurl deploy` to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.

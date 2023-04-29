@@ -140,7 +140,7 @@
 <ul class="simple">
 <li><p>Cloud provider and SaaS services account credentials and other secrets organized into environments.</p></li>
 <li><p>Code repositories and container image registries.</p></li>
-<li><p>A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">TOSCA</a> standard.</p></li>
+<li><p>A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard.</p></li>
 <li><p>Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).</p></li>
 </ul>
 <p>3. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
