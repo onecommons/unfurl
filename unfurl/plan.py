@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Dict, List, Optional, TYPE_CHECKING, cast
+from typing import Dict, Iterator, List, Optional, TYPE_CHECKING, Set, cast
 
 if TYPE_CHECKING:
     from .job import JobOptions
@@ -21,7 +21,14 @@ from .planrequests import (
     find_resources_from_template_name,
     _find_implementation,
 )
-from .tosca import NodeSpec, Workflow, find_standard_interface, EntitySpec, ToscaSpec
+from .tosca import (
+    NodeSpec,
+    TopologySpec,
+    Workflow,
+    find_standard_interface,
+    EntitySpec,
+    ToscaSpec,
+)
 from .logs import getLogger
 
 
@@ -63,7 +70,9 @@ class Plan:
 
     interface: Optional[str] = None
 
-    def __init__(self, root: TopologyInstance, toscaSpec: ToscaSpec, jobOptions: "JobOptions"):
+    def __init__(
+        self, root: TopologyInstance, toscaSpec: ToscaSpec, jobOptions: "JobOptions"
+    ):
         self.jobOptions = jobOptions
         self.workflow = jobOptions.workflow
         self.root = root
@@ -80,19 +89,21 @@ class Plan:
         else:
             self.filterTemplate = None
 
-    def find_shadow_instance(self, template: EntitySpec, match=is_external_template_compatible):
+    def find_shadow_instance(
+        self, template: EntitySpec, match=is_external_template_compatible
+    ):
         imported = template.tpl.get("imported")
         assert self.root.imports is not None
         if imported:
-            external = self.root.imports.find_import(imported)
-            if not external:
+            _external = self.root.imports.find_import(imported)
+            if not _external:
                 return None
-            if external.shadow and external.root is self.root:
+            if _external.shadow and _external.root is self.root:
                 # shadowed instance already created
-                return external
+                return _external
             else:
                 import_name = imported.partition(":")[0]
-                return self.create_shadow_instance(external, import_name, template)
+                return self.create_shadow_instance(_external, import_name, template)
 
         searchAll = []
         for name, record in self.root.imports.items():
@@ -111,13 +122,17 @@ class Plan:
 
         # look in the topologies where were are importing everything
         for name, root in searchAll:
-            for external in root.get_self_and_descendants():
-                if match(name, external.template, template):
-                    return self.create_shadow_instance(external, name, template)
+            for external_descendant in root.get_self_and_descendants():
+                if match(name, external_descendant.template, template):
+                    return self.create_shadow_instance(
+                        external_descendant, name, template
+                    )
 
         return None
 
-    def create_shadow_instance(self, external, import_name, template):
+    def create_shadow_instance(
+        self, external: EntityInstance, import_name: str, template: EntitySpec
+    ) -> EntityInstance:
         # create a local instance that "shadows" the external one we imported
         assert self.root.imports is not None
         name = import_name + ":" + external.name
@@ -153,13 +168,20 @@ class Plan:
             for resource in find_resources_from_template_name(self.root, template.name):
                 yield resource
 
-    def create_resource(self, template: EntitySpec) -> NodeInstance:
+    def create_resource(self, template: NodeSpec) -> NodeInstance:
         parent = find_parent_resource(self.root, template)
         if self.jobOptions.check:
             status = Status.unknown
         else:
             status = Status.pending
-        return NodeInstance(template.name, None, parent, template, status)
+        instance = NodeInstance(template.name, None, parent, template, status)
+        # if template.substituted:
+        #     # set shadow to inner node instance
+        #     name = ":" + instance.name + ":" + template.substituted.name
+        #     instance.imported = name
+        #     # XXX inner = create/get inner instance (template.substituted.name)
+        #     self.root.imports.set_shadow(name, instance, inner)
+        return instance
 
     def _run_operation(self, startState, op, resource, reason=None, inputs=None):
         req = create_task_request(
@@ -551,20 +573,14 @@ class Plan:
         yield reqGroup
         yield step.on_success  # list of steps
 
-    def _get_templates(self) -> List[EntitySpec]:
+    def _get_templates(self) -> List[NodeSpec]:
         assert self.tosca.topology
-        templates = self.tosca.topology.node_templates.values()
+        filter = self.filterTemplate and self.filterTemplate.name
+        seen: Set[NodeSpec] = set()
         # order by ancestors
         return list(
-            order_templates(
-                {
-                    t.name: t
-                    for t in templates
-                    if "virtual" not in t.directives
-                    and interface_requirements_ok(self.tosca, t)
-                },
-                self.filterTemplate and self.filterTemplate.name,
-                self.interface,
+            _get_templates_from_topology(
+                self.tosca.topology, seen, self.interface, filter
             )
         )
 
@@ -883,6 +899,7 @@ class RunNowPlan(Plan):
                 # see if there's a template with the same name and create the resource
                 template = self.tosca.get_template(instanceFilter)
                 if template:
+                    assert isinstance(template, NodeSpec)
                     resource = self.create_resource(template)
                 else:
                     raise UnfurlError(f"specified instance not found: {instanceFilter}")
@@ -952,11 +969,28 @@ def interface_requirements_ok(spec, template):
     return True
 
 
-def order_templates(templates: Dict[str, NodeSpec], filter=None, interface=None):
-    seen = set()
+def _get_templates_from_topology(
+    topology: TopologySpec, seen: Set[NodeSpec], interface, filter=None
+) -> Iterator[NodeSpec]:
+    templates = topology.node_templates.values()
+    # order by ancestors
+    return order_templates(
+        {
+            t.name: t
+            for t in templates
+            if "virtual" not in t.directives
+            and interface_requirements_ok(topology.spec, t)
+            and (not filter or t.name == filter)
+        },
+        seen,
+        interface,
+    )
+
+
+def order_templates(
+    templates: Dict[str, NodeSpec], seen: Set[NodeSpec], interface=None
+) -> Iterator[NodeSpec]:
     for source in templates.values():
-        if filter and source.name != filter:
-            continue
         if source in seen:
             continue
 
@@ -969,22 +1003,27 @@ def order_templates(templates: Dict[str, NodeSpec], filter=None, interface=None)
                     seen.add(operationHostSpec)
                     yield operationHostSpec
 
-        for spec in get_ancestor_templates(source, templates):
-            if spec:
-                if spec is not source:
-                    # ancestor is required by source
-                    spec._isReferencedBy.append(source)  # type: ignore
-                if spec in seen:
-                    continue
-                seen.add(spec)
-                yield spec
+        for nodespec in get_ancestor_templates(source, templates):
+            if nodespec is not source:
+                # ancestor is required by source
+                nodespec._isReferencedBy.append(source)  # type: ignore
+            if nodespec in seen:
+                continue
+            seen.add(nodespec)
+            if nodespec.substitution:
+                yield from _get_templates_from_topology(
+                    nodespec.substitution, seen, interface
+                )
+            yield nodespec
 
 
-def get_ancestor_templates(source, templates):
+def get_ancestor_templates(
+    source: NodeSpec, templates: Dict[str, NodeSpec]
+) -> Iterator[NodeSpec]:
     if not source.abstract:
         # NodeTemplate.relationships return the node's requirements
         # (the opposite of NodeSpec.relationships)
-        for (rel, req, reqDef) in source.toscaEntityTemplate.relationships:
+        for rel, req, reqDef in source.toscaEntityTemplate.relationships:
             if rel.target is not source.toscaEntityTemplate:
                 target = rel.target and templates.get(rel.target.name)
                 if target:

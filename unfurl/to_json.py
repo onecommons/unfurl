@@ -910,6 +910,7 @@ def _generate_primary(spec: ToscaSpec, db, node_tpl=None) -> NodeTemplate:
 # if a node type or template is specified, use that, but it needs to be compatible with the generated type
 def _get_or_make_primary(spec: ToscaSpec, db) -> Tuple[str, str]:
     ExceptionCollector.start()  # topology.add_template may generate validation exceptions
+    assert spec.template
     topology = spec.template.topology_template
     # we need to generate a root template
     root_type = None

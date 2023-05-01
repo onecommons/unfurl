@@ -32,10 +32,9 @@ from typing_extensions import Protocol, NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
 
-
 if TYPE_CHECKING:
     from .manifest import Manifest
-    from .runtime import EntityInstance, InstanceKey
+    from .runtime import EntityInstance, InstanceKey, HasInstancesInstance
     from .configurator import Dependency
 
 from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -165,7 +164,9 @@ def eval_python(arg, ctx):
     if not func:
         raise UnfurlError(f"Could not find python function {funcName}")
     if not callable(func):
-        raise UnfurlError(f"Invalid python function {funcName}: {type(funcName)} is not callable.")
+        raise UnfurlError(
+            f"Invalid python function {funcName}: {type(funcName)} is not callable."
+        )
 
     kw = ctx.kw
     if "args" in kw:
@@ -617,6 +618,7 @@ def token(args, ctx):
 
 set_eval_func("token", token, True, True)
 
+
 # XXX this doesn't work with node_filters, need an instance to get a specific result
 def get_tosca_property(args, ctx):
     from toscaparser.functions import get_function
@@ -1027,7 +1029,7 @@ def get_attribute(args, ctx: RefContext):
 set_eval_func("get_attribute", get_attribute, True, True)
 
 
-def get_nodes_of_type(type_name: str, ctx: RefContext) :
+def get_nodes_of_type(type_name: str, ctx: RefContext):
     return [
         r
         for r in ctx.currentResource.root.get_self_and_descendants()
@@ -1279,19 +1281,25 @@ set_eval_func("external", get_import)
 class _Import:
     def __init__(
         self,
-        external_instance: "EntityInstance",
+        external_instance: "HasInstancesInstance",
         spec: dict,
-        local_instance: Optional["EntityInstance"] = None,
+        local_instance: Optional["HasInstancesInstance"] = None,
     ):
         self.external_instance = external_instance
         self.spec = spec
         self.local_instance = local_instance
 
 
-class Imports(collections.OrderedDict):
+if TYPE_CHECKING:  # for python 3.7
+    ImportsBase = collections.OrderedDict[str, _Import]
+else:
+    ImportsBase = collections.OrderedDict
+
+
+class Imports(ImportsBase):
     manifest: Optional["Manifest"] = None
 
-    def find_import(self, qualified_name):
+    def find_import(self, qualified_name: str) -> Optional["HasInstancesInstance"]:
         # return a local shadow of the imported instance
         # or the imported instance itself if no local shadow exist (yet).
         imported = self._find_import(qualified_name)
@@ -1308,7 +1316,7 @@ class Imports(collections.OrderedDict):
                 return self._find_import(qualified_name)
         return None
 
-    def _find_import(self, name):
+    def _find_import(self, name: str) -> Optional["HasInstancesInstance"]:
         if name in self:
             # fully qualified name already added
             return self[name].local_instance or self[name].external_instance
@@ -1605,7 +1613,7 @@ class AttributeManager:
             self.statuses[resource.key][1] = newvalue
 
     def mark_referenced_templates(self, template):
-        for (resource, attr) in self.attributes.values():
+        for resource, attr in self.attributes.values():
             if (
                 resource.template is not template
                 and template not in resource.template._isReferencedBy

@@ -871,9 +871,9 @@ def _add_to_req_list(reqs, request):
         reqs.append(request)
 
 
-def _reevaluate_not_required(not_required, render_requests):
+def _reevaluate_not_required(not_required: List[PlanRequest], render_requests) -> List[PlanRequest]:
     # keep rendering if a not_required template was referenced and is now required
-    new_not_required = []
+    new_not_required: List[PlanRequest] = []
     for request in not_required:
         if request.include_in_plan():
             request.target.validate()
@@ -895,7 +895,7 @@ def do_render_requests(
     flattened_requests = list(
         r for r in get_render_requests(requests) if _prepare_request(job, r, errors)
     )
-    not_required = []
+    not_required: List[PlanRequest] = []
     render_requests = collections.deque(flattened_requests)
 
     notready_group = None
@@ -990,7 +990,7 @@ def find_parent_template(source):
     return None
 
 
-def find_parent_resource(root: EntityInstance, source: EntitySpec):
+def find_parent_resource(root: HasInstancesInstance, source: EntitySpec):
     parentTemplate = find_parent_template(source.toscaEntityTemplate)
     if not parentTemplate:
         return root

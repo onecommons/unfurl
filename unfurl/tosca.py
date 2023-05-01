@@ -761,7 +761,7 @@ class EntitySpec(ResourceRef):
 
     @property
     def abstract(self) -> str:
-        return ''
+        return ""
 
     @property
     def directives(self):
@@ -847,6 +847,17 @@ class NodeSpec(EntitySpec):
         self._requirements: Optional[Dict[str, "RequirementSpec"]] = None
         self._relationships: List["RelationshipSpec"] = []
         self._artifacts = None
+        self._substitution: Optional["TopologySpec"] = None
+
+    @property
+    def substitution(self) -> Optional["TopologySpec"]:
+        if self._substitution is not None:
+            return self._substitution
+        if self.toscaEntityTemplate.substitution:
+            self._substituted = TopologySpec(
+                self.toscaEntityTemplate.substitution.topology, self.spec
+            )
+        return self._substitution
 
     def _resolve(self, key):
         try:
@@ -1001,7 +1012,7 @@ class NodeSpec(EntitySpec):
         for name in ("select", "substitute"):
             if name in self.toscaEntityTemplate.directives:
                 return name
-        return ''
+        return ""
 
     @property
     def directives(self):
