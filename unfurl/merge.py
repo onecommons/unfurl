@@ -73,7 +73,6 @@ def make_map_with_base(doc, baseDir, cls):
 # other values besides delete not supported because current code can leave those keys in final result
 mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
-# b is the merge patch, a is original dict
 def merge_dicts(
     b: Mapping,
     a: Mapping,
@@ -480,8 +479,8 @@ def expand_dict(doc, path, includes, current, cls=dict):
         return accum
     else:
         return cp
-    # e,g, mergeDicts(mergeDicts(a, b), cp)
-    # return includes, reduce(lambda accum, next: mergeDicts(accum, next, cls), templates, {}), cp
+    # e,g, merge_dicts(merge_dicts(a, b), cp)
+    # return includes, reduce(lambda accum, next: merge_dicts(accum, next, cls), templates, {}), cp
 
 
 def _find_missing_includes(includes):

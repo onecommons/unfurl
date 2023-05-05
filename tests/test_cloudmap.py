@@ -66,6 +66,7 @@ def runner():
 
 expected_cloudmap = """apiVersion: unfurl/v1alpha1
 kind: CloudMap
+schema: unfurl.cloud/onecommons/unfurl-types
 repositories:
   unfurl.cloud/feb20a/dashboard:
     git: unfurl.cloud/feb20a/dashboard.git
@@ -82,7 +83,13 @@ repositories:
     private: true
     default_branch: main
     branches:
-      main:"""
+      main: 1dd9512edccaec2049a001fedf47195ab6ea298f
+    notable:
+      ensemble/ensemble.yaml:
+        artifact_type: artifact.tosca.UnfurlEnsemble
+        name: Generic cloud provider implementations
+        version: 2.0.0
+        schema: https://unfurl.cloud/onecommons/unfurl-types.git#v"""
 
 
 def test_create(runner, caplog):
@@ -94,6 +101,7 @@ def test_create(runner, caplog):
     with change_cwd("cloudmap"):
         with open("cloudmap.yaml") as f:
             cloudmap = f.read()
+            print("cloudmap", cloudmap)
             assert cloudmap.startswith(expected_cloudmap), cloudmap
         assert not os.system("git push origin main")
 

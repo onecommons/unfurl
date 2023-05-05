@@ -633,7 +633,7 @@ class Project:
                 return substitute_env(action.get_key, url_vars)
             if action.check_include:
                 return True
-            return None  # unsupported action 
+            return None  # unsupported action
 
         if merge == "maplist" and "ENVIRONMENT" not in self.overrides:
             # don't load remote includes for LocalEnv that don't specify an environment
@@ -1056,7 +1056,7 @@ class LocalEnv:
 
         if path and path != self.manifestPath:
             # share projects and ensembles
-            localEnv = LocalEnv(path, parent=self)
+            localEnv = LocalEnv(path, parent=self, readonly=self.readonly)
             return localEnv.get_manifest()
         else:
             assert self.manifestPath
@@ -1122,7 +1122,9 @@ class LocalEnv:
 
         projectRoot = os.path.join(repo.working_dir, file)
         return LocalEnv(
-            os.path.join(projectRoot, location.get("file") or ""), parent=self
+            os.path.join(projectRoot, location.get("file") or ""),
+            parent=self,
+            readonly=self.readonly,
         )
 
     def _find_given_manifest_or_project(
@@ -1314,7 +1316,9 @@ class LocalEnv:
         if revision:
             if repo.revision != repo.resolve_rev_spec(revision) or checkout_args:
                 if repo.is_dirty():
-                    logger.warning(f"{repo.working_dir} is dirty, skipping checking out revision {revision}")
+                    logger.warning(
+                        f"{repo.working_dir} is dirty, skipping checking out revision {revision}"
+                    )
                 else:
                     repo.checkout(revision, **checkout_args)
             return repo, repo.revision, False

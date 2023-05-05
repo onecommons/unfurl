@@ -1110,6 +1110,12 @@ class ContainerImage(ExternalValue):
                 return f"{name}@sha256:{self.digest}"
         return name
 
+    def full_name(self, default_hostname="docker.io") -> str:
+        if not self.registry_host:
+            return os.path.join(default_hostname, self.get())
+        else:
+            return self.get()
+
     @staticmethod
     def split(artifact_name):
         if not artifact_name:
