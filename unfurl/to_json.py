@@ -36,7 +36,7 @@ from toscaparser.activities import ConditionClause
 from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
-from .tosca import is_function, get_nodefilters
+from .tosca import ToscaSpec, is_function, get_nodefilters
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
 from .result import ChangeRecord
@@ -944,7 +944,20 @@ def _get_or_make_primary(spec, db):
     return root.name, root.type
 
 
-def to_graphql_blueprint(spec, db):
+def blueprint_metadata(spec: ToscaSpec, root_name: str) -> Dict[str, Optional[str]]:
+    title, name = _template_title(spec, root_name)
+    blueprint: Dict[str, Optional[str]] = dict(name=name, title=title)
+    blueprint["description"] = spec.template.description
+    metadata = spec.template.tpl.get("metadata") or {}
+    blueprint["livePreview"] = metadata.get("livePreview")
+    blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
+    blueprint["image"] = metadata.get("image")
+    blueprint["projectIcon"] = metadata.get("projectIcon")
+    blueprint["primaryDeploymentBlueprint"] = metadata.get("primaryDeploymentBlueprint")
+    return blueprint
+
+
+def to_graphql_blueprint(spec: ToscaSpec, db):
     """
     Returns json object as ApplicationBlueprint
 
@@ -964,17 +977,10 @@ def to_graphql_blueprint(spec, db):
     """
     # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
     root_name, root_type = _get_or_make_primary(spec, db)
-    title, name = _template_title(spec, root_name)
-    blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
+    blueprint = blueprint_metadata(spec, root_name)
+    blueprint["__typename"]="ApplicationBlueprint"
     blueprint["primary"] = root_type
-    blueprint["deploymentTemplates"] = []
-    blueprint["description"] = spec.template.description
-    metadata = spec.template.tpl.get("metadata") or {}
-    blueprint["livePreview"] = metadata.get("livePreview")
-    blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
-    blueprint["image"] = metadata.get("image")
-    blueprint["projectIcon"] = metadata.get("projectIcon")
-    blueprint["primaryDeploymentBlueprint"] = metadata.get("primaryDeploymentBlueprint")
+    blueprint["deploymentTemplates"] = []  # type: ignore
     return blueprint, root_name
 
 

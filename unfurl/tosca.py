@@ -1096,11 +1096,11 @@ class RelationshipSpec(EntitySpec):
                 )
 
     @property
-    def source(self):
+    def source(self) -> Optional[NodeSpec]:
         return self.requirement.parentNode if self.requirement else None
 
     @property
-    def target(self):
+    def target(self) -> Optional[NodeSpec]:
         return self.capability.parentNode if self.capability else None
 
     def _resolve(self, key):

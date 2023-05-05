@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 import json
 import os
+from pathlib import Path
 import time
 from typing import (
     Dict,
@@ -26,15 +27,15 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from unfurl.projectpaths import rmtree
+from .projectpaths import rmtree
 from .localenv import LocalEnv, Project
 from .repo import GitRepo, Repo, add_user_to_url, normalize_git_url_hard, sanitize_url
 from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
+from . import __version__, DefaultNames
 from . import to_json
 from . import init
-from . import __version__
 
 __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
@@ -495,6 +496,15 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[str
         Repo.create_working_dir(git_url, repo_path, branch)
         repo = _get_project_repo(project_id, branch)
         if repo:
+            path = Path(repo.working_dir)
+            if (path / DefaultNames.LocalConfigTemplate).is_file() and not (
+                path / "local" / DefaultNames.LocalConfig
+            ).is_file():
+                # create local/unfurl.yaml in the new project
+                new_project = Project(repo.working_dir)
+                created_local = init._create_local_config(new_project, logger, {})
+                if not created_local:
+                    logger.error(f"creating local/unfurl.yaml in {new_project.projectRoot} failed")
             logger.info("clone success: %s to %s", repo.safe_url, repo.working_dir)
     return repo and repo.working_dir or None
 

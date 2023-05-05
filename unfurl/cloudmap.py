@@ -10,7 +10,7 @@ For example, the following commands can be used push projects on a staging insta
 
 ```bash
 # sync latest in staging with the cloudmap
-unfurl cloudmap --sync staging --namespace onecommons/blueprint --namespace onecommons/blueprints
+unfurl cloudmap --sync staging --namespace onecommons/blueprints
 
 # now sync the cloudmap with production
 unfurl cloudmap --sync production --namespace onecommons/blueprints
@@ -23,32 +23,44 @@ git --push origin main
 import collections
 from dataclasses import dataclass, field, asdict
 from io import StringIO
+from operator import attrgetter
 from pathlib import Path
 import tempfile
 import os
 import os.path
-from typing import Any, Iterator, Optional, List, Dict, Tuple, cast
+from typing import (
+    Any,
+    Iterator,
+    Optional,
+    List,
+    Dict,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    cast,
+)
 import logging
 from urllib.parse import urljoin, urlparse
 import git
 import git.cmd
+from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
-from ruamel.yaml import YAML
 
+from .tosca import NodeSpec, ToscaSpec
+
+from .support import ContainerImage
+
+from .to_json import blueprint_metadata
 from .repo import GitRepo, is_git_worktree, normalize_git_url, split_git_url
-
 from .util import UnfurlError
-
 from .localenv import LocalEnv
-
 from .yamlloader import YamlConfig, urlopen as _urlopen
-
 from .logs import getLogger
+from . import DefaultNames
 
 logger = getLogger("unfurl")
-
-yaml = YAML()
 
 
 # Data classes
@@ -114,6 +126,7 @@ class Repository:
     default_branch: str = ""
     branches: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
+    notable: Dict[str, dict] = field(default_factory=dict)
 
     def __post_init__(self):
         if isinstance(self.metadata, dict):
@@ -167,6 +180,13 @@ class Repository:
     def update_branch(self, repo: GitRepo, branch: str = "main"):
         self.branches[branch] = repo.revision
 
+    def add_notables(self, notables: List["Notable"]) -> None:
+        notables.sort(key=attrgetter("path"))
+        self.notable = {n.path: n.asdict() for n in notables}
+
+
+ArtifactDict = Dict[str, dict]
+
 
 RepositoryDict = Dict[str, Repository]
 
@@ -197,12 +217,239 @@ def force_merge_local_and_push_to_remote(
     logger.info(f"pushed to {repo.safe_url}: {pushinfo.summary}")
 
 
+T = TypeVar("T", bound="Notable")
+
+
+class EntitySchema:
+    Schema = "unfurl.cloud/onecommons/unfurl-types"
+    GenericFile = "artifact.File"
+    ContainerFile = "artifact.Containerfile"
+    CloudBlueprint = "artifact.tosca.ServiceTemplate"
+    TOSCASchema = "artifact.tosca.TypeLibrary"
+    Ensemble = "artifact.tosca.UnfurlEnsemble"
+    UnfurlProject = "artifact.tosca.UnfurlProject"
+    OCIImage = "artifacts.OCIImage"
+
+
+class Notable:
+    files: Sequence[str] = ()
+    folders: Sequence[str] = ()
+    artifact_type = EntitySchema.GenericFile
+
+    def __init__(self, root_path: str, folder: str, file: str):
+        self.root_path = root_path
+        self.folder = folder
+        self.file = file
+        self.metadata: Dict[str, Any] = {}
+        self.artifacts: List[ArtifactDict] = []
+
+    @property
+    def path(self) -> str:
+        if self.file:
+            return os.path.join(self.folder, self.file)
+        else:
+            return self.folder
+
+    @property
+    def full_path(self) -> str:
+        return os.path.join(self.root_path, self.folder, self.file)
+
+    @classmethod
+    def _exist_in_folder(cls, folder: str, notables: List["Notable"]):
+        for n in notables:
+            if cls is n.__class__ and n.folder == folder:
+                return True
+        return False
+
+    @classmethod
+    def init(cls: Type[T], root_path: str, folder: str, file: str) -> Optional[T]:
+        return cls(root_path, folder, file)
+
+    def asdict(self) -> Dict[str, Any]:
+        metadata = dict(artifact_type=self.artifact_type)
+        metadata.update(filter_dict(self.metadata))
+        return metadata
+
+
+class ContainerBuilderNotable(Notable):
+    files = ("Containerfile", "Dockerfile")
+    artifact_type = EntitySchema.ContainerFile
+
+    def __init__(self, root_path: str, folder: str, file: str):
+        super().__init__(root_path, folder, file)
+
+
+class UnfurlNotable(Notable):
+    files = [
+        DefaultNames.LocalConfig,
+        DefaultNames.EnsembleTemplate,
+        DefaultNames.Ensemble,
+        "dummy-ensemble.yaml",  # DefaultNames.ServiceTemplate,  # XXX fix unfurl-types hack
+    ]
+    folders = [DefaultNames.ProjectDirectory, DefaultNames.EnsembleDirectory]
+
+    def __init__(self, root_path: str, folder: str, file: str):
+        super().__init__(root_path, folder, file)
+        # XXX set readonly=True after adding representers for AnsibleUnicode etc.
+        localenv = LocalEnv(
+            self.full_path,
+            can_be_empty=True,
+        )
+        if localenv.manifestPath:
+            self.artifact_type = self._get_artifacttype(localenv.manifestPath)
+            manifest = localenv.get_manifest()
+            rel_path = str(
+                Path(localenv.manifestPath).relative_to(Path(self.root_path))
+            )
+            self.folder, self.file = os.path.split(rel_path)
+            spec = manifest.tosca
+            assert spec
+            assert spec.template
+            metadata = spec.template.tpl.get("metadata") or spec.template.tpl or {}
+            self.metadata.update(
+                dict(
+                    name=metadata.get("template_name"),
+                    version=metadata.get("template_version"),
+                    description=spec.template.description,
+                )
+            )
+            node = self._get_root_node(spec)
+            schema_repo = manifest.repositories.get("types")
+            if schema_repo:
+                self.metadata["schema"] = schema_repo.url.strip(":")
+            if node:
+                self.metadata.update(
+                    dict(
+                        type=node.type,
+                        dependencies=list(self.find_dependencies(node).values()),
+                    )
+                )
+                image_name = self.find_image_dependency(node)
+                if image_name:
+                    self.artifacts.append(
+                        {image_name: dict(type=EntitySchema.OCIImage)}
+                    )
+                    self.metadata["artifacts"] = [image_name]
+        else:
+            self.artifact_type = EntitySchema.UnfurlProject
+
+    @classmethod
+    def init(cls, root_path: str, folder: str, file: str) -> Optional["UnfurlNotable"]:
+        try:
+            return UnfurlNotable(root_path, folder, file)
+        except UnfurlError:
+            return None
+
+    def find_dependencies(self, node: NodeSpec):
+        return {
+            name: req.get("node")
+            for name, req in node.toscaEntityTemplate.missing_requirements.items()
+        }
+
+    def find_image_dependency(self, node: NodeSpec):
+        container_service = node.get_relationship("container")
+        if container_service and container_service.target:
+            image = container_service.target.properties.get("container", {}).get(
+                "image"
+            )
+            if image:
+                name, tag, digest, hostname = ContainerImage.split(image)
+                return os.path.join(hostname or "docker.io", name)
+        return None
+
+    def _get_artifacttype(self, path: str) -> str:
+        if path.endswith(DefaultNames.EnsembleTemplate):
+            return EntitySchema.CloudBlueprint
+        elif path.endswith("dummy-ensemble.yaml"):
+            return EntitySchema.TOSCASchema
+        else:
+            return EntitySchema.Ensemble
+
+    def _get_root_node(self, spec: ToscaSpec):
+        topology = spec.template.topology_template
+        node = topology.substitution_mappings and topology.substitution_mappings.node
+        if node:
+            return spec.nodeTemplates[node]
+
+
+class Analyzer:
+    max_analyze_depth = 4
+
+    def __init__(self, notables: List[Type[Notable]]):
+        self.files: Dict[str, Type[Notable]] = {}
+        self.folders: Dict[str, Type[Notable]] = {}
+        for n in notables:
+            self.add_notable_class(n)
+
+    def add_notable_class(self, cls: Type[Notable]):
+        for file in cls.files:
+            self.files[file] = cls
+        for folder in cls.folders:
+            self.folders[folder] = cls
+
+    def analyze_local(self, rootDir) -> List[Notable]:
+        notables: List[Notable] = []
+        for root, dirs, files in os.walk(rootDir):
+            notable = None
+            notable_cls = None
+            notables_found: List[Type[Notable]] = []
+            rel_root = str(Path(root).relative_to(Path(rootDir)))
+            for folder in dirs:
+                notable_cls = self.folders.get(folder)
+                if notable_cls:
+                    if notable_cls not in notables_found:
+                        notable = notable_cls.init(rootDir, rel_root, "")
+                if notable:
+                    dirs.remove(folder)  # don't visit folder
+            for filename in files:
+                notable_cls = self.files.get(filename)
+                if notable_cls and notable_cls not in notables_found:
+                    notable = notable_cls.init(rootDir, rel_root, filename)
+            if notable:
+                notables.append(notable)
+                assert notable_cls
+                notables_found.append(notable_cls)
+        return notables
+
+    def analyze_repo_tree(
+        self,
+        root_path: str,
+        children: List[IndexObject],
+        notables: List[Notable],
+        depth=-1,
+    ):
+        descend: List[IndexObject] = []
+        if depth > self.max_analyze_depth:
+            return descend
+        notables_found: List[Type[Notable]] = []
+        for item in children:
+            notable = None
+            notable_cls = None
+            dirname, filename = os.path.split(item.path)
+            if item.type == "tree":
+                notable_cls = self.folders.get(filename)
+                if notable_cls:
+                    if notable_cls not in notables_found:
+                        notable = notable_cls.init(root_path, cast(str, item.path), "")
+                else:
+                    descend.append(item)
+            elif item.type == "blob":
+                notable_cls = self.files.get(filename)
+                if notable_cls and notable_cls not in notables_found:
+                    notable = notable_cls.init(root_path, dirname, filename)
+            if notable:
+                notables.append(notable)
+                assert notable_cls
+                notables_found.append(notable_cls)
+        return descend
+
+
 class _LocalGitRepos:
     def __init__(self, local_repo_root: str = "") -> None:
         self._set_repos(os.path.expanduser(local_repo_root))
 
     @staticmethod
-    def _add_repo(working_dir: str, repos: Dict[str, GitRepo]):
+    def _add_repo(working_dir: str, repos: Dict[str, GitRepo]) -> Optional[GitRepo]:
         repo = GitRepo(git.Repo(working_dir))
         if not repo.remote:
             logger.debug(f"skipping git repo in {working_dir}: no remote set")
@@ -221,7 +468,7 @@ class _LocalGitRepos:
                 logger.debug(f"skipping git repo in {working_dir}: no remote set")
         return None
 
-    def _set_repos(self, root: str):
+    def _set_repos(self, root: str) -> None:
         repos: Dict[str, GitRepo] = {}
         logger.debug(f"looking for repos in {root}")
         if root:
@@ -238,10 +485,12 @@ class Directory(_LocalGitRepos):
 
     DEFAULT_NAME = "cloudmap.yml"
 
-    def __init__(self, path=".", local_repo_root: str = "") -> None:
+    def __init__(self, path=".", local_repo_root: str = "", skip_analysis=False) -> None:
+        self.do_analysis = not skip_analysis
         self._load(path)
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
         super().__init__(local_repo_root)
+        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable])
 
     def _load(self, path: str):
         if os.path.isdir(path):
@@ -254,17 +503,21 @@ class Directory(_LocalGitRepos):
             # os.path.join(_basepath, "cloudmap-schema.json"),
         )
         db = self.config.config
-        repositories = cast(Dict, db and db.get("repositories") or {})
+        assert isinstance(db, dict)
+        repositories = cast(Dict, db.get("repositories") or {})
         self.repositories: RepositoryDict = {
             url: Repository(**r) for url, r in repositories.items()
         }
+        self.artifacts: ArtifactDict = db.get("artifacts") or {}
         self.db = cast(Dict[str, Any], db)
 
     def reload(self):
         assert self.config.path
         self._load(self.config.path)
 
-    def find_local_repos_for_host(self, host: "RepositoryHost"):
+    def find_local_repos_for_host(
+        self, host: "RepositoryHost"
+    ) -> Iterator[Tuple[GitRepo, Repository]]:
         """for each repo that matches host.host and host.namespace, check that HEAD matches the repository entry"""
         for url, repo in self.repos.items():
             repo_info = self.repositories.get(url)
@@ -277,7 +530,7 @@ class Directory(_LocalGitRepos):
                 return repo
         return None
 
-    def merge(self, host: "RepositoryHost"):
+    def merge(self, host: "RepositoryHost") -> None:
         """For each git repo that has a branch for the repository host, merge it into main"""
         host_branch = f"{host.name}/main"
         for repo in self.repos.values():
@@ -297,9 +550,15 @@ class Directory(_LocalGitRepos):
     def save(self):
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
+        self.db["schema"] = EntitySchema.Schema
         self.db["repositories"] = {
             k: self.repositories[k].asdict() for k in sorted(self.repositories)
         }
+        self.db.pop("artifacts", None)
+        if self.artifacts:
+            self.db["artifacts"] = {
+                a: self.artifacts[a] for a in sorted(self.artifacts)
+            }
         self.config.save()
 
     def find_repo(self, url: str) -> Optional[GitRepo]:
@@ -309,6 +568,43 @@ class Directory(_LocalGitRepos):
         download_path = str(Path(self.repos_root) / repo_info.path)
         repo = git.Repo.clone_from(url or repo_info.git_url(), download_path)
         return GitRepo(repo)
+
+    def analyze_repo(self, repo: GitRepo) -> List[Notable]:
+        notables: List[Notable] = []
+
+        root = repo.repo.head.commit.tree
+        items = [root]
+        seen = set()
+        while items:
+            item = items.pop(0)
+            # sort so blobs are before trees
+            children = sorted(
+                root._get_intermediate_items(item), key=attrgetter("type")
+            )
+            # analyze return trees to descend into
+            # XXX track and pass depth argument
+            for tree in self.analyzer.analyze_repo_tree(
+                repo.working_dir, children, notables
+            ):
+                if tree.type == "tree" and tree not in seen:
+                    items.append(tree)
+                    seen.add(tree)
+        return notables
+
+    def maybe_analyze(
+        self, repo_info: Repository, repo: GitRepo
+    ) -> Optional[List[Notable]]:
+        if self.do_analysis:
+            return self.analyze(repo_info, repo)
+        return None
+
+    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
+        notables = self.analyze_repo(repo)
+        repo_info.add_notables(notables)
+        for n in notables:
+            for a in n.artifacts:
+                self.artifacts.update(a)
+        return notables
 
 
 def get_remote_git_url(url):
@@ -399,6 +695,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                 )
                 repository = self.git_to_repository(repo, path)
                 directory.repositories[repository.key] = repository
+                directory.maybe_analyze(repository, repo)
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """Push cloudmap revisions to origin."""
@@ -503,7 +800,8 @@ class GitlabManager(RepositoryHost):
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(dest_proj)
-                self.fetch_repo(remote_url, r, directory)
+                repo = self.fetch_repo(remote_url, r, directory)
+                directory.maybe_analyze(r, repo)
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
@@ -739,11 +1037,12 @@ class CloudMap:
         provider_branch: str,
         localrepo_root: str = "",
         path: str = "",
+        skip_analysis: bool = False
     ):
         self.repo = repo
         self.branch = provider_branch
         self.directory = Directory(
-            str(Path(repo.working_dir) / (path or "cloudmap.yaml")), localrepo_root
+            str(Path(repo.working_dir) / (path or "cloudmap.yaml")), localrepo_root, skip_analysis
         )
 
     @classmethod
@@ -754,6 +1053,7 @@ class CloudMap:
         clone_root: str,
         provider_name: str,
         namespace: str,
+        skip_analysis: bool,
     ) -> "CloudMap":
         environment = local_env.get_context().get("cloudmaps", {})
         # for now name is just the name of repository
@@ -789,7 +1089,7 @@ class CloudMap:
             )
         if not repo:
             raise UnfurlError(f"couldn't clone {url}")
-        return CloudMap(repo, branch, localrepo_root, path)
+        return CloudMap(repo, branch, localrepo_root, path, skip_analysis)
 
     def get_host(
         self,
@@ -852,7 +1152,7 @@ class CloudMap:
             # if so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run
             if changed:
                 self.repo.repo.git.merge(self.branch)  # --commit --no-edit
-            self.directory.reload()  # map changed, reload the directory
+                self.directory.reload()  # map changed, reload the directory
 
             # for each repository merge the provider's branch
             # (which was fetched during from_provider()) into main
