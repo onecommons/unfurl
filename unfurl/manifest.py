@@ -8,7 +8,7 @@ import json
 from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, cast
 from ruamel.yaml.comments import CommentedMap
 
-from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
+from .tosca import EntitySpec, NodeSpec, ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
 from .support import (
     ResourceChanges,
@@ -203,7 +203,7 @@ class Manifest(AttributeManager):
         """
         self.rootResource = rootResource
         if rootResource:
-            rootResource.attributeManager = self
+            rootResource.set_attribute_manager(self)
 
     def get_root_resource(self):
         return self.rootResource
@@ -369,6 +369,37 @@ class Manifest(AttributeManager):
             capability._relationships = []
         return self._create_entity_instance(RelationshipInstance, key, val, capability)
 
+    def _create_substituted_topology(
+        self, rname: str, resourceSpec: dict, parent: EntitySpec
+    ) -> TopologyInstance:
+        root = self.get_root_resource()
+        assert root
+        templateName = resourceSpec.get("template", rname)
+        template = cast(NodeSpec, self.load_template(templateName, parent))
+        if template is None:
+            raise UnfurlError(
+                f"missing template definition for '{templateName}' while instantiating instance '{rname}'"
+            )
+        substitution = template.substitution
+        if substitution is None:
+            raise UnfurlError(
+                f"missing substitution in template while instantiating instance '{rname}'"
+            )
+        status = resourceSpec["substitution"]
+        operational = self.load_status(status)
+        topology_instance = root.create_nested_topology(substitution, operational)
+        assert root.imports
+        inner_name = (
+            substitution.substitution_node and substitution.substitution_node.name
+        )
+        for key, val in status.get("instances", {}).items():
+            self.create_node_instance(key, val, topology_instance)
+        if inner_name:
+            inner = topology_instance.find_instance(inner_name)
+            if inner:
+                root.imports.add_import(":" + inner.template.nested_name, inner)
+        return topology_instance
+
     def create_node_instance(self, rname, resourceSpec, parent=None) -> NodeInstance:
         # if parent property is set it overrides the parent argument
         pname = resourceSpec.get("parent")
@@ -376,6 +407,10 @@ class Manifest(AttributeManager):
             parent = self.get_root_resource().find_resource(pname)
             if parent is None:
                 raise UnfurlError(f"can not find parent instance {pname}")
+
+        if resourceSpec.get("substitution"):
+            # need to create the nested topology before a NodeInstance that has "imported"
+            self._create_substituted_topology(rname, resourceSpec, parent)
 
         resource = self._create_entity_instance(
             NodeInstance, rname, resourceSpec, parent

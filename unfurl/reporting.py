@@ -238,7 +238,7 @@ class JobReporter:
                     if not request.include_in_plan():
                         logger.trace(
                             'excluding "%s" from plan: not required',
-                            request.target.name,
+                            request.target.template.nested_name,
                         )
                         continue
                 if request.target is not target:
@@ -254,7 +254,7 @@ class JobReporter:
                             ),
                         )
                     )
-                    nodeStr = f'Node "{target.name}" ({status}):'  # type: ignore
+                    nodeStr = f'Node "{target.template.nested_name}" ({status}):'  # type: ignore
                     output.append(" " * indent + nodeStr)
                 if isGroup:
                     output.append(

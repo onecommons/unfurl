@@ -47,6 +47,7 @@ from .tosca import (
     ArtifactSpec,
 )
 from .logs import getLogger
+from toscaparser.nodetemplate import NodeTemplate
 
 if TYPE_CHECKING:
     from unfurl.configurator import Dependency
@@ -637,17 +638,21 @@ class HasInstancesInstance(EntityInstance):
         return self.descendants
 
     # XXX use find_instance instead and remove find_resource
-    def find_resource(self, qualified_name):
+    def find_resource(self, qualified_name) -> Optional["HasInstancesInstance"]:
         resourceid, sep, inner = qualified_name.partition(":")
         if self.name == resourceid:
-            if inner and self.shadow:
-                return self.shadow.root.find_resource(inner)
+            if inner:
+                if self.shadow:
+                    return self.shadow.root.find_resource(inner)
+                return None
             return self
         for r in self.instances:
             child = r.find_resource(resourceid)
             if child:
-                if inner and child.shadow:
-                    return child.shadow.root.find_resource(inner)
+                if inner:
+                    if child.shadow:
+                        return child.shadow.root.find_resource(inner)
+                    return None
                 return child
         return None
 
@@ -755,7 +760,9 @@ class RelationshipInstance(EntityInstance):
     def source(self) -> Optional["NodeInstance"]:
         if self._source is None:
             if self.template.source:
-                sourceNode = self.root.find_instance(self.template.source.name)
+                sourceNode = self.root.get_root_instance(
+                    self.template.source.toscaEntityTemplate
+                ).find_instance(self.template.source.name)
                 if sourceNode:
                     self._source = sourceNode
         return self._source
@@ -870,21 +877,26 @@ class NodeInstance(HasInstancesInstance):
         self.get_interface("inherit")
         self.get_interface("default")
 
-    def _find_relationship(self, relationship: RelationshipSpec) -> Optional[RelationshipInstance]:
+    def _find_relationship(
+        self, relationship: RelationshipSpec
+    ) -> Optional[RelationshipInstance]:
         """
         Find RelationshipInstance that has the give relationship template
         """
         assert relationship and relationship.capability and relationship.target
         # find the Capability instance that corresponds to this relationship template's capability
-        targetNodeInstance = self.root.find_resource(relationship.target.name)
+        targetNodeInstance = self.root.get_root_instance(
+            relationship.target.toscaEntityTemplate
+        ).find_resource(relationship.target.name)
         if not targetNodeInstance:
             logger.warning(
-                f"target instance {relationship.target.name} should have already been created -- is {self.name} out of sync with latest templates?"
+                f'target instance "{relationship.target.nested_name}" should have already been created -- is "{self.name}" out of sync with latest templates?'
             )
             return None
         assert isinstance(targetNodeInstance, NodeInstance)
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
+                logger.error(f"{[(r.template.source, r.template is relationship) for r in cap.relationships]=}")
                 for relInstance in cap.relationships:
                     if relInstance.template is relationship:
                         return relInstance
@@ -907,8 +919,18 @@ class NodeInstance(HasInstancesInstance):
                             f'can not find relation instance for requirement "{name}" on node "{self.name}"'
                         )
                         continue
-                    assert template.relationship is relInstance.template
-                    assert self.template is relInstance.template.source
+                    assert template.relationship is relInstance.template, (
+                        template.relationship,
+                        relInstance.template,
+                    )
+                    assert (
+                        self.template is relInstance.template.source
+                        or self.template.topology.substitute_of
+                        is relInstance.template.source
+                    ), (
+                        self.template,
+                        relInstance.template.source,
+                    )
                     self._requirements.append(relInstance)
 
         return self._requirements
@@ -1099,19 +1121,25 @@ class NodeInstance(HasInstancesInstance):
 class TopologyInstance(HasInstancesInstance):
     templateType = TopologySpec  # type: ignore
 
-    def __init__(self, template, status=None):
+    def __init__(self, template: "TopologySpec", status=None, parent_topology: Optional["TopologyInstance"] = None):
         attributes = dict(inputs=template.inputs, outputs=template.outputs)
         HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
-        self._relationships = None
-        self._tmpDir = None
+        self._relationships: Optional[List["RelationshipInstance"]] = None
+        self._tmpDir: Optional[str] = None
+        self.parent_topology = parent_topology
 
-    def set_base_dir(self, baseDir):
+    def set_base_dir(self, baseDir: str) -> None:
         self._baseDir = baseDir
         if not self._templar or self._templar._basedir != baseDir:
             loader = DataLoader()
             loader.set_basedir(baseDir)
             self._templar = Templar(loader)
+
+    def set_attribute_manager(self, attribute_manager: Optional[AttributeManager]) -> None:
+        self.attributeManager = attribute_manager
+        if self.parent_topology:
+            self.parent_topology.set_attribute_manager(attribute_manager)
 
     @property
     def requirements(self) -> List[RelationshipInstance]:
@@ -1120,16 +1148,16 @@ class TopologyInstance(HasInstancesInstance):
         """
         if self._relationships is None:
             self._relationships = []
-            relTemplates = cast(TopologySpec, self.template).relationship_templates
-            for name, template in relTemplates.items():
-                # template will be a RelationshipSpec
-                if template.toscaEntityTemplate.default_for:
-                    # the constructor will add itself to _relationships
-                    RelationshipInstance(name, parent=self, template=template)
+            relTemplates = cast(TopologySpec, self.template).default_relationships
+            for template in relTemplates:
+                # this constructor will add itself to _relationships
+                RelationshipInstance(template.name, parent=self, template=template)
 
         return self._relationships
 
-    def get_default_relationships(self, relation=None) -> List[RelationshipInstance]:
+    def get_default_relationships(
+        self, relation: Optional[str] = None
+    ) -> List[RelationshipInstance]:
         # for root, this is the same as self.requirements
         if not relation:
             return self.requirements
@@ -1148,3 +1176,26 @@ class TopologyInstance(HasInstancesInstance):
         if not self._tmpDir:
             self._tmpDir = make_temp_dir()
         return self._tmpDir
+
+    def create_nested_topology(
+        self, topology: TopologySpec, status=None
+    ) -> "TopologyInstance":
+        nested_root = TopologyInstance(topology, status, self)
+        nested_root.set_attribute_manager(self.attributeManager)
+        nested_root.set_base_dir(self._baseDir)
+        nested_root.imports = self.imports
+        if self.imports:
+            self.imports.add_import(":" + topology.nested_name, nested_root)
+        return nested_root
+
+    def get_root_instance(self, source: "NodeTemplate") -> "TopologyInstance":
+        topology = self.template.spec.get_topology(source)
+        assert topology
+        if self.template.topology is not topology:
+            assert self.imports
+            nested_root = self.imports.find_import(":" + topology.nested_name)
+            if nested_root:
+                return cast(TopologyInstance, nested_root)
+            else:
+                return self.create_nested_topology(topology)
+        return self

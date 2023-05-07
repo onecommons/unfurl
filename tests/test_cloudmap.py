@@ -101,7 +101,7 @@ def test_create(runner, caplog):
     with change_cwd("cloudmap"):
         with open("cloudmap.yaml") as f:
             cloudmap = f.read()
-            print("cloudmap", cloudmap)
+            # print("cloudmap", cloudmap)
             assert cloudmap.startswith(expected_cloudmap), cloudmap
         assert not os.system("git push origin main")
 

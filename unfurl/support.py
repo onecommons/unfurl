@@ -671,8 +671,8 @@ def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
 set_eval_func("get_env", get_env, True)
 
 
-def set_context_vars(vars, resource):
-    root = resource.root
+def set_context_vars(vars, resource: "EntityInstance"):
+    root = cast("HasInstancesInstance", resource.root)
     ROOT: Dict[str, Any] = {}
     vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
     if "inputs" in root._attributes:
@@ -682,7 +682,7 @@ def set_context_vars(vars, resource):
                 outputs=root._attributes["outputs"],
             )
         )
-    app_template = root.template.spec.substitution_template
+    app_template = root.template.topology.substitution_node  # type: ignore
     if app_template:
         app = root.find_instance(app_template.name)
         if app:
@@ -709,7 +709,7 @@ class _EnvMapper(dict):
         objname, sep, prop = key.partition("_")
         assert self.ctx
         root = self.ctx.currentResource.root
-        app = root.template.spec.substitution_template
+        app = root.template.spec.substitution_node
         if app and objname and prop:
             obj = None
             if objname == "APP":
@@ -1312,6 +1312,9 @@ class Imports(ImportsBase):
         if imported:
             return imported
         iName, sep, rName = qualified_name.partition(":")
+        if not iName:
+            # name is in the current ensemble (but maybe a different topology)
+            return None
         assert self.manifest
         localEnv = self.manifest.localEnv
         if iName not in self and localEnv:

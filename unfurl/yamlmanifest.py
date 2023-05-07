@@ -20,8 +20,8 @@ from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .tosca import ArtifactSpec, find_env_vars
-from .runtime import EntityInstance, TopologyInstance
+from .tosca import ArtifactSpec, NodeSpec, find_env_vars
+from .runtime import EntityInstance, NodeInstance, TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
@@ -105,7 +105,8 @@ def save_status(operational, status=None):
         readyState["state"] = operational.state.name
     if operational.priority is not None:
         status["priority"] = operational.priority.name
-    status["readyState"] = readyState
+    if not status.get("imported"):
+        status["readyState"] = readyState
 
     if operational.last_state_change:
         status["lastStateChange"] = operational.last_state_change
@@ -444,8 +445,10 @@ class YamlManifest(ReadOnlyManifest):
         """
         # XXX use the substitution_mapping (3.8.12) represent the resource
         operational = self.load_status(status)
-        root = TopologyInstance(self.tosca and self.tosca.topology, operational)
-        root.attributeManager = self
+        topology = self.tosca and self.tosca.topology
+        assert topology
+        root = TopologyInstance(topology, operational)
+        root.set_attribute_manager(self)
         if os.environ.get("UNFURL_WORKDIR"):
             root.set_base_dir(os.environ["UNFURL_WORKDIR"])
         elif not self.path:
@@ -676,7 +679,7 @@ class YamlManifest(ReadOnlyManifest):
             return None
         return self.save_entity_instance(resource)
 
-    def save_resource(self, resource, discovered):
+    def save_resource(self, resource: NodeInstance, discovered):
         # XXX checkstatus break unit tests so skip mostly
         checkstatus = (
             resource.template.type == "unfurl.nodes.LocalRepository"
@@ -723,20 +726,25 @@ class YamlManifest(ReadOnlyManifest):
             if artifacts:
                 status["artifacts"] = CommentedMap(artifacts)
 
+        if cast(NodeSpec, resource.template).substitution and resource.shadow:
+            assert resource.shadow.root is not resource.root, (resource is resource.shadow, resource.root)
+            status["substitution"] = self.save_root_resource(
+                cast(TopologyInstance, resource.shadow.root), discovered
+            )
+
         if resource.instances:
             status["instances"] = CommentedMap(
                 filter(
                     None,
                     map(
-                        lambda r: self.save_resource(r, discovered), resource.instances
+                        lambda r: self.save_resource(r, discovered), resource.instances  # type: ignore
                     ),
                 )
             )
-
         return (name, status)
 
-    def save_root_resource(self, discovered):
-        resource = self.rootResource
+    def save_root_resource(self, root: TopologyInstance, discovered):
+        resource = root
         assert resource
         status = CommentedMap()
 
@@ -745,7 +753,6 @@ class YamlManifest(ReadOnlyManifest):
         status["outputs"] = serialize_value(resource.attributes["outputs"])
 
         save_status(resource, status)
-        # getOperationalDependencies() skips inputs and outputs
         status["instances"] = CommentedMap(
             filter(
                 None,
@@ -796,7 +803,8 @@ class YamlManifest(ReadOnlyManifest):
 
     def save_job(self, job):
         discovered = CommentedMap()
-        changed = self.save_root_resource(discovered)
+        assert self.rootResource
+        changed = self.save_root_resource(self.rootResource, discovered)
 
         # update changed with includes, this may change objects with references to these objects
         self.manifest.restore_includes(changed)

@@ -13,7 +13,7 @@ from .utils import isolated_lifecycle, DEFAULT_STEPS
 
 
 class TestShellConfigurator:
-    def setup(self):
+    def setup_method(self):
         path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
         with open(path) as f:
             self.ensemble = f.read()

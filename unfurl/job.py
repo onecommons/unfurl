@@ -230,7 +230,7 @@ class ConfigTask(TaskView, ConfigChange):
 
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml, self)
-        self.target.root.attributeManager = self._attributeManager
+        self.target.root.set_attribute_manager(self._attributeManager)
         self._resolved_inputs = {}
 
     def _status(self, seen: Dict[int, Operational]) -> Status:
@@ -279,7 +279,7 @@ class ConfigTask(TaskView, ConfigChange):
 
     def start(self) -> None:
         self.start_run()
-        self.target.root.attributeManager = self._attributeManager
+        self.target.root.set_attribute_manager(self._attributeManager)
         self.target_status = self.target.status
         self.target_state = self.target.state
         self.set_envvars()
@@ -1223,7 +1223,7 @@ class Job(ConfigChange):
 
         Returns a task.
         """
-        task.target.root.attributeManager = task._attributeManager
+        task.target.root.set_attribute_manager(task._attributeManager)
         errors: Any = None
         ok, errors = self.can_run_task(task)
         if not ok:

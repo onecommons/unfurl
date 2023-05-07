@@ -22,10 +22,13 @@ Extensions
 * add "discover", "default", "dependent", "virtual", and "protected" directives
 * add "default_for" keyword to relationship templates
 * add "defaults" section to interface definitions
+* add "requirements" keyword to interface definitions
 * add "types" section to the service template can contain any entity type definition.
 * add "when" keyword to "imports" to allow conditional imports
 * add "decorators" section for rule-based enhancements of node templates
 * add "requirements" section to node_filters
+* allow "root" as alias for ``substitution_mappings``
+* add "node" keyword to substitution_mappings section
 
 Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -37,7 +40,7 @@ conform with the TOSCA 1.3 specification:
 * "copy" keyword (use the ``dsl`` section or :ref:`merge directives<yaml_merge_directives>` instead)
 * `get_artifact` function (only implemented for artifacts that are container images)
 * CSAR manifests and archives (implemented but untested)
-* substitution mapping
+* substitution mappings: only input mappings are supported (set ``node`` to a node template instead)
 * triggers
 * notifications
 * xml schema constraints

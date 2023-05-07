@@ -365,11 +365,13 @@ class UnfurlNotable(Notable):
         else:
             return EntitySchema.Ensemble
 
-    def _get_root_node(self, spec: ToscaSpec):
+    def _get_root_node(self, spec: ToscaSpec) -> Optional[NodeSpec]:
         topology = spec.template.topology_template
         node = topology.substitution_mappings and topology.substitution_mappings.node
         if node:
-            return spec.nodeTemplates[node]
+            assert spec.topology
+            return spec.topology.get_node_template(node)
+        return None
 
 
 class Analyzer:

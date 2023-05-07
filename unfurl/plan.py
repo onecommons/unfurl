@@ -165,7 +165,16 @@ class Plan:
                 )
             # XXX also yield newly created parents that needed to be checked?
         else:
-            for resource in find_resources_from_template_name(self.root, template.name):
+            if self.root.template.topology is not template.topology:
+                name = ":" + template.topology.nested_name
+                assert self.root.imports
+                root = self.root.imports.find_import(name)
+                if not root:
+                    self.root.create_nested_topology(template.topology)
+                    return
+            else:
+                root = self.root
+            for resource in find_resources_from_template_name(root, template.name):
                 yield resource
 
     def create_resource(self, template: NodeSpec) -> NodeInstance:
@@ -175,12 +184,24 @@ class Plan:
         else:
             status = Status.pending
         instance = NodeInstance(template.name, None, parent, template, status)
-        # if template.substituted:
-        #     # set shadow to inner node instance
-        #     name = ":" + instance.name + ":" + template.substituted.name
-        #     instance.imported = name
-        #     # XXX inner = create/get inner instance (template.substituted.name)
-        #     self.root.imports.set_shadow(name, instance, inner)
+        if template.substitution:
+            # set shadow to inner node instance
+            assert template.substitution.substitution_node
+            assert self.root.imports
+            # get the nested TopologyInstance
+            nested_root_name = ":" + template.substitution.nested_name
+            nested_root = self.root.imports.find_import(nested_root_name)
+            assert nested_root, f"{nested_root_name} should already have been created"
+            name = template.substitution.substitution_node.name
+            inner = nested_root.find_instance(name)
+            assert (
+                inner
+            ), f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            assert inner is not instance
+            instance.imported = (
+                ":" + template.substitution.substitution_node.nested_name
+            )
+            self.root.imports.set_shadow(instance.imported, instance, inner)
         return instance
 
     def _run_operation(self, startState, op, resource, reason=None, inputs=None):
@@ -603,7 +624,7 @@ class Plan:
         templates = self._get_templates()
 
         logger.verbose(
-            "checking for tasks for templates %s", [t.name for t in templates]
+            "checking for tasks for templates %s", [t.nested_name for t in templates]
         )
         visited = set()
         for template in templates:
@@ -613,16 +634,20 @@ class Plan:
                 visited.add(id(resource))
                 yield from self._generate_workflow_configurations(resource, template)
 
-            if (
-                not found
-                and not template.abstract
-                and "dependent" not in template.directives
-            ):
+            if not found and "dependent" not in template.directives:
+                abstract = template.abstract
+                if abstract == "select":
+                    continue
                 include = self.include_not_found(template)
-                if include:
+                if include or abstract == "substitute":
+                    logger.verbose("ct %s", template.nested_name)
                     resource = self.create_resource(template)
+                    logger.verbose("r %s", resource)
                     visited.add(id(resource))
-                    yield from self._generate_workflow_configurations(resource, None)
+                    if abstract != "substitute":
+                        yield from self._generate_workflow_configurations(
+                            resource, None
+                        )
 
         if opts.prune:
             # XXX warn or error if prune used with a filter option

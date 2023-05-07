@@ -20,6 +20,8 @@ import shlex
 import sys
 import os
 import os.path
+
+from toscaparser.nodetemplate import NodeTemplate
 from .tosca import EntitySpec
 
 if TYPE_CHECKING:
@@ -36,7 +38,7 @@ from .util import (
 )
 from .result import Result, ResultsList, serialize_value
 from .support import Defaults, NodeState, Priority, Status
-from .runtime import EntityInstance, InstanceKey, HasInstancesInstance
+from .runtime import EntityInstance, InstanceKey, HasInstancesInstance, TopologyInstance
 from .logs import getLogger
 import logging
 
@@ -755,7 +757,7 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List) -> bool:
     if req.task:
         task = req.task
         task._attributeManager.attributes = {}
-        task.target.root.attributeManager = task._attributeManager
+        task.target.root.set_attribute_manager(task._attributeManager)
     else:
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
     error = None
@@ -803,7 +805,7 @@ def _render_request(
     assert req.task
     task = req.task
     task._attributeManager.attributes = {}
-    task.target.root.attributeManager = task._attributeManager
+    task.target.root.set_attribute_manager(task._attributeManager)
 
     error = None
     error_info = None
@@ -982,7 +984,7 @@ def find_resources_from_template_name(root: HasInstancesInstance, name: str):
             yield resource
 
 
-def find_parent_template(source):
+def find_parent_template(source: NodeTemplate) -> Optional[NodeTemplate]:
     for rel, req, reqDef in source.relationships:
         # special case "host" so it can be declared without full set of relationship / capability types
         if rel.is_derived_from("tosca.relationships.HostedOn") or "host" in req:
@@ -990,10 +992,16 @@ def find_parent_template(source):
     return None
 
 
-def find_parent_resource(root: HasInstancesInstance, source: EntitySpec):
-    parentTemplate = find_parent_template(source.toscaEntityTemplate)
+def find_parent_resource(root: TopologyInstance, source: EntitySpec) -> HasInstancesInstance:
+    source_nodetemplate = cast(NodeTemplate, source.toscaEntityTemplate)
+    parentTemplate = find_parent_template(source_nodetemplate)
+    source_root = root.get_root_instance(source_nodetemplate)
     if not parentTemplate:
-        return root
+        return source_root
+    root = root.get_root_instance(parentTemplate)
+    if root is not source_root:
+        # parent must be in the same topology
+        return source_root
     for parent in find_resources_from_template_name(root, parentTemplate.name):
         # XXX need to evaluate matches
         return parent
@@ -1032,7 +1040,7 @@ def create_instance_from_spec(_manifest, target: EntityInstance, rname: str, res
             raise UnfurlError(
                 f'Can not find template "{tname}" when trying to create instance "{rname}".'
             )
-        parent = find_parent_resource(target.root, nodeSpec)
+        parent = find_parent_resource(cast(TopologyInstance, target.root), nodeSpec)
     else:
         parent = target.root
     # note: if resourceSpec[parent] is set it overrides the parent keyword

@@ -36,7 +36,7 @@ import os
 from .logs import getLogger
 import logging
 import re
-from typing import Dict, List, Optional, Sequence, cast, Any, Generator
+from typing import Dict, List, Optional, Sequence, Union, cast, Any, Generator
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -132,7 +132,6 @@ def _patch(node, patchsrc, quote=False, tpl=None):
 
 class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
-    substitution_template = None
     topology: Optional["TopologySpec"] = None
     template: "ToscaTemplate"
 
@@ -235,7 +234,13 @@ class ToscaSpec:
         matches = list(_find_matches())
         return [_patch(*m) for m in matches]
 
-    def _parse_template(self, path, inputs, toscaDef, resolver):
+    def _parse_template(
+        self,
+        path: Optional[str],
+        inputs: Optional[Dict[str, Any]],
+        toscaDef: Dict[str, Any],
+        resolver,
+    ):
         # need to set a path for the import loader
         mode = os.getenv("UNFURL_VALIDATION_MODE")
         additionalProperties = False
@@ -252,13 +257,10 @@ class ToscaSpec:
         )
         ExceptionCollector.collecting = True  # don't stop collecting validation errors
         ExceptionCollector.near = " while instantiating the spec"
-        self.topology = TopologySpec(self.template.topology_template, self, inputs)
+        self.topology = TopologySpec(
+            self.template.topology_template, self, None, inputs
+        )
         self.load_imported_default_templates()
-        substitution_mappings = self.template.topology_template.substitution_mappings
-        if substitution_mappings and substitution_mappings.node:
-            self.substitution_template = self.topology.get_node_template(
-                substitution_mappings.node
-            )
         self.load_workflows()
         self.groups = {
             g.name: GroupSpec(g, self.topology)
@@ -296,22 +298,25 @@ class ToscaSpec:
 
     def __init__(
         self,
-        toscaDef,
-        spec: Dict[str, Any] = None,
-        path=None,
+        toscaDef: Union[ToscaTemplate, Dict[str, Any]],
+        spec: Optional[Dict[str, Any]] = None,
+        path: Optional[str] = None,
         resolver=None,
         skip_validation=False,
     ):
         self.discovered: Optional[CommentedMap] = None
         self.nested_topologies: List["TopologySpec"] = []
+        self._topology_templates: Dict[int, "TopologySpec"] = {}
         if spec:
-            inputs = spec.get("inputs")
+            inputs = cast(Optional[Dict[str, Any]], spec.get("inputs"))
         else:
             inputs = None
 
         if isinstance(toscaDef, ToscaTemplate):
             self.template = toscaDef
-            self.topology = TopologySpec(self.template.topology_template, self)
+            self.topology = TopologySpec(
+                self.template.topology_template, self, None, inputs
+            )
         else:
             self.template = None
             topology_tpl = toscaDef.get("topology_template")
@@ -358,6 +363,12 @@ class ToscaSpec:
                     )
 
     @property
+    def substitution_node(self) -> Optional["NodeSpec"]:
+        if self.topology:
+            return self.topology.substitution_node
+        return None
+
+    @property
     def base_dir(self):
         if self.template.path is None:
             return None
@@ -390,14 +401,15 @@ class ToscaSpec:
     def load_imported_default_templates(self) -> None:
         assert self.topology
         for name, topology in self.template.nested_topologies.items():
-            topology_spec = TopologySpec(topology, self, self.topology.inputs, name)
+            topology_spec = TopologySpec(topology, self, self.topology)
             self.nested_topologies.append(topology_spec)
             for nodeTemplate in topology.nodetemplates:
                 if (
                     "default" in nodeTemplate.directives
                     and nodeTemplate.name not in self.topology.node_templates
                 ):
-                    nodeSpec = NodeSpec(nodeTemplate, topology_spec)
+                    # put in root topology
+                    nodeSpec = NodeSpec(nodeTemplate, self.topology)
                     self.topology.node_templates[nodeSpec.name] = nodeSpec
 
     def load_workflows(self) -> None:
@@ -442,8 +454,17 @@ class ToscaSpec:
                     # default nodes are added to root topology in load_imported_default_templates()
                     yield node
 
-    def get_template(self, name) -> Optional["EntitySpec"]:
+    def get_template(self, name: str) -> Optional["EntitySpec"]:
         return self.topology and self.topology.get_template(name) or None
+
+    def get_topology(self, node_template: NodeTemplate):
+        return self._topology_templates.get(id(node_template.topology_template))
+
+    def node_from_template(self, nodetemplate: NodeTemplate) -> Optional["NodeSpec"]:
+        topology = self.get_topology(nodetemplate)
+        if topology:
+            return cast(NodeSpec, topology.get_template(nodetemplate.name))
+        return None
 
     def _get_artifact_declared_tpl(self, repositoryName, file):
         # see if this is declared in a repository node template with the same name
@@ -692,7 +713,13 @@ class EntitySpec(ResourceRef):
         return self.name  # XXX
 
     def __repr__(self):
-        return f"{self.__class__.__name__}('{self.name}')"
+        return f"{self.__class__.__name__}('{self.nested_name}')"
+
+    @property
+    def nested_name(self) -> str:
+        if self.topology.substitute_of:
+            return self.topology.substitute_of.nested_name + ":" + self.name
+        return self.name
 
     @property
     def artifacts(self):
@@ -803,8 +830,8 @@ class EntitySpec(ResourceRef):
     def required(self) -> bool:
         # check if this template is required by another template
         for root in _get_roots(self):
-            if self.spec.substitution_template:
-                if self.spec.substitution_template is root:
+            if self.topology.substitution_node:
+                if self.topology.substitution_node is root:
                     # require if a root of this template is the substitution_template
                     return True
             elif "default" not in root.directives:
@@ -854,8 +881,8 @@ class NodeSpec(EntitySpec):
         if self._substitution is not None:
             return self._substitution
         if self.toscaEntityTemplate.substitution:
-            self._substituted = TopologySpec(
-                self.toscaEntityTemplate.substitution.topology, self.spec
+            self._substitution = TopologySpec(
+                self.toscaEntityTemplate.substitution.topology, self.spec, self.topology
             )
         return self._substitution
 
@@ -910,8 +937,7 @@ class NodeSpec(EntitySpec):
                 name, values = next(iter(req.items()))
                 reqSpec = RequirementSpec(name, req, self, req_type_def)
                 if relTpl.target:
-                    nodeSpec = self.topology.get_template(relTpl.target.name)
-                    assert isinstance(nodeSpec, NodeSpec)
+                    nodeSpec = self.spec.node_from_template(relTpl.target)
                     if nodeSpec:
                         nodeSpec.add_relationship(reqSpec)
                     else:
@@ -937,12 +963,12 @@ class NodeSpec(EntitySpec):
         for r in self.toscaEntityTemplate.get_relationship_templates():
             assert r.source
             # calling requirement property will ensure the RelationshipSpec is properly linked
-            template = self.get_template(r.source.name)
+            template = self.spec.node_from_template(r.source)
             if template:
-                cast(NodeSpec, template).requirements
+                template.requirements
         return self._get_relationship_specs()
 
-    def _get_relationship_specs(self):
+    def _get_relationship_specs(self) -> List["RelationshipSpec"]:
         if len(self._relationships) != len(
             self.toscaEntityTemplate.get_relationship_templates()
         ):
@@ -974,15 +1000,23 @@ class NodeSpec(EntitySpec):
         return self.capabilities.get(name)
 
     def add_relationship(self, reqSpec: "RequirementSpec"):
+        # self is the target node
+        substituted = reqSpec.parentNode.topology is not self.topology
+        if substituted:
+            # use the name of the node in the target's topology
+            topology = reqSpec.parentNode.topology
+            assert topology.parent_topology is self.topology
+            assert topology.substitute_of
+            req_source_name = topology.substitute_of.name
+        else:
+            req_source_name = reqSpec.parentNode.name
         # find the relationship for this requirement:
         for relSpec in self._get_relationship_specs():
             # the RelationshipTemplate should have had the source node assigned by the tosca parser
             # XXX this won't distinguish between more than one relationship between the same two nodes
             # to fix this have the RelationshipTemplate remember the name of the requirement
-            if (
-                relSpec.toscaEntityTemplate.source.name
-                == reqSpec.parentNode.toscaEntityTemplate.name
-            ):
+            rel_source_name = relSpec.toscaEntityTemplate.source.name
+            if rel_source_name == req_source_name:
                 assert (
                     not reqSpec.relationship
                     or reqSpec.relationship.name == relSpec.name
@@ -1007,11 +1041,14 @@ class NodeSpec(EntitySpec):
 
     @property
     def abstract(self) -> str:
-        if self.tpl.get("imported"):
-            return "select"  # XXX might be "substitute"
-        for name in ("select", "substitute"):
+        for name in (
+            "substitute",
+            "select",
+        ):
             if name in self.toscaEntityTemplate.directives:
                 return name
+        if self.tpl.get("imported"):
+            return "select"
         return ""
 
     @property
@@ -1224,15 +1261,17 @@ class TopologySpec(EntitySpec):
         self,
         topology: TopologyTemplate,
         spec: ToscaSpec,
+        parent: Optional["TopologySpec"] = None,
         inputs: Optional[Dict[str, Any]] = None,
-        name: str = "~topology",
     ):
         self.topology_template = topology
         self.toscaEntityTemplate = topology  # hack
         self.spec: ToscaSpec = spec
-        self.name = name
+        self.spec._topology_templates[id(topology)] = self
+        self.name = "root"
         self.type = "~topology"
         self.topology = self
+        self.parent_topology: Optional["TopologySpec"] = parent
         self.node_templates: Dict[str, NodeSpec] = {}
         for template in topology.nodetemplates:
             if not template.type_definition:
@@ -1250,10 +1289,11 @@ class TopologySpec(EntitySpec):
             for input in topology.inputs
         }
         self.outputs = {output.name: output.value for output in topology.outputs}
-        self.properties = CommentedMap()  # XXX implement substitution_mappings
+        self.properties = CommentedMap()
         self.defaultAttributes = {}
         self.propertyDefs = {}
         self.attributeDefs = {}
+        # XXX! broken for nested topologies
         self._defaultRelationships: Optional[List[RelationshipSpec]] = None
         self._isReferencedBy = []
 
@@ -1273,11 +1313,32 @@ class TopologySpec(EntitySpec):
         return False
 
     @property
+    def substitute_of(self) -> Optional[NodeSpec]:
+        """If set, return the node template that this topology is substituting."""
+        submap = self.topology_template.substitution_mappings
+        if submap and submap.sub_mapped_node_template:
+            assert self.parent_topology
+            return self.parent_topology.get_node_template(
+                submap.sub_mapped_node_template.name
+            )
+        return None
+
+    @property
+    def substitution_node(self) -> Optional[NodeSpec]:
+        """If set, return the root node template of this topology."""
+        substitution_mappings = self.topology_template.substitution_mappings
+        if substitution_mappings and substitution_mappings._node_template:
+            return self.get_node_template(substitution_mappings._node_template.name)
+        return None
+
+    @property
     def primary_provider(self):
         return self.relationship_templates.get("primary_provider")
 
     @property
-    def default_relationships(self):
+    def default_relationships(self) -> List[RelationshipSpec]:
+        if self.parent_topology:
+            return self.parent_topology.default_relationships
         if self._defaultRelationships is None:
             self._defaultRelationships = [
                 relSpec
@@ -1314,8 +1375,8 @@ class TopologySpec(EntitySpec):
             if template.is_compatible_type(typeName):
                 yield template
 
-    def get_template(self, name) -> Optional[EntitySpec]:
-        if name == "~topology":
+    def get_template(self, name: str) -> Optional[EntitySpec]:
+        if name == "~topology" or name == "root":
             return self
         elif "~c~" in name:
             nodeName, capability = name.split("~c~")
@@ -1365,7 +1426,7 @@ class TopologySpec(EntitySpec):
 
         nodeTemplate = self.topology_template.add_template(name, tpl)
         nodeSpec = NodeSpec(nodeTemplate, self)
-        self.topology.node_templates[name] = nodeSpec
+        self.node_templates[name] = nodeSpec
         if discovered:
             if self.spec.discovered is None:
                 self.spec.discovered = CommentedMap()
