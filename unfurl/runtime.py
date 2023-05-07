@@ -896,7 +896,6 @@ class NodeInstance(HasInstancesInstance):
         assert isinstance(targetNodeInstance, NodeInstance)
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
-                logger.error(f"{[(r.template.source, r.template is relationship) for r in cap.relationships]=}")
                 for relInstance in cap.relationships:
                     if relInstance.template is relationship:
                         return relInstance
