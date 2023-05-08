@@ -167,7 +167,7 @@ class Plan:
         else:
             if self.root.template.topology is not template.topology:
                 name = ":" + template.topology.nested_name
-                assert self.root.imports
+                assert self.root.imports is not None
                 root = self.root.imports.find_import(name)
                 if not root:
                     self.root.create_nested_topology(template.topology)
@@ -187,7 +187,7 @@ class Plan:
         if template.substitution:
             # set shadow to inner node instance
             assert template.substitution.substitution_node
-            assert self.root.imports
+            assert self.root.imports is not None
             # get the nested TopologyInstance
             nested_root_name = ":" + template.substitution.nested_name
             nested_root = self.root.imports.find_import(nested_root_name)

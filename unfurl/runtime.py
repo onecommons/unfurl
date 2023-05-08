@@ -1191,7 +1191,7 @@ class TopologyInstance(HasInstancesInstance):
         topology = self.template.spec.get_topology(source)
         assert topology
         if self.template.topology is not topology:
-            assert self.imports
+            assert self.imports is not None
             nested_root = self.imports.find_import(":" + topology.nested_name)
             if nested_root:
                 return cast(TopologyInstance, nested_root)

@@ -388,7 +388,7 @@ class Manifest(AttributeManager):
         status = resourceSpec["substitution"]
         operational = self.load_status(status)
         topology_instance = root.create_nested_topology(substitution, operational)
-        assert root.imports
+        assert root.imports is not None
         inner_name = (
             substitution.substitution_node and substitution.substitution_node.name
         )
