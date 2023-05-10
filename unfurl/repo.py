@@ -742,11 +742,32 @@ class GitRepo(Repo):
         else:
             return False
 
-    def push(self, url: Optional[str] = None) -> None:
+    def _push(self, url: Optional[str] = None, **kw) -> None:
         if url:
-            self.run_cmd(["push", url], with_exceptions=True)
+            self.run_cmd(["push", url], with_exceptions=True, **kw)
         elif self.remote:
-            self.remote.push().raise_if_error()
+            self.remote.push(**kw).raise_if_error()
+
+    def push(self, url: Optional[str] = None, pull_on_rejected=True, **kw) -> None:
+        try:
+            self._push(url, **kw)
+        except git.exc.GitCommandError as e:  # type: ignore
+            retry = pull_on_rejected and (
+                not url
+                # pull() doesn't support alternative urls
+                or normalize_git_url_hard(url) == normalize_git_url_hard(self.url)
+            )
+            if retry and "[rejected]" in e.stderr:
+                self.pull(
+                    ff_only=False,
+                    no_rebase=True,
+                    commit=True,
+                    no_edit=True,
+                    with_exceptions=True,
+                )
+                self._push(url, **kw)
+            else:
+                raise e
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
