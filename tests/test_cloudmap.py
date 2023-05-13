@@ -75,7 +75,6 @@ repositories:
     protocols:
     - https
     - ssh
-    internal_id: '973'
     project_url: https://unfurl.cloud/feb20a/dashboard
     metadata:
       issues_url: https://unfurl.cloud/feb20a/dashboard/-/issues
@@ -109,7 +108,7 @@ def test_create(runner, caplog):
     assert "importing group feb20a/feb20b" in caplog.text
     assert "syncing to feb20a" in caplog.text
     assert (
-        "committed: Update hosts/testProvider/feb20a with latest from testProvider/feb20a"
+        "committed: Update hosts/testProvider with latest from testProvider/feb20a"
         in caplog.text
     )
     assert "nothing to commit for: synced testProvider" in caplog.text
@@ -124,9 +123,9 @@ def test_sync(runner, caplog):
     )
     for msg in [
         "found git repo unfurl.cloud/feb20a/dashboard.git",
-        "nothing to commit for: Update hosts/testProvider/feb20a with latest from testProvider/feb20a",
+        "nothing to commit for: Update hosts/testProvider with latest from testProvider/feb20a",
         "syncing to feb20a",
-        "pushed to https://XXXXX:XXXXX@app.dev.unfurl.cloud/feb20a/dashboard.git: [up to date]",
+        "skipping push: no change detected on branch testProvider/main for https://XXXXX:XXXXX@app.dev.unfurl.cloud/feb20a/dashboard.git",
         "nothing to commit for: synced testProvider",
     ]:
         assert msg in caplog.text

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 import git
 import git.exc
+from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse
@@ -571,7 +572,7 @@ class GitRepo(Repo):
             return dir + "/"
 
     @property
-    def revision(self):
+    def revision(self) -> str:
         if not self.repo.head.is_valid():
             return ""
         return self.repo.head.commit.hexsha
@@ -580,7 +581,6 @@ class GitRepo(Repo):
     def remote(self) -> Optional[git.Remote]:
         gitrepo = self.repo
         if gitrepo.remotes:
-            # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             try:
                 return gitrepo.remotes["origin"]
             except Exception:
@@ -700,13 +700,13 @@ class GitRepo(Repo):
         path = os.path.relpath(path, self.working_dir)
         self.repo.git.add("--all", path)
 
-    def commit_files(self, files, msg):
+    def commit_files(self, files: List[str], msg: str) -> Commit:
         # note: this will also commit existing changes in the index
         index = self.repo.index
         index.add([os.path.abspath(f) for f in files])
         return index.commit(msg)
 
-    def is_dirty(self, untracked_files=False, path=None):
+    def is_dirty(self, untracked_files=False, path: Optional[str] = None) -> bool:
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
