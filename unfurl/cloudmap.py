@@ -938,8 +938,9 @@ class GitlabManager(RepositoryHost):
                                     f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
                                 )
                                 if self.dryrun:
+                                    summary = cast(str, commit.summary)
                                     logger.info(
-                                        f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_date} {commit.summary}"
+                                        f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
                                     )
                                 else:
                                     force_merge_local_and_push_to_remote(
@@ -1019,7 +1020,8 @@ class GitlabManager(RepositoryHost):
 
         namespace, project_path = os.path.split(repo_info.path)
         if namespace != self.path:
-            dest_group = self.ensure_group(namespace)
+            dest_group = self.ensure_group(namespace)  # type: ignore
+            assert dest_group
         proj_data = {
             "name": repo_info.name,
             "path": project_path,
