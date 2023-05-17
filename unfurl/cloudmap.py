@@ -35,6 +35,7 @@ from typing import (
     List,
     Dict,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -53,7 +54,13 @@ from .tosca import NodeSpec, ToscaSpec
 from .support import ContainerImage
 
 from .to_json import blueprint_metadata
-from .repo import GitRepo, is_git_worktree, normalize_git_url, split_git_url
+from .repo import (
+    GitRepo,
+    is_git_worktree,
+    normalize_git_url,
+    sanitize_url,
+    split_git_url,
+)
 from .util import UnfurlError
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
@@ -184,6 +191,9 @@ class Repository:
         notables.sort(key=attrgetter("path"))
         self.notable = {n.path: n.asdict() for n in notables}
 
+    def get_default_branch(self):
+        return self.default_branch or "main"
+
 
 ArtifactDict = Dict[str, dict]
 
@@ -200,21 +210,27 @@ def find_git_repos(rootDir, gitDir=".git") -> Iterator[str]:
 
 def force_merge_local_and_push_to_remote(
     repo: GitRepo, remote_name: str, dest_branch: str, merge=False, force=False
-):
-    """Update existing project repo with changes from upstream and"""
+) -> None:
+    """Make the remote repo match the local repo using force push or merge "ours" strategy."""
     if merge:
+        assert not force  # why do you want to do both?
         # merge the remote branch into the current local HEAD
         # Use "ours" merge strategy so the resulting tree of the merge is always that of the current branch head, effectively
         # ignoring all changes from all other branches.
         # This creates a merge commit equivalent to a force push without rewriting history
-        repo.repo.git.merge(dest_branch, s="ours")
+        repo.repo.git.merge(
+            dest_branch, s="ours", m=f"set {dest_branch} to {repo.repo.active_branch}"
+        )
 
     # push local HEAD to remote "main" branch
     # skip the pipeline because that might cause additional commits
-    pushinfo = repo.repo.remotes[remote_name].push(
-        o="ci.skip", follow_tags=True, force=force
-    )[0]
-    logger.info(f"pushed to {repo.safe_url}: {pushinfo.summary}")
+    remote = repo.repo.remotes[remote_name]
+    pushinfolist = remote.push(o="ci.skip", follow_tags=True, force=force)
+    pushinfo = pushinfolist[0]
+    if pushinfolist.error:
+        logger.error(f"pushed to {sanitize_url(remote.url, True)} failed: {pushinfo.summary}")
+    else:
+        logger.info(f"pushed to {sanitize_url(remote.url, True)}: {pushinfo.summary}")
 
 
 T = TypeVar("T", bound="Notable")
@@ -450,34 +466,53 @@ class _LocalGitRepos:
     def __init__(self, local_repo_root: str = "") -> None:
         self._set_repos(os.path.expanduser(local_repo_root))
 
-    @staticmethod
-    def _add_repo(working_dir: str, repos: Dict[str, GitRepo]) -> Optional[GitRepo]:
-        repo = GitRepo(git.Repo(working_dir))
+    def _add_repo(self, working_dir: str) -> Optional[GitRepo]:
+        gitrepo = git.Repo(working_dir)
+        repo = GitRepo(gitrepo)
         if not repo.remote:
             logger.debug(f"skipping git repo in {working_dir}: no remote set")
         else:
-            # XXX get all remotes
-            if "canonical" in repo.repo.remotes:
-                remote_url = repo.repo.remotes["canonical"].url
-            else:
-                remote_url = repo.remote.url
-            url = get_remote_git_url(remote_url)
-            if url:
+            for remote in gitrepo.remotes:
+                if not remote.url:
+                    continue
+                url = get_remote_git_url(remote.url)
+                self.remotes.setdefault(url, []).append(remote)
                 logger.debug(f"found git repo {url} in {working_dir}")
-                repos[url] = repo
-                return repo
-            else:
-                logger.debug(f"skipping git repo in {working_dir}: no remote set")
+            self.repos[working_dir] = repo
         return None
 
     def _set_repos(self, root: str) -> None:
-        repos: Dict[str, GitRepo] = {}
+        # note: there can be a many to many relationship between upstream and local repos
+        # url => remotes
+        self.remotes: Dict[str, List[git.Remote]] = {}
+        # working_dir => repo
+        self.repos: Dict[str, GitRepo] = {}
         logger.debug(f"looking for repos in {root}")
         if root:
             for working_dir in find_git_repos(root):
-                self._add_repo(working_dir, repos)
-        self.repos = repos
+                self._add_repo(working_dir)
         self.repos_root = root
+
+    @staticmethod
+    def _choose_remote(remotes: List[git.Remote], hint: str):
+        host = origin = canonical = None
+        for remote in remotes:
+            if remote.name == hint:
+                host = remote
+            elif remote.name == "origin":
+                origin = remote
+            elif remote.name == "canonical":
+                canonical = remote
+        # find best candidate
+        return origin or host or canonical or remotes[0]
+
+    def find_repo(self, url: str, hint: str) -> Optional[GitRepo]:
+        remotes = self.remotes.get(get_remote_git_url(url))
+        if remotes:
+            # find best candidate
+            remote = self._choose_remote(remotes, hint)
+            return self.repos[cast(str, remote.repo.working_tree_dir)]
+        return None
 
 
 class Directory(_LocalGitRepos):
@@ -487,7 +522,9 @@ class Directory(_LocalGitRepos):
 
     DEFAULT_NAME = "cloudmap.yml"
 
-    def __init__(self, path=".", local_repo_root: str = "", skip_analysis=False) -> None:
+    def __init__(
+        self, path=".", local_repo_root: str = "", skip_analysis=False
+    ) -> None:
         self.do_analysis = not skip_analysis
         self._load(path)
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
@@ -519,25 +556,30 @@ class Directory(_LocalGitRepos):
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
-    ) -> Iterator[Tuple[GitRepo, Repository]]:
-        """for each repo that matches host.host and host.namespace, check that HEAD matches the repository entry"""
-        for url, repo in self.repos.items():
+    ) -> Iterator[Tuple[git.Remote, GitRepo, Repository]]:
+        """for each repo that matches host.host and host.namespace, yield matching remote and Repository"""
+        for url, remotes in self.remotes.items():
             repo_info = self.repositories.get(url)
             if repo_info and host.has_repository(repo_info):
-                yield repo, repo_info
+                remote = self._choose_remote(remotes, host.name)
+                working_dir = cast(str, remote.repo.working_tree_dir)
+                yield remote, self.repos[working_dir], repo_info
 
     def find_mismatched_repo(self, host: "RepositoryHost") -> Optional[GitRepo]:
-        for repo, repo_info in self.find_local_repos_for_host(host):
+        for remote, repo, repo_info in self.find_local_repos_for_host(host):
             if repo.revision != repo_info.branches["main"]:
                 return repo
         return None
 
-    def merge(self, host: "RepositoryHost") -> None:
-        """For each git repo that has a branch for the repository host, merge it into main"""
-        host_branch = f"{host.name}/main"
-        for repo in self.repos.values():
-            if host_branch in repo.repo.branches:  # type: ignore
-                repo.repo.git.merge(host_branch)
+    def merge_from_host(self, host: "RepositoryHost") -> None:
+        """For each local repo that has a remote that matches the repository host, pull the default branch."""
+        for remote, repo, repo_info in self.find_local_repos_for_host(host):
+            default_branch = repo_info.get_default_branch()
+            host_branch = f"{remote.name}/{default_branch}"
+            if host_branch in remote.repo.git.branch(r=True).split():
+                remote.repo.git.checkout(default_branch, with_exceptions=True)
+                # should be a ff merge
+                remote.repo.git.merge(host_branch, ff_only=True, with_exceptions=True)
 
     def ensure_local(self):
         if not self.repos_root:
@@ -562,9 +604,6 @@ class Directory(_LocalGitRepos):
                 a: self.artifacts[a] for a in sorted(self.artifacts)
             }
         self.config.save()
-
-    def find_repo(self, url: str) -> Optional[GitRepo]:
-        return self.repos.get(get_remote_git_url(url))
 
     def clone_repo(self, repo_info: Repository, url: str) -> GitRepo:
         download_path = str(Path(self.repos_root) / repo_info.path)
@@ -594,10 +633,12 @@ class Directory(_LocalGitRepos):
         return notables
 
     def maybe_analyze(
-        self, repo_info: Repository, repo: GitRepo
+        self, repo_info: Repository, repo: GitRepo, previous_notables: dict
     ) -> Optional[List[Notable]]:
         if self.do_analysis:
             return self.analyze(repo_info, repo)
+        else:  # preserve previous analysis
+            repo_info.notable = previous_notables
         return None
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
@@ -625,6 +666,7 @@ class RepositoryHost:
     name: str = ""
     path: str = ""
     canonical_url: str = ""
+    dryrun: bool = False
 
     def has_repository(self, repo_info: Repository) -> bool:
         return False
@@ -649,15 +691,22 @@ class RepositoryHost:
         self, push_url: str, dest: Repository, local: "Directory"
     ) -> GitRepo:
         # add remote for target repo
-        repo = local.find_repo(push_url)
+        repo = local.find_repo(push_url, self.name)
         if not repo:
-            repo = local.find_repo(dest.git)
+            repo = local.find_repo(dest.git, self.name)
         if not repo:
             repo = local.clone_repo(dest, push_url)
+        remote_name = self.name or "origin"
         try:
-            dest_remote = repo.repo.remote(self.name or "origin")
+            dest_remote = repo.repo.remote(remote_name)
         except ValueError:
-            dest_remote = git.Remote.create(repo.repo, self.name or "origin", push_url)
+            dest_remote = git.Remote.create(repo.repo, remote_name, push_url)
+        else:
+            if normalize_git_url(dest_remote.url) != normalize_git_url(dest.git_url()):
+                logger.warning(
+                    f"{dest_remote.url} doesn't match {dest.git_url()} for remote '{remote_name}' in {repo.working_dir}"
+                )
+                # XXX should we set the url?
         if self.canonical_url and push_url != dest.git_url():
             # add a remote so we can match this repository with mirror hosts
             canonical_remote_name = "canonical"
@@ -679,14 +728,14 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
 
     def has_repository(self, repo_info: Repository) -> bool:
-        return repo_info.git in self.repos
+        return repo_info.git in self.remotes
 
     def include_local_repo(self, repo: GitRepo) -> bool:
         return bool(repo.remote)  # XXX check host and namespace filters too
 
     def from_host(self, directory: Directory):
         """Pull latest and update the cloudmap to match the local repositories."""
-        for url, repo in self.repos.items():
+        for repo in self.repos.values():
             if self.include_local_repo(repo):
                 repo.pull()  # XXX make optional?
                 assert repo.repo.working_dir
@@ -696,16 +745,20 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     )
                 )
                 repository = self.git_to_repository(repo, path)
+                previous = directory.repositories.get(repository.key)
                 directory.repositories[repository.key] = repository
-                directory.maybe_analyze(repository, repo)
+                directory.maybe_analyze(
+                    repository, repo, previous.notable if previous else {}
+                )
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """Push cloudmap revisions to origin."""
         matched = False
-        for url, repo in self.repos.items():
+        for repo in self.repos.values():
             if self.include_local_repo(repo):
-                if directory.repos_root and self.repos_root != directory.repos_root:
-                    cloudmap_local_repo = directory.repos.get(url)
+                # if we're looking at different local clones than the cloudmap's
+                if self.repos_root != directory.repos_root:
+                    cloudmap_local_repo = directory.find_repo(repo.url, self.name)
                     if cloudmap_local_repo:
                         repo.pull(cloudmap_local_repo.working_dir)
                 repo.push()
@@ -796,14 +849,32 @@ class GitlabManager(RepositoryHost):
             dest_proj: Project = self.gitlab.projects.get(p.id)
             if self.visibility == "public" and dest_proj.visibility != "public":
                 continue
+            try:
+                dest_proj.default_branch
+            except AttributeError:
+                # project without repositories will throw error, skip those
+                logger.warning(
+                    f"skipping project {dest_proj.web_url}, it doesn't have a git repository"
+                )
+                continue
             r = self.gitlab_project_to_repository(dest_proj)
+
+            previous = repositories.get(r.key)
             repositories[r.key] = r
             if directory.repos_root:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(dest_proj)
                 repo = self.fetch_repo(remote_url, r, directory)
-                directory.maybe_analyze(r, repo)
+                directory.maybe_analyze(r, repo, previous.notable if previous else {})
+
+    def _get_projects_from_group(self, group, projects):
+        for p in group.projects.list(iterator=True):
+            projects[p.path_with_namespace][0] = p  # type: ignore
+        for subgroup in group.subgroups.list(iterator=True):
+            self._get_projects_from_group(
+                self.gitlab.groups.get(subgroup.id), projects
+            )
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
@@ -827,14 +898,16 @@ class GitlabManager(RepositoryHost):
             return False
 
         dest_group = self.ensure_group(dest_path)
+        if not dest_group:
+            logger.info("%s doesn't exist", dest_path)
+            return False
         # XXX look up Namespace and sync it?
 
         projects = cast(
             Dict[str, Tuple[Optional[Project], Optional[Repository]]],
             collections.defaultdict(lambda: [None, None]),
         )
-        for p in dest_group.projects.list(iterator=True):
-            projects[p.path_with_namespace][0] = p  # type: ignore
+        self._get_projects_from_group(dest_group, projects)
         for r in repositories:
             projects[r.path][1] = r  # type: ignore
 
@@ -843,38 +916,59 @@ class GitlabManager(RepositoryHost):
             if repo_info:
                 if dest:
                     # if both exist, update any changed metadata
-                    self.update_project_metadata(repo_info, dest)
-                    do_merge = merge
+                    if self.dryrun:
+                        logger.info("dry run: skipping creating updating project %s", name)
+                    else:
+                        self.update_project_metadata(repo_info, dest)
+                    do_merge = not force and merge
                 else:
+                    if self.dryrun:
+                        logger.info("dry run: skipping creating project %s", name)
+                        continue
                     # create the project
                     dest = self.create_project(repo_info, dest_group)
                     do_merge = False
                 assert dest
                 if directory.repos_root:
                     remote_url = self.git_url_with_auth(dest)
-                    repo = directory.find_repo(dest.http_url_to_repo)
+                    repo = directory.find_repo(dest.http_url_to_repo, self.name)
                     if not repo:
-                        repo = directory.find_repo(repo_info.git)
+                        repo = directory.find_repo(repo_info.git, self.name)
                     if repo:
-                        # now update project repository
-                        logger.info(
-                            f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
-                        )
                         # there's a local mirror that might have changed
                         try:
                             repo = self.fetch_repo(remote_url, repo_info, directory)
                             # clone source repo and push to dest
-                            dest_branch = f"{self.name}/main"
-                            force_merge_local_and_push_to_remote(
-                                repo,
-                                self.name,
-                                dest_branch,
-                                merge=do_merge,
-                                force=force,
+                            dest_branch = (
+                                f"{self.name}/{repo_info.get_default_branch()}"
                             )
-                            if do_merge:
-                                # we might have create a merge commit, update the directory
-                                repo_info.update_branch(repo, "main")
+                            commit = repo.repo.head.commit
+                            branch_exists = dest_branch in repo.repo.references
+                            if not branch_exists or commit != repo.repo.references[dest_branch].commit:
+                                # now update project repository
+                                logger.info(
+                                    f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
+                                )
+                                if self.dryrun:
+                                    summary = cast(str, commit.summary)
+                                    logger.info(
+                                        f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
+                                    )
+                                else:
+                                    force_merge_local_and_push_to_remote(
+                                        repo,
+                                        self.name,
+                                        dest_branch,
+                                        merge=branch_exists and do_merge,
+                                        force=force,
+                                    )
+                                if do_merge:
+                                    # we might have create a merge commit, update the directory
+                                    repo_info.update_branch(repo, "main")
+                            else:
+                                logger.debug(
+                                    f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
+                                )
                         except Exception:
                             logger.error(
                                 f"Unexpected error updating upstream git for {repo_info.git}",
@@ -889,7 +983,8 @@ class GitlabManager(RepositoryHost):
         return True
 
     def git_url_with_auth(self, project: Project) -> str:
-        return f"https://{self.user}:{self.token}@{project.http_url_to_repo.lstrip('https://')}"
+        scheme, sep, url = project.http_url_to_repo.rpartition("://")
+        return f"{scheme}://{self.user}:{self.token}@{url}"
 
     # only fetch group, don't create it
     def _get_group(self, path: str) -> Optional[Group]:
@@ -898,13 +993,15 @@ class GitlabManager(RepositoryHost):
         except Exception:
             return None
 
-    def ensure_group(self, path: str) -> Group:
+    def ensure_group(self, path: str) -> Optional[Group]:
         """Get or create the given group in the Gitlab instance"""
         gitlab = self.gitlab
         logger.info(f"ensuring group {path} on {gitlab.url}")
 
         # see if group exists first
         group = self._get_group(path)
+        if self.dryrun:
+            return group
 
         # create if missing
         if group is None:
@@ -932,11 +1029,12 @@ class GitlabManager(RepositoryHost):
         return group
 
     def create_project(self, repo_info: Repository, dest_group: Group) -> Project:
-        logger.info(f"  creating {repo_info.path}")
+        logger.info(f"creating project {repo_info.path}")
 
-        project_path, namespace = os.path.split(repo_info.path)
+        namespace, project_path = os.path.split(repo_info.path)
         if namespace != self.path:
-            dest_group = self.ensure_group(namespace)
+            dest_group = self.ensure_group(namespace)  # type: ignore
+            assert dest_group
         proj_data = {
             "name": repo_info.name,
             "path": project_path,
@@ -989,8 +1087,8 @@ class GitlabManager(RepositoryHost):
         # XXX
         # if project.license:
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
-        if project.avatar_url:
-            kw["avatar_url"] = self.canonize(project.avatar_url)
+        # if project.avatar_url:
+        #     kw["avatar_url"] = project.avatar_url
         if project.issues_enabled:
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
 
@@ -1015,7 +1113,7 @@ class GitlabManager(RepositoryHost):
             protocols=protocols,
             path=project.path_with_namespace,
             default_branch=project.default_branch,
-            internal_id=str(project.get_id()),
+            # internal_id=str(project.get_id()),
             project_url=self.canonize(project.web_url),
             metadata=metadata,
             private=project.visibility != "public",
@@ -1036,15 +1134,17 @@ class CloudMap:
     def __init__(
         self,
         repo: GitRepo,
-        provider_branch: str,
+        host_branch: str,
         localrepo_root: str = "",
         path: str = "",
-        skip_analysis: bool = False
+        skip_analysis: bool = False,
     ):
         self.repo = repo
-        self.branch = provider_branch
+        self.branch = host_branch
         self.directory = Directory(
-            str(Path(repo.working_dir) / (path or "cloudmap.yaml")), localrepo_root, skip_analysis
+            str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
+            localrepo_root,
+            skip_analysis,
         )
 
     @classmethod
@@ -1053,7 +1153,7 @@ class CloudMap:
         local_env: "LocalEnv",
         name: str,
         clone_root: str,
-        provider_name: str,
+        host_name: str,
         namespace: str,
         skip_analysis: bool,
     ) -> "CloudMap":
@@ -1071,11 +1171,11 @@ class CloudMap:
         url = normalize_git_url(url)
 
         # what if branch only exists locally?
-        if not provider_name:
+        if not host_name:
             branch = revision or "main"
             branch_exists = True
         else:
-            branch = f"hosts/{provider_name}/{namespace}".rstrip("/")
+            branch = f"hosts/{host_name}"
             local_repo = local_env.find_git_repo(url, branch)
             if local_repo and branch in local_repo.repo.branches:  # type: ignore
                 branch_exists = True
@@ -1101,31 +1201,38 @@ class CloudMap:
         visibility: Optional[str] = None,
     ) -> RepositoryHost:
         environment = local_env.get_context().get("cloudmaps", {})
-        provider_config: Optional[dict] = environment.get("hosts", {}).get(name)
+        host_config: Optional[dict] = environment.get("hosts", {}).get(name)
         clone_root = self.directory.repos_root
-        if provider_config is None:
+        if host_config is None:
             if name == "local":
-                provider_config = dict(type="local", clone_root=clone_root)
+                host_config = dict(type="local", clone_root=clone_root)
             elif ":" in name:
                 # assume it's an url pointing to gitlab or unfurl cloud instance
-                provider_config = dict(type="gitlab", url=name)
+                host_config = dict(type="gitlab", url=name)
             else:
                 raise UnfurlError(f"no repository host named {name} found")
-        if provider_config["type"] == "local":
-            return LocalRepositoryHost(provider_config.get("clone_root", clone_root))
+        if host_config["type"] == "local":
+            return LocalRepositoryHost(host_config.get("clone_root", clone_root))
 
-        assert provider_config["type"] in ["gitlab", "unfurl.cloud"]
-        config = local_env.map_value(provider_config, environment.get("variables"))
+        assert host_config["type"] in ["gitlab", "unfurl.cloud"]
+        config = local_env.map_value(host_config, environment.get("variables"))
         if visibility:
             config["visibility"] = visibility
         return GitlabManager(name, config, namespace)
+
+    def from_host(self, host: RepositoryHost) -> bool:
+        host.from_host(self.directory)
+        changed = self.save(
+            f"Update {self.branch} with latest from {'/'.join([host.name, host.path])}"
+        )
+        return changed
 
     def sync(self, host: RepositoryHost, force=False) -> None:
         """
         Synchronize the cloudmap with the given the repository host.
 
         First, update a branch named "hosts/{host_name}/{namespace}" with the latest from the repository host.
-        Then merge the provider branch into "main".
+        Then merge the host branch into "main".
         If a conflict is detected, abort with a merge error in the cloudmap repository.
         For example, if a repository branch or tags was changed in both branches there will be a merge conflict.
         If so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run this command.
@@ -1135,11 +1242,10 @@ class CloudMap:
 
         The user is responsible for pushing changes to cloudmap repository back upstream.
         """
-        host.from_host(self.directory)
-        changed = self.save(
-            f"Update {self.branch} with latest from {'/'.join([host.name, host.path])}"
-        )
+        changed = self.from_host(host)
+        return self.to_host(host, changed, force)
 
+    def to_host(self, host: RepositoryHost, merge_host: bool, force=False) -> None:
         if self.branch != "main":
             self.repo.checkout("main")
             self.directory.reload()  # map may have changed, reload the directory
@@ -1149,31 +1255,34 @@ class CloudMap:
                 raise UnfurlError(
                     f"Aborting sync, cloudmap is out of sync with {mismatched.working_dir}"
                 )
-            # merge the provider branch into main
+            # merge the host branch into main
             # there will be a merge conflict if a repository branch or tags was changed in both branches
             # if so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run
-            if changed:
-                self.repo.repo.git.merge(self.branch)  # --commit --no-edit
+            if merge_host:
+                self.repo.repo.git.merge(
+                    self.branch, m=f"merge changes from syncing {self.branch}"
+                )
                 self.directory.reload()  # map changed, reload the directory
 
-            # for each repository merge the provider's branch
-            # (which was fetched during from_provider()) into main
+            # for each repository merge the host's default branch (it was already fetched during from_host())
+            # into the local repo's default branch
             # since the cloudmap merge was successful this will just be a fast-forward merge
-            self.directory.merge(host)
+            self.directory.merge_from_host(host)
 
-        # deploy main to the provider
+        # deploy main to the host
         host.to_host(self.directory, True, force=force)
 
         # if force we might have created merge commits, update the cloudmap with those
         self.save(f"synced {host.name}")
         if self.branch != "main":
-            # set provider branch match to main because we are even now
+            # set host branch head to match to main because we are even now
             self.repo.repo.git.branch(self.branch, f=True)
 
     def save(self, msg: str) -> bool:
         self.directory.save()
-        if self.repo.is_dirty(True):
-            self.repo.add_all(self.repo.working_dir)
+        if self.repo.is_dirty(True, self.directory.config.path):
+            assert self.directory.config.path
+            self.repo.commit_files([self.directory.config.path], msg)
             self.repo.repo.index.commit(msg)
             logger.debug(f"committed: {msg}")
             return True

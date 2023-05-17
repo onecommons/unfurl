@@ -1329,6 +1329,7 @@ def serve(
 @click.argument("cloudmap", default="cloudmap")
 @click.option("--sync", default=None, help='Sync the given repository host ("local", name, or url).')
 @click.option("--import", default=None, help='Update the cloudmap with the given repository host ("local", name, or url).')
+@click.option("--export", default=None, help='Update the given repository host ("local", name, or url) with the local repositories recorded in the cloudmap.')
 @click.option(
     "--namespace",
     default=None,
@@ -1356,6 +1357,18 @@ def serve(
     is_flag=True,
     help="Don't analyze files in repositories",
 )
+@click.option(
+    "--force",
+    default=False,
+    is_flag=True,
+    help="Force push to repository host",
+)
+@click.option(
+    "--dryrun",
+    default=False,
+    is_flag=True,
+    help="Do not modify the repository host, just do a dry run.",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -1365,6 +1378,8 @@ def cloudmap(
     clone_root: Optional[str] = None,
     visibility: Optional[str] = None,
     skip_analysis: bool = False,
+    force: bool = False,
+    dryrun: bool = False,
     **options,
 ):
     """Manage a cloud map.
@@ -1376,25 +1391,26 @@ def cloudmap(
 
     options.update(ctx.obj)
     localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
-    # --sync and --import set the provider name
-    provider = sync or options.get("import", "")
+    # --sync, --import, --export set the name of the repository host
+    host_name = sync or options.get("import", "") or options.get("export", "")
+    if not host_name:
+        print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
+        return
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root or "", provider, namespace or "", skip_analysis
+        localEnv, cloudmap, clone_root or "", host_name, namespace or "", skip_analysis
     )
-    if sync:
-        assert not options.get("import"), "--import and --sync are mutually exclusive"
-        cloud_map.sync(cloud_map.get_host(localEnv, provider, namespace or "", visibility))
-    elif options.get("import"):
-        host = cloud_map.get_host(localEnv, options.get("import") or "", namespace or "", visibility)
-        host.from_host(cloud_map.directory)
-        cloud_map.save(
-            f"Update cloudmap with latest from {'/'.join([host.name, host.path])}"
-        )
+    host = cloud_map.get_host(localEnv, host_name, namespace or "", visibility)
+    host.dryrun = dryrun
+    if options.get("import") or sync:
+        changed = cloud_map.from_host(host)
+    else:
+        changed = False
+    if options.get("export") or sync:
+        cloud_map.to_host(host, changed, force)
+
     # elif clone_root:
     #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")
     #     cloud_map.from_provider(namespace, download)
-    else:
-        print("nothing to do for", cloud_map)
 
 
 def main():
