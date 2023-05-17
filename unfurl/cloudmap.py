@@ -694,10 +694,17 @@ class RepositoryHost:
             repo = local.find_repo(dest.git, self.name)
         if not repo:
             repo = local.clone_repo(dest, push_url)
+        remote_name = self.name or "origin"
         try:
-            dest_remote = repo.repo.remote(self.name or "origin")
+            dest_remote = repo.repo.remote(remote_name)
         except ValueError:
-            dest_remote = git.Remote.create(repo.repo, self.name or "origin", push_url)
+            dest_remote = git.Remote.create(repo.repo, remote_name, push_url)
+        else:
+            if normalize_git_url(dest_remote.url) != normalize_git_url(dest.git_url()):
+                logger.warning(
+                    f"{dest_remote.url} doesn't match {dest.git_url()} for remote '{remote_name}' in {repo.working_dir}"
+                )
+                # XXX should we set the url?
         if self.canonical_url and push_url != dest.git_url():
             # add a remote so we can match this repository with mirror hosts
             canonical_remote_name = "canonical"
@@ -862,10 +869,10 @@ class GitlabManager(RepositoryHost):
     def _get_projects_from_group(self, group, projects):
         for p in group.projects.list(iterator=True):
             projects[p.path_with_namespace][0] = p  # type: ignore
-            for subgroup in group.subgroups.list(iterator=True):
-                self._get_projects_from_group(
-                    self.gitlab.groups.get(subgroup.id), projects
-                )
+        for subgroup in group.subgroups.list(iterator=True):
+            self._get_projects_from_group(
+                self.gitlab.groups.get(subgroup.id), projects
+            )
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
@@ -907,7 +914,9 @@ class GitlabManager(RepositoryHost):
             if repo_info:
                 if dest:
                     # if both exist, update any changed metadata
-                    if not self.dryrun:
+                    if self.dryrun:
+                        logger.info("dry run: skipping creating updating project %s", name)
+                    else:
                         self.update_project_metadata(repo_info, dest)
                     do_merge = not force and merge
                 else:
@@ -932,7 +941,8 @@ class GitlabManager(RepositoryHost):
                                 f"{self.name}/{repo_info.get_default_branch()}"
                             )
                             commit = repo.repo.head.commit
-                            if commit != repo.repo.references[dest_branch].commit:
+                            branch_exists = dest_branch in repo.repo.references
+                            if not branch_exists or commit != repo.repo.references[dest_branch].commit:
                                 # now update project repository
                                 logger.info(
                                     f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
@@ -947,7 +957,7 @@ class GitlabManager(RepositoryHost):
                                         repo,
                                         self.name,
                                         dest_branch,
-                                        merge=do_merge,
+                                        merge=branch_exists and do_merge,
                                         force=force,
                                     )
                                 if do_merge:
@@ -971,7 +981,8 @@ class GitlabManager(RepositoryHost):
         return True
 
     def git_url_with_auth(self, project: Project) -> str:
-        return f"https://{self.user}:{self.token}@{project.http_url_to_repo.lstrip('https://')}"
+        scheme, sep, url = project.http_url_to_repo.rpartition("://")
+        return f"{scheme}://{self.user}:{self.token}@{url}"
 
     # only fetch group, don't create it
     def _get_group(self, path: str) -> Optional[Group]:
@@ -1016,7 +1027,7 @@ class GitlabManager(RepositoryHost):
         return group
 
     def create_project(self, repo_info: Repository, dest_group: Group) -> Project:
-        logger.info(f"  creating project {repo_info.path}")
+        logger.info(f"creating project {repo_info.path}")
 
         namespace, project_path = os.path.split(repo_info.path)
         if namespace != self.path:
