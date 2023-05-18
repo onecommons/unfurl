@@ -24,6 +24,7 @@ from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
+from toscaparser.policy import Policy
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
@@ -36,7 +37,7 @@ import os
 from .logs import getLogger
 import logging
 import re
-from typing import Dict, List, Optional, Sequence, Union, cast, Any, Generator
+from typing import Dict, Iterator, List, Optional, Sequence, Set, Union, cast, Any, Generator
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -1588,16 +1589,16 @@ class GroupSpec(EntitySpec):
         return [self.spec.groups[m] for m in self.members if m in self.spec.groups]
 
     @property
-    def policies(self):
+    def policies(self) -> Iterator["PolicySpec"]:
         if not self.spec:
             return
         for p in self.spec.policies.values():
-            if p.toscaEntityTemplate.targets_type == "groups":
+            if cast(Policy, p.toscaEntityTemplate).targets_type == "groups":
                 if self.name in p.members:
                     yield p
 
 
 class PolicySpec(EntitySpec):
-    def __init__(self, template: EntityTemplate, topology: TopologySpec):
+    def __init__(self, template: Policy, topology: TopologySpec):
         EntitySpec.__init__(self, template, topology)
-        self.members = set(template.targets_list)
+        self.members: Set[str] = set(template.targets or [])

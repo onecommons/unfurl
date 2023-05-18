@@ -640,9 +640,7 @@ class Plan:
                     continue
                 include = self.include_not_found(template)
                 if include or abstract == "substitute":
-                    logger.verbose("ct %s", template.nested_name)
                     resource = self.create_resource(template)
-                    logger.verbose("r %s", resource)
                     visited.add(id(resource))
                     if abstract != "substitute":
                         yield from self._generate_workflow_configurations(

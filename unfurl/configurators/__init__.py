@@ -7,6 +7,7 @@ from ..result import Results, ResultsMap
 from ..util import register_short_names
 from ..support import Status
 from ..planrequests import set_default_command
+from ..runtime import EntityInstance
 import importlib
 from typing import Sequence, Tuple
 from collections.abc import Mapping
@@ -23,7 +24,7 @@ register_short_names(
 
 class CmdConfigurator(Configurator):
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target):
+    def set_config_spec_args(klass, kw: dict, target: EntityInstance):
         return set_default_command(kw, "")
 
 

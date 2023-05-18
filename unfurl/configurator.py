@@ -142,7 +142,7 @@ class Configurator:
     attribute_output_metadata_key: Optional[str] = None
 
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target: None) -> dict:
+    def set_config_spec_args(klass, kw: dict, target: EntityInstance) -> dict:
         return kw
 
     def __init__(self, configurationSpec: ConfigurationSpec) -> None:
