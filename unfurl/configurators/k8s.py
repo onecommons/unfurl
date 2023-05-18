@@ -5,7 +5,7 @@ import re
 from base64 import b64encode
 from typing import Dict, Union
 from ..configurator import Configurator
-from ..support import Status, Priority
+from ..support import Status, Priority, to_kubernetes_label
 from ..runtime import RelationshipInstance
 from ..util import UnfurlTaskError, wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
@@ -348,8 +348,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             md["namespace"] = namespace
         # else: error if namespace mismatch?
 
-        # XXX if using target.name, convert into kube friendly dns-style name
-        name = task.target.attributes.get("name", task.target.name)
+        name = to_kubernetes_label(task.target.attributes.get("name", task.target.name))
         if "name" in md and md["name"] != name:
             task.target.attributes["name"] = md["name"]
         else:
