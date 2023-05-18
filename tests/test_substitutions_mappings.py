@@ -1,6 +1,8 @@
+import json
 from click.testing import CliRunner
 
 from unfurl.job import JobOptions, Runner
+from unfurl.to_json import to_deployment
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from .utils import init_project, run_job_cmd
@@ -32,6 +34,8 @@ spec:
       node_templates:
         external:
           type: nodes.Test
+          properties:
+            outer: outer
 
         nested1:
           type: Nested
@@ -63,17 +67,30 @@ node_types:
         create:
           implementation: Template
           inputs:
-            # XXX: resultTemplate:
-            #   attributes:
-            #     foo:
-            #       eval: .targets::host::foo
             done:
               status: ok
+
   Nested:
-    derived_from: nodes.Test
+    derived_from: tosca.nodes.Root
+    attributes:
+      nested_attribute:
+        type: string
+        required: false
     requirements:
       - host:
           relationship: unfurl.relationships.ConfiguringHostedOn
+    interfaces:
+      Standard:
+       operations:
+        create:
+          implementation: Template
+          inputs:
+            resultTemplate:
+              attributes:
+                nested_attribute:
+                  eval: .targets::host::outer
+            done:
+              status: ok
 
 topology_template:
   substitution_mappings:
@@ -88,7 +105,7 @@ topology_template:
     #   properties:
     #     from_outer:
     #       eval:
-    #         ::aws::outer_prop
+    #         ::nested::outer_prop
 """
 
 
@@ -203,3 +220,8 @@ def test_substitution():
         assert expected == [
             i.name for i in manifest2.rootResource.get_self_and_descendants()
         ]
+        assert "outer" == manifest2.rootResource.find_instance("nested1").attributes["nested_attribute"]
+        jsonExport = to_deployment(manifest2.localEnv)
+        assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
+        assert list(jsonExport["Resource"]) == ["external", "nested1", "nested2"]
+

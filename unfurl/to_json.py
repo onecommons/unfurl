@@ -17,10 +17,11 @@ import sys
 import itertools
 import json
 import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union, cast, TYPE_CHECKING
+from typing import Any, Dict, List, NewType, Optional, Tuple, Union, cast, TYPE_CHECKING
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
 from urllib.parse import urlparse
+from toscaparser.substitution_mappings import SubstitutionMappings
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
@@ -34,16 +35,37 @@ from toscaparser.elements.datatype import DataType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.relationship_template import RelationshipTemplate
+from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
-from .tosca import ToscaSpec, is_function, get_nodefilters
+from .tosca import (
+    EntitySpec,
+    NodeSpec,
+    TopologySpec,
+    ToscaSpec,
+    is_function,
+    get_nodefilters,
+)
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
 from .result import ChangeRecord
 from .localenv import LocalEnv
 
 logger = getLogger("unfurl")
+
+
+GraphqlObject = NewType("GraphqlObject", Dict[str, Any])
+GraphqlObjectsByName = Dict[str, GraphqlObject]
+ResourceType = NewType("ResourceType", GraphqlObject)
+ResourceTypesByName = Dict[str, ResourceType]
+GraphqlDB = NewType("GraphqlDB", Dict[str, GraphqlObjectsByName])
+CustomDefs = Dict[str, dict]
+
+
+def _get_types(db: GraphqlDB) -> ResourceTypesByName:
+    return cast(ResourceTypesByName, db["ResourceType"])
 
 
 def _print(*args):
@@ -148,10 +170,12 @@ VALUE_TYPES.update(
 )
 
 
-def tosca_type_to_jsonschema(spec, propdefs, toscatype):
+def tosca_type_to_jsonschema(custom_defs: CustomDefs, propdefs, toscatype):
     jsonschema = dict(
         type="object",
-        properties={p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
+        properties={
+            p.name: tosca_schema_to_jsonschema(p, custom_defs) for p in propdefs
+        },
     )
     # add typeid:
     if toscatype:
@@ -197,13 +221,13 @@ def get_scalar_unit(value_type, metadata):
     # regex: "|".join(get_scalarunit_class(value_type).SCALAR_UNIT_DICT)
 
 
-def tosca_schema_to_jsonschema(p: PropertyDef, spec: ToscaSpec):
+def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     # convert a PropertyDef to a property (this creates the Schema object we need)
     prop = Property(
         p.name,
         p.default,
         p.schema or dict(type="string"),
-        spec.template.topology_template.custom_defs,
+        custom_defs,
     )
     toscaSchema = prop.schema
     tosca_type = toscaSchema.type
@@ -225,7 +249,7 @@ def tosca_schema_to_jsonschema(p: PropertyDef, spec: ToscaSpec):
     if tosca_type in VALUE_TYPES:
         type_schema = _get_valuetype_schema(tosca_type, metadata)
     else:
-        dt = DataType(tosca_type, spec.template.topology_template.custom_defs)
+        dt = DataType(tosca_type, custom_defs)
         if dt.value_type:  # it's a simple type
             type_schema, valuetype_schema = get_valuetype(dt, metadata)
             if valuetype_schema.constraints:  # merge constraints
@@ -236,14 +260,14 @@ def tosca_schema_to_jsonschema(p: PropertyDef, spec: ToscaSpec):
                 for p in dt.get_properties_def_objects()
                 if is_property_user_visible(p)
             ]
-            type_schema = tosca_type_to_jsonschema(spec, propdefs, dt.type)
+            type_schema = tosca_type_to_jsonschema(custom_defs, propdefs, dt.type)
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
     schema.update(type_schema)
 
     if toscaSchema.entry_schema:
         entrySchema = tosca_schema_to_jsonschema(
-            PropertyDef("", None, toscaSchema.entry_schema), spec
+            PropertyDef("", None, toscaSchema.entry_schema), custom_defs
         )
         if tosca_type == "list":
             schema["items"] = entrySchema
@@ -255,7 +279,7 @@ def tosca_schema_to_jsonschema(p: PropertyDef, spec: ToscaSpec):
     return schema
 
 
-def _requirement_visibility(spec: ToscaSpec, name: str, req):
+def _requirement_visibility(topology: TopologySpec, name: str, req) -> str:
     if name in ["dependency", "installer"]:
         # skip artifact requirements and the base TOSCA relationship type that every node has
         return "omit"
@@ -266,8 +290,7 @@ def _requirement_visibility(spec: ToscaSpec, name: str, req):
     if metadata.get("internal"):
         return "hidden"
     if node:
-        assert spec.topology
-        nodespec = spec.topology.get_node_template(node)
+        nodespec = topology.get_node_template(node)
         if nodespec:
             # if there's already a resource template assigned and it is marked internal
             node_metadata = (
@@ -291,11 +314,11 @@ def _get_req(req_dict) -> Tuple[str, dict]:
     return name, req
 
 
-def expand_prefix(spec, nodetype: str):
+def expand_prefix(nodetype: str):
     return nodetype.replace("tosca:", "tosca.nodes.")  # XXX
 
 
-def _find_req_typename(types, typename, reqname) -> str:
+def _find_req_typename(types: ResourceTypesByName, typename, reqname) -> str:
     # have types[typename] go first
     for target_reqs in types[typename]["requirements"]:
         if target_reqs["name"] == reqname:
@@ -314,12 +337,18 @@ def _find_req_typename(types, typename, reqname) -> str:
     return ""  # not found
 
 
-def _make_req(req_dict: dict, types=None, typename=None) -> Tuple[str, dict, dict]:
+def _make_req(
+    req_dict: dict,
+    types: Optional[ResourceTypesByName] = None,
+    typename: Optional[str] = None,
+) -> Tuple[str, dict, GraphqlObject]:
     name, req = _get_req(req_dict)
-    reqobj: Dict[str, Any] = dict(
-        name=name,
-        description=req.get("description") or "",
-        __typename="RequirementConstraint",
+    reqobj = GraphqlObject(
+        dict(
+            name=name,
+            description=req.get("description") or "",
+            __typename="RequirementConstraint",
+        )
     )
     metadata = req.get("metadata")
 
@@ -347,7 +376,7 @@ def _make_req(req_dict: dict, types=None, typename=None) -> Tuple[str, dict, dic
     return name, req, reqobj
 
 
-def requirement_to_graphql(spec: ToscaSpec, req_dict: dict):
+def requirement_to_graphql(topology: TopologySpec, req_dict: dict):
     """
     type RequirementConstraint {
         name: String!
@@ -370,7 +399,7 @@ def requirement_to_graphql(spec: ToscaSpec, req_dict: dict):
         reqobj["min"] = 1
         reqobj["max"] = 1
 
-    visibility = _requirement_visibility(spec, name, req)
+    visibility = _requirement_visibility(topology, name, req)
     if visibility == "omit":
         return None
 
@@ -383,12 +412,11 @@ def requirement_to_graphql(spec: ToscaSpec, req_dict: dict):
     reqobj["match"] = None
     nodetype = req.get("node")
     if nodetype:
-        assert spec.topology
         # req['node'] can be a node_template instead of a type
-        expand_prefix(spec, nodetype)
-        if nodetype in spec.topology.node_templates:
+        expand_prefix(nodetype)
+        if nodetype in topology.node_templates:
             reqobj["match"] = nodetype
-            nodetype = spec.topology.node_templates[nodetype].type
+            nodetype = topology.node_templates[nodetype].type
     else:
         nodetype = req.get("capability")
         if not nodetype:
@@ -400,19 +428,24 @@ def requirement_to_graphql(spec: ToscaSpec, req_dict: dict):
     return reqobj
 
 
-def _get_extends(spec, typedef, extends: list, types):
+def _get_extends(
+    topology: TopologySpec,
+    typedef: StatefulEntityType,
+    extends: list,
+    types: Optional[ResourceTypesByName],
+) -> None:
     if not typedef:
         return
     name = typedef.type
     if name not in extends:
         extends.append(name)
     if types is not None and name not in types:
-        node_type_to_graphql(spec, typedef, types)
+        node_type_to_graphql(topology, typedef, types)
     for p in typedef.parent_types():
-        _get_extends(spec, p, extends, types)
+        _get_extends(topology, p, extends, types)
 
 
-def template_visibility(spec, t, for_resource):
+def template_visibility(t, discovered):
     metadata = t.entity_tpl.get("metadata")
     if metadata:
         if metadata.get("visibility"):
@@ -424,12 +457,12 @@ def template_visibility(spec, t, for_resource):
         return "omit"  # skip artifacts
     if "default" in t.directives:
         return "hidden"
-    if not for_resource and spec.discovered and t.name in spec.discovered:
+    if discovered and t.name in discovered:
         return "omit"
     return "inherit"
 
 
-def is_property_user_visible(p):
+def is_property_user_visible(p: PropertyDef):
     user_settable = p.schema.get("metadata", {}).get("user_settable")
     if user_settable is not None:
         return user_settable
@@ -474,9 +507,10 @@ def always_export(p):
 #     return attribute_value_to_json(p, value)
 
 
-def _is_get_env_or_secret(value):
+def _is_get_env_or_secret(value) -> bool:
     if isinstance(value, dict):
         return "get_env" in value or "secret" in value or "_generate" in value
+    return False
 
 
 class PropertyVisitor:
@@ -521,7 +555,11 @@ def attribute_value_to_json(p, value):
 
 
 # XXX outputs: only include "public" attributes?
-def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
+def node_type_to_graphql(
+    topology: TopologySpec,
+    type_definition: StatefulEntityType,
+    types: ResourceTypesByName,
+) -> GraphqlObject:
     """
     type ResourceType {
       name: String!
@@ -540,10 +578,15 @@ def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
       implementation_requirements: [String]
     }
     """
-    jsontype = dict(
-        name=type_definition.type,  # fully qualified name
-        title=type_definition.type.split(".")[-1],  # short, readable name
-        description=type_definition.get_value("description") or "",
+    custom_defs = topology.topology_template.custom_defs
+    jsontype = ResourceType(
+        GraphqlObject(
+            dict(
+                name=type_definition.type,  # fully qualified name
+                title=type_definition.type.split(".")[-1],  # short, readable name
+                description=type_definition.get_value("description") or "",
+            )
+        )
     )
     types[
         type_definition.type
@@ -570,15 +613,15 @@ def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
         for p in type_definition.get_properties_def_objects()
     )
     jsontype["inputsSchema"] = tosca_type_to_jsonschema(
-        spec, (p[0] for p in propertydefs if p[1]), None
+        custom_defs, (p[0] for p in propertydefs if p[1]), None
     )
     jsontype["computedPropertiesSchema"] = tosca_type_to_jsonschema(
-        spec, (p[0] for p in propertydefs if not p[1]), None
+        custom_defs, (p[0] for p in propertydefs if not p[1]), None
     )
 
     extends: List[str] = []
     # add ancestors classes to extends
-    _get_extends(spec, type_definition, extends, types)
+    _get_extends(topology, type_definition, extends, types)
     jsontype["extends"] = extends
     if not type_definition.is_derived_from("tosca.nodes.Root"):
         return jsontype
@@ -588,11 +631,11 @@ def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
 
     # add capabilities types to extends
     for cap in type_definition.get_capability_typedefs():
-        _get_extends(spec, cap, extends, None)
+        _get_extends(topology, cap, extends, None)
 
     # treat each capability as a complex property
     add_capabilities_as_properties(
-        jsontype["inputsSchema"]["properties"], type_definition, spec
+        jsontype["inputsSchema"]["properties"], type_definition, custom_defs
     )
     # XXX only include "public" attributes?
     attributedefs = (
@@ -600,15 +643,17 @@ def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
         for p in type_definition.get_attributes_def_objects()
         if is_property_user_visible(p)
     )
-    jsontype["outputsSchema"] = tosca_type_to_jsonschema(spec, attributedefs, None)
+    jsontype["outputsSchema"] = tosca_type_to_jsonschema(
+        custom_defs, attributedefs, None
+    )
     # XXX capabilities can hava attributes too
-    # add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
+    # add_capabilities_as_attributes(jsontype["outputs"], type_definition, custom_defs)
 
     jsontype["requirements"] = list(
         filter(
             None,
             [
-                requirement_to_graphql(spec, req)
+                requirement_to_graphql(topology, req)
                 for req in type_definition.get_all_requirements()
             ],
         )
@@ -626,7 +671,7 @@ def node_type_to_graphql(spec: ToscaSpec, type_definition, types: dict):
     return jsontype
 
 
-def _make_typedef(typename, custom_defs):
+def _make_typedef(typename: str, custom_defs: CustomDefs) -> Optional[StatefulEntityType]:
     typedef = None
     # prefix is only used to expand "tosca:Type"
     test_typedef = StatefulEntityType(
@@ -639,16 +684,47 @@ def _make_typedef(typename, custom_defs):
     return typedef
 
 
-def to_graphql_nodetypes(spec: ToscaSpec):
+def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
+    "Modify a type representation so that it can be used with template with a nested topology."
+
+    # don't display any properties set by the inner topology
+    for name, value in sub_map.get_declared_properties().items():
+        # XXX instead of removing the property, set or delete json schema default if not computed
+        # computed = is_value_computed(value)
+        jsontype["inputsSchema"].pop(name, None)      
+        jsontype["computedPropertiesSchema"].pop(name, None)
+
+    # make optional any requirements that were set in the inner topology
+    names = sub_map.get_declared_requirement_names()
+    for req in jsontype["requirements"]:
+        if req["name"] in names:
+            req["min"] = 0
+    # templates created with this type need to have the substitute directive
+    jsontype["directives"] = ["substitute"]
+
+
+def to_graphql_nodetypes(spec: ToscaSpec) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
-    types: Dict[str, Dict[str, Any]] = {}
-    custom_defs = spec.template.topology_template.custom_defs
+    types = cast(ResourceTypesByName, {})
+    topology = spec.topology
+    assert topology
+    custom_defs = topology.topology_template.custom_defs
+    # create these ones first
+    # XXX detect error later if these types are being used elsewhere 
+    for nested_topology in spec.nested_topologies:
+        sub_map = nested_topology.topology_template.substitution_mappings
+        if sub_map:
+            typedef = sub_map.node_type
+            if typedef:
+                jsontype = node_type_to_graphql(nested_topology, typedef, types)
+                _update_root_type(jsontype, sub_map)
+
     for typename in custom_defs:
         if typename in types:
             continue
         typedef = _make_typedef(typename, custom_defs)
         if typedef:
-            node_type_to_graphql(spec, typedef, types)
+            node_type_to_graphql(topology, typedef, types)
     for typename in StatefulEntityType.TOSCA_DEF:  # builtin types
         if typename.startswith("unfurl.nodes") or typename.startswith(
             "unfurl.relationships"
@@ -658,13 +734,12 @@ def to_graphql_nodetypes(spec: ToscaSpec):
             # only include our extensions
             typedef = _make_typedef(typename, custom_defs)
             if typedef:
-                node_type_to_graphql(spec, typedef, types)
-    assert spec.topology
-    for node_spec in spec.topology.node_templates.values():
+                node_type_to_graphql(topology, typedef, types)
+    for node_spec in topology.node_templates.values():
         type_definition = node_spec.toscaEntityTemplate.type_definition
         typename = type_definition.type
         if typename not in types:
-            node_type_to_graphql(spec, type_definition, types)
+            node_type_to_graphql(topology, type_definition, types)
 
     mark_leaf_types(types)
     annotate_requirements(types)
@@ -686,7 +761,7 @@ def to_graphql_nodetypes(spec: ToscaSpec):
 #     return {}
 
 
-def add_capabilities_as_properties(schema, nodetype, spec):
+def add_capabilities_as_properties(schema, nodetype, custom_defs: CustomDefs):
     """treat each capability as a property and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("properties"):
@@ -694,10 +769,10 @@ def add_capabilities_as_properties(schema, nodetype, spec):
         propdefs = [
             p for p in cap.get_properties_def_objects() if is_property_user_visible(p)
         ]
-        schema[cap.name] = tosca_type_to_jsonschema(spec, propdefs, cap.type)
+        schema[cap.name] = tosca_type_to_jsonschema(custom_defs, propdefs, cap.type)
 
 
-def add_capabilities_as_attributes(schema, nodetype, spec):
+def add_capabilities_as_attributes(schema, nodetype, custom_defs: CustomDefs):
     """treat each capability as an attribute and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("attributes"):
@@ -705,17 +780,17 @@ def add_capabilities_as_attributes(schema, nodetype, spec):
         propdefs = [
             p for p in cap.get_attributes_def_objects() if is_property_user_visible(p)
         ]
-        schema[cap.name] = tosca_type_to_jsonschema(spec, propdefs, cap.type)
+        schema[cap.name] = tosca_type_to_jsonschema(custom_defs, propdefs, cap.type)
 
 
-def _get_typedef(name: str, spec):
-    typedef = spec.template.topology_template.custom_defs.get(name)
+def _get_typedef(name: str, custom_defs: CustomDefs):
+    typedef = custom_defs.get(name)
     if not typedef:
         typedef = StatefulEntityType.TOSCA_DEF.get(name)
     return typedef
 
 
-def template_properties_to_json(nodetemplate, visitor):
+def template_properties_to_json(nodetemplate: NodeTemplate, visitor):
     # if they aren't only include ones with an explicity value
     for p in nodetemplate.get_properties_objects():
         computed = is_computed(p)
@@ -737,23 +812,29 @@ def template_properties_to_json(nodetemplate, visitor):
         yield dict(name=p.name, value=value)
 
 
-def _get_requirement(req, nodetemplate, spec, types):
+def _get_requirement(
+    req: dict, nodespec: EntitySpec, types: ResourceTypesByName
+) -> Optional[GraphqlObject]:
     name, req_dict = _get_req(req)
     # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
     # _get_explicit_relationship returns req_dict merged with its type definition
-    req_dict, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
+    req_dict, rel_template = nodespec.toscaEntityTemplate._get_explicit_relationship(
+        name, req_dict
+    )
     if "constraint" in req_dict.get("metadata", {}):
         # this happens when we import graphql json directly
         reqconstraint = req_dict["metadata"]["constraint"]
     else:
-        reqconstraint = requirement_to_graphql(spec, {name: req_dict})
+        reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
     if reqconstraint is None:
         return None
     _annotate_requirement(reqconstraint, reqconstraint["resourceType"], types)
-    reqjson = dict(
-        constraint=reqconstraint, name=name, match=None, __typename="Requirement"
+    reqjson = GraphqlObject(
+        dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
     )
-    if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
+    if req_dict.get("node") and not _get_typedef(
+        req_dict["node"], nodespec.topology.topology_template.custom_defs
+    ):
         # it's not a type, assume it's a node template
         # (the node template name might not match a template if it is only defined in the deployment blueprints)
         match = req_dict["node"]
@@ -761,7 +842,20 @@ def _get_requirement(req, nodetemplate, spec, types):
     return reqjson
 
 
-def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
+def _find_typename(
+    nodetemplate: NodeTemplate,
+    types: ResourceTypesByName,
+) -> str:
+    # if we substituting template, generate a new type
+    # json type for root of imported blueprint only include unfulfilled requirements and set defaults on properties set by the inner root
+    return nodetemplate.type
+
+
+def nodetemplate_to_json(
+    node_spec: EntitySpec,
+    types: ResourceTypesByName,
+    for_resource: bool = False,
+) -> GraphqlObject:
     """
     Returns json object as a ResourceTemplate:
 
@@ -788,6 +882,8 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
       target: Resource
     }
     """
+    nodetemplate = node_spec.toscaEntityTemplate
+    spec = node_spec.spec
     if "__typename" in nodetemplate.entity_tpl:
         # previously imported from the json, just return it
         ogprops = nodetemplate.entity_tpl.pop("_original_properties", None)
@@ -795,14 +891,16 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
             nodetemplate.entity_tpl["properties"] = ogprops
         return nodetemplate.entity_tpl
 
-    json = dict(
-        type=nodetemplate.type,
-        name=nodetemplate.name,
-        title=nodetemplate.entity_tpl.get("metadata", {}).get("title")
-        or nodetemplate.name,
-        description=nodetemplate.entity_tpl.get("description") or "",
-        directives=nodetemplate.directives,
-        # __typename="ResourceTemplate",  # XXX
+    json = GraphqlObject(
+        dict(
+            type=_find_typename(nodetemplate, types),
+            name=nodetemplate.name,
+            title=nodetemplate.entity_tpl.get("metadata", {}).get("title")
+            or nodetemplate.name,
+            description=nodetemplate.entity_tpl.get("description") or "",
+            directives=nodetemplate.directives,
+            # __typename="ResourceTemplate",  # XXX
+        )
     )
     if "imported" in nodetemplate.entity_tpl:
         json["imported"] = nodetemplate.entity_tpl.get("imported")
@@ -816,13 +914,15 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     #         nodetemplate.name,
     #     )
     json["dependencies"] = []
-    visibility = template_visibility(spec, nodetemplate, for_resource)
+    discovered = None if not for_resource else spec.discovered
+    visibility = template_visibility(nodetemplate, discovered)
     if visibility != "inherit":
         json["visibility"] = visibility
         logger.debug(f"setting visibility {visibility} on template {nodetemplate.name}")
 
     if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
         return json
+
     # treat each capability as a complex property
     capabilities = nodetemplate.get_capabilities()
     for prop in json["properties"]:
@@ -839,7 +939,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     has_visible_dependency = False
     ExceptionCollector.start()
     for req in nodetemplate.all_requirements:
-        reqjson = _get_requirement(req, nodetemplate, spec, types)
+        reqjson = _get_requirement(req, node_spec, types)
         if reqjson is None:
             continue
         if reqjson["constraint"].get("visibility") != "hidden":
@@ -865,7 +965,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
 primary_name = "__primary"
 
 
-def _generate_primary(spec: ToscaSpec, db, node_tpl=None) -> NodeTemplate:
+def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemplate:
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
@@ -897,41 +997,40 @@ def _generate_primary(spec: ToscaSpec, db, node_tpl=None) -> NodeTemplate:
     if not node_tpl:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
     node_spec = spec.topology.add_node_template(primary_name, tpl, False)
-    node_template = node_spec.toscaEntityTemplate
+    node_template = cast(NodeTemplate, node_spec.toscaEntityTemplate)
 
-    types = db["ResourceType"]
-    node_type_to_graphql(spec, node_template.type_definition, types)
-    db["ResourceTemplate"][node_template.name] = nodetemplate_to_json(
-        node_template, spec, types
-    )
+    types = _get_types(db)
+    assert node_template.type_definition
+    node_type_to_graphql(spec.topology, node_template.type_definition, types)
+    db["ResourceTemplate"][node_template.name] = nodetemplate_to_json(node_spec, types)
     return node_template
 
 
 # if a node type or template is specified, use that, but it needs to be compatible with the generated type
-def _get_or_make_primary(spec: ToscaSpec, db) -> Tuple[str, str]:
+def _get_or_make_primary(spec: ToscaSpec, db: GraphqlDB) -> Tuple[str, str]:
     ExceptionCollector.start()  # topology.add_template may generate validation exceptions
     assert spec.template
     topology = spec.template.topology_template
+    assert topology
     # we need to generate a root template
     root_type = None
     root = None
     if topology.substitution_mappings:
-        if topology.substitution_mappings.node:
-            root = topology.node_templates.get(topology.substitution_mappings.node)
-            if root:
-                root_type = root.type_definition
-        else:
-            assert topology.substitution_mappings.type
-            root_type = NodeType(
-                topology.substitution_mappings.type, topology.custom_defs
-            )
+        root_type = topology.substitution_mappings.node_type
+        root = topology.substitution_mappings._node_template
 
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
-        for input in topology.inputs:
-            if input.name not in properties_tpl:
-                root = _generate_primary(spec, db, root and root.entity_tpl)
-                break
+        # if no property mapping in use, generate a new root template if there are any missing inputs
+        if (
+            not topology.substitution_mappings
+            or not topology.substitution_mappings.has_property_mapping()
+        ):
+            for input in topology.inputs:
+                if input.name not in properties_tpl:
+                    # there's an input that isn't handled by the type, generate a new one
+                    root = _generate_primary(spec, db, root and root.entity_tpl)
+                    break
         if not root:
             root = topology.node_templates.get(primary_name)
             if not root:
@@ -944,7 +1043,7 @@ def _get_or_make_primary(spec: ToscaSpec, db) -> Tuple[str, str]:
                 root = node_spec.toscaEntityTemplate
                 # XXX connections are missing
                 db["ResourceTemplate"][root.name] = nodetemplate_to_json(
-                    root, spec, db["ResourceType"]
+                    node_spec, _get_types(db)
                 )
     else:
         root = _generate_primary(spec, db)
@@ -953,9 +1052,9 @@ def _get_or_make_primary(spec: ToscaSpec, db) -> Tuple[str, str]:
     return root.name, root.type
 
 
-def blueprint_metadata(spec: ToscaSpec, root_name: str) -> Dict[str, Optional[str]]:
+def blueprint_metadata(spec: ToscaSpec, root_name: str) -> GraphqlObject:
     title, name = _template_title(spec, root_name)
-    blueprint: Dict[str, Optional[str]] = dict(name=name, title=title)
+    blueprint = GraphqlObject(dict(name=name, title=title))
     blueprint["description"] = spec.template.description
     metadata = spec.template.tpl.get("metadata") or {}
     blueprint["livePreview"] = metadata.get("livePreview")
@@ -966,7 +1065,7 @@ def blueprint_metadata(spec: ToscaSpec, root_name: str) -> Dict[str, Optional[st
     return blueprint
 
 
-def to_graphql_blueprint(spec: ToscaSpec, db):
+def to_graphql_blueprint(spec: ToscaSpec, db: GraphqlDB) -> Tuple[GraphqlObject, str]:
     """
     Returns json object as ApplicationBlueprint
 
@@ -987,7 +1086,7 @@ def to_graphql_blueprint(spec: ToscaSpec, db):
     # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
     root_name, root_type = _get_or_make_primary(spec, db)
     blueprint = blueprint_metadata(spec, root_name)
-    blueprint["__typename"]="ApplicationBlueprint"
+    blueprint["__typename"] = "ApplicationBlueprint"
     blueprint["primary"] = root_type
     blueprint["deploymentTemplates"] = []  # type: ignore
     return blueprint, root_name
@@ -1025,15 +1124,17 @@ def _generate_env_names_from_type(reqname, type_definition, custom_defs):
             yield f"{reqname}_{propdef.name.upper()}"
 
 
-def _generate_env_names(spec, root_name):
-    primary = spec.topology.node_templates[root_name]
+def _generate_env_names(spec: ToscaSpec, root_name: str):
+    assert spec.topology
+    primary = spec.topology.get_node_template(root_name)
+    assert primary
     custom_defs = spec.template.topology_template.custom_defs
     primary_type = primary.toscaEntityTemplate.type_definition
     yield from _generate_env_names_from_type("APP", primary_type, custom_defs)
     # primary.toscaEntityTemplate.type_definition
     for req in primary_type.get_all_requirements():
         # get the target type
-        req_json = requirement_to_graphql(spec, req)
+        req_json = requirement_to_graphql(spec.topology, req)
         if not req_json:
             continue
         name = req_json["name"]
@@ -1043,7 +1144,9 @@ def _generate_env_names(spec, root_name):
         yield from _generate_env_names_from_type(name.upper(), typedef, custom_defs)
 
 
-def get_deployment_blueprints(manifest, blueprint, root_name, db):
+def get_deployment_blueprints(
+    manifest: YamlManifest, blueprint: GraphqlObject, root_name: str, db: GraphqlDB
+) -> dict:
     """
     The blueprint will include deployement blueprints that follows this syntax in the manifest:
 
@@ -1079,7 +1182,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
         manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
     )
     spec = manifest.tosca
-    assert spec.topology
+    assert spec and spec.topology
     deployment_templates = {}
     for name, tpl in deployment_blueprints.items():
         slug = slugify(name)
@@ -1093,10 +1196,9 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
                 node_template = node_spec.toscaEntityTemplate
             # convert to json in second-pass template requirements can reference each other
             for node_name, node_tpl in resource_templates.items():
-                node_template = spec.topology.node_templates[
-                    node_name
-                ].toscaEntityTemplate
-                t = nodetemplate_to_json(node_template, spec, db["ResourceType"])
+                node_spec = spec.topology.get_node_template(node_name)
+                assert node_spec
+                t = nodetemplate_to_json(node_spec, _get_types(db))
                 if t.get("visibility") == "omit":
                     continue
                 local_resource_templates[node_name] = t
@@ -1133,7 +1235,7 @@ def _project_path(url):
     return pp
 
 
-def get_blueprint_from_topology(manifest: YamlManifest, db):
+def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
     spec = manifest.tosca
     assert spec
     # XXX cloud = spec.topology.primary_provider
@@ -1181,12 +1283,14 @@ def get_blueprint_from_topology(manifest: YamlManifest, db):
     return blueprint, template
 
 
-def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
+def _to_graphql(
+    localEnv: LocalEnv,
+) -> Tuple[GraphqlDB, YamlManifest, dict, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True)
-    db: Dict[str, Any] = {}
+    db = GraphqlDB({})
     spec = manifest.tosca
-    assert spec
+    assert spec and spec.topology
     types_repo = spec.template.tpl.get("repositories").get("types")
     if types_repo:  # only export types, avoid built-in repositories
         db["repositories"] = {"types": types_repo}
@@ -1194,10 +1298,10 @@ def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
     environment_instances = {}
-    connection_types = {}
+    connection_types = cast(ResourceTypesByName, {})
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
-        t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
+        t = nodetemplate_to_json(node_spec, types)
         if t.get("visibility") == "omit":
             continue
         name = t["name"]
@@ -1211,7 +1315,9 @@ def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
             db["ResourceTemplate"][name] = t
 
     connections = {}
-    for template in spec.template.relationship_templates:
+    assert spec.topology
+    for relationship_spec in spec.topology.relationship_templates.values():
+        template = cast(RelationshipTemplate, relationship_spec.toscaEntityTemplate)
         if template.default_for:
             type_definition = template.type_definition
             typename = type_definition.type
@@ -1219,7 +1325,10 @@ def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
                 connection_types[typename] = types[typename]
             elif typename not in connection_types:
                 node_type_to_graphql(spec, type_definition, connection_types)
-            connection_template = nodetemplate_to_json(template, spec, connection_types)
+            # this actually a RelationshipTemplate
+            connection_template = nodetemplate_to_json(
+                relationship_spec, connection_types
+            )
             if connection_template.get("visibility") == "omit":
                 continue
             name = connection_template["name"]
@@ -1227,7 +1336,7 @@ def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
             # db["ResourceTemplate"][name] = connection_template
             connections[name] = connection_template
 
-    db["Overview"] = manifest.tosca.template.tpl.get("metadata") or {}
+    db["Overview"] = spec.template.tpl.get("metadata") or {}
     env = dict(
         connections=connections,
         primary_provider=connections.get("primary_provider"),
@@ -1237,7 +1346,51 @@ def _to_graphql(localEnv: LocalEnv) -> Tuple[dict, YamlManifest, dict, dict]:
     return db, manifest, env, connection_types
 
 
-def add_graphql_deployment(manifest: YamlManifest, db, dtemplate):
+def _add_resources(
+    db: GraphqlDB,
+    relationships: Dict[str, List[GraphqlObject]],
+    root: TopologyInstance,
+    resources: List[GraphqlObject],
+    shadowed: Optional[EntityInstance],
+) -> None:
+    for instance in root.get_self_and_descendants():
+        # don't include the nested template that is a shadow of the outer template
+        if instance is not root and instance is not shadowed:
+            resource = to_graphql_resource(instance, db, relationships)
+            if not resource:
+                continue
+            resources.append(resource)
+            if cast(NodeSpec, instance.template).substitution and instance.shadow:
+                assert instance.shadow.root is not instance.root
+                _add_resources(
+                    db,
+                    relationships,
+                    cast(TopologyInstance, instance.shadow.root),
+                    resources,
+                    instance.shadow,
+                )
+
+
+def _add_lastjob(last_job: dict, deployment: GraphqlObject) -> None:
+    readyState = last_job.get("readyState")
+    workflow = last_job.get("workflow")
+    deployment["workflow"] = workflow
+    if isinstance(readyState, dict):
+        deployment["status"] = to_enum(
+            Status, readyState.get("effective", readyState.get("local"))
+        )
+        if workflow == "undeploy" and deployment["status"] == Status.ok:
+            deployment["status"] = Status.absent
+    deployment["summary"] = last_job.get("summary")
+    deployTimeString = last_job.get("endTime", last_job["startTime"])
+    deployment["deployTime"] = js_timestamp(
+        datetime.datetime.strptime(deployTimeString, ChangeRecord.DateTimeFormat)
+    )
+
+
+def add_graphql_deployment(
+    manifest: YamlManifest, db: GraphqlDB, dtemplate
+) -> GraphqlObject:
     """
     type Deployment {
       title: String!
@@ -1253,42 +1406,23 @@ def add_graphql_deployment(manifest: YamlManifest, db, dtemplate):
     """
     name = dtemplate["name"]
     title = dtemplate.get("title") or name
-    deployment = dict(name=name, title=title, __typename="Deployment")
+    deployment = GraphqlObject(dict(name=name, title=title, __typename="Deployment"))
     templates = db["ResourceTemplate"]
-    relationships: Dict[str, List[Dict]] = {}
+    relationships: Dict[str, List[GraphqlObject]] = {}
     for t in templates.values():
         if "dependencies" in t:
             for c in t["dependencies"]:
                 if c.get("match"):
                     relationships.setdefault(c["match"], []).append(c)
     assert manifest.rootResource
-    resources = [
-        to_graphql_resource(instance, manifest, db, relationships)
-        for instance in manifest.rootResource.get_self_and_descendants()
-        if instance is not manifest.rootResource
-    ]
-    db["Resource"] = {r["name"]: r for r in resources if r}
+    resources: List[GraphqlObject] = []
+    _add_resources(db, relationships, manifest.rootResource, resources, None)
+    db["Resource"] = {r["name"]: r for r in resources}
     deployment["resources"] = list(db["Resource"])
     primary_name = deployment["primary"] = dtemplate["primary"]
     deployment["deploymentTemplate"] = dtemplate["name"]
     if manifest.lastJob:
-        readyState = manifest.lastJob.get("readyState")
-        workflow = manifest.lastJob.get("workflow")
-        deployment["workflow"] = workflow
-        if isinstance(readyState, dict):
-            deployment["status"] = to_enum(
-                Status, readyState.get("effective", readyState.get("local"))
-            )
-            if workflow == "undeploy" and deployment["status"] == Status.ok:
-                deployment["status"] = Status.absent
-        deployment["summary"] = manifest.lastJob.get("summary")
-        deployTimeString = manifest.lastJob.get(
-            "endTime", manifest.lastJob["startTime"]
-        )
-        deployment["deployTime"] = js_timestamp(
-            datetime.datetime.strptime(deployTimeString, ChangeRecord.DateTimeFormat)
-        )
-
+        _add_lastjob(manifest.lastJob, deployment)
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
     if primary_resource and primary_resource["title"] == primary_name:
@@ -1304,7 +1438,7 @@ def add_graphql_deployment(manifest: YamlManifest, db, dtemplate):
     return deployment
 
 
-def to_blueprint(localEnv: LocalEnv, existing=None) -> dict:
+def to_blueprint(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv)
     assert manifest.tosca
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
@@ -1318,7 +1452,7 @@ def to_blueprint(localEnv: LocalEnv, existing=None) -> dict:
 
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
-def to_deployment(localEnv, existing=None):
+def to_deployment(localEnv, existing: Optional[str] = None) -> GraphqlDB:
     logger.debug("exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
@@ -1331,7 +1465,7 @@ def to_deployment(localEnv, existing=None):
     return db
 
 
-def mark_leaf_types(types):
+def mark_leaf_types(types) -> None:
     # types without implementations can't be instantiated by users
     # treat non-leaf types as abstract types that shouldn't be instatiated
     # treat leaf types that have requirements as having implementations
@@ -1419,7 +1553,7 @@ def _set_shared_instances(instances):
     return env_instances
 
 
-def to_environments(localEnv, existing=None):
+def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
     """
       Map environments in unfurl.yaml to DeploymentEnvironments
       Map registered ensembles to deployments just with path reference to the ensemble's json
@@ -1455,12 +1589,13 @@ def to_environments(localEnv, existing=None):
     else:
         db = {}
     environments = {}
-    all_connection_types = {}
+    all_connection_types = cast(ResourceTypesByName, {})
     blueprintdb = None
     deployments = set_deploymentpaths(localEnv.project)["DeploymentPath"]
     env_deployments = {}
     for ensemble_info in deployments.values():
         env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
+    assert localEnv.project
     defaults = localEnv.project.contexts.get("defaults")
     default_imported_instances = _set_shared_instances(
         defaults and defaults.get("instances")
@@ -1503,7 +1638,7 @@ def to_environments(localEnv, existing=None):
 
         # add the rest of the types too
         # XXX is it safe to only include types with "connect" implementations?
-        all_connection_types.update(blueprintdb["ResourceType"])
+        all_connection_types.update(_get_types(blueprintdb))
     db["ResourceType"] = all_connection_types
     db["DeploymentPath"] = deployments
     return db
@@ -1533,7 +1668,7 @@ def get_deploymentpaths(project):
     return set_deploymentpaths(project)["DeploymentPath"]
 
 
-def set_deploymentpaths(project, existing=None):
+def set_deploymentpaths(project, existing: Optional[str] = None):
     if existing:
         with open(existing) as f:
             db = json.load(f)
@@ -1562,16 +1697,20 @@ def set_deploymentpaths(project, existing=None):
     return db
 
 
-def add_attributes(instance):
+def add_attributes(instance: EntityInstance) -> List[Dict[str, Any]]:
     attrs = []
     attributeDefs = instance.template.attributeDefs.copy()
     # instance._attributes only has values that were set by the instance, not spec properties or attribute defaults
     # instance._attributes should already be serialized
-    if instance._attributes:
-        for name, value in instance._attributes.items():
+    if instance.shadow:
+        _attributes = instance.shadow._attributes
+    else:
+        _attributes = instance._attributes
+    if _attributes:
+        for name, value in _attributes.items():
             p = attributeDefs.pop(name, None)
             if not p:
-                # check if shadowed property
+                # check if this attribute is shadowing a property
                 p = instance.template.propertyDefs.get(name)
                 if not p:
                     # same as EntityTemplate._create_properties()
@@ -1606,9 +1745,12 @@ def add_attributes(instance):
     return attrs
 
 
-def add_computed_properties(instance):
+def add_computed_properties(instance: EntityInstance) -> List[Dict[str, Any]]:
     attrs = []
-    _attributes = instance._attributes or {}
+    if instance.shadow:
+        _attributes = instance.shadow._attributes
+    else:
+        _attributes = instance._attributes
     # instance._properties should already be serialized
     _properties = instance._properties or {}
     if _properties:
@@ -1660,7 +1802,11 @@ def is_resource_real(instance):
     return False
 
 
-def to_graphql_resource(instance, manifest, db, relationships):
+def to_graphql_resource(
+    instance: EntityInstance,
+    db: GraphqlDB,
+    relationships: Dict[str, List[GraphqlObject]],
+) -> Optional[GraphqlObject]:
     """
     type Resource {
       name: String!
@@ -1683,23 +1829,24 @@ def to_graphql_resource(instance, manifest, db, relationships):
         if pending or "virtual" in instance.template.directives:
             return None
         template = nodetemplate_to_json(
-            instance.template.toscaEntityTemplate,
-            manifest.tosca,
-            db["ResourceType"],
+            instance.template,
+            _get_types(db),
             True,
         )
         if template.get("visibility") == "omit":
             return None
         db["ResourceTemplate"][instance.template.name] = template
 
-    resource = dict(
-        name=instance.name,
-        title=template.get("title", instance.name),
-        template=instance.template.name,
-        state=instance.state,
-        status=instance.status,
-        __typename="Resource",
-        imported=instance.imported,
+    resource = GraphqlObject(
+        dict(
+            name=instance.nested_name,
+            title=template.get("title", instance.name),
+            template=instance.template.name,
+            state=instance.state,
+            status=instance.status,
+            __typename="Resource",
+            imported=instance.imported,
+        )
     )
 
     if "visibility" in template and template["visibility"] != "inherit":

@@ -553,6 +553,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return None
 
     @property
+    def nested_name(self) -> str:
+        if self.template.topology.substitute_of:
+            return self.template.topology.substitute_of.nested_name + ":" + self.name
+        return self.name
+
+    @property
     def readonly(self) -> bool:
         return bool(self.imported)  # imported instances are readonly
 
