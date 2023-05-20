@@ -1590,6 +1590,8 @@ class AttributeManager:
     """
 
     validate = True
+    safe_mode = False
+    strict: Optional[bool] = None
 
     # what about an attribute that is added to the spec that already exists in status?
     # XXX2 tests for the above behavior
@@ -1633,7 +1635,8 @@ class AttributeManager:
         if self._context_vars is None:
             self._context_vars = {}
             set_context_vars(self._context_vars, resource)
-        return RefContext(resource, self._context_vars, task=self.task)
+        ctor = SafeRefContext if self.safe_mode else RefContext
+        return ctor(resource, self._context_vars, task=self.task, strict=self.strict)
 
     def get_attributes(self, resource: "EntityInstance"):
         if resource.key not in self.attributes:

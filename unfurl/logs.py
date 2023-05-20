@@ -122,7 +122,7 @@ class ColorHandler(logging.StreamHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         message = self.format(record)
-        if not record.exc_info:
+        if not record.exc_info and not record.stack_info:
             truncate_length = getattr(record, "truncate", DEFAULT_TRUNCATE_LENGTH)
             if truncate_length:
                 message = truncate(message, truncate_length)

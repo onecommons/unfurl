@@ -184,13 +184,16 @@ class ReadOnlyManifest(Manifest):
         manifest=None,
         path: Optional[str] = None,
         validate=True,
-        localEnv=None,
+        localEnv: Optional[LocalEnv] = None,
         vault=None,
+        safe_mode: Optional[bool] = None,
     ):
-        path = path or localEnv and localEnv.manifestPath
+        path = path or (localEnv.manifestPath if localEnv else None)
         if path:
             path = os.path.abspath(path)
         super().__init__(path, localEnv)
+        readonly = bool(localEnv and localEnv.readonly)
+        self.safe_mode = bool(safe_mode)
         self.manifest = YamlConfig(
             manifest,
             self.path,
@@ -198,7 +201,7 @@ class ReadOnlyManifest(Manifest):
             os.path.join(_basepath, "manifest-schema.json"),
             self.load_yaml_include,
             vault,
-            localEnv and localEnv.readonly,
+            readonly,
         )
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
@@ -284,12 +287,13 @@ class YamlManifest(ReadOnlyManifest):
         self,
         manifest=None,
         path=None,
-        validate=True,
+        validate=True,  # json schema validation
         localEnv=None,
         vault=None,
-        skip_validation=False,
+        skip_validation=False,  # tosca parser validation
+        safe_mode: Optional[bool] = None,
     ):
-        super().__init__(manifest, path, validate, localEnv, vault)
+        super().__init__(manifest, path, validate, localEnv, vault, safe_mode)
         self.validate = not skip_validation  # see AttributeManager.validate
         # instantiate the tosca template
         manifest = self.manifest.expanded
@@ -458,7 +462,8 @@ class YamlManifest(ReadOnlyManifest):
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
-        self._set_root_environ()
+        if not self.safe_mode:
+            self._set_root_environ()
 
         # self.load_external_ensemble("localhost", tpl) # declared in templates/home/unfurl.yaml.j2
         importsSpec = self.context.get("external", {})
@@ -513,7 +518,7 @@ class YamlManifest(ReadOnlyManifest):
 
         if "project" in location:
             importedManifest = self.localEnv and self.localEnv.get_external_manifest(
-                location
+                location, skip_validation=not self.validate, safe_mode=self.safe_mode
             )
             if not importedManifest:
                 raise UnfurlError(
@@ -540,7 +545,9 @@ class YamlManifest(ReadOnlyManifest):
                 # don't import self (might happen when context is shared)
                 return
             logger.verbose("loading external ensemble at %s", localEnv.manifestPath)
-            importedManifest = localEnv.get_manifest(skip_validation=not self.validate)
+            importedManifest = localEnv.get_manifest(
+                skip_validation=not self.validate, safe_mode=self.safe_mode
+            )
 
         uri = value.get("uri")
         if uri and not importedManifest.has_uri(uri):
@@ -727,7 +734,10 @@ class YamlManifest(ReadOnlyManifest):
                 status["artifacts"] = CommentedMap(artifacts)
 
         if cast(NodeSpec, resource.template).substitution and resource.shadow:
-            assert resource.shadow.root is not resource.root, (resource is resource.shadow, resource.root)
+            assert resource.shadow.root is not resource.root, (
+                resource is resource.shadow,
+                resource.root,
+            )
             status["substitution"] = self.save_root_resource(
                 cast(TopologyInstance, resource.shadow.root), discovered
             )

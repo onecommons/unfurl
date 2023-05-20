@@ -48,6 +48,8 @@ if TYPE_CHECKING:
 
 logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))
 
+class UnfurlEvalError(UnfurlError):
+    pass
 
 def map_value(
     value: Any,
@@ -652,7 +654,7 @@ def eval_ref(
                 else:
                     unexpected = False
                 if unexpected:
-                    raise UnfurlError(
+                    raise UnfurlEvalError(
                         f"unexpected '{unexpected}' found, did you intend it for the parent?"
                     )
                 val = func(args, ctx)
@@ -664,7 +666,13 @@ def eval_ref(
                 break
         else:
             if "ref" not in val and "eval" not in val:
-                raise UnfurlError(f"Function missing in {dict(val)}")
+                msg = f"Function missing in {dict(val)}"
+                if isinstance(ctx, SafeRefContext):
+                    msg = "Error: skipping unsafe eval: " + msg
+                    if not ctx.strict:
+                        logger.warning(msg, stack_info=True)
+                        return [Result("Error: in safe mode, skipping unsafe eval")]
+                raise UnfurlEvalError(msg)
     elif isinstance(val, six.string_types):
         if is_template(val, ctx):
             return [Result(apply_template(val, ctx))]

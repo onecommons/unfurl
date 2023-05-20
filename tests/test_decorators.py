@@ -3,7 +3,7 @@ import io
 from click.testing import CliRunner
 from unfurl.util import UnfurlError
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.eval import Ref, map_value, RefContext
+from unfurl.eval import Ref, UnfurlEvalError, map_value, RefContext
 from unfurl.job import Runner, JobOptions
 
 # expressions evaluate on tosca nodespecs (ignore validation errors)
@@ -52,6 +52,6 @@ class DecoratorTest(unittest.TestCase):
         cliRunner = CliRunner()
         with cliRunner.isolated_filesystem():
             path = __file__ + "/../examples/decorators-unsafe-template.yaml"
-            with self.assertRaises(UnfurlError) as err:
+            with self.assertRaises(UnfurlEvalError) as err:
                 manifest = YamlManifest(path=path)
             assert "Function missing in {'python': 'configurators.py#expressionFunc', 'args': 'foo'}" in str(err.exception)

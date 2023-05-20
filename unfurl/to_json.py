@@ -1290,7 +1290,8 @@ def _to_graphql(
     localEnv: LocalEnv,
 ) -> Tuple[GraphqlDB, YamlManifest, GraphqlObject, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
-    manifest = localEnv.get_manifest(skip_validation=True)
+    manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
+    manifest.strict = False  # suppress safe_mode exceptions
     db = GraphqlDB({})
     spec = manifest.tosca
     assert spec and spec.topology

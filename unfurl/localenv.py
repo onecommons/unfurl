@@ -1050,7 +1050,10 @@ class LocalEnv:
         return vault
 
     def get_manifest(
-        self, path: Optional[str] = None, skip_validation: bool = False
+        self,
+        path: Optional[str] = None,
+        skip_validation: bool = False,
+        safe_mode: Optional[bool] = None,
     ) -> "YamlManifest":
         from .yamlmanifest import YamlManifest
 
@@ -1065,7 +1068,10 @@ class LocalEnv:
                 # should load vault ids from context
                 vault = self.get_vault()
                 manifest = YamlManifest(
-                    localEnv=self, vault=vault, skip_validation=skip_validation
+                    localEnv=self,
+                    vault=vault,
+                    skip_validation=skip_validation,
+                    safe_mode=bool(safe_mode),
                 )
                 self._manifests[self.manifestPath] = manifest
             return manifest
@@ -1078,10 +1084,17 @@ class LocalEnv:
             self._projects[path] = project
         return project
 
-    def get_external_manifest(self, location: dict) -> Optional["YamlManifest"]:
+    def get_external_manifest(
+        self,
+        location: dict,
+        skip_validation: bool,
+        safe_mode: bool,
+    ) -> Optional["YamlManifest"]:
         localEnv = self._get_external_localenv(location)
         if localEnv:
-            return localEnv.get_manifest()
+            return localEnv.get_manifest(
+                skip_validation=skip_validation, safe_mode=safe_mode
+            )
         else:
             return None
 
