@@ -19,6 +19,7 @@ from .support import (
     Imports,
 )
 from .runtime import (
+    EntityInstance,
     HasInstancesInstance,
     OperationalInstance,
     NodeInstance,
@@ -226,7 +227,16 @@ class Manifest(AttributeManager):
     def save_job(self, job):
         pass
 
-    def load_template(self, name, parent, lastChange=None):
+    def load_error(self, msg: str) -> None:
+        if self.validate:
+            raise UnfurlError(msg)
+        else:
+            logger.error(msg)
+        return None
+
+    def load_template(
+        self, name: str, parent: Optional[EntityInstance], lastChange=None
+    ) -> Optional[EntitySpec]:
         if lastChange:
             return None
             # XXX implement revisions
@@ -364,25 +374,25 @@ class Manifest(AttributeManager):
                 return None
         capability = capabilityId and self.get_root_resource().query(capabilityId)
         if not capability or not isinstance(capability, CapabilityInstance):
-            raise UnfurlError(f"can not find capability {capabilityId}")
+            return self.load_error(f"can not find capability {capabilityId}")  # type: ignore
         if capability._relationships is None:
             capability._relationships = []
         return self._create_entity_instance(RelationshipInstance, key, val, capability)
 
     def _create_substituted_topology(
-        self, rname: str, resourceSpec: dict, parent: EntitySpec
-    ) -> TopologyInstance:
+        self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
+    ) -> Optional[TopologyInstance]:
         root = self.get_root_resource()
         assert root
         templateName = resourceSpec.get("template", rname)
         template = cast(NodeSpec, self.load_template(templateName, parent))
         if template is None:
-            raise UnfurlError(
+            return self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{rname}'"
-            )
+            )  # type: ignore
         substitution = template.substitution
         if substitution is None:
-            raise UnfurlError(
+            return self.load_error(  # type: ignore
                 f"missing substitution in template while instantiating instance '{rname}'"
             )
         status = resourceSpec["substitution"]
@@ -400,13 +410,20 @@ class Manifest(AttributeManager):
                 root.imports.add_import(":" + inner.template.nested_name, inner)
         return topology_instance
 
-    def create_node_instance(self, rname, resourceSpec, parent=None) -> NodeInstance:
+    def create_node_instance(
+        self,
+        rname: str,
+        resourceSpec: Dict[str, Any],
+        parent: HasInstancesInstance,
+    ) -> NodeInstance:
         # if parent property is set it overrides the parent argument
+        root = self.get_root_resource()
+        assert root
         pname = resourceSpec.get("parent")
         if pname:
-            parent = self.get_root_resource().find_resource(pname)
+            parent = root.find_instance(pname)  # type: ignore
             if parent is None:
-                raise UnfurlError(f"can not find parent instance {pname}")
+                self.load_error(f"can not find parent instance {pname}")
 
         if resourceSpec.get("substitution"):
             # need to create the nested topology before a NodeInstance that has "imported"
@@ -447,7 +464,9 @@ class Manifest(AttributeManager):
         jobId = ChangeRecord.get_job_id(operational.last_config_change)
         return self.changeSets.get(jobId)
 
-    def _create_entity_instance(self, ctor, name, status, parent):
+    def _create_entity_instance(
+        self, ctor, name: str, status: Dict[str, Any], parent: EntityInstance
+    ):
         templateName = status.get("template", name)
 
         imported = None
@@ -455,7 +474,7 @@ class Manifest(AttributeManager):
         if importName is not None:
             imported = self.imports.find_import(importName)
             if not imported:
-                raise UnfurlError(f"missing import {importName}")
+                self.load_error(f"missing import {importName}")
 
         if imported:
             operational = self.load_status(dict(readyState=imported.local_status))
@@ -468,7 +487,7 @@ class Manifest(AttributeManager):
                 changerecord = self._get_last_change(operational)
                 template = self.load_template(templateName, parent, changerecord)
         if template is None:
-            raise UnfurlError(
+            return self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"
             )
         # logger.debug("creating instance for template %s: %s", templateName, template)
