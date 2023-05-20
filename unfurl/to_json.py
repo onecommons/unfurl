@@ -51,7 +51,7 @@ from .tosca import (
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
 from .result import ChangeRecord
-from .localenv import LocalEnv
+from .localenv import LocalEnv, Project
 
 logger = getLogger("unfurl")
 
@@ -1285,7 +1285,7 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
 
 def _to_graphql(
     localEnv: LocalEnv,
-) -> Tuple[GraphqlDB, YamlManifest, dict, ResourceTypesByName]:
+) -> Tuple[GraphqlDB, YamlManifest, GraphqlObject, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True)
     db = GraphqlDB({})
@@ -1337,12 +1337,12 @@ def _to_graphql(
             connections[name] = connection_template
 
     db["Overview"] = spec.template.tpl.get("metadata") or {}
-    env = dict(
+    env = GraphqlObject(dict(
         connections=connections,
         primary_provider=connections.get("primary_provider"),
         instances=environment_instances,
         repositories=manifest.context.get("repositories") or {},
-    )
+    ))
     return db, manifest, env, connection_types
 
 
@@ -1555,45 +1555,35 @@ def _set_shared_instances(instances):
 
 def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
     """
-      Map environments in unfurl.yaml to DeploymentEnvironments
-      Map registered ensembles to deployments just with path reference to the ensemble's json
+      Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
+      Each environment is be represented as:
 
       type DeploymentEnvironment {
         name: String!
         connections: [ResourceTemplate!]
         instances: [ResourceTemplate!]
-
         primary_provider: ResourceTemplate
-        deployments: [String!]
+        repositories: JSON!
       }
 
-    # save service templates in this format so we can include this json in unfurl.yaml
-    {
-      "DeploymentEnvironment": {
-        name: {
-          "connections": { name: <ResourceTemplate>},
-          "instances": { name: <ResourceTemplate>}
-        }
-      },
+      Unlike the other JSON exports, the ResourceTemplates are included inline
+      instead of referenced by name (so the json can be included directly into unfurl.yaml).
 
-      "ResourceType": {
-        name: <ResourceType>
-      },
-    }
+      Each registered ensembles will be represents as a DeploymentPath object
+      with the ensemble's path as its name.
+
+      Also include ResourceType objects for any types referenced in the environments' connections and instances.
     """
 
     # XXX one manifest and blueprint per environment
-    if existing and os.path.exists(existing):
-        with open(existing) as f:
-            db = json.load(f)
-    else:
-        db = {}
+    db = _load_db(existing)
     environments = {}
     all_connection_types = cast(ResourceTypesByName, {})
     blueprintdb = None
-    deployments = set_deploymentpaths(localEnv.project)["DeploymentPath"]
+    assert localEnv.project
+    deployment_paths = get_deploymentpaths(localEnv.project)
     env_deployments = {}
-    for ensemble_info in deployments.values():
+    for ensemble_info in deployment_paths.values():
         env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
     assert localEnv.project
     defaults = localEnv.project.contexts.get("defaults")
@@ -1639,14 +1629,16 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
         # add the rest of the types too
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(_get_types(blueprintdb))
-    db["ResourceType"] = all_connection_types
-    db["DeploymentPath"] = deployments
+    db["ResourceType"] = cast(GraphqlObjectsByName, all_connection_types)
+    db["DeploymentPath"] = deployment_paths
     return db
 
 
-def to_deployments(localEnv, existing=None):
+def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+    assert localEnv.project
     db = set_deploymentpaths(localEnv.project)
-    deployments = db["deployments"] = []
+    deployments: List[GraphqlDB] = []
+    db["deployments"] = deployments  # type: ignore
     for manifest_path, dp in db["DeploymentPath"].items():
         try:
             # optimization: reuse localenv
@@ -1664,16 +1656,31 @@ def to_deployments(localEnv, existing=None):
     return db
 
 
-def get_deploymentpaths(project):
+def get_deploymentpaths(project: Project) -> GraphqlObjectsByName:
     return set_deploymentpaths(project)["DeploymentPath"]
 
 
-def set_deploymentpaths(project, existing: Optional[str] = None):
-    if existing:
+def _load_db(existing: Optional[str]) -> GraphqlDB:
+    if existing and os.path.exists(existing):
         with open(existing) as f:
-            db = json.load(f)
+            return cast(GraphqlDB, json.load(f))
     else:
-        db = {}
+        return GraphqlDB({})
+
+
+def set_deploymentpaths(project: Project, existing: Optional[str] = None) -> GraphqlDB:
+    """
+      Deployments identified by their file path.
+
+      type DeploymentPath {
+        name: String!
+        environment: String!
+        project_id: String
+        pipelines: [JSON!]
+        incremental_deploy: boolean!
+      }
+    """
+    db = _load_db(existing)
     deployment_paths = db.setdefault("DeploymentPath", {})
     for ensemble_info in project.localConfig.ensembles:
         if "environment" in ensemble_info and "project" not in ensemble_info:
@@ -1681,14 +1688,14 @@ def set_deploymentpaths(project, existing: Optional[str] = None):
             path = os.path.dirname(ensemble_info["file"])
             if os.path.isabs(path):
                 path = project.get_relative_path(path)
-            obj = {
+            obj = GraphqlObject({
                 "__typename": "DeploymentPath",
                 "name": path,
                 "project_id": ensemble_info.get("project_id"),
                 "pipelines": ensemble_info.get("pipelines", []),
                 "environment": ensemble_info["environment"],
                 "incremental_deploy": ensemble_info.get("incremental_deploy", False),
-            }
+            })
             if path in deployment_paths:
                 # merge duplicate entries
                 deployment_paths[path].update(obj)
