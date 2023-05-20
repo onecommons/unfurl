@@ -3,7 +3,6 @@
 """
 TOSCA implementation
 """
-import functools
 import copy
 
 from .tosca_plugins import TOSCA_VERSION
@@ -402,7 +401,7 @@ class ToscaSpec:
     def load_imported_default_templates(self) -> None:
         assert self.topology
         for name, topology in self.template.nested_topologies.items():
-            topology_spec = TopologySpec(topology, self, self.topology)
+            topology_spec = TopologySpec(topology, self, self.topology, path=name)
             self.nested_topologies.append(topology_spec)
             for nodeTemplate in topology.nodetemplates:
                 if (
@@ -1002,13 +1001,12 @@ class NodeSpec(EntitySpec):
 
     def add_relationship(self, reqSpec: "RequirementSpec"):
         # self is the target node
-        substituted = reqSpec.parentNode.topology is not self.topology
-        if substituted:
+        source_topology = reqSpec.parentNode.topology
+        substituted = source_topology.parent_topology is self.topology
+        if source_topology and substituted:
             # use the name of the node in the target's topology
-            topology = reqSpec.parentNode.topology
-            assert topology.parent_topology is self.topology
-            assert topology.substitute_of
-            req_source_name = topology.substitute_of.name
+            assert source_topology.substitute_of
+            req_source_name = source_topology.substitute_of.name
         else:
             req_source_name = reqSpec.parentNode.name
         # find the relationship for this requirement:
@@ -1264,6 +1262,7 @@ class TopologySpec(EntitySpec):
         spec: ToscaSpec,
         parent: Optional["TopologySpec"] = None,
         inputs: Optional[Dict[str, Any]] = None,
+        path: Optional[str] = None,
     ):
         self.topology_template = topology
         self.toscaEntityTemplate = topology  # hack
@@ -1272,6 +1271,7 @@ class TopologySpec(EntitySpec):
         self.name = "root"
         self.type = "~topology"
         self.topology = self
+        self.path = path
         self.parent_topology: Optional["TopologySpec"] = parent
         self.node_templates: Dict[str, NodeSpec] = {}
         for template in topology.nodetemplates:
@@ -1350,7 +1350,10 @@ class TopologySpec(EntitySpec):
 
     @property
     def base_dir(self):
-        return self.spec.base_dir
+        if self.path:
+            return get_base_dir(self.path)
+        else:
+            return self.spec.base_dir
 
     def _resolve(self, key):
         """Make attributes available to expressions"""
