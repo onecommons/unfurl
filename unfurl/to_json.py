@@ -20,6 +20,7 @@ import datetime
 from typing import Any, Dict, List, NewType, Optional, Tuple, Union, cast, TYPE_CHECKING
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
+from typing_extensions import TypedDict
 from urllib.parse import urlparse
 from toscaparser.substitution_mappings import SubstitutionMappings
 from toscaparser.properties import Property
@@ -671,7 +672,9 @@ def node_type_to_graphql(
     return jsontype
 
 
-def _make_typedef(typename: str, custom_defs: CustomDefs) -> Optional[StatefulEntityType]:
+def _make_typedef(
+    typename: str, custom_defs: CustomDefs
+) -> Optional[StatefulEntityType]:
     typedef = None
     # prefix is only used to expand "tosca:Type"
     test_typedef = StatefulEntityType(
@@ -691,7 +694,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
     for name, value in sub_map.get_declared_properties().items():
         # XXX instead of removing the property, set or delete json schema default if not computed
         # computed = is_value_computed(value)
-        jsontype["inputsSchema"].pop(name, None)      
+        jsontype["inputsSchema"].pop(name, None)
         jsontype["computedPropertiesSchema"].pop(name, None)
 
     # make optional any requirements that were set in the inner topology
@@ -710,7 +713,7 @@ def to_graphql_nodetypes(spec: ToscaSpec) -> ResourceTypesByName:
     assert topology
     custom_defs = topology.topology_template.custom_defs
     # create these ones first
-    # XXX detect error later if these types are being used elsewhere 
+    # XXX detect error later if these types are being used elsewhere
     for nested_topology in spec.nested_topologies:
         sub_map = nested_topology.topology_template.substitution_mappings
         if sub_map:
@@ -1337,12 +1340,14 @@ def _to_graphql(
             connections[name] = connection_template
 
     db["Overview"] = spec.template.tpl.get("metadata") or {}
-    env = GraphqlObject(dict(
-        connections=connections,
-        primary_provider=connections.get("primary_provider"),
-        instances=environment_instances,
-        repositories=manifest.context.get("repositories") or {},
-    ))
+    env = GraphqlObject(
+        dict(
+            connections=connections,
+            primary_provider=connections.get("primary_provider"),
+            instances=environment_instances,
+            repositories=manifest.context.get("repositories") or {},
+        )
+    )
     return db, manifest, env, connection_types
 
 
@@ -1555,24 +1560,24 @@ def _set_shared_instances(instances):
 
 def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
     """
-      Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
-      Each environment is be represented as:
+    Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
+    Each environment is be represented as:
 
-      type DeploymentEnvironment {
-        name: String!
-        connections: [ResourceTemplate!]
-        instances: [ResourceTemplate!]
-        primary_provider: ResourceTemplate
-        repositories: JSON!
-      }
+    type DeploymentEnvironment {
+      name: String!
+      connections: [ResourceTemplate!]
+      instances: [ResourceTemplate!]
+      primary_provider: ResourceTemplate
+      repositories: JSON!
+    }
 
-      Unlike the other JSON exports, the ResourceTemplates are included inline
-      instead of referenced by name (so the json can be included directly into unfurl.yaml).
+    Unlike the other JSON exports, the ResourceTemplates are included inline
+    instead of referenced by name (so the json can be included directly into unfurl.yaml).
 
-      Each registered ensembles will be represents as a DeploymentPath object
-      with the ensemble's path as its name.
+    Each registered ensembles will be represents as a DeploymentPath object
+    with the ensemble's path as its name.
 
-      Also include ResourceType objects for any types referenced in the environments' connections and instances.
+    Also include ResourceType objects for any types referenced in the environments' connections and instances.
     """
 
     # XXX one manifest and blueprint per environment
@@ -1590,24 +1595,21 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
     default_imported_instances = _set_shared_instances(
         defaults and defaults.get("instances")
     )
+    default_manifest_path = localEnv.manifestPath
     for name in localEnv.project.contexts:
         try:
+            # we can reuse the localEnv if there's a distinct manifest that uses this environment
+            localEnv.manifest_context_name = name
             if name in env_deployments:
-                # we can reuse the localEnv if there's a distinct manifest that uses this environment
-                localEnv.manifest_context_name = name
                 localEnv.manifestPath = os.path.join(
                     localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml"
                 )
-                localLocalEnv = localEnv
             else:
-                # this environment doesn't have any deployments so we have to create a new localEnv
-                # because we need to instantiate a different ToscaSpec object
-                localLocalEnv = LocalEnv(
-                    localEnv.manifestPath,
-                    project=localEnv.project,
-                    override_context=name,
-                    readonly=True,
-                )
+                # this environment doesn't have any deployments, reuse the default one
+                # delete existing because we need to instantiate a different ToscaSpec object
+                localEnv._manifests.pop(default_manifest_path, None)
+                localEnv.manifestPath = default_manifest_path
+            localLocalEnv = localEnv
             blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
             env["name"] = name
             env["instances"].update(default_imported_instances)
@@ -1634,11 +1636,19 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
     return db
 
 
-def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+class DeploymentPaths(TypedDict):
+    DeploymentPath: GraphqlObjectsByName
+
+
+class Deployments(DeploymentPaths):
+    deployments: List[GraphqlDB]
+
+
+def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> Deployments:
     assert localEnv.project
-    db = set_deploymentpaths(localEnv.project)
+    db = cast(Deployments, set_deploymentpaths(localEnv.project))
     deployments: List[GraphqlDB] = []
-    db["deployments"] = deployments  # type: ignore
+    db["deployments"] = deployments
     for manifest_path, dp in db["DeploymentPath"].items():
         try:
             # optimization: reuse localenv
@@ -1668,19 +1678,21 @@ def _load_db(existing: Optional[str]) -> GraphqlDB:
         return GraphqlDB({})
 
 
-def set_deploymentpaths(project: Project, existing: Optional[str] = None) -> GraphqlDB:
+def set_deploymentpaths(
+    project: Project, existing: Optional[str] = None
+) -> DeploymentPaths:
     """
-      Deployments identified by their file path.
+    Deployments identified by their file path.
 
-      type DeploymentPath {
-        name: String!
-        environment: String!
-        project_id: String
-        pipelines: [JSON!]
-        incremental_deploy: boolean!
-      }
+    type DeploymentPath {
+      name: String!
+      environment: String!
+      project_id: String
+      pipelines: [JSON!]
+      incremental_deploy: boolean!
+    }
     """
-    db = _load_db(existing)
+    db = cast(DeploymentPaths, _load_db(existing))
     deployment_paths = db.setdefault("DeploymentPath", {})
     for ensemble_info in project.localConfig.ensembles:
         if "environment" in ensemble_info and "project" not in ensemble_info:
@@ -1688,14 +1700,18 @@ def set_deploymentpaths(project: Project, existing: Optional[str] = None) -> Gra
             path = os.path.dirname(ensemble_info["file"])
             if os.path.isabs(path):
                 path = project.get_relative_path(path)
-            obj = GraphqlObject({
-                "__typename": "DeploymentPath",
-                "name": path,
-                "project_id": ensemble_info.get("project_id"),
-                "pipelines": ensemble_info.get("pipelines", []),
-                "environment": ensemble_info["environment"],
-                "incremental_deploy": ensemble_info.get("incremental_deploy", False),
-            })
+            obj = GraphqlObject(
+                {
+                    "__typename": "DeploymentPath",
+                    "name": path,
+                    "project_id": ensemble_info.get("project_id"),
+                    "pipelines": ensemble_info.get("pipelines", []),
+                    "environment": ensemble_info["environment"],
+                    "incremental_deploy": ensemble_info.get(
+                        "incremental_deploy", False
+                    ),
+                }
+            )
             if path in deployment_paths:
                 # merge duplicate entries
                 deployment_paths[path].update(obj)
