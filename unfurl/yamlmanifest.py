@@ -256,6 +256,9 @@ class ReadOnlyManifest(Manifest):
             return False
         return os.path.abspath(self.path) == os.path.abspath(path)
 
+    def get_saved_outputs(self):
+        return self.manifest.expanded.get("status", {}).get("outputs")
+
     # def addRepo(self, name, repo):
     #     self._getRepositories(self.manifest.config)[name] = repo
 

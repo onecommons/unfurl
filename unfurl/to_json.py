@@ -494,12 +494,33 @@ def is_computed(p):  # p: Property | PropertyDef
     )
 
 
-def always_export(p):
+def always_export(p: Property) -> bool:
     if isinstance(p.schema, Schema):
         metadata = p.schema.metadata
     else:
         metadata = p.schema.get("metadata") or {}
-    return metadata.get("export")
+    return bool(metadata.get("export"))
+
+
+def maybe_export_value(prop: Property, instance: EntityInstance, attrs: List[dict]):
+    export = always_export(prop)
+    if export:
+        # evaluate computed property now
+        try:
+            value = instance.attributes[prop.name]
+        except UnfurlError as e:
+            # this can be raised if the evaluation is unsafe
+            logger.warning(
+                f"export could not evaluate property {prop.name} on {instance}: {e}"
+            )
+        else:
+            attrs.append(
+                dict(
+                    name=prop.name,
+                    value=attribute_value_to_json(prop, value),
+                )
+            )
+    return export
 
 
 # def property_value_to_json(p, value):
@@ -560,7 +581,7 @@ def node_type_to_graphql(
     topology: TopologySpec,
     type_definition: StatefulEntityType,
     types: ResourceTypesByName,
-) -> GraphqlObject:
+) -> ResourceType:
     """
     type ResourceType {
       name: String!
@@ -1291,11 +1312,12 @@ def _to_graphql(
 ) -> Tuple[GraphqlDB, YamlManifest, GraphqlObject, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
-    manifest.strict = False  # suppress safe_mode exceptions
     db = GraphqlDB({})
     spec = manifest.tosca
-    assert spec and spec.topology
-    types_repo = spec.template.tpl.get("repositories").get("types")
+    assert spec
+    tpl = spec.template.tpl
+    assert spec.topology and tpl
+    types_repo = tpl.get("repositories").get("types")
     if types_repo:  # only export types, avoid built-in repositories
         db["repositories"] = {"types": types_repo}
     types = to_graphql_nodetypes(spec)
@@ -1340,7 +1362,7 @@ def _to_graphql(
             # db["ResourceTemplate"][name] = connection_template
             connections[name] = connection_template
 
-    db["Overview"] = spec.template.tpl.get("metadata") or {}
+    db["Overview"] = tpl.get("metadata") or {}
     env = GraphqlObject(
         dict(
             connections=connections,
@@ -1394,6 +1416,31 @@ def _add_lastjob(last_job: dict, deployment: GraphqlObject) -> None:
     )
 
 
+def _set_deployment_url(
+    manifest, deployment: GraphqlObject, primary_resource: Optional[GraphqlObject]
+):
+    outputs = manifest.get_saved_outputs()
+    if outputs and "url" in outputs:
+        url = outputs["url"]
+    else:
+        # computed outputs might not be saved, so try to evaluate it now
+        try:
+            url = manifest.rootResource.attributes["outputs"].get("url")
+        except UnfurlError as e:
+            url = None  # this can be raised if the evaluation is unsafe
+            logger.warning(
+                f"export could not evaluate output 'url': {e}"
+            )
+
+    if url:
+        deployment["url"] = url
+    elif primary_resource and primary_resource.get("attributes"):
+        for prop in primary_resource["attributes"]:
+            if prop["name"] == "url":
+                deployment["url"] = prop["value"]
+                break
+
+
 def add_graphql_deployment(
     manifest: YamlManifest, db: GraphqlDB, dtemplate
 ) -> GraphqlObject:
@@ -1429,17 +1476,11 @@ def add_graphql_deployment(
     deployment["deploymentTemplate"] = dtemplate["name"]
     if manifest.lastJob:
         _add_lastjob(manifest.lastJob, deployment)
-    url = manifest.rootResource.attributes["outputs"].get("url")
+
     primary_resource = db["Resource"].get(primary_name)
+    _set_deployment_url(manifest, deployment, primary_resource)
     if primary_resource and primary_resource["title"] == primary_name:
         primary_resource["title"] = deployment["title"]
-    if url:
-        deployment["url"] = url
-    elif primary_resource and primary_resource.get("attributes"):
-        for prop in primary_resource["attributes"]:
-            if prop["name"] == "url":
-                deployment["url"] = prop["value"]
-                break
     db["Deployment"] = {name: deployment}
     return deployment
 
@@ -1749,17 +1790,7 @@ def add_attributes(instance: EntityInstance) -> List[Dict[str, Any]]:
     # add leftover attribute defs that have a default value
     for prop in attributeDefs.values():
         if prop.default is not None:
-            if always_export(prop):
-                # evaluate computed property now
-                attrs.append(
-                    dict(
-                        name=prop.name,
-                        value=attribute_value_to_json(
-                            prop, instance.attributes[prop.name]
-                        ),
-                    )
-                )
-            elif not is_computed(prop):
+            if not maybe_export_value(prop, instance, attrs) and not is_computed(prop):
                 attrs.append(
                     dict(
                         name=prop.name,
@@ -1799,16 +1830,8 @@ def add_computed_properties(instance: EntityInstance) -> List[Dict[str, Any]]:
 
     for prop in instance.template.propertyDefs.values():
         if prop.default is not None and prop.name not in instance._properties:
-            if always_export(prop) and prop.name not in instance.template.attributeDefs:
-                # evaluate computed property now
-                attrs.append(
-                    dict(
-                        name=prop.name,
-                        value=attribute_value_to_json(
-                            prop, instance.attributes[prop.name]
-                        ),
-                    )
-                )
+            if prop.name not in instance.template.attributeDefs:
+                maybe_export_value(prop, instance, attrs)
 
     return attrs
 
