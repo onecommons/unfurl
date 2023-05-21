@@ -17,7 +17,19 @@ import sys
 import itertools
 import json
 import datetime
-from typing import Any, Dict, List, NewType, Optional, Tuple, Union, cast, TYPE_CHECKING
+from time import perf_counter
+from typing import (
+    Any,
+    Dict,
+    Iterator,
+    List,
+    NewType,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    TYPE_CHECKING,
+)
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
 from typing_extensions import TypedDict
@@ -340,6 +352,7 @@ def _find_req_typename(types: ResourceTypesByName, typename, reqname) -> str:
 
 def _make_req(
     req_dict: dict,
+    topology: Optional[TopologySpec] = None,
     types: Optional[ResourceTypesByName] = None,
     typename: Optional[str] = None,
 ) -> Tuple[str, dict, GraphqlObject]:
@@ -368,16 +381,19 @@ def _make_req(
     if req.get("node_filter"):
         reqobj["node_filter"] = req["node_filter"]
         if types is not None:
+            assert topology
             assert typename is not None
             # we're called from annotate_requirements annotating a nested requirements constraint
             reqtypename = _find_req_typename(types, typename, name)
             if reqtypename:
-                _annotate_requirement(reqobj, reqtypename, types)
+                _annotate_requirement(reqobj, reqtypename, topology, types)
 
     return name, req, reqobj
 
 
-def requirement_to_graphql(topology: TopologySpec, req_dict: dict):
+def requirement_to_graphql(
+    topology: TopologySpec, req_dict: dict
+) -> Optional[GraphqlObject]:
     """
     type RequirementConstraint {
         name: String!
@@ -727,7 +743,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
     jsontype["directives"] = ["substitute"]
 
 
-def to_graphql_nodetypes(spec: ToscaSpec) -> ResourceTypesByName:
+def to_graphql_nodetypes(spec: ToscaSpec, include_all=True) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
     types = cast(ResourceTypesByName, {})
     topology = spec.topology
@@ -743,22 +759,24 @@ def to_graphql_nodetypes(spec: ToscaSpec) -> ResourceTypesByName:
                 jsontype = node_type_to_graphql(nested_topology, typedef, types)
                 _update_root_type(jsontype, sub_map)
 
-    for typename in custom_defs:
-        if typename in types:
-            continue
-        typedef = _make_typedef(typename, custom_defs)
-        if typedef:
-            node_type_to_graphql(topology, typedef, types)
-    for typename in StatefulEntityType.TOSCA_DEF:  # builtin types
-        if typename.startswith("unfurl.nodes") or typename.startswith(
-            "unfurl.relationships"
-        ):
+    if include_all:
+        for typename in custom_defs:
             if typename in types:
                 continue
-            # only include our extensions
             typedef = _make_typedef(typename, custom_defs)
             if typedef:
                 node_type_to_graphql(topology, typedef, types)
+        for typename in StatefulEntityType.TOSCA_DEF:  # builtin types
+            if typename.startswith("unfurl.nodes") or typename.startswith(
+                "unfurl.relationships"
+            ):
+                if typename in types:
+                    continue
+                # only include our extensions
+                typedef = _make_typedef(typename, custom_defs)
+                if typedef:
+                    node_type_to_graphql(topology, typedef, types)
+
     for node_spec in topology.node_templates.values():
         type_definition = node_spec.toscaEntityTemplate.type_definition
         typename = type_definition.type
@@ -766,7 +784,9 @@ def to_graphql_nodetypes(spec: ToscaSpec) -> ResourceTypesByName:
             node_type_to_graphql(topology, type_definition, types)
 
     mark_leaf_types(types)
-    annotate_requirements(types)
+    assert spec.topology
+    annotate_requirements(spec.topology, types)
+
     return types
 
 
@@ -807,7 +827,7 @@ def add_capabilities_as_attributes(schema, nodetype, custom_defs: CustomDefs):
         schema[cap.name] = tosca_type_to_jsonschema(custom_defs, propdefs, cap.type)
 
 
-def _get_typedef(name: str, custom_defs: CustomDefs):
+def _get_typedef(name: str, custom_defs: CustomDefs) -> Optional[StatefulEntityType]:
     typedef = custom_defs.get(name)
     if not typedef:
         typedef = StatefulEntityType.TOSCA_DEF.get(name)
@@ -852,7 +872,9 @@ def _get_requirement(
         reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
     if reqconstraint is None:
         return None
-    _annotate_requirement(reqconstraint, reqconstraint["resourceType"], types)
+    _annotate_requirement(
+        reqconstraint, reqconstraint["resourceType"], nodespec.topology, types
+    )
     reqjson = GraphqlObject(
         dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
     )
@@ -1148,7 +1170,7 @@ def _generate_env_names_from_type(reqname, type_definition, custom_defs):
             yield f"{reqname}_{propdef.name.upper()}"
 
 
-def _generate_env_names(spec: ToscaSpec, root_name: str):
+def _generate_env_names(spec: ToscaSpec, root_name: str) -> Iterator[str]:
     assert spec.topology
     primary = spec.topology.get_node_template(root_name)
     assert primary
@@ -1346,12 +1368,13 @@ def _to_graphql(
         template = cast(RelationshipTemplate, relationship_spec.toscaEntityTemplate)
         if template.default_for:
             type_definition = template.type_definition
+            assert type_definition
             typename = type_definition.type
             if typename in types:
                 connection_types[typename] = types[typename]
             elif typename not in connection_types:
-                node_type_to_graphql(spec, type_definition, connection_types)
-            # this actually a RelationshipTemplate
+                node_type_to_graphql(spec.topology, type_definition, connection_types)
+            # this is actually a RelationshipTemplate
             connection_template = nodetemplate_to_json(
                 relationship_spec, connection_types
             )
@@ -1499,7 +1522,7 @@ def to_blueprint(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlD
 
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
-def to_deployment(localEnv, existing: Optional[str] = None) -> GraphqlDB:
+def to_deployment(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
     logger.debug("exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
@@ -1533,18 +1556,31 @@ def mark_leaf_types(types) -> None:
             jsontype["implementations"] = []
 
 
-def annotate_requirements(types):
-    for jsontype in types.values():
+def annotate_requirements(topology: TopologySpec, types: ResourceTypesByName) -> None:
+    for jsontype in list(types.values()):  # _annotate_requirement() might modify types
         for req in jsontype.get("requirements") or []:
-            _annotate_requirement(req, req["resourceType"], types)
+            _annotate_requirement(req, req["resourceType"], topology, types)
 
 
-def _annotate_requirement(req: dict, reqtypename: str, types: dict) -> None:
+def _annotate_requirement(
+    req: GraphqlObject,
+    reqtypename: str,
+    topology: TopologySpec,
+    types: ResourceTypesByName,
+) -> None:
     # req is a RequirementConstraint dict
+    reqtype = types.get(reqtypename)
+    if not reqtype:
+        custom_defs = topology.topology_template.custom_defs
+        typedef = _make_typedef(reqtypename, custom_defs)
+        if typedef:
+            reqtype = node_type_to_graphql(topology, typedef, types)
+        else:
+            return
+
     if "node_filter" not in req:
         return
     node_filter = req["node_filter"]
-    reqtype = types[reqtypename]
     req_filters = node_filter.get("requirements")
     # node_filter properties might refer to properties that are only present on some subtypes
     prop_filters: Dict = {}
@@ -1559,7 +1595,7 @@ def _annotate_requirement(req: dict, reqtypename: str, types: dict) -> None:
         req["inputsSchema"] = dict(properties=prop_filters)
     if req_filters:
         req["requirementsFilter"] = [
-            _make_req(rf, types, reqtypename)[2] for rf in req_filters
+            _make_req(rf, topology, types, reqtypename)[2] for rf in req_filters
         ]
     req.pop("node_filter")
 
@@ -1692,6 +1728,7 @@ def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> Deploy
     deployments: List[GraphqlDB] = []
     db["deployments"] = deployments
     for manifest_path, dp in db["DeploymentPath"].items():
+        # start_time = perf_counter()
         try:
             # optimization: reuse localenv
             localEnv.manifestPath = os.path.join(
@@ -1702,9 +1739,12 @@ def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> Deploy
             deployments.append(to_deployment(localEnv))
         except Exception:
             logger.error("error exporting deployment %s", manifest_path, exc_info=True)
+        # _print(f"{perf_counter() - start_time}s export for {manifest_path}")
 
     # from .yamlloader import yaml_perf
     # _print(f"exported {len(deployments)} deployments, {yaml_perf} seconds parsing yaml")
+    # from .manifest import _cache
+    # _print("cached files with access count", json.dumps([(k, v[1]) for k, v in _cache.items()], indent=2))
     return db
 
 
