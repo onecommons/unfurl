@@ -54,4 +54,4 @@ class DecoratorTest(unittest.TestCase):
             path = __file__ + "/../examples/decorators-unsafe-template.yaml"
             with self.assertRaises(UnfurlEvalError) as err:
                 manifest = YamlManifest(path=path)
-            assert "Function missing in {'python': 'configurators.py#expressionFunc', 'args': 'foo'}" in str(err.exception)
+            assert "Error: unsafe eval: function unsafe or missing in {'python': 'configurators.py#expressionFunc', 'args': 'foo'}" in str(err.exception)
