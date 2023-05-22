@@ -430,10 +430,10 @@ def requirement_to_graphql(
     nodetype = req.get("node")
     if nodetype:
         # req['node'] can be a node_template instead of a type
-        expand_prefix(nodetype)
         if nodetype in topology.node_templates:
             reqobj["match"] = nodetype
             nodetype = topology.node_templates[nodetype].type
+        nodetype = expand_prefix(nodetype)
     else:
         nodetype = req.get("capability")
         if not nodetype:
@@ -729,10 +729,14 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
 
     # don't display any properties set by the inner topology
     for name, value in sub_map.get_declared_properties().items():
-        # XXX instead of removing the property, set or delete json schema default if not computed
-        # computed = is_value_computed(value)
-        jsontype["inputsSchema"].pop(name, None)
-        jsontype["computedPropertiesSchema"].pop(name, None)
+        inputsSchema = jsontype["inputsSchema"]["properties"].get(name)
+        if inputsSchema:
+            if is_value_computed(value):
+                del jsontype["inputsSchema"]["properties"][name]
+            else:
+                inputsSchema["default"] = value
+        else:
+            jsontype["computedPropertiesSchema"]["properties"].pop(name, None)
 
     # make optional any requirements that were set in the inner topology
     names = sub_map.get_declared_requirement_names()
@@ -872,6 +876,15 @@ def _get_requirement(
         reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
     if reqconstraint is None:
         return None
+
+    typeobj = types[nodespec.type]
+    if "substitute" in typeobj.get("directives", []):
+        # we've might have modified the type in _update_root_type()
+        # and the tosca object won't know about that change so set it now
+        for typeconstraint in typeobj["requirements"]:
+            if name == typeconstraint["name"]:
+                reqconstraint["min"] = typeconstraint["min"]
+
     _annotate_requirement(
         reqconstraint, reqconstraint["resourceType"], nodespec.topology, types
     )
@@ -889,11 +902,13 @@ def _get_requirement(
 
 
 def _find_typename(
-    nodetemplate: NodeTemplate,
+    nodetemplate: EntityTemplate,
     types: ResourceTypesByName,
 ) -> str:
+    # XXX
     # if we substituting template, generate a new type
-    # json type for root of imported blueprint only include unfulfilled requirements and set defaults on properties set by the inner root
+    # json type for root of imported blueprint only include unfulfilled requirements 
+    # and set defaults on properties set by the inner root
     return nodetemplate.type
 
 
