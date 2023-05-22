@@ -83,6 +83,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#foreach">foreach</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#get-dir">get_dir</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#if">if</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#is-function-defined">is_function_defined</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#lookup">lookup</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#local">local</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#or">or</a></li>
@@ -96,6 +97,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#to-googlecloud-label">to_googlecloud_label</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-kubernetes-label">to_kubernetes_label</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-label">to_label</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#urljoin">urljoin</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#validate">validate</a></li>
 </ul>
 </li>
@@ -281,8 +283,8 @@ For example:</p>
 <blockquote>
 <div><table class="docutils align-default">
 <colgroup>
-<col style="width: 35%" />
-<col style="width: 65%" />
+<col style="width: 32%" />
+<col style="width: 68%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Key</p></th>
@@ -311,47 +313,53 @@ For example:</p>
 <tr class="row-even"><td><p><a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a></p></td>
 <td><p>location | [location, mkdir?]</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#is-function-defined"><span class="std std-ref">is_function_defined</span></a></p></td>
+<td><p>function name</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-even"><td><p>local</p></td>
+<tr class="row-odd"><td><p>local</p></td>
 <td><p>name</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
 <td><p>[test+]</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#not"><span class="std std-ref">not</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#not"><span class="std std-ref">not</span></a></p></td>
 <td><p>expr</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
 <td><p>path#function_name | module.function_name</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
 <td><p>name</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
 <td><p>any</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#tempfile"><span class="std std-ref">tempfile</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#tempfile"><span class="std std-ref">tempfile</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#template"><span class="std std-ref">template</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#template"><span class="std std-ref">template</span></a></p></td>
 <td><p>contents</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#to-dns-label"><span class="std std-ref">to_dns_label</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#to-dns-label"><span class="std std-ref">to_dns_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#to-googlecloud-label"><span class="std std-ref">to_googlecloud_label</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#to-googlecloud-label"><span class="std std-ref">to_googlecloud_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#to-kubernetes-label"><span class="std std-ref">to_kubernetes_label</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#to-kubernetes-label"><span class="std std-ref">to_kubernetes_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#to-label"><span class="std std-ref">to_label</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#to-label"><span class="std std-ref">to_label</span></a></p></td>
 <td><p>string or map or list</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#urljoin"><span class="std std-ref">urljoin</span></a></p></td>
+<td><p>[scheme, host, port?, path?, query?, fragment?]</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#validate"><span class="std std-ref">validate</span></a></p></td>
 <td><p>[contents, schema]</p></td>
@@ -564,6 +572,26 @@ upon evaluation of this function, otherwise it will be read.</p>
 </pre></div>
 </div>
 </div></blockquote>
+</section>
+<section id="is-function-defined">
+<h3>is_function_defined<a class="headerlink" href="#is-function-defined" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">function</dt>
+<dd class="field-odd"><p>function name of a expression function</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>Evaluates to true if the given expression function is available.
+In the following example, the first expression returns true normally but false if a safe evaluation context.
+The second expression always returns false.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">is_function_defined</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_env</span>
+
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">is_function_defined</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nope</span>
+</pre></div>
+</div>
 </section>
 <section id="lookup">
 <h3>lookup<a class="headerlink" href="#lookup" title="Permalink to this headline"></a></h3>
@@ -812,6 +840,24 @@ If give a list, <code class="docutils literal notranslate"><span class="pre">to_
 </tr>
 </tbody>
 </table>
+</section>
+<section id="urljoin">
+<h3>urljoin<a class="headerlink" href="#urljoin" title="Permalink to this headline"></a></h3>
+<p>Evaluate a list of url components to a relative or absolute URL,
+where the list is <code class="docutils literal notranslate"><span class="pre">[scheme,</span> <span class="pre">host,</span> <span class="pre">port,</span> <span class="pre">path,</span> <span class="pre">query,</span> <span class="pre">fragment]</span></code>.</p>
+<p>The list must have at least two items (<code class="docutils literal notranslate"><span class="pre">scheme</span></code> and <code class="docutils literal notranslate"><span class="pre">host</span></code>) present
+but if either or both are empty a relative or scheme-relative URL is generated.
+If all items are empty, <code class="docutils literal notranslate"><span class="pre">null</span></code> is returned.
+The <code class="docutils literal notranslate"><span class="pre">path</span></code>, <code class="docutils literal notranslate"><span class="pre">query</span></code>, and <code class="docutils literal notranslate"><span class="pre">fragment</span></code> items are url-escaped if present.
+Default ports (80 and 443 for <code class="docutils literal notranslate"><span class="pre">http</span></code> and <code class="docutils literal notranslate"><span class="pre">https</span></code> URLs respectively) are omitted even if specified
+– the following examples both evaluate to “<a class="reference external" href="http://localhost/path?query#fragment">http://localhost/path?query#fragment</a>”:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">urljoin</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">http</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">localhost</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">80</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">path</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">query</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">fragment</span><span class="p p-Indicator">]</span>
+
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">urljoin</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">http</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">localhost</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">path</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">query</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">fragment</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
 </section>
 <section id="validate">
 <h3>validate<a class="headerlink" href="#validate" title="Permalink to this headline"></a></h3>
