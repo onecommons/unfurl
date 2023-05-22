@@ -327,7 +327,12 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, _UnfurlUndefined):
 
     if not ctx.strict:
         env.undefined = _UnfurlUndefined
-    return env.from_string(value).render(ctx.vars)
+    vars = ctx.vars.copy()
+    vars["__unfurl"] = ctx
+    vars["__now"] = time.time()
+    if hasattr(ctx.currentResource, "attributes"):
+        vars["SELF"] = ctx.currentResource.attributes  # type: ignore
+    return env.from_string(value).render(vars)
 
 
 def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
@@ -1124,12 +1129,12 @@ class ContainerImage(ExternalValue):
     def __init__(
         self,
         name: str,
-        tag=None,
-        digest=None,
-        registry_host=None,
-        username=None,
-        password=None,
-        source_digest=None,
+        tag: Optional[str] = None,
+        digest: Optional[str] = None,
+        registry_host: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        source_digest: Optional[str] = None,
     ):
         self.name = name.lstrip("/").lower()
         self.tag = tag
@@ -1166,7 +1171,9 @@ class ContainerImage(ExternalValue):
             return self.get()
 
     @staticmethod
-    def split(artifact_name):
+    def split(
+        artifact_name: str,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         if not artifact_name:
             return None, None, None, None
         hostname = None
@@ -1180,15 +1187,19 @@ class ContainerImage(ExternalValue):
         tag = None
         name, sep, digest = name.partition("@")
         if not sep:
-            digest = None
+            digest = None  # type: ignore
             name, sep, qualifier = artifact_name.partition(":")
             if sep:
                 tag = qualifier
         return name.lower(), tag, digest, hostname
 
     @staticmethod
-    def make(artifact_name):
-        return ContainerImage(*ContainerImage.split(artifact_name))
+    def make(artifact_name: str) -> Optional["ContainerImage"]:
+        parts = ContainerImage.split(artifact_name)
+        if parts[0]:
+            return ContainerImage(*parts)  # type: ignore
+        else:
+            return None
 
     @staticmethod
     def resolve_name(base_name: str, artifact_name: str):
@@ -1245,9 +1256,11 @@ def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
     return None
 
 
-def _get_container_image_from_repository(entity, artifact_name):
+def _get_container_image_from_repository(entity, artifact_name) -> Optional["ContainerImage"]:
     # aka get_artifact_as_value
     name, tag, digest, hostname = ContainerImage.split(artifact_name)
+    if not name:
+        return None
     attr = entity.attributes
 
     repository_id = attr.get("repository_id")
@@ -1259,12 +1272,13 @@ def _get_container_image_from_repository(entity, artifact_name):
     tag = tag or attr.get("repository_tag")
 
     if attr.get("registry_url"):
-        hostname = attr["registry_url"]
+        hostname = cast(str, attr["registry_url"])
         if "//" in hostname:
             hostname = urlsplit(attr["registry_url"]).netloc
     username = attr.get("username")
     password = attr.get("password")
     source_digest = attr.get("revision")
+    assert name
     return ContainerImage(
         name, tag, digest, hostname, username, password, source_digest
     )
@@ -1280,11 +1294,11 @@ def get_artifact(ctx: RefContext, entity, artifact_name, location=None, remove=N
 
     If entity_name or artifact_name is not found return None.
     """
-    from .runtime import NodeInstance, ArtifactInstance
+    from .runtime import NodeInstance
 
     if not entity:
-        return ContainerImage.make(artifact_name)  # XXX assume its a container image
-    if isinstance(entity, ArtifactInstance):
+        return ContainerImage.make(artifact_name)  # XXX this assumes its a container image
+    if isinstance(entity.template, ArtifactSpec):
         return entity.template.as_value()
     if isinstance(entity, str):
         instances = _get_instances_from_keyname(ctx, entity)
@@ -1687,7 +1701,7 @@ class AttributeManager:
         ctor = SafeRefContext if self.safe_mode else RefContext
         return ctor(resource, self._context_vars, task=self.task, strict=self.strict)
 
-    def get_attributes(self, resource: "EntityInstance"):
+    def get_attributes(self, resource: "EntityInstance") -> ResultsMap:
         if resource.key not in self.attributes:
             if resource.shadow:
                 return resource.shadow.attributes

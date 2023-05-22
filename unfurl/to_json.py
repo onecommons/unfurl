@@ -524,7 +524,7 @@ def maybe_export_value(prop: Property, instance: EntityInstance, attrs: List[dic
         # evaluate computed property now
         try:
             value = instance.attributes[prop.name]
-        except UnfurlError as e:
+        except Exception as e:
             # this can be raised if the evaluation is unsafe
             logger.warning(
                 f"export could not evaluate property {prop.name} on {instance}: {e}"
