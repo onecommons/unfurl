@@ -30,7 +30,7 @@ from typing import (
 )
 from typing_extensions import Protocol, NoReturn
 from enum import Enum
-from urllib.parse import urlsplit
+from urllib.parse import quote, quote_plus, urlsplit
 
 if TYPE_CHECKING:
     from .manifest import Manifest
@@ -1042,6 +1042,55 @@ set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
 
 set_eval_func("_generate", lambda arg, ctx: get_random_password(10, ""), True, True)
+
+
+def _urljoin(scheme, host, port=None, path=None, query=None, frag=None):
+    """
+    Evaluate a list of url components to a relative or absolute URL,
+    where the list is ``[scheme, host, port, path, query, fragment]``.
+
+    The list must have at least two items (``scheme`` and ``host``) present
+    but if either or both are empty a relative or scheme-relative URL is generated.
+    If all items are empty, ``null`` is returned.
+    The ``path``, ``query``, and ``fragment`` items are url-escaped if present.
+    Default ports (80 and 443 for ``http`` and ``https`` URLs respectively) are omitted even if specified.
+    """
+    if not scheme and not host and not path and not query and not frag:
+        return None
+
+    if port and (
+        not (scheme == "https" and int(port) == 443)
+        and not (scheme == "http" and int(port) == 80)
+    ):
+        netloc = f"{host}:{port}"
+    else:
+        # omit default ports
+        netloc = host or ""
+    if path:
+        path = quote(path)
+    if netloc and path and path[0] != "/":
+        path = "/" + path
+    if query:
+        query = "?" + quote_plus(query)
+    else:
+        query = ""
+    if frag:
+        frag = "#" + quote(frag)
+    else:
+        frag = ""
+
+    prefix = ""  # relative url
+    if scheme:
+        # absolute url or relative url with scheme
+        prefix = scheme + ":"
+    if netloc:
+        # its an absolute url or scheme-relative url if scheme is missing
+        prefix += "//"
+
+    return prefix + netloc + (path or "") + query + frag
+
+
+set_eval_func("urljoin", lambda args, ctx: _urljoin(*args), False, True)
 
 
 class ContainerImage(ExternalValue):

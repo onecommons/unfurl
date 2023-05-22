@@ -761,6 +761,27 @@ SUB: '1'
         label = map_value(expr, ctx)
         assert label == "R"
 
+    def test_urljoin(self):
+        resource = self._getTestResource()
+        # default port is omitted
+        test1 = dict(eval={"urljoin": ["http", "localhost", 80]})
+        result1 = Ref(test1).resolve_one(RefContext(resource))
+        self.assertEqual("http://localhost", result1)
+
+        # no port
+        test2 = dict(eval={"urljoin": ["http", "localhost", "", "path"]})
+        result2 = Ref(test2).resolve_one(RefContext(resource))
+        self.assertEqual("http://localhost/path", result2)
+
+        # port (string ok)
+        test2 = dict(eval={"urljoin": ["http", "localhost", "8080", "path"]})
+        result2 = Ref(test2).resolve_one(RefContext(resource))
+        self.assertEqual("http://localhost:8080/path", result2)
+
+        # list of at least length 2 is required but eval to None if empty
+        test3 = dict(eval={"urljoin": [None, None]})
+        result3 = Ref(test3).resolve_one(RefContext(resource))
+        assert result3 is None
 
 def pairs(iterable):
     i = iter(iterable)

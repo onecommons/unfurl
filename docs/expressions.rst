@@ -115,9 +115,9 @@ token
 Expression Functions
 ~~~~~~~~~~~~~~~~~~~~
 
-  ======================  ================================
+  ======================  ===============================================
   Key                     Value
-  ======================  ================================
+  ======================  ===============================================
   `abspath`               path | [path, location, mkdir?]
   `and`                   [test+]
   `eq`                    [a, b]
@@ -139,8 +139,9 @@ Expression Functions
   `to_googlecloud_label`  string or map or list
   `to_kubernetes_label`   string or map or list
   `to_label`              string or map or list
+  `urljoin`               [scheme, host, port?, path?, query?, fragment?]
   `validate`              [contents, schema]
-  ======================  ================================
+  ======================  ===============================================
 
 abspath
 ^^^^^^^
@@ -404,7 +405,6 @@ following the rules found here https://cloud.google.com/resource-manager/docs/cr
 
 Invalid characters are replaced with "__".
 
-
 to_kubernetes_label
 ^^^^^^^^^^^^^^^^^^^
 
@@ -459,6 +459,27 @@ sep           Separator to use when concatenating a list. (Default: "")
 digest        If present, append a short digest of derived from concatenating the label with this digest. If omitted, a digest is only appended when the label is truncated. (Default: null)
 digestlen     If a digest is needed, the length of the digest to include in the label. 0 to disable. Default: 3 or 2 if max < 32
 ============= ==========================================================================================
+
+urljoin
+^^^^^^^
+
+Evaluate a list of url components to a relative or absolute URL, 
+where the list is ``[scheme, host, port, path, query, fragment]``.
+
+The list must have at least two items (``scheme`` and ``host``) present 
+but if either or both are empty a relative or scheme-relative URL is generated.
+If all items are empty, ``null`` is returned.
+The ``path``, ``query``, and ``fragment`` items are url-escaped if present.
+Default ports (80 and 443 for ``http`` and ``https`` URLs respectively) are omitted even if specified
+-- the following examples both evaluate to "http://localhost/path?query#fragment":
+
+.. code-block:: YAML
+
+  eval:
+    urljoin: [http, localhost, 80, path, query, fragment]
+
+  eval:
+    urljoin: [http, localhost, "", path, query, fragment]
 
 
 validate
