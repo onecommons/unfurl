@@ -370,7 +370,7 @@ class UnfurlNotable(Notable):
             )
             if image:
                 name, tag, digest, hostname = ContainerImage.split(image)
-                return os.path.join(hostname or "docker.io", name)
+                return os.path.join(hostname or "docker.io", name or "")
         return None
 
     def _get_artifacttype(self, path: str) -> str:

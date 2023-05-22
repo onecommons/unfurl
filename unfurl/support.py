@@ -1294,11 +1294,11 @@ def get_artifact(ctx: RefContext, entity, artifact_name, location=None, remove=N
 
     If entity_name or artifact_name is not found return None.
     """
-    from .runtime import NodeInstance
+    from .runtime import NodeInstance, ArtifactInstance
 
     if not entity:
         return ContainerImage.make(artifact_name)  # XXX this assumes its a container image
-    if isinstance(entity.template, ArtifactSpec):
+    if isinstance(entity, ArtifactInstance):
         return entity.template.as_value()
     if isinstance(entity, str):
         instances = _get_instances_from_keyname(ctx, entity)
