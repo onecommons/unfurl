@@ -485,6 +485,10 @@ def quote_func(arg, ctx):
     return arg
 
 
+def func_defined_func(arg, ctx):
+    return map_value(arg, ctx) in ctx._Funcs
+
+
 def eq_func(arg, ctx):
     args = map_value(arg, ctx)
     assert_form(args, MutableSequence, len(args) == 2)
@@ -607,6 +611,7 @@ _CoreFuncs = {
     "eq": eq_func,
     "validate": validate_schema_func,
     "foreach": for_each_func,
+    "is_function_defined": func_defined_func,
 }
 RefContext._Funcs = _CoreFuncs.copy()
 _FuncsTop = ["q"]
@@ -666,12 +671,15 @@ def eval_ref(
                 break
         else:
             if "ref" not in val and "eval" not in val:
-                msg = f"Function missing in {dict(val)}"
                 if isinstance(ctx, SafeRefContext):
-                    msg = "Error: skipping unsafe eval: " + msg
+                    msg = f"function unsafe or missing in {dict(val)}"
                     if not ctx.strict:
-                        logger.warning(msg, stack_info=True)
+                        logger.warning("In safe mode, skipping unsafe eval: " + msg, stack_info=True)
                         return [Result("Error: in safe mode, skipping unsafe eval")]
+                    else:
+                        msg = "Error: unsafe eval: " + msg
+                else:
+                    msg = f"Function missing in {dict(val)}"
                 raise UnfurlEvalError(msg)
     elif isinstance(val, six.string_types):
         if is_template(val, ctx):

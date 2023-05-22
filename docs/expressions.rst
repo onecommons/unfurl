@@ -125,6 +125,7 @@ Expression Functions
   `file`                  (see below)
   foreach                 {key?, value?}
   `get_dir`               location | [location, mkdir?]
+  `is_function_defined`   function name
   `if`                    (see below)
   local                   name
   `lookup`                (see below)
@@ -264,6 +265,23 @@ if
       else: unexpected
     vars:
       a: true
+
+is_function_defined
+^^^^^^^^^^^^^^^^^^^
+
+  :function: function name of a expression function
+
+Evaluates to true if the given expression function is available. 
+In the following example, the first expression returns true normally but false if a safe evaluation context.
+The second expression always returns false.
+
+.. code-block:: YAML
+
+    eval:
+      is_function_defined: get_env
+
+    eval:
+      is_function_defined: nope
 
 lookup
 ^^^^^^

@@ -6,7 +6,7 @@ import pickle
 import io
 
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
-from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
+from unfurl.eval import Ref, UnfurlEvalError, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
 from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
@@ -393,15 +393,19 @@ a_dict:
         self.assertEqual("va", apply_template("{{ NODES.test.d.a }}", ctx))
 
     def test_sandbox(self):
-        resource = self._getTestResource()    
+        resource = self._getTestResource()
         ctx = SafeRefContext(resource, vars=dict(subdomain="foo.com"))
         expr = "{{ {subdomain.split('.')[0] : 1} }}"
         result = _sandboxed_template(expr, ctx, None)
         assert result == {'foo': 1}
         assert type(result) == dict
-        with self.assertRaises(UnfurlError) as err:
+        with self.assertRaises(UnfurlEvalError) as err:
             map_value(dict(eval={"get_env": "HOME"}), ctx)
-        assert 'Function missing in ' in str(err.exception)
+        assert 'function unsafe or missing in ' in str(err.exception)
+
+        assert not map_value(dict(eval={"is_function_defined": "get_env"}), ctx)
+        ctx2 = RefContext(resource, vars=dict(subdomain="foo.com"))
+        assert map_value(dict(eval={"is_function_defined": "get_env"}), ctx2)
 
     def test_innerReferences(self):
         resourceDef = {
