@@ -46,7 +46,7 @@ spec:
           requirements:
             - host: external
 
-        # creates a copy of the nested topology's templates 
+        # creates a copy of the nested topology's templates
         nested2:
           type: Nested
           directives:
@@ -57,7 +57,7 @@ spec:
             - host: external
 """
 
-nested1_import = """
+nested_import_types = """
 node_types:
   nodes.Test:
     derived_from: tosca.nodes.Root
@@ -72,6 +72,9 @@ node_types:
 
   Nested:
     derived_from: tosca.nodes.Root
+    properties:
+      foo:
+        type: string
     attributes:
       nested_attribute:
         type: string
@@ -91,15 +94,22 @@ node_types:
                   eval: .targets::host::outer
             done:
               status: ok
-
+"""
+nested_type_import = nested_import_types + """
 topology_template:
   substitution_mappings:
     node_type: Nested
-  # node_templates:
-    # nested:
-    #   type: Nested
+"""
+
+nested_node_import = nested_import_types + """
+topology_template:
+  substitution_mappings:
+    node: nested
+  node_templates:
+    nested:
+      type: Nested
     #   requirements:
-    #     inner: inner
+    #     - inner: inner
     # inner:
     #   type: inner
     #   properties:
@@ -109,7 +119,7 @@ topology_template:
 """
 
 
-def test_substitution():
+def test_substitution_with_type():
     cli_runner = CliRunner()
     with cli_runner.isolated_filesystem():
         init_project(
@@ -121,7 +131,7 @@ def test_substitution():
             f.write(ensemble)
 
         with open("nested1.yaml", "w") as f:
-            f.write(nested1_import)
+            f.write(nested_type_import)
 
         manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
         node1 = manifest.tosca.get_template("nested1")
@@ -224,4 +234,41 @@ def test_substitution():
         jsonExport = to_deployment(manifest2.localEnv)
         assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
         assert list(jsonExport["Resource"]) == ["external", "nested1", "nested2"]
+
+def test_substitution_with_node():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        init_project(
+            cli_runner,
+            args=["init", "--mono", "--skeleton=aws"],
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(ensemble)
+
+        with open("nested1.yaml", "w") as f:
+            f.write(nested_node_import)
+
+        manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
+        node1 = manifest.tosca.get_template("nested1")
+        assert node1
+        assert node1.substitution and node1.topology is not node1.substitution
+        sub_mapped_node_template = (
+            node1.substitution.topology_template.substitution_mappings.sub_mapped_node_template
+        )
+        assert sub_mapped_node_template and sub_mapped_node_template.name == "nested1"
+        assert node1.substitution.substitute_of is node1
+        assert sub_mapped_node_template is node1.toscaEntityTemplate
+        inner_template = (
+            node1.substitution.topology_template.substitution_mappings._node_template
+        )
+        assert inner_template
+        inner_nodespec = node1.substitution.get_node_template(inner_template.name)
+        assert inner_nodespec.nested_name == "nested1:nested"
+        assert inner_nodespec.requirements["host"].entity_tpl["host"] == "external"
+        assert node1.requirements["host"].entity_tpl["host"] == "external"
+        external = manifest.tosca.get_template("external")
+        assert [r.source.name for r in external.relationships] == ["nested1", "nested2"]
+
+        result, job, summary = run_job_cmd(cli_runner)
 
