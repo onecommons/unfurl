@@ -27,7 +27,7 @@ TEST_NS = "octest"
 KOMPOSE_NS = "octest-kompose"
 # fyi: on failure you may need to:
 # kubectl delete namespace octest
-# kubectl delete octest-kompose
+# kubectl delete namespace octest-kompose
 
 @pytest.mark.skipif(
     "k8s" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
@@ -242,6 +242,11 @@ KOMPOSE = """\
                 - 8001:8001
               environment:
                 FOO: bar
+              labels:
+                kompose.volume.size: 10Mi
+                kompose.volume.type: emptyDir
+              volumes:
+                - a_volume:/a_path
             ingress_annotations:
                 kubernetes.io/ingress.class: nginx
                 kubernetes.io/ingress.provider: nginx

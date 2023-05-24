@@ -66,6 +66,7 @@ class Step:
     changed: Optional[int] = None
     total: Optional[int] = None
     step: int = 0
+    ignore_target_status: tuple = ()
 
     @property
     def name(self):
@@ -105,9 +106,10 @@ def _check_job(job, i, step):
 
     for task in job.workDone.values():
         if task.status is not None and task.priority > Priority.ignore:
-            assert (
-                task.target.status == step.target_status
-            ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
+            if task.target.name not in step.ignore_target_status:
+                assert (
+                    task.target.status == step.target_status
+                ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
     job.step = step
     return job
 
