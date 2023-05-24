@@ -20,8 +20,10 @@ class Lock:
         for repo_dict in locked["repositories"]:
             package_id, url, revision = get_package_id_from_url(repo_dict["url"])
             if package_id:
-                revision = repo_dict.get("revision")
                 commit = repo_dict.get("commit")
+                if not commit:
+                    continue  # old lock format, ignore
+                revision = repo_dict.get("revision")
                 package_spec = package_specs.get(package_id)
                 if package_spec:
                     if revision:
