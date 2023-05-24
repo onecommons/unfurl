@@ -498,7 +498,7 @@ class RepoView:
             return ""
         return self.repo.get_initial_revision()
 
-    def get_current_revision(self):
+    def get_current_commit(self):
         if not self.repo:
             return ""
         if self.is_dirty():
@@ -506,14 +506,23 @@ class RepoView:
         else:
             return self.repo.revision
 
-    def lock(self):
+    def lock(self) -> CommentedMap:
         record = CommentedMap(
             [
                 ("url", normalize_git_url(self.url, 1)),
-                ("revision", self.get_current_revision()),
+                ("commit", self.get_current_commit()),
                 ("initial", self.get_initial_revision()),
             ]
         )
+        if self.package and self.package.revision:
+            # intended revision (branch or tag) declared by user
+            record["revision"] = self.package.revision
+        if self.repo and self.repo.active_branch:
+            # current commit is on this branch
+            record["branch"] = self.repo.active_branch
+        if self.repo and self.repo.current_tag:
+            # current commit is on this tag
+            record["tag"] = self.repo.current_tag
         if self.name:
             record["name"] = self.name
         if self.origin:
@@ -586,6 +595,24 @@ class GitRepo(Repo):
             except Exception:
                 return gitrepo.remotes[0]
         return None
+
+    @property
+    def active_branch(self) -> str:
+        try:
+            return self.repo.active_branch.name
+        except Exception:
+            # no head or detached
+            return ""
+
+    @property
+    def current_tag(self) -> str:
+        try:
+            return self.repo.git.describe(self.repo.heads[0].object, exact_match=True)
+        except Exception:
+            # e.g.:
+            # git.exc.GitCommandError: Cmd('git') failed due to: exit code(128)
+            #   stderr: 'fatal: no tag exactly matches 'ed915a383336a085eaabeb8f2a461e656ec8a5c9''
+            return ""
 
     def resolve_rev_spec(self, revision):
         try:

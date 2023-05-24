@@ -88,15 +88,17 @@ class Package_Url_Info(NamedTuple):
 class PackageSpec:
     def __init__(
         self, package_spec: str, url: Optional[str], minimum_version: Optional[str]
-    ):
-        # url can be package, and url prefix, url with a revision or branch, #
+    ) -> None:
+        # url can be package id, a url prefix, or an url with a revision or branch
         self.package_spec = package_spec
         if url:
             self.package_id, self.url, revision = get_package_id_from_url(url)
         else:
             self.url = None
             self.package_id = None
+            revision = None
         self.revision = minimum_version or revision
+        self.lock_to_commit = ""
 
     def __str__(self):
         return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.url})"
@@ -129,7 +131,7 @@ class PackageSpec:
                 package.url = ""
                 return replaced_id
             elif self.revision:
-                # if (only) the revsion was set and the package didn't set one itself, set it
+                # if (only) the revision was set and the package didn't set one itself, set it
                 if not package.revision:
                     package.revision = self.revision
                 return ""
@@ -139,6 +141,8 @@ class PackageSpec:
                     f"Malformed package spec: {self.package_spec}: missing url or package id"
                 )
 
+        if self.lock_to_commit:
+            package.lock_to_commit = self.lock_to_commit
         if self.revision:
             package.revision = self.revision
         if self.url:
@@ -253,6 +257,7 @@ class Package:
         self.url = cast(str, url)
         self.repositories: List[RepoView] = []
         self.discovered_revision = False
+        self.lock_to_commit = ""
 
     def __str__(self):
         return f"Package({self.package_id} {self.revision} {self.url})"
@@ -297,6 +302,13 @@ class Package:
         else:
             # since "^v" is in the semver regex, make sure don't end up with "vv"
             return self.version_tag_prefix() + self.revision.lstrip("v")
+
+    def is_mutable_ref(self) -> bool:
+        # is this package pointing to ref that could change?
+        return not self.lock_to_commit
+        # XXX if revision, see if its tag or branch
+        # treat tags immutable unless it looks like a non-exact semver tag:
+        # return not self.revision or self.has_semver() or self.revision_is_branch()
 
     def add_reference(self, repoview: RepoView) -> bool:
         if repoview not in self.repositories:

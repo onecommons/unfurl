@@ -26,7 +26,14 @@
       "title": "readyState",
       "description": "The operational status of the instance",
       "type": "string",
-      "enum": ["unknown", "ok", "degraded", "error", "pending", "absent"],
+      "enum": [
+        "unknown",
+        "ok",
+        "degraded",
+        "error",
+        "pending",
+        "absent"
+      ],
       "$$target": "#/definitions/readyState"
     },
     "atomic": {
@@ -39,7 +46,9 @@
       "title": "namedObject",
       "type": "object",
       "description": "constrains how properties are named",
-      "propertyNames": { "pattern": "^[A-Za-z._][A-Za-z0-9._:\\-]*$" },
+      "propertyNames": {
+        "pattern": "^[A-Za-z._][A-Za-z0-9._:\\-]*$"
+      },
       "$$target": [
         "#/definitions/namedObjects",
         "./manifest-schema.json#/definitions/namedObjects"
@@ -67,27 +76,62 @@
       ],
       "type": "object",
       "properties": {
-        "inputs": { "$ref": "#/definitions/attributes" },
-        "defaultProject": { "type": "string" },
-        "name": { "type": "string" },
-        "deployment_blueprint": { "type": "string" },
-        "variables": { "anyOf": [{ "type": "object" }, { "type": "null" }] },
-        "locals": { "$ref": "#/definitions/attributes" },
-        "secrets": { "$ref": "#/definitions/attributes" },
-        "connections": {
+        "inputs": {
+          "$ref": "#/definitions/attributes"
+        },
+        "defaultProject": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "deployment_blueprint": {
+          "type": "string"
+        },
+        "variables": {
           "anyOf": [
-            { "$ref": "#/definitions/namedObjects" },
-            { "type": "null" }
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
-        "instances": { "$ref": "#/definitions/namedObjects" },
-        "repositories": { "type": "object" },
-        "cloudmaps": { "type": "object" },
-        "imports": { "type": "array" },
+        "locals": {
+          "$ref": "#/definitions/attributes"
+        },
+        "secrets": {
+          "$ref": "#/definitions/attributes"
+        },
+        "connections": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/namedObjects"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instances": {
+          "$ref": "#/definitions/namedObjects"
+        },
+        "repositories": {
+          "type": "object"
+        },
+        "cloudmaps": {
+          "type": "object"
+        },
+        "imports": {
+          "type": "array"
+        },
         "external": {
           "type": "object",
           "allOf": [
-            { "$ref": "#/definitions/namedObjects" },
+            {
+              "$ref": "#/definitions/namedObjects"
+            },
             {
               "additionalProperties": {
                 "$ref": "#/definitions/external"
@@ -107,14 +151,27 @@
         "manifest": {
           "type": "object",
           "properties": {
-            "file": { "type": "string" },
-            "repository": { "type": "string" },
-            "project": { "type": "string" }
+            "file": {
+              "type": "string"
+            },
+            "repository": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            }
           }
         },
-        "uri": { "type": "string", "format": "uri" },
-        "instance": { "type": "string" },
-        "schema": { "$ref": "#/definitions/attributes" }
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/definitions/attributes"
+        }
       },
       "additionalProperties": false
     },
@@ -124,23 +181,49 @@
       "allOf": [
         {
           "properties": {
-            "template": { "type": "string" },
+            "template": {
+              "type": "string"
+            },
             "attributes": {
               "$ref": "#/definitions/attributes",
               "default": {}
             },
-            "properties": { "$ref": "#/definitions/attributes" },
-            "instances": { "$ref": "#/definitions/instances" },
-            "capabilities": { "$ref": "#/definitions/instances" },
-            "requirements": { "type": "array",
-                              "items": { "$ref": "#/definitions/instances" }
-                            },
-            "imported": { "type": "string" },
-            "protected": { "type": "boolean" },
-            "created": { "anyOf": [{ "type": "boolean" }, { "type": "string" }] }
+            "properties": {
+              "$ref": "#/definitions/attributes"
+            },
+            "instances": {
+              "$ref": "#/definitions/instances"
+            },
+            "capabilities": {
+              "$ref": "#/definitions/instances"
+            },
+            "requirements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/instances"
+              }
+            },
+            "imported": {
+              "type": "string"
+            },
+            "protected": {
+              "type": "boolean"
+            },
+            "created": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
           }
         },
-        { "$ref": "#/definitions/status" }
+        {
+          "$ref": "#/definitions/status"
+        }
       ],
       "$$target": "#/definitions/instance"
     },
@@ -149,7 +232,9 @@
       "$$target": "#/definitions/instances",
       "type": "object",
       "allOf": [
-        { "$ref": "#/definitions/namedObjects" },
+        {
+          "$ref": "#/definitions/namedObjects"
+        },
         {
           "additionalProperties": {
             "$ref": "#/definitions/instance"
@@ -165,11 +250,37 @@
       ],
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "url": { "type": "string", "format": "uri" },
-        "revision": { "type": "string" },
-        "initial": { "type": "string" },
-        "origin": { "type": "string" }
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "revision": {
+          "type": "string",
+          "description": "intended revision (branch or tag) declared by user"
+        },
+        "commit": {
+          "type": "string",
+          "description": "current commit"
+        },
+        "branch": {
+          "type": "string",
+          "description": "current commit is on this branch"
+        },
+        "tag": {
+          "type": "string",
+          "description": "current commit is on this tag"
+        },
+        "initial": {
+          "type": "string",
+          "description": "initial commit"
+        },
+        "origin": {
+          "type": "string",
+          "description": "origin url"
+        }
       }
     },
     "status": {
@@ -180,17 +291,31 @@
         "readyState": {
           "type": "object",
           "properties": {
-            "effective": { "$ref": "#/definitions/readyState" },
-            "local": { "$ref": "#/definitions/readyState" },
-            "state": { "$ref": "#/definitions/state" }
+            "effective": {
+              "$ref": "#/definitions/readyState"
+            },
+            "local": {
+              "$ref": "#/definitions/readyState"
+            },
+            "state": {
+              "$ref": "#/definitions/state"
+            }
           }
         },
         "priority": {
           "type": "string",
-          "enum": ["ignore", "optional", "required"]
+          "enum": [
+            "ignore",
+            "optional",
+            "required"
+          ]
         },
-        "lastStateChange": { "$ref": "#/definitions/changeId" },
-        "lastConfigChange": { "$ref": "#/definitions/changeId" }
+        "lastStateChange": {
+          "$ref": "#/definitions/changeId"
+        },
+        "lastConfigChange": {
+          "$ref": "#/definitions/changeId"
+        }
       },
       "additionalProperties": true
     },
@@ -212,18 +337,35 @@
         "#/definitions/version",
         "./manifest-schema.json#/definitions/version"
       ],
-      "anyOf": [{ "type": "string" }, { "type": "number" }]
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ]
     },
     "configurationSpec": {
       "title": "implementation definition",
       "type": "object",
       "properties": {
-        "operation": { "type": "string" },
-        "className": { "type": "string" },
-        "majorVersion": { "$ref": "#/definitions/version" },
-        "minorVersion": { "type": "string" }
+        "operation": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "majorVersion": {
+          "$ref": "#/definitions/version"
+        },
+        "minorVersion": {
+          "type": "string"
+        }
       },
-      "required": ["className"],
+      "required": [
+        "className"
+      ],
       "$$target": "#/definitions/configurationSpec"
     },
     "changes": {
@@ -237,8 +379,12 @@
       "items": {
         "type": "object",
         "anyOf": [
-          { "$ref": "#/definitions/job" },
-          { "$ref": "#/definitions/task" }
+          {
+            "$ref": "#/definitions/job"
+          },
+          {
+            "$ref": "#/definitions/task"
+          }
         ]
       }
     },
@@ -247,19 +393,41 @@
       "$$target": "#/definitions/job",
       "type": "object",
       "allOf": [
-        { "$ref": "#/definitions/status" },
+        {
+          "$ref": "#/definitions/status"
+        },
         {
           "properties": {
-            "changeId": { "$ref": "#/definitions/changeId" },
-            "previousId": { "$ref": "#/definitions/changeId" },
-            "startCommit": { "type": "string" },
-            "startTime": { "$ref": "#/definitions/timestamp" },
-            "endTime": { "$ref": "#/definitions/timestamp" },
-            "workflow": { "type": "string" },
-            "options": { "type": "object" },
-            "summary": { "type": "string" },
-            "specDigest": { "type": "string" },
-            "endCommit": { "type": "string" },
+            "changeId": {
+              "$ref": "#/definitions/changeId"
+            },
+            "previousId": {
+              "$ref": "#/definitions/changeId"
+            },
+            "startCommit": {
+              "type": "string"
+            },
+            "startTime": {
+              "$ref": "#/definitions/timestamp"
+            },
+            "endTime": {
+              "$ref": "#/definitions/timestamp"
+            },
+            "workflow": {
+              "type": "string"
+            },
+            "options": {
+              "type": "object"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "specDigest": {
+              "type": "string"
+            },
+            "endCommit": {
+              "type": "string"
+            },
             "changelog": {
               "type": "string",
               "description": "path to the full job record"
@@ -267,7 +435,9 @@
           }
         }
       ],
-      "required": ["changeId"]
+      "required": [
+        "changeId"
+      ]
     },
     "task": {
       "title": "Task Record",
@@ -276,15 +446,23 @@
       "allOf": [
         {
           "properties": {
-            "changeId": { "$ref": "#/definitions/changeId" },
-            "target": { "type": "string" },
+            "changeId": {
+              "$ref": "#/definitions/changeId"
+            },
+            "target": {
+              "type": "string"
+            },
             "implementation": {
               "$ref": "#/definitions/configurationSpec"
             },
-            "inputs": { "$ref": "#/definitions/attributes" },
+            "inputs": {
+              "$ref": "#/definitions/attributes"
+            },
             "changes": {
               "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
+                {
+                  "$ref": "#/definitions/namedObjects"
+                },
                 {
                   "additionalProperties": {
                     "$ref": "#/definitions/namedObjects"
@@ -298,33 +476,68 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
-                  "ref": { "type": "string" },
+                  "name": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
                   "expected": {},
-                  "schema": { "$ref": "#/definitions/schema" },
-                  "required": { "type": "boolean" }
+                  "schema": {
+                    "$ref": "#/definitions/schema"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  }
                 }
               }
             },
-            "messages": { "type": "array" },
+            "messages": {
+              "type": "array"
+            },
             "result": {
-              "oneOf": [{ "enum": ["skipped"] }, { "type": "object" }]
+              "oneOf": [
+                {
+                  "enum": [
+                    "skipped"
+                  ]
+                },
+                {
+                  "type": "object"
+                }
+              ]
             }
           },
-          "required": ["changeId"]
+          "required": [
+            "changeId"
+          ]
         },
-        { "$ref": "#/definitions/status" }
+        {
+          "$ref": "#/definitions/status"
+        }
       ]
     }
   },
   "type": "object",
   "properties": {
-    "apiVersion": { "type": "string", "const": "unfurl/v1alpha1" },
-    "kind": { "type": "string", "enum": ["Manifest", "Ensemble"] },
+    "apiVersion": {
+      "type": "string",
+      "const": "unfurl/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "Manifest",
+        "Ensemble"
+      ]
+    },
     "metadata": {
       "type": "object",
       "properties": {
-        "uri": { "type": "string", "format": "uri" },
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        },
         "aliases": {
           "type": "array",
           "items": {
@@ -333,9 +546,13 @@
           }
         }
       },
-      "required": ["uri"]
+      "required": [
+        "uri"
+      ]
     },
-    "environment": { "$ref": "#/definitions/environment" },
+    "environment": {
+      "$ref": "#/definitions/environment"
+    },
     "spec": {
       "type": "object",
       "properties": {
@@ -343,10 +560,18 @@
           "description": "a TOSCA service template",
           "type": "object"
         },
-        "inputs": { "$ref": "#/definitions/attributes" },
-        "instances": { "$ref": "#/definitions/namedObjects" },
-        "deployment_blueprints": { "$ref": "#/definitions/namedObjects" },
-        "resource_templates": { "$ref": "#/definitions/namedObjects" }
+        "inputs": {
+          "$ref": "#/definitions/attributes"
+        },
+        "instances": {
+          "$ref": "#/definitions/namedObjects"
+        },
+        "deployment_blueprints": {
+          "$ref": "#/definitions/namedObjects"
+        },
+        "resource_templates": {
+          "$ref": "#/definitions/namedObjects"
+        }
       }
     },
     "status": {
@@ -354,19 +579,35 @@
       "allOf": [
         {
           "properties": {
-            "inputs": { "$ref": "#/definitions/attributes" },
-            "outputs": { "$ref": "#/definitions/attributes" },
-            "instances": { "$ref": "#/definitions/instances" }
+            "inputs": {
+              "$ref": "#/definitions/attributes"
+            },
+            "outputs": {
+              "$ref": "#/definitions/attributes"
+            },
+            "instances": {
+              "$ref": "#/definitions/instances"
+            }
           }
         },
-        { "$ref": "#/definitions/status" }
+        {
+          "$ref": "#/definitions/status"
+        }
       ],
       "default": {}
     },
-    "lastJob": { "$ref": "#/definitions/job" },
-    "jobsLog": { "type": "string" },
-    "jobsFolder": { "type": "string" },
-    "changes": { "$ref": "#/definitions/changes" }
+    "lastJob": {
+      "$ref": "#/definitions/job"
+    },
+    "jobsLog": {
+      "type": "string"
+    },
+    "jobsFolder": {
+      "type": "string"
+    },
+    "changes": {
+      "$ref": "#/definitions/changes"
+    }
   },
   "lock": {
     "type": "object",
@@ -377,11 +618,17 @@
           "unfurl": {
             "type": "object",
             "properties": {
-              "version": { "type": "string" },
-              "digest": { "type": "string" }
+              "version": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              }
             }
           },
-          "toolVersions": { "type": "object" }
+          "toolVersions": {
+            "type": "object"
+          }
         }
       },
       "repositories": {
@@ -393,20 +640,35 @@
       "ensembles": {
         "type": "object",
         "allOf": [
-          { "$ref": "#/definitions/namedObjects" },
+          {
+            "$ref": "#/definitions/namedObjects"
+          },
           {
             "additionalProperties": {
               "type": "object",
               "properties": {
-                "uri": { "type": "string", "format": "uri" },
-                "changeId": { "$ref": "#/definitions/changeId" },
-                "digest": { "type": "string" },
+                "uri": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "changeId": {
+                  "$ref": "#/definitions/changeId"
+                },
+                "digest": {
+                  "type": "string"
+                },
                 "manifest": {
                   "type": "object",
                   "properties": {
-                    "file": { "type": "string" },
-                    "repository": { "type": "string" },
-                    "project": { "type": "string" }
+                    "file": {
+                      "type": "string"
+                    },
+                    "repository": {
+                      "type": "string"
+                    },
+                    "project": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -416,5 +678,9 @@
       }
     }
   },
-  "required": ["apiVersion", "kind", "spec"]
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ]
 }

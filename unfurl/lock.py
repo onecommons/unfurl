@@ -1,13 +1,43 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from typing import TYPE_CHECKING, Dict
 from ruamel.yaml.comments import CommentedMap
+
 from . import __version__
+from .packages import PackageSpec, get_package_id_from_url
 from .util import get_package_digest
+
+if TYPE_CHECKING:
+    from .yamlmanifest import YamlManifest
 
 
 class Lock:
-    def __init__(self, ensemble):
+    def __init__(self, ensemble: "YamlManifest"):
         self.ensemble = ensemble
+
+    @staticmethod
+    def apply_to_packages(locked: dict, package_specs: Dict[str, PackageSpec]):
+        for repo_dict in locked["repositories"]:
+            package_id, url, revision = get_package_id_from_url(repo_dict["url"])
+            if package_id:
+                revision = repo_dict.get("revision")
+                commit = repo_dict.get("commit")
+                package_spec = package_specs.get(package_id)
+                if package_spec:
+                    if revision:
+                        # if not package_spec.is_compatible_with(revision):
+                        #     logger.warning("locking packages to a incompatible revision ")
+                        package_spec.revision = revision
+                else:
+                    package_spec = package_specs[package_id] = PackageSpec(
+                        package_id, url, revision
+                    )
+                package_spec.lock_to_commit = commit
+
+    # XXX
+    # def validate_runtime(self):
+    #   make sure the current environment is compatible with this lock:
+    #   compare unfurl version and repositories (as packages)
 
     def lock(self):
         """
@@ -20,9 +50,12 @@ class Lock:
           repositories:
              - name:
                url:
-               revision:
-               initial:
-               origin:
+               revision:  # intended revision (branch or tag) declared by user
+               commit:    # current commit
+               branch:    # current commit is on this branch
+               tag:       # current commit is on this tag
+               initial:   # initial commit
+               origin:    # origin url
           ensembles:
             name: # e.g. localhost
               uri:
