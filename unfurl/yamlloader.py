@@ -93,8 +93,16 @@ def _use_clear_text(vault):
     return vault.secrets and all(s[0] == clear_id for s in vault.secrets)
 
 
-def represent_undefined(self, data):
-    raise RepresenterError(f"cannot represent an object: <{data}> of type {type(data)}")
+from jinja2.runtime import DebugUndefined
+
+def represent_undefined(dumper, data):
+    msg = f"cannot represent an object: <{data}> of type {type(data)}"
+    if isinstance(data, DebugUndefined):
+        return dumper.represent_scalar(
+            "tag:yaml.org,2002:str", repr(msg)
+        )
+    else:
+        raise RepresenterError(msg)
 
 
 def _represent_sensitive(dumper, data, tag):
