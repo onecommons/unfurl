@@ -5,7 +5,7 @@ env:
   TERRAFORM_VERSION: 1.1.4 # see tosca_plugins/artifacts.yaml
   HELM_VERSION: 3.7.1 # see configurators/helm-template.yaml
   GCLOUD_VERSION: 368.0.0 # see tosca_plugins/artifacts.yaml
-  KOMPOSE_VERSION: v1.28.0
+  KOMPOSE_VERSION: v1.26.1
   KUBECTL_VERSION: v1.24.2
   K3D_VERSION: v4.4.6
 jobs:
