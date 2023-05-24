@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from ansible.parsing.dataloader import DataLoader
 
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
-from .result import ResourceRef, ChangeAware
+from .result import ResourceRef, ChangeAware, ResultsMap
 
 from .support import (
     AttributeManager,
@@ -520,13 +520,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return {}
 
     @property
-    def attributes(self):
+    def attributes(self) -> ResultsMap:
         """attributes are live values but _attributes will be the serialized value"""
         if not self.root.attributeManager:
             if not self.attributeManager:
                 # inefficient but create a local one for now
                 self.attributeManager = AttributeManager()
-            # XXX3 changes to self.attributes aren't saved
             return self.attributeManager.get_attributes(self)
 
         # returned registered attribute or create a new one
@@ -928,10 +927,12 @@ class NodeInstance(HasInstancesInstance):
                         template.relationship,
                         relInstance.template,
                     )
+                    assert relInstance.template.source
                     assert (
                         self.template is relInstance.template.source
                         or self.template.topology.substitute_of
                         is relInstance.template.source
+                        or self.template is relInstance.template.source.topology.substitute_of
                     ), (
                         self.template,
                         relInstance.template.source,
@@ -939,6 +940,7 @@ class NodeInstance(HasInstancesInstance):
                     self._requirements.append(relInstance)
 
         return self._requirements
+
 
     @property
     def capabilities(self) -> List[CapabilityInstance]:
@@ -1189,6 +1191,7 @@ class TopologyInstance(HasInstancesInstance):
         nested_root.set_attribute_manager(self.attributeManager)
         nested_root.set_base_dir(self._baseDir)
         nested_root.imports = self.imports
+        nested_root._environ = self._environ
         if self.imports:
             self.imports.add_import(":" + topology.nested_name, nested_root)
         return nested_root

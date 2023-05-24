@@ -3,7 +3,7 @@
 from __future__ import absolute_import
 import re
 from base64 import b64encode
-from typing import Dict, Union
+from typing import Dict, Mapping, Union
 from ..configurator import Configurator
 from ..support import Status, Priority, to_kubernetes_label
 from ..runtime import RelationshipInstance
@@ -31,7 +31,7 @@ def _get_connection_config(instance):
         return {}
     connection: Dict[str, Union[str, bool]] = {}
     if isinstance(instance, RelationshipInstance):
-        connect = instance.attributes
+        connect: Mapping = instance.attributes
         # the parent of a relationship will be the capability it connects to
         # or root if relationship is a default connection
         assert instance.parent

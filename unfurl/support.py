@@ -34,7 +34,7 @@ from urllib.parse import quote, quote_plus, urlsplit
 
 if TYPE_CHECKING:
     from .manifest import Manifest
-    from .runtime import EntityInstance, InstanceKey, HasInstancesInstance
+    from .runtime import EntityInstance, InstanceKey, HasInstancesInstance, TopologyInstance
     from .configurator import Dependency
 
 from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -677,7 +677,7 @@ set_eval_func("get_env", get_env, True)
 
 
 def set_context_vars(vars, resource: "EntityInstance"):
-    root = cast("HasInstancesInstance", resource.root)
+    root = cast("TopologyInstance", resource.root)
     ROOT: Dict[str, Any] = {}
     vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
     if "inputs" in root._attributes:
@@ -694,9 +694,12 @@ def set_context_vars(vars, resource: "EntityInstance"):
             ROOT["app"] = app.attributes
         for name, req in app_template.requirements.items():
             if req.relationship and req.relationship.target:
-                target = root.find_instance(req.relationship.target.name)
+                target = root.get_root_instance(
+                    req.relationship.target.toscaEntityTemplate  # type: ignore
+                ).find_instance(req.relationship.target.name)
                 if target:
                     ROOT[name] = target.attributes
+
     return vars
 
 
@@ -1256,7 +1259,9 @@ def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
     return None
 
 
-def _get_container_image_from_repository(entity, artifact_name) -> Optional["ContainerImage"]:
+def _get_container_image_from_repository(
+    entity, artifact_name
+) -> Optional["ContainerImage"]:
     # aka get_artifact_as_value
     name, tag, digest, hostname = ContainerImage.split(artifact_name)
     if not name:
@@ -1297,7 +1302,9 @@ def get_artifact(ctx: RefContext, entity, artifact_name, location=None, remove=N
     from .runtime import NodeInstance, ArtifactInstance
 
     if not entity:
-        return ContainerImage.make(artifact_name)  # XXX this assumes its a container image
+        return ContainerImage.make(
+            artifact_name
+        )  # XXX this assumes its a container image
     if isinstance(entity, ArtifactInstance):
         return entity.template.as_value()
     if isinstance(entity, str):
@@ -1695,7 +1702,10 @@ class AttributeManager:
                 resource.template._isReferencedBy.append(template)  # type: ignore
 
     def _get_context(self, resource):
-        if self._context_vars is None:
+        if (
+            self._context_vars is None
+            or self._context_vars["NODES"].resource is not resource.root
+        ):
             self._context_vars = {}
             set_context_vars(self._context_vars, resource)
         ctor = SafeRefContext if self.safe_mode else RefContext

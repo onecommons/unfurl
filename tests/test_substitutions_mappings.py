@@ -108,14 +108,16 @@ topology_template:
   node_templates:
     nested:
       type: Nested
-    #   requirements:
-    #     - inner: inner
-    # inner:
-    #   type: inner
-    #   properties:
-    #     from_outer:
-    #       eval:
-    #         ::nested::outer_prop
+      requirements:
+        - dependency: inner
+
+    inner:
+      type: nodes.Test
+      properties:
+        from_outer: "{{ ROOT.host.outer }}"
+        from_outer2:
+          eval:
+            ::nested::.targets::host::outer
 """
 
 
@@ -271,4 +273,31 @@ def test_substitution_with_node():
         assert [r.source.name for r in external.relationships] == ["nested1", "nested2"]
 
         result, job, summary = run_job_cmd(cli_runner)
+        assert job.json_summary()["job"] == {
+                "id": "A01110000000",
+                "status": "ok",
+                "total": 5,
+                "ok": 5,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 5,
+            }
 
+
+        manifest2 = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
+
+        inner = manifest2.rootResource.find_instance("nested1:inner")
+        assert inner
+        assert inner.attributes["from_outer2"] == "outer"        
+        assert inner.attributes["from_outer"] == "outer"
+
+        assert manifest2.rootResource.find_instance("nested2:nested")
+        expected = ["root", "external", "nested1", "nested2"]
+        assert expected == [
+            i.name for i in manifest2.rootResource.get_self_and_descendants()
+        ]
+        assert "outer" == manifest2.rootResource.find_instance("nested1").attributes["nested_attribute"]
+        jsonExport = to_deployment(manifest2.localEnv)
+        assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
+        assert list(jsonExport["Resource"]) == ['external', 'nested1', 'nested1:inner', 'nested2', 'nested2:inner']

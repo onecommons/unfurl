@@ -956,7 +956,7 @@ class NodeSpec(EntitySpec):
         return req.relationship
 
     @property
-    def relationships(self):
+    def relationships(self) -> List["RelationshipSpec"]:
         """
         returns a list of RelationshipSpecs that are targeting this node template.
         """
@@ -1274,13 +1274,13 @@ class TopologySpec(EntitySpec):
         self.path = path
         self.parent_topology: Optional["TopologySpec"] = parent
         self.node_templates: Dict[str, NodeSpec] = {}
+        # user-declared RelationshipTemplates, source and target will be None
+        self.relationship_templates: Dict[str, RelationshipSpec] = {}
         for template in topology.nodetemplates:
             if not template.type_definition:
                 continue  # invalidate template
             nodeTemplate = NodeSpec(template, self)
             self.node_templates[template.name] = nodeTemplate
-        # user-declared RelationshipTemplates, source and target will be None
-        self.relationship_templates: Dict[str, RelationshipSpec] = {}
         for template in topology.relationship_templates:
             relTemplate = RelationshipSpec(template, self)
             self.relationship_templates[template.name] = relTemplate
@@ -1333,7 +1333,7 @@ class TopologySpec(EntitySpec):
         return None
 
     @property
-    def primary_provider(self):
+    def primary_provider(self) -> Optional[RelationshipSpec]:
         return self.relationship_templates.get("primary_provider")
 
     @property
