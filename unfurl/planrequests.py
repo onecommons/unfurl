@@ -436,7 +436,7 @@ class TaskRequest(PlanRequest):
             )
             operation_host = (
                 find_operation_host(self.target, self.configSpec.operation_host)
-                or self.target.root
+                or self.target.apex
             )
             existing = operation_host.root.find_instance(name)
             if existing:

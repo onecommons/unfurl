@@ -561,6 +561,13 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def readonly(self) -> bool:
         return bool(self.imported)  # imported instances are readonly
 
+    @property
+    def apex(self):
+        if isinstance(self.root, TopologyInstance):
+            if self.root.parent_topology:  # type: ignore
+                return cast(TopologyInstance, self.root.parent_topology).apex  # type: ignore
+        return self.root
+
     def validate(self) -> None:
         """
         Raises UnfurlValidationError on failure.
@@ -665,6 +672,9 @@ class HasInstancesInstance(EntityInstance):
 
     def find_instance_or_external(self, resourceid):
         instance = self.find_instance(resourceid)
+        if instance:
+            return instance
+        instance = self.apex.find_instance(resourceid)
         if instance:
             return instance
         if self.imports:
