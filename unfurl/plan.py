@@ -701,7 +701,7 @@ class DeployPlan(Plan):
         # there isn't a new config to run, see if the last applied config needs to be re-run
         if not reason:
             if "check" in instance.template.directives:
-                instance._local_status = Status.unknown
+                instance.local_status = Status.unknown
                 return Reason.check
             if jobOptions.change_detection != "skip" and instance.last_change:
             # XXX distinguish between "spec" and "evaluate" change_detection
