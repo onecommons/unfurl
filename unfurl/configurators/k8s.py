@@ -136,7 +136,7 @@ def _get_connection(task) -> dict:
     namespace = task.query("[.type=unfurl.nodes.K8sNamespace]")
     if namespace:
         config["namespace"] = namespace.attributes["name"]
-    else:
+    elif not config.get("namespace"):
         config["namespace"] = "default"
     return config
 
