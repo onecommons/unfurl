@@ -179,7 +179,7 @@ class Plan:
 
     def create_resource(self, template: NodeSpec) -> NodeInstance:
         parent = find_parent_resource(self.root, template)
-        if self.jobOptions.check:
+        if self.jobOptions.check or "check" in template.directives:
             status = Status.unknown
         else:
             status = Status.pending
@@ -663,7 +663,7 @@ class DeployPlan(Plan):
             return Reason.add
         return None
 
-    def include_instance(self, template, instance):
+    def include_instance(self, template: EntitySpec, instance: EntityInstance):
         """Return whether or not the given instance should be included in the current plan,
         based on the current job's options and whether the template changed or the instance in need of repair?
 
@@ -699,13 +699,13 @@ class DeployPlan(Plan):
 
         reason = self.check_for_repair(instance)
         # there isn't a new config to run, see if the last applied config needs to be re-run
-        if (
-            not reason
-            and (jobOptions.change_detection != "skip")
-            and instance.last_change
-        ):
+        if not reason:
+            if "check" in instance.template.directives:
+                instance._local_status = Status.unknown
+                return Reason.check
+            if jobOptions.change_detection != "skip" and instance.last_change:
             # XXX distinguish between "spec" and "evaluate" change_detection
-            return Reason.reconfigure
+                return Reason.reconfigure
         return reason
 
     def check_for_repair(self, instance):
@@ -758,7 +758,7 @@ class DeployPlan(Plan):
 
         if instance.shadow:
             installOp = "connect"
-        elif instance.status == Status.unknown or "check" in instance.template.directives:
+        elif instance.status == Status.unknown:
             installOp = "check"
         elif "discover" in instance.template.directives and not instance.operational:
             installOp = "discover"

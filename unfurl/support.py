@@ -131,6 +131,7 @@ class Reason:
     degraded = "degraded"
     prune = "prune"
     run = "run"
+    check = "check"
 
 
 class Defaults:
