@@ -723,7 +723,7 @@ class Manifest(AttributeManager):
         import_spec = dict(
             file=artifactTpl["file"], repository=artifactTpl.get("repository")
         )
-        path, doc = loader._load_import_template(None, import_spec)
+        path, doc = loader.load_yaml(import_spec)
         if doc is None:
             logger.warning(
                 f"document include {templatePath} does not exist (base: {baseDir})"

@@ -847,12 +847,6 @@ class ArtifactInstance(EntityInstance):
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         return self.template.repository
 
-    def get_path(self, resolver=None):
-        return self.template.get_path_and_fragment(resolver)
-
-    def get_path_and_fragment(self, resolver=None, tpl=None):
-        return self.template.get_path_and_fragment(resolver, tpl)
-
     def as_import_spec(self):
         return self.template.as_import_spec()
 
