@@ -36,7 +36,18 @@ import os
 from .logs import getLogger
 import logging
 import re
-from typing import Dict, Iterator, List, Optional, Sequence, Set, Union, cast, Any, Generator
+from typing import (
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Union,
+    cast,
+    Any,
+    Generator,
+)
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -305,6 +316,7 @@ class ToscaSpec:
         skip_validation=False,
     ):
         self.discovered: Optional[CommentedMap] = None
+        self.nested_discovered: Dict[str, dict] = {}
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
         if spec:
@@ -533,15 +545,15 @@ class ToscaSpec:
         if "discovered" in tpl:
             # node templates added dynamically by configurators
             self.discovered = tpl["discovered"]
-            for name, impl in tpl["discovered"].items():
-                if name not in node_templates:
-                    custom_types = impl.pop("custom_types", None)
-                    node_templates[name] = impl
-                    if custom_types:
-                        # XXX check for conflicts, throw error
-                        toscaDef.setdefault("types", CommentedMap()).update(
-                            custom_types
-                        )
+            for nested_name, impl in tpl["discovered"].items():
+                custom_types = impl.pop("custom_types", None)
+                if ":" in nested_name:
+                    self.nested_discovered[nested_name] = impl
+                elif nested_name not in node_templates:
+                    node_templates[nested_name] = impl
+                if custom_types:
+                    # XXX check for conflicts, throw error
+                    toscaDef.setdefault("types", CommentedMap()).update(custom_types)
 
     def instance_to_template(self, impl):
         if "type" not in impl:
@@ -1297,6 +1309,7 @@ class TopologySpec(EntitySpec):
         # XXX! broken for nested topologies
         self._defaultRelationships: Optional[List[RelationshipSpec]] = None
         self._isReferencedBy = []
+        self.add_discovered()
 
     def get_node_template(self, name: str) -> Optional[NodeSpec]:
         return self.node_templates.get(name)
@@ -1312,6 +1325,14 @@ class TopologySpec(EntitySpec):
 
     def is_compatible_type(self, typeStr):
         return False
+
+    def add_discovered(self):
+        if not self.substitute_of:
+            return
+        key = self.substitute_of.nested_name + ":"
+        for n, tpl in self.spec.nested_discovered.items():
+            if n.startswith(key):
+                self.add_node_template(n[len(key) :], tpl)
 
     @property
     def substitute_of(self) -> Optional[NodeSpec]:
@@ -1434,7 +1455,7 @@ class TopologySpec(EntitySpec):
         if discovered:
             if self.spec.discovered is None:
                 self.spec.discovered = CommentedMap()
-            self.spec.discovered[name] = tpl
+            self.spec.discovered[nodeSpec.nested_name] = tpl
         # add custom_types back for serialization later
         if custom_types:
             tpl["custom_types"] = custom_types

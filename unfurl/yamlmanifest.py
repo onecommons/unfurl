@@ -706,9 +706,9 @@ class YamlManifest(ReadOnlyManifest):
         if (
             self.tosca
             and self.tosca.discovered
-            and resource.template.name in self.tosca.discovered
+            and resource.template.nested_name in self.tosca.discovered
         ):
-            discovered[resource.template.name] = self.tosca.discovered[
+            discovered[resource.template.nested_name] = self.tosca.discovered[
                 resource.template.name
             ]
 

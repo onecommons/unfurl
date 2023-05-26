@@ -362,7 +362,7 @@ class Manifest(AttributeManager):
     #         postConditions=spec.get("postConditions"),
     #     )
 
-    def _create_requirement(self, key, val) -> Optional[RelationshipInstance]:
+    def _create_requirement(self, key, val, root) -> Optional[RelationshipInstance]:
         # parent will be the capability, should have already been created
         capabilityId = val.get("capability")
         if not capabilityId:
@@ -372,7 +372,7 @@ class Manifest(AttributeManager):
                     f"skipping requirement {key}: no node or capability specified"
                 )
                 return None
-        capability = capabilityId and self.get_root_resource().query(capabilityId)
+        capability = capabilityId and root.query(capabilityId)
         if not capability or not isinstance(capability, CapabilityInstance):
             return self.load_error(f"can not find capability {capabilityId}")  # type: ignore
         if capability._relationships is None:
@@ -382,7 +382,7 @@ class Manifest(AttributeManager):
     def _create_substituted_topology(
         self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
     ) -> Optional[TopologyInstance]:
-        root = self.get_root_resource()
+        root = parent.root if parent else self.get_root_resource()
         assert root
         templateName = resourceSpec.get("template", rname)
         template = cast(NodeSpec, self.load_template(templateName, parent))
@@ -417,13 +417,13 @@ class Manifest(AttributeManager):
         parent: HasInstancesInstance,
     ) -> NodeInstance:
         # if parent property is set it overrides the parent argument
-        root = self.get_root_resource()
+        root = parent.root
         assert root
         pname = resourceSpec.get("parent")
         if pname:
             parent = root.find_instance(pname)  # type: ignore
             if parent is None:
-                self.load_error(f"can not find parent instance {pname}")
+                self.load_error(f"can not find parent instance {pname} for {rname}")
 
         if resourceSpec.get("substitution"):
             # need to create the nested topology before a NodeInstance that has "imported"
@@ -439,7 +439,7 @@ class Manifest(AttributeManager):
         if resourceSpec.get("requirements"):
             for req in resourceSpec["requirements"]:
                 key, val = next(iter(req.items()))
-                requirement = self._create_requirement(key, val)
+                requirement = self._create_requirement(key, val, root)
                 if not requirement:
                     continue
                 requirement._source = resource

@@ -462,8 +462,8 @@ def _get_extends(
         _get_extends(topology, p, extends, types)
 
 
-def template_visibility(t, discovered):
-    metadata = t.entity_tpl.get("metadata")
+def template_visibility(t: EntitySpec, discovered):
+    metadata = t.toscaEntityTemplate.entity_tpl.get("metadata")
     if metadata:
         if metadata.get("visibility"):
             return metadata["visibility"]
@@ -474,7 +474,7 @@ def template_visibility(t, discovered):
         return "omit"  # skip artifacts
     if "default" in t.directives:
         return "hidden"
-    if discovered and t.name in discovered:
+    if discovered and t.nested_name in discovered:
         return "omit"
     return "inherit"
 
@@ -976,7 +976,7 @@ def nodetemplate_to_json(
     #     )
     json["dependencies"] = []
     discovered = None if not for_resource else spec.discovered
-    visibility = template_visibility(nodetemplate, discovered)
+    visibility = template_visibility(node_spec, discovered)
     if visibility != "inherit":
         json["visibility"] = visibility
         logger.debug(f"setting visibility {visibility} on template {nodetemplate.name}")
