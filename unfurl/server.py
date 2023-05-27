@@ -1,3 +1,12 @@
+# Copyright (c) 2023 Adam Souzis
+# SPDX-License-Identifier: MIT
+"""
+API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates 
+and a patch api for updating them.
+
+The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access. 
+"""
+
 from dataclasses import dataclass
 from functools import partial
 import json
@@ -270,7 +279,7 @@ class CacheEntry:
         """
         full_key = self.cache_key()
         value = cast(CacheValueType, cache.get(full_key))
-        if not value:
+        if value is None:
             logger.info("cache miss for %s", full_key)
             self.hit = False
             return None, False  # cache miss
@@ -364,6 +373,7 @@ class CacheEntry:
 
     def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any, str]:
         try:
+            # NB: work shouldn't modify the working directory
             err, value = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
@@ -760,7 +770,7 @@ def _localenv_from_cache(
     ).get_or_set(cache, _cache_localenv_work, latest_commit, _validate_localenv)
 
 
-def _localenv_from_cache_pull(
+def _localenv_from_cache_checked(
     cache,
     project_id: str,
     branch: str,
@@ -908,7 +918,10 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
                 assert isinstance(
                     prop, dict
                 ), f"bad {prop} in {value} for {key} in {patch}"
-                props[prop["name"]] = prop["value"]
+                if prop["value"] == {"__deleted": True}:
+                    props.pop(prop["name"], None)
+                else:
+                    props[prop["name"]] = prop["value"]
         elif key == "dependencies":
             requirements = [
                 {dependency["name"]: _make_requirement(dependency)}
@@ -1004,7 +1017,7 @@ def _patch_environment(body: dict, project_id: str):
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch", DEFAULT_BRANCH)
-    err, readonly_localEnv = _localenv_from_cache_pull(
+    err, readonly_localEnv = _localenv_from_cache_checked(
         cache, project_id, branch, "", latest_commit, body
     )
     if err:
@@ -1119,7 +1132,7 @@ def _patch_ensemble(
         return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     latest_commit = body.get("latest_commit") or ""
-    err, parent_localenv = _localenv_from_cache_pull(
+    err, parent_localenv = _localenv_from_cache_checked(
         cache, project_id, branch, "", latest_commit, body, check_lastcommit
     )
     if err:
@@ -1170,7 +1183,7 @@ def _patch_ensemble(
     )
     # don't validate in case we are still an incomplete draft
     manifest = LocalEnv(clone_location, overrides=overrides).get_manifest(
-        skip_validation=True
+        skip_validation=True, safe_mode=True
     )
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     _apply_ensemble_patch(patch, manifest)
