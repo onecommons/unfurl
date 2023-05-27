@@ -10,7 +10,7 @@ RUN useradd --create-home --user-group unfurl
 
 COPY . /unfurl
 
-RUN pip install --no-cache-dir /unfurl && \
+RUN pip install --no-cache-dir /unfurl[server] && \
     rm -rf /unfurl
 
 USER unfurl:unfurl
