@@ -1,0 +1,19 @@
+FROM python:3.9.9-slim
+
+ARG NUM_WORKERS=4
+ENV UNFURL_HOME="" 
+
+RUN apt-get -qq update && \
+    apt-get -qq install -y git curl unzip wget expect && \
+    apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --user-group unfurl
+USER unfurl:unfurl
+
+COPY . /unfurl
+
+RUN pip install --no-cache-dir /unfurl && \
+    rm -rf /unfurl
+
+EXPOSE 5000
+CMD [ "gunicorn", "-b=0.0.0.0:5000", "--log-level=debug", "-w=${NUM_WORKERS}", "unfurl.server:app"]

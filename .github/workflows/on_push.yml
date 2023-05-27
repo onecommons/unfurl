@@ -130,6 +130,24 @@ jobs:
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
+      - name: Docker meta for unfurl server
+        id: meta_server
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            onecommons/unfurl
+          tags: |
+            type=raw,value=latest-server,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=stable-server,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
+            type=raw,value=${{ steps.get_tag_name.outputs.tag }}-server
+      - name: Build and push unfurl server
+        id: docker_build_server
+        uses: docker/build-push-action@v4
+        with:
+          context: ./
+          file: ./docker/Dockerfile.server
+          push: true
+          tags: ${{ steps.meta_server.outputs.tags }}
 
   publish_dockerhub_podman:
     needs: publish_dockerhub
