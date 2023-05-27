@@ -362,7 +362,7 @@ class Ref:
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
-        base_dir = getattr(self.source, "base_dir", None)
+        base_dir = getattr(self.source, "base_dir", "")
         if base_dir:
             ctx.base_dir = base_dir
         # $start is set in eval_ref but the user use that to override currentResource

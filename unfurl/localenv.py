@@ -264,7 +264,7 @@ class Project:
 
     def _find_git_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Union[GitRepo, str]:
+    ) -> Union[RepoView, str]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
         apply_credentials = self.overrides.get("apply_url_credentials")
         candidate = None
@@ -281,11 +281,11 @@ class Project:
             if match:
                 if revision:
                     if repo.revision == repo.resolve_rev_spec(revision):
-                        return repo
+                        return repository
                     # revisions don't match but we'll return it if we don't find a better candidate
-                    candidate = repo
+                    candidate = repository
                 else:
-                    return repo
+                    return repository
             elif apply_credentials:
                 # if an existing repository has the same hostname as the new repository's url
                 # and has credentials, update the new url with those credentials
@@ -308,7 +308,7 @@ class Project:
         repo_or_url = self._find_git_repo(repoURL, revision)
         if isinstance(repo_or_url, str):
             return None
-        return repo_or_url
+        return repo_or_url.repo
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
@@ -608,8 +608,8 @@ class Project:
 
     def load_yaml_include(
         self,
-        yamlConfig,
-        templatePath,
+        yamlConfig: YamlConfig,
+        templatePath: Union[str, dict],
         baseDir,
         warnWhenNotFound=False,
         expanded=None,
@@ -1253,7 +1253,7 @@ class LocalEnv:
 
     def _find_git_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Union[GitRepo, str]:
+    ) -> Union[RepoView, str]:
         project = self.project or self.homeProject
         count = 0
         while project:
@@ -1263,7 +1263,7 @@ class LocalEnv:
                 project.parentProject and project.parentProject.projectRoot,
             )
             candidate = project._find_git_repo(repoURL, revision)
-            if isinstance(candidate, GitRepo):
+            if isinstance(candidate, RepoView):
                 return candidate
             elif candidate != repoURL:
                 repoURL = candidate
@@ -1276,7 +1276,7 @@ class LocalEnv:
         repo_or_url = self._find_git_repo(repoURL, revision)
         if isinstance(repo_or_url, str):
             return None
-        return repo_or_url
+        return repo_or_url.repo
 
     def _create_working_dir(self, repoURL, revision, basepath):
         project = self.project or self.homeProject
@@ -1303,8 +1303,10 @@ class LocalEnv:
         basepath: Optional[str] = None,
         checkout_args: dict = {},
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
-        repo = self._find_git_repo(repoURL, revision)
-        if isinstance(repo, GitRepo):
+        repoview_or_url = self._find_git_repo(repoURL, revision)
+        if isinstance(repoview_or_url, RepoView):
+            repo = repoview_or_url.repo
+            assert repo
             logger.debug(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
@@ -1315,13 +1317,14 @@ class LocalEnv:
                 repo.pull(revision=revision)
         else:
             assert isinstance(
-                repo, str
-            ), repo  # it's the repoUrl (possibly rewritten) at this point
+                repoview_or_url, str
+            ), repoview_or_url  # it's the repoUrl (possibly rewritten) at this point
+            url = repoview_or_url
             # git-local repos must already exist locally
-            if repo.startswith("git-local://"):
+            if url.startswith("git-local://"):
                 return None, None, None
 
-            repo = self._create_working_dir(repo, revision, basepath)
+            repo = self._create_working_dir(url, revision, basepath)
             if not repo:
                 return None, None, None
 

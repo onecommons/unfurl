@@ -45,7 +45,8 @@ import stat
 import shutil
 import codecs
 from collections.abc import MutableSequence
-from .eval import set_eval_func, map_value
+
+from .eval import RefContext, set_eval_func, map_value
 from .result import ExternalValue
 from .util import (
     UnfurlError,
@@ -555,7 +556,9 @@ def _get_base_dir(ctx, name=None):
 
     Otherwise look for a repository with the given name and return its path or None if not found.
     """
+    
     instance = ctx.currentResource
+    spec = instance.template and instance.template.spec
     if not name or name == ".":
         # the folder of the current resource's ensemble
         return instance.base_dir
@@ -566,8 +569,10 @@ def _get_base_dir(ctx, name=None):
             return base_dir
         if os.path.isabs(ctx.base_dir):
             return ctx.base_dir
-        else:  # XXX ctx.base_dir should be abs
+        elif instance.template:  # XXX ctx.base_dir should be abs
             return os.path.join(instance.template.base_dir, ctx.base_dir or "")
+        else:
+            return ctx.base_dir
     elif name == "tmp":
         return os.path.join(instance.root.tmp_dir, _get_instance_dir_name(instance))
     elif name in Folders.Persistent:
@@ -588,14 +593,16 @@ def _get_base_dir(ctx, name=None):
                 False
             ), f"cant get_path {name}, {ctx.task and ctx.task.target.name} is not {instance.name}"
     elif name == "project":
-        return instance.template.spec._get_project_dir() or instance.base_dir
+        return spec and spec._get_project_dir() or instance.base_dir
     elif name == "unfurl.home":
-        return instance.template.spec._get_project_dir(True) or instance.base_dir
+        return spec and spec._get_project_dir(True) or instance.base_dir
     else:
+        template = instance.template
+        assert template
+        assert template.spec
         start, sep, rest = name.partition(".")
         if sep:
             if start == "spec":
-                template = instance.template
                 specHome = os.path.join(template.spec.base_dir, "spec", template.name)
                 if rest == "src":
                     return template.base_dir
@@ -604,4 +611,4 @@ def _get_base_dir(ctx, name=None):
                 elif rest == "local":
                     return os.path.join(specHome, "local")
             # XXX elif start == 'project' and rest == 'local'
-        return instance.template.spec.get_repository_path(name)
+        return template.spec.get_repository_path(name)

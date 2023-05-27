@@ -329,6 +329,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, _UnfurlUndefined):
     if not ctx.strict:
         env.undefined = _UnfurlUndefined
     vars = ctx.vars.copy()
+    ctx.templar = None
     vars["__unfurl"] = ctx
     vars["__now"] = time.time()
     if hasattr(ctx.currentResource, "attributes"):

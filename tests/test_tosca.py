@@ -252,7 +252,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         Tests nested imports and url fragment resolution.
         """
         path = __file__ + "/../examples/testimport-ensemble.yaml"
-        manifest = YamlManifest(path=path)
+        local_env = LocalEnv(path)
+        manifest = local_env.get_manifest()
+
         self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
         assert "imported-repo" in manifest.tosca.template.repositories
         assert "nested-imported-repo" in manifest.tosca.template.repositories, [
@@ -315,8 +317,8 @@ class ToscaSyntaxTest(unittest.TestCase):
         selfPath = _get_base_dir(ctx, "self")
         self.assertEqual(os.path.normpath(selfPath), base)
 
-        selfPath = _get_base_dir(ctx, "nested-imported-repo")
-        self.assertEqual(os.path.normpath(selfPath), base)
+        repoPath = _get_base_dir(ctx, "nested-imported-repo")
+        self.assertEqual(os.path.normpath(repoPath), base, f"{repoPath} vs {base} vs {os.path.abspath('./')}")
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_workflows(self):

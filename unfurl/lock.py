@@ -21,9 +21,10 @@ class Lock:
             package_id, url, revision = get_package_id_from_url(repo_dict["url"])
             if package_id:
                 commit = repo_dict.get("commit")
-                if not commit:
-                    continue  # old lock format, ignore
                 revision = repo_dict.get("revision")
+                if not commit:  # old lock format
+                    commit = revision
+                    revision = None
                 package_spec = package_specs.get(package_id)
                 if package_spec:
                     if revision:
@@ -34,7 +35,7 @@ class Lock:
                     package_spec = package_specs[package_id] = PackageSpec(
                         package_id, url, revision
                     )
-                package_spec.lock_to_commit = commit
+                package_spec.lock_to_commit = commit or ""
 
     # XXX
     # def validate_runtime(self):

@@ -33,7 +33,7 @@ from .repo import split_git_url, RepoView, GitRepo
 from .packages import Package, PackageSpec, PackagesType
 from .merge import merge_dicts
 from .result import ChangeRecord
-from .yamlloader import yaml, ImportResolver, yaml_dict_type
+from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
 from .logs import getLogger
 import toscaparser.imports
 from toscaparser.repositories import Repository
@@ -733,7 +733,7 @@ class Manifest(AttributeManager):
     def get_import_resolver(
         self, ignoreFileNotFound=False, expand=False, config=None
     ) -> ImportResolver:
-        return ImportResolver(self, ignoreFileNotFound, expand, config)
+        return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
     def last_commit_time(self) -> Optional[datetime.datetime]:
         # return seconds (0 if not found)

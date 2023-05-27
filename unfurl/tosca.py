@@ -43,6 +43,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
     Union,
     cast,
     Any,
@@ -381,9 +382,9 @@ class ToscaSpec:
         return None
 
     @property
-    def base_dir(self):
+    def base_dir(self) -> str:
         if self.template.path is None:
-            return None
+            return ""
         return get_base_dir(self.template.path)
 
     def _get_project_dir(self, home=False):
@@ -814,13 +815,13 @@ class EntitySpec(ResourceRef):
         yield from find_props(attributes, self.propertyDefs)
 
     @property
-    def base_dir(self):
+    def base_dir(self) -> str:
         if self.toscaEntityTemplate._source:
             return self.toscaEntityTemplate._source
         elif self.spec:
             return self.spec.base_dir
         else:
-            return None
+            return ""
 
     def aggregate_only(self):
         "The template is only the sum of its parts."
@@ -1370,7 +1371,7 @@ class TopologySpec(EntitySpec):
         return self._defaultRelationships
 
     @property
-    def base_dir(self):
+    def base_dir(self) -> str:
         if self.path:
             return get_base_dir(self.path)
         else:
@@ -1558,19 +1559,16 @@ class ArtifactSpec(EntitySpec):
         return self.toscaEntityTemplate.file
 
     @property
-    def base_dir(self):
+    def base_dir(self) -> str:
         if self.toscaEntityTemplate._source:
             return get_base_dir(self.toscaEntityTemplate._source)
         else:
             return super().base_dir
 
-    def get_path(self, resolver=None):
+    def get_path(self, resolver=None) -> Optional[str]:
         return self.get_path_and_fragment(resolver)[0]
 
-    def get_path_and_fragment(self, resolver=None, tpl=None):
-        """
-        returns path, fragment
-        """
+    def get_path_and_fragment(self, resolver=None, tpl=None) -> Tuple[Optional[str], Optional[str]]:
         tpl = self.spec and self.spec.template.tpl or tpl
         if not resolver and self.spec:
             resolver = self.spec.template.import_resolver
@@ -1578,7 +1576,7 @@ class ArtifactSpec(EntitySpec):
         loader = toscaparser.imports.ImportsLoader(
             None, self.base_dir, repositories=tpl.get("repositories"), resolver=resolver
         )
-        path, is_file, fragment = loader.resolve_import(self.as_import_spec())
+        path, fragment = loader.resolve_import(self.as_import_spec())
         return path, fragment
 
     def as_import_spec(self):

@@ -86,7 +86,6 @@ def serialize_value(value, **kw):
 class ResourceRef(ABC):
     parent = None  # must be defined by subclass
     template: Optional["EntitySpec"] = None
-    base_dir = ""
     name = ""
 
     @abstractmethod
@@ -94,6 +93,10 @@ class ResourceRef(ABC):
         ...
 
     _templar: Optional["Templar"] = None
+
+    @property
+    def base_dir(self) -> str:
+        return ""
 
     def _get_prop(self, name):
         if name == ".":

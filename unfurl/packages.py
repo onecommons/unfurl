@@ -98,7 +98,7 @@ class PackageSpec:
             self.package_id = None
             revision = None
         self.revision = minimum_version or revision
-        self.lock_to_commit = ""
+        self.lock_to_commit: str = ""
 
     def __str__(self):
         return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.url})"

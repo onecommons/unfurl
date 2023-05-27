@@ -686,14 +686,14 @@ class GitRepo(Repo):
             f.write("\n" + rule + "\n")
         return exclude_path
 
-    def show(self, path, commitId):
+    def show(self, path, commitId, stdout_as_string=True):
         if self.working_dir and os.path.isabs(path):
             path = os.path.abspath(path)[len(self.working_dir) :]
         # XXX this won't work if path is in a submodule
         # if in path startswith a submodule: git log -1 -p [commitid] --  [submodule]
         # submoduleCommit = re."\+Subproject commit (.+)".group(1)
         # return self.repo.submodules[submodule].git.show(submoduleCommit+':'+path[len(submodule)+1:])
-        return self.repo.git.show(commitId + ":" + path)
+        return self.repo.git.show(commitId + ":" + path, stdout_as_string=stdout_as_string)
 
     def checkout(self, revision="", **kw):
         # if revision isn't specified and repo is not pinned:
@@ -742,7 +742,7 @@ class GitRepo(Repo):
         self, remote="origin", revision=None, ff_only=True, with_exceptions=False, **kw
     ) -> bool:
         if remote in self.repo.remotes:
-            cmd = ["pull", remote, revision or "HEAD", "--tags"]
+            cmd = ["pull", remote, revision or "HEAD", "--tags", "--update-shallow"]
             if ff_only:
                 cmd.append("--ff-only")
             code, out, err = self.run_cmd(cmd, with_exceptions=with_exceptions, **kw)
