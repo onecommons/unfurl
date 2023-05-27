@@ -594,7 +594,7 @@ class YamlConfig:
                 f = urlopen(path)
             except urllib.error.URLError:
                 if warnWhenNotFound:
-                    logger.warning(f"document include {path} could not be retreived")
+                    logger.warning(f"document include {path} could not be retrieved")
                     return path, None
                 raise
         else:
@@ -767,22 +767,26 @@ class YamlConfig:
                 )
             else:
                 path, template = self.load_yaml(key, baseDir, warnWhenNotFound)
-
-            if template is None:
-                return value, template, baseDir
-
-            if path.startswith("http"):  # its an url, don't change baseDir
-                newBaseDir = baseDir
-            else:
-                newBaseDir = os.path.dirname(path)
-            if isinstance(template, dict):
-                template.base_dir = newBaseDir  # type: ignore
-            _cache_anchors(self.config._anchorCache, template)
         except Exception:
-            raise UnfurlError(
-                f"unable to load document include: {templatePath} (base: {baseDir})",
-                True,
-            )
+            msg = f"unable to load document include: {templatePath} (base: {baseDir})"
+            if warnWhenNotFound:
+                logger.warning(msg, exc_info=True)
+                template = None  # type: ignore
+            else:
+                raise UnfurlError(
+                    msg,
+                    True,
+                )
+        if template is None:
+            return value, template, baseDir
+
+        if path.startswith("http"):  # its an url, don't change baseDir
+            newBaseDir = baseDir
+        else:
+            newBaseDir = os.path.dirname(path)
+        if isinstance(template, dict):
+            template.base_dir = newBaseDir  # type: ignore
+        _cache_anchors(self.config._anchorCache, template)
         self.baseDirs.append(newBaseDir)
 
         self._cachedDocIncludes[key] = (path, template)
