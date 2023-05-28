@@ -46,7 +46,7 @@ def test_package_rules():
                 defaults={
                     "repositories": {
                         "gitlab.com/onecommons/unfurl-types": dict(
-                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.1.0"
+                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.5.1"
                         )
                     }
                 }

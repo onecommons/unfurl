@@ -550,15 +550,14 @@ class Manifest(AttributeManager):
         return None, None, None, None
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
-    def find_repo_from_git_url(self, path, isFile, importLoader):
+    def find_repo_from_git_url(self, path, base):
         revision: Optional[str]
         repoURL, filePath, revision = split_git_url(path)
         if not repoURL:
             raise UnfurlError(f"invalid git URL {path}")
         assert self.localEnv
-        basePath = get_base_dir(importLoader.path)  # checks if dir or not
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
-            repoURL, revision, basePath
+            repoURL, revision, base
         )
         return repo, filePath, revision, bare
 

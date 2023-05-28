@@ -351,14 +351,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     return True
         return False
 
-    def _find_repoview(self, url: str, create: bool) -> Optional[RepoView]:
+    def _find_repoview(self, url: str) -> RepoView:
+        # if create, creates a new one
         repo_view = None
         git_url, path, revision = split_git_url(url)  # we only support git urls
         assert self.manifest.localEnv
         repoview_or_url = self.manifest.localEnv._find_git_repo(git_url, revision)
         if isinstance(repoview_or_url, RepoView):
             repo_view = repoview_or_url
-        elif create:
+        else:
             # repo wasn't not found, repoview_or_url is the git_url (with credentials possibly applied)
             # create new RepoView for this url
             name = Repo.get_path_for_git_repo(repoview_or_url, name_only=True)
@@ -366,28 +367,42 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             repo_view = RepoView(repository, None)
         return repo_view
 
-    def _resolve_repo(
+    def _resolve_repo_to_path(
         self,
-        url,
-        commit: Optional[str],
-        importsLoader: toscaparser.imports.ImportsLoader,
-    ) -> Tuple[str, Optional[GitRepo]]:
-        repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(
-            url, False, importsLoader
+        repo_view: RepoView,
+        base: str,
+        file_name: str,
+    ) -> str:
+        commit = (
+            repo_view.package.lock_to_commit if repo_view.package else ""
         )
-        if not repo:
-            raise UnfurlError("Could not resolve git URL: " + url)
-        if bare:
-            path = self._get_bare_path(url, repo, file_path, revision)
-            return path, None
+        if not repo_view.repo:
+            repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(
+                repo_view.as_git_url(), base
+            )
+            repo_view.set_repo_and_path(repo, file_path)
+            if not repo:
+                raise UnfurlError("Could not resolve git URL: " + repo_view.as_git_url(True))
+            logger.error(f"_resolve_repo_to_path {repo_view.as_git_url()} {bare} {repo.working_dir}")
         else:
-            return file_path, repo
+            repo = repo_view.repo
+            file_path = repo_view.path
+            revision = repo.revision
+            bare = commit
+
+        if bare:
+            path = self._get_bare_path(repo, file_path, revision)
+        else:
+            path = os.path.join(repo.working_dir, file_path, file_name or "").rstrip(
+                "/"
+            )
+        return path
 
     def resolve_url(self, importsLoader, base, file_name, repository_name):
         if repository_name:
             if self._has_path_escaped(file_name, repository_name):
                 # can't be ".." or absolute path
-                return None
+                return None, None
             repo_view = self.manifest.repositories.get(repository_name)
             if not repo_view:
                 repository = self.get_repository(
@@ -400,9 +415,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if not toscaparser.imports.is_url(url):
                 # url is a local path
                 if self._has_path_escaped(url):
-                    return None
-                return url
-            repo_view = self._find_repoview(url, True)
+                    return None, None
+                return url, (True, None, base, file_name)
+            repo_view = self._find_repoview(url)
             assert repo_view
 
         assert repo_view
@@ -414,32 +429,46 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             resolve_package(
                 repo_view, self.manifest.packages, self.manifest.package_specs
             )
+        repo_view.add_file_ref(file_name)
         path = toscaparser.imports.normalize_path(repo_view.url)
-        if not toscaparser.imports.is_url(path):
-            # repository is a local path and repo_view.url is what was declared
+        is_file = not toscaparser.imports.is_url(path)
+        if is_file:
+            # repository is a local path
             # so use the resolved base
             path = os.path.join(base, file_name)
             if self._has_path_escaped(path):
-                return None
-            return path
+                return None, None
+        return path, (is_file, repo_view, base, file_name)
 
-        commit = (
-            repo_view.package.lock_to_commit if repo_view and repo_view.package else ""
-        )
-        file_path, repo = self._resolve_repo(repo_view.url, commit, importsLoader)
-        if not repo:  # its a git-ref url
-            return file_path
+    def resolve_to_local_path(self, base_dir, file_name, repository_name):
+        if repository_name:
+            rv = self.manifest.repositories.get(repository_name)
+            if rv:
+                repository_tpl = rv.repository.tpl
+                repositories = {repository_name: repository_tpl}
+            else:
+                repositories = self.manifest.tosca and self.manifest.tosca.template.tpl.get("repositories") or {}
         else:
-            if not repo_view.repo:
-                repo_view.set_repo_and_path(repo, file_path)
-            repo_view.add_file_ref(file_name)
-            path = os.path.join(repo.working_dir, file_path, file_name or "").rstrip(
-                "/"
-            )
-            return path
+            repositories = {}
+        loader = toscaparser.imports.ImportsLoader(
+            None, base_dir, repositories=repositories, resolver=self
+        )
+        tpl = dict(file=file_name, repository=repository_name)
+        url_info = loader.resolve_import(tpl)
+        if url_info:
+            url, fragment, ctx = url_info
+            is_file, repo_view, base, file_name = ctx
+            if is_file:
+                # already a path
+                return url, fragment
+            else:
+                # clone git repository if necessary
+                return self._resolve_repo_to_path(repo_view, base, file_name), fragment
+        return None, None
 
-    def _get_bare_path(self, path, repo, filePath, revision):
+    def _get_bare_path(self, repo, filePath, revision):
         # # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
+        path = repo.working_dir
         if not filePath:
             raise UnfurlError(
                 f"local repository for '{path}' can not checkout revision '{revision}'"
@@ -457,8 +486,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if path.startswith("git-ref:"):
             # XXX we need both the commit and revision if we don't have the full git repo
             url, filePath, revision = split_git_url(path[len("git-ref:") :])
-            repo_view = self._find_repoview(url, False)
-            if not repo_view or not repo_view.repo:
+            repo_view = self._find_repoview(url)
+            if not repo_view.repo:
                 raise UnfurlError("Could not resolve " + path)
             bdata = repo_view.repo.show(filePath, revision, stdout_as_string=False)
             if self.yamlloader:
@@ -510,19 +539,32 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def load_yaml(
         self,
-        importsLoader: toscaparser.imports.ImportsLoader,
+        importsLoader: Any,
         path: str,
-        isFile=True,
-        fragment=None,
-    ) -> Any:
+        fragment: Optional[str],
+        ctx,
+    ) -> Tuple[Any, Any]:
+        is_file, repo_view, base, file_name = ctx
+        if not is_file:
+            # clone git repository if necessary
+            path = self._resolve_repo_to_path(repo_view, base, file_name)
+            is_file = True
+        return self._really_load_yaml(path, is_file, fragment)
+
+    def _really_load_yaml(
+        self,
+        path: str,
+        isFile: bool,
+        fragment: Optional[str],
+    ) -> Tuple[Any, bool]:
+        originalPath = path
         try:
             logger.trace(
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
             )
-            originalPath = path
             f, cacheable = self._open(path, isFile)
             if f is None:
-                return None
+                return None, cacheable
 
             with f:
                 contents = f.read()
@@ -537,9 +579,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         doc.includes = includes
                     doc.path = path
             if fragment and doc:
-                return _refResolver.resolve_fragment(doc, fragment)
+                return _refResolver.resolve_fragment(doc, fragment), cacheable
             else:
-                return doc
+                return doc, cacheable
         except Exception:
             if path != originalPath:
                 msg = f'Could not load "{path}" (originally "{originalPath}")'
@@ -563,14 +605,22 @@ class SimpleCacheResolver(ImportResolver):
         self,
         importsLoader: toscaparser.imports.ImportsLoader,
         path: str,
-        isFile=True,
-        fragment=None,
-    ) -> Any:
-        doc = self.get_cache((path, isFile, fragment))
+        fragment,
+        ctx,
+    ) -> Tuple[Any, Any]:
+        is_file, repo_view, base, file_name = ctx
+        if not is_file:
+            # clone git repository if necessary
+            path = self._resolve_repo_to_path(repo_view, base, file_name)
+        doc = self.get_cache((path, fragment))
         if doc is None:
-            doc = super().load_yaml(importsLoader, path, isFile, fragment)
-            self.set_cache( (path, isFile, fragment), doc)
-        return doc
+            doc, cacheable = self._really_load_yaml(path, True, fragment)
+            if cacheable:
+                self.set_cache((path, fragment), doc)
+        else:
+            cacheable = True
+        return doc, cacheable
+
 
 class LoadIncludeAction:
     def __init__(self, check_include=False, get_key=None):

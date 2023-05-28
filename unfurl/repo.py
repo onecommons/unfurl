@@ -380,7 +380,7 @@ class RepoView:
         return self.repository.name if self.repository else ""
 
     @property
-    def url(self):
+    def url(self) -> str:
         if self.repository:
             url = self.repository.url
             if self.repository.credential:
@@ -391,6 +391,15 @@ class RepoView:
         else:
             assert self.repo
             return self.repo.url
+
+    def as_git_url(self, sanitize=False) -> str:
+        hard = 2 if sanitize else 0
+        url, sep, fragment = self.url.partition("#")
+        if self.package:
+            revision = self.package.revision_tag
+        else:
+            revision = self.revision or ""
+        return normalize_git_url(url, hard) + "#" + revision + ":" + self.path
 
     def is_local_only(self):
         # if it doesn't have a repo then it most be local

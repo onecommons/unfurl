@@ -1568,15 +1568,15 @@ class ArtifactSpec(EntitySpec):
     def get_path(self, resolver=None) -> Optional[str]:
         return self.get_path_and_fragment(resolver)[0]
 
-    def get_path_and_fragment(self, resolver=None, tpl=None) -> Tuple[Optional[str], Optional[str]]:
-        tpl = self.spec and self.spec.template.tpl or tpl
+    def get_path_and_fragment(
+        self, resolver=None
+    ) -> Tuple[Optional[str], Optional[str]]:
         if not resolver and self.spec:
             resolver = self.spec.template.import_resolver
 
-        loader = toscaparser.imports.ImportsLoader(
-            None, self.base_dir, repositories=tpl.get("repositories"), resolver=resolver
+        path, fragment = resolver.resolve_to_local_path(
+            self.base_dir, self.file, self.toscaEntityTemplate.repository
         )
-        path, fragment = loader.resolve_import(self.as_import_spec())
         return path, fragment
 
     def as_import_spec(self):
