@@ -118,7 +118,17 @@ def split_git_url(url) -> Tuple[str, str, str]:
         return "", "", ""
     parts = urlparse(url)
     if parts.scheme == "git-local":
-        return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
+        giturl, path, fragment = (
+            parts.scheme + "://" + parts.netloc,
+            parts.path[1:],
+            parts.fragment,
+        )
+        if fragment:
+            revision, sep, frag_path = parts.fragment.partition(":")
+            path = os.path.join(path, frag_path)
+        else:
+            revision = ""
+        return giturl, path, revision
 
     if parts.fragment:
         # treat fragment as a git revision spec; see https://git-scm.com/docs/gitrevisions
@@ -394,12 +404,18 @@ class RepoView:
 
     def as_git_url(self, sanitize=False) -> str:
         hard = 2 if sanitize else 0
-        url, sep, fragment = self.url.partition("#")
+        url, path, revision = split_git_url(self.url)
         if self.package:
             revision = self.package.revision_tag
         else:
             revision = self.revision or ""
-        return normalize_git_url(url, hard) + "#" + revision + ":" + self.path
+        return (
+            normalize_git_url(url, hard)
+            + "#"
+            + revision
+            + ":"
+            + os.path.join(path, self.path)
+        )
 
     def is_local_only(self):
         # if it doesn't have a repo then it most be local
@@ -702,7 +718,9 @@ class GitRepo(Repo):
         # if in path startswith a submodule: git log -1 -p [commitid] --  [submodule]
         # submoduleCommit = re."\+Subproject commit (.+)".group(1)
         # return self.repo.submodules[submodule].git.show(submoduleCommit+':'+path[len(submodule)+1:])
-        return self.repo.git.show(commitId + ":" + path, stdout_as_string=stdout_as_string)
+        return self.repo.git.show(
+            commitId + ":" + path, stdout_as_string=stdout_as_string
+        )
 
     def checkout(self, revision="", **kw):
         # if revision isn't specified and repo is not pinned:

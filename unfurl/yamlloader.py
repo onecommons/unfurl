@@ -373,22 +373,22 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         base: str,
         file_name: str,
     ) -> str:
-        commit = (
-            repo_view.package.lock_to_commit if repo_view.package else ""
-        )
+        commit = repo_view.package.lock_to_commit if repo_view.package else ""
         if not repo_view.repo:
             repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(
                 repo_view.as_git_url(), base
             )
-            repo_view.set_repo_and_path(repo, file_path)
-            if not repo:
-                raise UnfurlError("Could not resolve git URL: " + repo_view.as_git_url(True))
-            logger.error(f"_resolve_repo_to_path {repo_view.as_git_url()} {bare} {repo.working_dir}")
+            if repo:
+                repo_view.repo = None
+            else:
+                raise UnfurlError(
+                    "Could not resolve git URL: " + repo_view.as_git_url(True)
+                )
         else:
             repo = repo_view.repo
             file_path = repo_view.path
             revision = repo.revision
-            bare = commit
+            bare = False  # XXX if commit
 
         if bare:
             path = self._get_bare_path(repo, file_path, revision)
@@ -447,7 +447,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repository_tpl = rv.repository.tpl
                 repositories = {repository_name: repository_tpl}
             else:
-                repositories = self.manifest.tosca and self.manifest.tosca.template.tpl.get("repositories") or {}
+                repositories = (
+                    self.manifest.tosca
+                    and self.manifest.tosca.template.tpl.get("repositories")
+                    or {}
+                )
         else:
             repositories = {}
         loader = toscaparser.imports.ImportsLoader(
