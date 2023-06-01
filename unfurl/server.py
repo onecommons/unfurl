@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import time
+import traceback
 from typing import (
     Dict,
     List,
@@ -648,7 +649,9 @@ def export():
         return response
     else:
         if isinstance(err, Exception):
-            return create_error_response("INTERNAL_ERROR", "An internal error occurred")
+            return create_error_response(
+                "INTERNAL_ERROR", "An internal error occurred", err
+            )
         else:
             return err
 
@@ -685,7 +688,9 @@ def populate_cache():
     )
     if err:
         if isinstance(err, Exception):
-            return create_error_response("INTERNAL_ERROR", "An internal error occurred")
+            return create_error_response(
+                "INTERNAL_ERROR", "An internal error occurred", err
+            )
         else:
             return err
     else:
@@ -819,7 +824,7 @@ def _do_export(
     err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
     if err:
         return (
-            create_error_response("INTERNAL_ERROR", "An internal error occurred"),
+            create_error_response("INTERNAL_ERROR", "An internal error occurred", err),
             None,
         )
     assert local_env
@@ -1207,13 +1212,13 @@ def _patch_ensemble(
                         url = None
                     manifest.repo.push(url)
                     logger.info("pushed")
-                except Exception:
+                except Exception as err:
                     # discard the last commit that we couldn't push
                     # this is mainly for security if we couldn't push because the user wasn't authorized
                     manifest.repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
                     logger.error("push failed", exc_info=True)
                     return create_error_response(
-                        "INTERNAL_ERROR", "Could not push repository"
+                        "INTERNAL_ERROR", "Could not push repository", err
                     )
         else:
             logger.info(f"no changes where made, nothing commited")
@@ -1289,12 +1294,12 @@ def _commit_and_push(
     try:
         repo.push(url)
         logger.info("pushed")
-    except Exception:
+    except Exception as err:
         # discard the last commit that we couldn't push
         # this is mainly for security if we couldn't push because the user wasn't authorized
         repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
         logger.error("push failed", exc_info=True)
-        return create_error_response("INTERNAL_ERROR", "Could not push repository")
+        return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
     return None
 
 
@@ -1326,7 +1331,7 @@ def _fetch_working_dir(
     return clone_location
 
 
-def create_error_response(code, message):
+def create_error_response(code: str, message: str, err: Optional[Exception] = None):
     http_code = 400  # Default to BAD_REQUEST
     if code == "BAD_REQUEST":
         http_code = 400
@@ -1336,7 +1341,12 @@ def create_error_response(code, message):
         http_code = 500
     elif code == "CONFLICT":
         http_code = 409
-    return jsonify({"code": code, "message": message}), http_code
+    response = {"code": code, "message": message}
+    if err:
+        response["details"] = "".join(
+            traceback.TracebackException.from_exception(err).format()
+        )
+    return jsonify(response), http_code
 
 
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
