@@ -451,6 +451,15 @@ def _run_remote(runtime, options, localEnv):
         sys.exit(rv)
 
 
+def _print_query(query, result):
+    click.echo("Query: " + query)
+    if result is None:
+        click.echo("No results found")
+    else:
+        click.echo("Result:")
+        click.echo(result)
+
+
 def _print_summary(job: "Job", options) -> str:
     jsonSummary: Any = {}
     text = ""
@@ -470,11 +479,7 @@ def _print_summary(job: "Job", options) -> str:
             jsonSummary["query"] = query
             jsonSummary["result"] = result
         else:
-            click.echo("query: " + query)
-            if result is None:
-                click.echo("No results found")
-            else:
-                click.echo(result)
+            _print_query(query, result)
     if jsonSummary:
         text = json.dumps(jsonSummary, indent=2)
         click.echo(text)
@@ -1213,18 +1218,13 @@ def status(ctx, ensemble, **options):
     logger = logging.getLogger("unfurl")
     manifest = localEnv.get_manifest()
     summary = manifest.status_summary()
-    click.echo(summary)
-    logger.debug("Status summary:\n%s", summary)
+    logger.info("Status summary:\n%s", summary, extra=dict(truncate=0))
     query = options.get("query")
     if query:
         trace = options.get("trace")
         assert manifest.rootResource
         result = manifest.rootResource.query(query, trace=trace)
-        click.echo("query: " + query)
-        if result is None:
-            click.echo("No results found")
-        else:
-            click.echo(result)
+        _print_query(query, result)
 
 
 @cli.command()
