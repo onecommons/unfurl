@@ -1312,6 +1312,16 @@ class TopologySpec(EntitySpec):
         self._isReferencedBy = []
         self.add_discovered()
 
+    def copy(self) -> "TopologySpec":
+        copy = TopologySpec(
+            self.topology_template.copy(),
+            self.spec,
+            self.parent_topology,
+            path=self.path,
+        )
+        copy.inputs = self.inputs.copy()
+        return copy
+
     def get_node_template(self, name: str) -> Optional[NodeSpec]:
         return self.node_templates.get(name)
 

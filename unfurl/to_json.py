@@ -1251,13 +1251,13 @@ def get_deployment_blueprints(
         local_resource_templates = {}
         resource_templates = template.pop("resource_templates", None)
         if resource_templates:
+            topology = spec.topology.copy()
             for node_name, node_tpl in resource_templates.items():
                 # nodes here overrides node_templates
-                node_spec = spec.topology.add_node_template(node_name, node_tpl, False)
-                node_template = node_spec.toscaEntityTemplate
+                node_spec = topology.add_node_template(node_name, node_tpl, False)
             # convert to json in second-pass template requirements can reference each other
             for node_name, node_tpl in resource_templates.items():
-                node_spec = spec.topology.get_node_template(node_name)
+                node_spec = topology.get_node_template(node_name)
                 assert node_spec
                 t = nodetemplate_to_json(node_spec, _get_types(db))
                 if t.get("visibility") == "omit":
