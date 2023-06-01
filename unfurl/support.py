@@ -1266,8 +1266,6 @@ def _get_container_image_from_repository(
 ) -> Optional["ContainerImage"]:
     # aka get_artifact_as_value
     name, tag, digest, hostname = ContainerImage.split(artifact_name)
-    if not name:
-        return None
     attr = entity.attributes
 
     repository_id = attr.get("repository_id")
@@ -1285,7 +1283,8 @@ def _get_container_image_from_repository(
     username = attr.get("username")
     password = attr.get("password")
     source_digest = attr.get("revision")
-    assert name
+    if not name:
+        return None
     return ContainerImage(
         name, tag, digest, hostname, username, password, source_digest
     )
