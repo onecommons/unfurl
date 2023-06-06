@@ -19,6 +19,7 @@ from unfurl.merge import (
     parse_merge_key,
 )
 from unfurl.runtime import Status, Priority, NodeInstance, OperationalInstance
+from unfurl.support import NodeState
 from unfurl.util import (
     UnfurlError,
     UnfurlValidationError,
@@ -238,6 +239,17 @@ class OperationalInstanceTest(unittest.TestCase):
         aggregateError.dependencies = []
         self.assertEqual(aggregateError.status, Status.ok)
 
+    def test_nodestate(self):
+        # considered active if status is error and not node state set
+        assert OperationalInstance(Status.error).active
+        # unknown status is treated as active too
+        assert OperationalInstance(Status.unknown).active
+        # but NodeState.error is treated as inactive
+        assert not OperationalInstance(Status.error, state=NodeState.error).active
+        assert OperationalInstance(state=NodeState.stopping).has_state(NodeState.created)
+        assert not OperationalInstance(state=NodeState.stopping).has_state(NodeState.starting)
+        assert not OperationalInstance(state=NodeState.deleting).has_state(NodeState.created)
+        assert not OperationalInstance(state=NodeState.error).has_state(NodeState.created)
 
 class RunTest(unittest.TestCase):
     """

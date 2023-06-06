@@ -89,11 +89,25 @@ class Operational(ChangeAware):
         if self.state is None:
             # self.state is sometimes None even though it shouldn't be
             return False
-        if state == NodeState.error:
+        if state == NodeState.error or self.state == NodeState.error:
             return self.state == state
         if state < NodeState.stopping:
-            return self.state < NodeState.stopping and self.state >= state
+            if self.state < NodeState.stopping:
+                # progressive states on both sides
+                return self.state >= state
+            elif self.state in [NodeState.stopping, NodeState.stopped]:
+                if state < NodeState.starting:
+                    # created, configured, etc. still true even if node is stopped
+                    return True
+            else:
+                assert (
+                    self.state
+                    in [NodeState.deleting, NodeState.deleted]
+                    and state < NodeState.stopping
+                ), (self.state.name, state.name)
+                return False
         if self.state > NodeState.stopping:
+            assert state >= NodeState.stopping
             return self.state >= state
         return False
 
@@ -107,7 +121,7 @@ class Operational(ChangeAware):
         return ()  # type: ignore  # mypy doesn't like empty tuples
 
     @property
-    def manual_overide_status(self) -> None:
+    def manual_override_status(self) -> None:
         return None
 
     # derived properties:
@@ -117,6 +131,10 @@ class Operational(ChangeAware):
 
     @property
     def active(self) -> bool:
+        # if task.target.has_state(NodeState.created):
+        # unknown, ok, degraded
+        if self.state and self.state > NodeState.initial:
+            return self.has_state(NodeState.created)
         return self.status <= Status.error
 
     @property
@@ -137,8 +155,8 @@ class Operational(ChangeAware):
         Otherwise the local_status is compared with its aggregate dependent status
         and worser value is choosen.
         """
-        if self.manual_overide_status is not None:
-            status = self.manual_overide_status
+        if self.manual_override_status is not None:
+            status = self.manual_override_status
             if status >= Status.error:
                 return status
         else:
@@ -308,7 +326,7 @@ class OperationalInstance(Operational):
 
     local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
-    def __manual_overide_status() -> Dict[str, Any]:  # type: ignore
+    def __manual_override_status() -> Dict[str, Any]:  # type: ignore
         doc = "The manualOverideStatus property."
 
         def fget(self: "OperationalInstance") -> Optional[Status]:
@@ -319,7 +337,7 @@ class OperationalInstance(Operational):
 
         return locals()
 
-    manual_overide_status: Optional[Status] = property(**__manual_overide_status())  # type: ignore
+    manual_override_status: Optional[Status] = property(**__manual_override_status())  # type: ignore
 
     def __priority():  # type: ignore
         doc = "The priority property."
@@ -936,7 +954,8 @@ class NodeInstance(HasInstancesInstance):
                         self.template is relInstance.template.source
                         or self.template.topology.substitute_of
                         is relInstance.template.source
-                        or self.template is relInstance.template.source.topology.substitute_of
+                        or self.template
+                        is relInstance.template.source.topology.substitute_of
                     ), (
                         self.template,
                         relInstance.template.source,
@@ -944,7 +963,6 @@ class NodeInstance(HasInstancesInstance):
                     self._requirements.append(relInstance)
 
         return self._requirements
-
 
     @property
     def capabilities(self) -> List[CapabilityInstance]:
@@ -1132,7 +1150,12 @@ class NodeInstance(HasInstancesInstance):
 class TopologyInstance(HasInstancesInstance):
     templateType = TopologySpec  # type: ignore
 
-    def __init__(self, template: "TopologySpec", status=None, parent_topology: Optional["TopologyInstance"] = None):
+    def __init__(
+        self,
+        template: "TopologySpec",
+        status=None,
+        parent_topology: Optional["TopologyInstance"] = None,
+    ):
         attributes = dict(inputs=template.inputs, outputs=template.outputs)
         HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
@@ -1147,7 +1170,9 @@ class TopologyInstance(HasInstancesInstance):
             loader.set_basedir(baseDir)
             self._templar = Templar(loader)
 
-    def set_attribute_manager(self, attribute_manager: Optional[AttributeManager]) -> None:
+    def set_attribute_manager(
+        self, attribute_manager: Optional[AttributeManager]
+    ) -> None:
         self.attributeManager = attribute_manager
         if self.parent_topology:
             self.parent_topology.set_attribute_manager(attribute_manager)
