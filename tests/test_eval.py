@@ -396,7 +396,7 @@ a_dict:
         resource = self._getTestResource()
         ctx = SafeRefContext(resource, vars=dict(subdomain="foo.com"))
         expr = "{{ {subdomain.split('.')[0] : 1} }}"
-        result = _sandboxed_template(expr, ctx, None)
+        result = _sandboxed_template(expr, ctx, ctx.vars, None)
         assert result == {'foo': 1}
         assert type(result) == dict
         with self.assertRaises(UnfurlEvalError) as err:
@@ -406,6 +406,10 @@ a_dict:
         assert not map_value(dict(eval={"is_function_defined": "get_env"}), ctx)
         ctx2 = RefContext(resource, vars=dict(subdomain="foo.com"))
         assert map_value(dict(eval={"is_function_defined": "get_env"}), ctx2)
+
+        ctx3 = SafeRefContext(resource, strict=False)
+        assert map_value(dict(eval="{{ foo | to_json }}"), ctx3) == "<<Error rendering template: No filter named 'to_json'.>>"
+        assert map_value(dict(eval="{{ foo | abspath }}"), ctx3) == "<<Error rendering template: No filter named 'abspath'.>>"
 
     def test_innerReferences(self):
         resourceDef = {

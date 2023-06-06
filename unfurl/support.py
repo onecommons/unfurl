@@ -318,7 +318,7 @@ def _wrap_sequence(v):
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
-def _sandboxed_template(value: str, ctx: SafeRefContext, _UnfurlUndefined):
+def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined):
     from jinja2.sandbox import SandboxedEnvironment
     from jinja2.nativetypes import NativeCodeGenerator, native_concat
 
@@ -328,12 +328,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, _UnfurlUndefined):
 
     if not ctx.strict:
         env.undefined = _UnfurlUndefined
-    vars = ctx.vars.copy()
     ctx.templar = None
-    vars["__unfurl"] = ctx
-    vars["__now"] = time.time()
-    if hasattr(ctx.currentResource, "attributes"):
-        vars["SELF"] = ctx.currentResource.attributes  # type: ignore
     return env.from_string(value).render(vars)
 
 
@@ -413,9 +408,6 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
         def __html__(self) -> str:
             return str(self)
 
-    if isinstance(ctx, SafeRefContext):
-        return _sandboxed_template(value, ctx, _UnfurlUndefined)
-
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
@@ -465,7 +457,10 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
         # disable caching so we don't need to worry about the value of a cached var changing
         # use do_template because we already know it's a template
         try:
-            value = templar.template(value, fail_on_undefined=fail_on_undefined)
+            if isinstance(ctx, SafeRefContext):
+                value = _sandboxed_template(value, ctx, vars, _UnfurlUndefined)
+            else:
+                value = templar.template(value, fail_on_undefined=fail_on_undefined)
         except Exception as e:
             msg = str(e)
             # XXX have _UnfurlUndefined throw an exception with the missing obj and key
