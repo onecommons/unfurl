@@ -663,8 +663,9 @@ class TaskView:
             cwd=self.cwd,
         )
 
+    @staticmethod
     def find_connection(
-        self, target: NodeInstance, relation: str = "tosca.relationships.ConnectsTo"
+        ctx: RefContext, target: NodeInstance, relation: str = "tosca.relationships.ConnectsTo"
     ) -> Optional[RelationshipInstance]:
         """
         Find a relationship that this task can use to connect to the given instance.
@@ -678,10 +679,10 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection = cast(Optional[RelationshipInstance], self.query(
+        connection = cast(Optional[RelationshipInstance], Ref(
             f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
-            vars=dict(target=target),
-        ))
+            vars=dict(target=target)).resolve_one(ctx))
+
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
         if not connection:
             # no connection, see if there's a default relationship template defined for this target

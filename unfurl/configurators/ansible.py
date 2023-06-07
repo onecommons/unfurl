@@ -138,7 +138,7 @@ class AnsibleConfigurator(TemplateConfigurator):
     def _make_inventory(self, host, allVars, task):
         if host:
             hostVars = self._get_host_vars(host)
-            connection = task.find_connection(
+            connection = task.find_connection(task.inputs.context,
                 host, "unfurl.relationships.ConnectsTo.Ansible"
             )
             if connection:

@@ -3,14 +3,14 @@
 from __future__ import absolute_import
 import re
 from base64 import b64encode
-from typing import Dict, Mapping, Union
-from ..configurator import Configurator
+from typing import Dict, Mapping, Union, cast
+from ..configurator import Configurator, TaskView
 from ..support import Status, Priority, to_kubernetes_label
-from ..runtime import RelationshipInstance
+from ..runtime import EntityInstance, NodeInstance, RelationshipInstance
 from ..util import UnfurlTaskError, wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
-from ..eval import set_eval_func, map_value
+from ..eval import Ref, RefContext, set_eval_func, map_value
 import subprocess
 import json
 from ansible_collections.kubernetes.core.plugins.module_utils.common import (
@@ -115,14 +115,16 @@ CONNECTION_OPTIONS = {
 }
 
 
-def _get_connection(task) -> dict:
+def _get_connection(ctx: RefContext) -> dict:
     # get the cluster that the target resource is hosted on
-    cluster = task.query("[.type=unfurl.nodes.K8sCluster]")
+    cluster = Ref("[.type=unfurl.nodes.K8sCluster]").resolve_one(ctx)
     relation = "unfurl.relationships.ConnectsTo.K8sCluster"
     if cluster:
-        instance = task.find_connection(cluster, relation)
+        instance = TaskView.find_connection(ctx, cast(NodeInstance, cluster), relation)
     else:
-        relationships = task.target.get_default_relationships(relation)
+        relationships = cast(
+            EntityInstance, ctx.currentResource
+        ).get_default_relationships(relation)
         if relationships:
             instance = relationships[0]
         else:
@@ -133,16 +135,20 @@ def _get_connection(task) -> dict:
         config = {}
 
     # check if we are in a namespace, fall back to "default"
-    namespace = task.query("[.type=unfurl.nodes.K8sNamespace]")
+    namespace = Ref("[.type=unfurl.nodes.K8sNamespace]").resolve_one(ctx)
     if namespace:
-        config["namespace"] = namespace.attributes["name"]
-    elif not config.get("namespace"):
-        config["namespace"] = "default"
+        config["namespace"] = cast(NodeInstance, namespace).attributes["name"]
     return config
 
 
-def get_kubectl_args(task):
-    connection = _get_connection(task)
+set_eval_func(
+    "kubernetes_current_namespace",
+    lambda args, ctx: _get_connection(ctx).get("namespace") if ctx.task else None,
+)
+
+
+def get_kubectl_args(ctx: RefContext):
+    connection = _get_connection(ctx)
     options = []
     for key, value in connection.items():
         if value and key in CONNECTION_OPTIONS:
@@ -157,9 +163,9 @@ def get_kubectl_args(task):
     return options
 
 
-def kubectl(cmd, ctx):
+def kubectl(cmd, ctx: RefContext):
     cmd = map_value(cmd, ctx)
-    args = get_kubectl_args(ctx.task)
+    args = get_kubectl_args(ctx)
     if not isinstance(cmd, list):
         cmd = cmd.split()
     full_cmd = ["kubectl"] + args + cmd
@@ -339,10 +345,7 @@ class ResourceConfigurator(AnsibleConfigurator):
                 definition["data"] = wrap_sensitive_value(definition["data"])
             return definition
 
-    def update_metadata(self, definition, task):
-        namespace = None
-        if task.target.parent.template.is_compatible_type("unfurl.nodes.K8sNamespace"):
-            namespace = task.target.parent.attributes["name"]
+    def update_metadata(self, definition, task, namespace):
         md = definition.setdefault("metadata", {})
         if namespace and "namespace" not in md:
             md["namespace"] = namespace
@@ -367,8 +370,8 @@ class ResourceConfigurator(AnsibleConfigurator):
     def find_playbook(self, task):
         # this is called by AnsibleConfigurator.get_playbook()
         definition = self.get_definition(task)
-        self.update_metadata(definition, task)
-        connectionConfig = _get_connection(task)
+        connectionConfig = _get_connection(task.inputs.context)
+        self.update_metadata(definition, task, connectionConfig.get("namespace"))
         extra_configuration = task.inputs.get("configuration")
         extra_playbook = task.inputs.get("playbook")
 

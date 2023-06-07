@@ -112,7 +112,14 @@ node_types:
     attributes:
       namespace:
         type: string
-        default: { get_property: [HOST, name] }
+        default:
+          eval:
+            if:
+              is_function_defined: kubernetes_current_namespace
+            then:
+              kubernetes_current_namespace:
+            else:
+              get_property: [HOST, name]
 
   unfurl.nodes.K8sSecretResource:
     derived_from: unfurl.nodes.K8sResource

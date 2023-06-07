@@ -110,9 +110,18 @@ class TestK8s(unittest.TestCase):
         assert len(results["tasks"]) == 2, results
 
 
+def test_namespace_on_connection():
+    manifest = YamlManifest(NO_CLUSTER)
+    job = Runner(manifest).run(JobOptions(workflow="check"))
+    assert not job.unexpectedAbort
+    assert job.status == Status.ok, job.summary()
+    config_map_instance = manifest.rootResource.find_instance("a_config_map")
+    assert config_map_instance and config_map_instance.attributes["namespace"] == TEST_NS
+
+
 def _get_resources(task):
     # verify resource start (and test get_kubectl_args)
-    args = get_kubectl_args(task)
+    args = get_kubectl_args(task.inputs.context)
     assert "-n" in args, args
     assert "--insecure-skip-tls-verify" not in args
     cmd = ["kubectl"] + args + "get all -o json".split()
@@ -121,7 +130,7 @@ def _get_resources(task):
 
 def _get_pod_logs(task, name):
     # verify resource start (and test get_kubectl_args)
-    args = get_kubectl_args(task)
+    args = get_kubectl_args(task.inputs.context)
     cmd = ["kubectl"] + args + ["logs", name, "--tail", "15"]
     proc = subprocess.run(cmd, capture_output=True)
     return proc.stdout, proc.stderr
@@ -177,7 +186,7 @@ def test_kompose():
                         count += 1
 
 
-BASE = """
+START = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
@@ -197,7 +206,24 @@ spec:
           properties:
             context: {get_env: [UNFURL_TEST_KUBECONTEXT]}
             KUBECONFIG: {get_env: UNFURL_TEST_KUBECONFIG}
+"""
 
+NO_CLUSTER = START + f"""
+            namespace: {TEST_NS}
+
+      node_templates:
+        a_config_map:
+          type: unfurl.nodes.K8sResource
+          properties:
+            definition:
+              apiVersion: v1
+              kind: ConfigMap
+              data:
+                key: "3"
+"""
+
+
+BASE = START + """
       node_templates:
         k8sCluster:
           type: unfurl.nodes.K8sCluster
