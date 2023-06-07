@@ -15,6 +15,7 @@ eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._map_value same as map_value but with lazily evaluation
 """
+from functools import partial
 from typing import (
     Any,
     Dict,
@@ -56,6 +57,8 @@ def map_value(
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
 ) -> Any:
+    """Resolves any expressions or template strings embedded in the given map or list.
+    """
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
     return _map_value(value, resourceOrCxt, False, applyTemplates)
@@ -268,6 +271,18 @@ class RefContext:
     def __setstate__(self, d: dict) -> None:
         self.__dict__ = d
         self.referenced = _Tracker()
+
+    def __getattr__(self, key):
+        func = self._Funcs.get(key)
+        if not func:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}'")
+
+        def _eval_func(*args, **kw):
+            self.currentFunc = key
+            self.kw = kw
+            assert func
+            return func(args, self)
+        return _eval_func
 
 
 class Expr:

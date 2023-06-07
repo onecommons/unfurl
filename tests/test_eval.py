@@ -342,6 +342,13 @@ class EvalTest(unittest.TestCase):
         val = apply_template("{{ ['a', 'b'] | sensitive }}", RefContext(resource, trace=0))
         assert isinstance(val, sensitive_list), type(val)
 
+        # test treating expression functions as RefContext methods
+        val = map_value(
+            "{{ __unfurl.to_label('a','b', sep='.') }}",
+            ctx
+        )
+        assert val == "a.b"
+
     def test_templateFunc(self):
         query = {
             "eval": {"template": "{%if testVar %}{{success}}{%else%}failed{%endif%}"},
