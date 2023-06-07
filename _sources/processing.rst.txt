@@ -75,14 +75,15 @@ Ansible Jinja2 Templates
 ========================
 
 Unfurl will process any `Ansible-flavored Jinja2 templates <https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html>`_ it encounters in strings while processing an Ensemble template.
-It support the full suite of filters and lookup plugins provided by Ansible as well as the following filters and lookup plugins:
+It support the full suite of filters and lookup plugins provided by Ansible as well as the following predefined variables, filters, and lookup plugins:
 
 Filters
 -------
 
-  :eval: Evaluates the given `expression <eval expressions>` or function
-  :mapValue: Resolves any `eval expressions` or template strings in the give map or list.
-  :abspath: see `abspath`,
+  :eval: Evaluates the given `expression <eval expressions>` or function. Equivalent to `resolve_one`
+         For example: ``{{ "::instance1::anAttribute" | eval }}``
+  :map_value: Resolves any `eval expressions` or template strings embedded in the given map or list. Equivalent to :py:func:`unfurl.eval.map_value`.
+  :abspath: see `abspath`
   :get_dir: see `get_dir`
   :which: Returns the full path to the given executable, like the ``which`` shell command.
 
@@ -92,6 +93,14 @@ Lookup plugins
   :unfurl: Evaluates the given `expression <eval expressions>`
            For example: ``{{ lookup("unfurl", "::instance1::anAttribute") }}``
 
+
+Variables
+---------
+
+  :__unfurl: The current `RefContext`. This can be used to call `expression functions` as Jinja2 functions,
+             for example: ``{{ __unfurl.to_label('a','b', sep='.') }}``
+  :__now: The current time in seconds since the epoch (1970) (Python's ``time.time()``)
+  :__python_executable: The location of the current python executable (Python's ``sys.executable``)
 
 
 Eval Expressions

@@ -618,7 +618,7 @@ the operation preformed and observed changes to the instance (attributes changed
 
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.TaskView.find_connection">
-<span class="sig-name descname"><span class="pre">find_connection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">unfurl.runtime.NodeInstance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relation</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'tosca.relationships.ConnectsTo'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">unfurl.runtime.RelationshipInstance</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#unfurl.configurator.TaskView.find_connection" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">find_connection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><span class="pre">unfurl.eval.RefContext</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">unfurl.runtime.NodeInstance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relation</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'tosca.relationships.ConnectsTo'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">unfurl.runtime.RelationshipInstance</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#unfurl.configurator.TaskView.find_connection" title="Permalink to this definition"></a></dt>
 <dd><p>Find a relationship that this task can use to connect to the given instance.
 First look for relationship between the task’s target instance and the given instance.
 If none is found, see if there a default connection of the given type.</p>
@@ -627,6 +627,7 @@ If none is found, see if there a default connection of the given type.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>target</strong> (<em>NodeInstance</em>) – The instance to connect to.</p></li>
 <li><p><strong>relation</strong> (<em>str</em><em>, </em><em>optional</em>) – The relationship type. Defaults to “tosca.relationships.ConnectsTo”.</p></li>
+<li><p><strong>ctx</strong> (<a class="reference internal" href="#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><em>unfurl.eval.RefContext</em></a>) – </p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns</dt>
@@ -1168,8 +1169,8 @@ Otherwise return ok.
 </dd></dl>
 
 <dl class="py property">
-<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.manual_overide_status">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">manual_overide_status</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status"><span class="pre">unfurl.support.Status</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#unfurl.runtime.OperationalInstance.manual_overide_status" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.manual_override_status">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">manual_override_status</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status"><span class="pre">unfurl.support.Status</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#unfurl.runtime.OperationalInstance.manual_override_status" title="Permalink to this definition"></a></dt>
 <dd><p>The manualOverideStatus property.</p>
 </dd></dl>
 
@@ -2306,6 +2307,24 @@ use resolve() which always returns a (possible empty) of matches</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p><em>List</em>[unfurl.result.Result]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="unfurl.eval.map_value">
+<span class="sig-prename descclassname"><span class="pre">unfurl.eval.</span></span><span class="sig-name descname"><span class="pre">map_value</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resourceOrCxt</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><span class="pre">unfurl.eval.RefContext</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">unfurl.result.ResourceRef</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">applyTemplates</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="headerlink" href="#unfurl.eval.map_value" title="Permalink to this definition"></a></dt>
+<dd><p>Resolves any expressions or template strings embedded in the given map or list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>value</strong> (<em>Any</em>) – </p></li>
+<li><p><strong>resourceOrCxt</strong> (<em>Union</em><em>[</em><a class="reference internal" href="#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><em>unfurl.eval.RefContext</em></a><em>, </em><em>unfurl.result.ResourceRef</em><em>]</em>) – </p></li>
+<li><p><strong>applyTemplates</strong> (<em>bool</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
 </dd>
 </dl>
 </dd></dl>

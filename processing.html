@@ -66,6 +66,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#ansible-jinja2-templates">Ansible Jinja2 Templates</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#filters">Filters</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#lookup-plugins">Lookup plugins</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#variables">Variables</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#eval-expressions">Eval Expressions</a><ul>
@@ -176,19 +177,20 @@ If the value is “raw”, include the result without any further processing.</p
 <section id="ansible-jinja2-templates">
 <h2><a class="toc-backref" href="#id5">Ansible Jinja2 Templates</a><a class="headerlink" href="#ansible-jinja2-templates" title="Permalink to this headline"></a></h2>
 <p>Unfurl will process any <a class="reference external" href="https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html">Ansible-flavored Jinja2 templates</a> it encounters in strings while processing an Ensemble template.
-It support the full suite of filters and lookup plugins provided by Ansible as well as the following filters and lookup plugins:</p>
+It support the full suite of filters and lookup plugins provided by Ansible as well as the following predefined variables, filters, and lookup plugins:</p>
 <section id="filters">
 <h3><a class="toc-backref" href="#id6">Filters</a><a class="headerlink" href="#filters" title="Permalink to this headline"></a></h3>
 <blockquote>
 <div><dl class="field-list simple">
 <dt class="field-odd">eval</dt>
-<dd class="field-odd"><p>Evaluates the given <a class="reference internal" href="#eval-expressions"><span class="std std-ref">expression</span></a> or function</p>
+<dd class="field-odd"><p>Evaluates the given <a class="reference internal" href="#eval-expressions"><span class="std std-ref">expression</span></a> or function. Equivalent to <a class="reference internal" href="api.html#unfurl.eval.Ref.resolve_one" title="unfurl.eval.Ref.resolve_one"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">resolve_one</span></code></a>
+For example: <code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">&quot;::instance1::anAttribute&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
 </dd>
-<dt class="field-even">mapValue</dt>
-<dd class="field-even"><p>Resolves any <a class="reference internal" href="#eval-expressions"><span class="std std-ref">Eval Expressions</span></a> or template strings in the give map or list.</p>
+<dt class="field-even">map_value</dt>
+<dd class="field-even"><p>Resolves any <a class="reference internal" href="#eval-expressions"><span class="std std-ref">Eval Expressions</span></a> or template strings embedded in the given map or list. Equivalent to <a class="reference internal" href="api.html#unfurl.eval.map_value" title="unfurl.eval.map_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">unfurl.eval.map_value()</span></code></a>.</p>
 </dd>
 <dt class="field-odd">abspath</dt>
-<dd class="field-odd"><p>see <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a>,</p>
+<dd class="field-odd"><p>see <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a></p>
 </dd>
 <dt class="field-even">get_dir</dt>
 <dd class="field-even"><p>see <a class="reference internal" href="expressions.html#get-dir"><span class="std std-ref">get_dir</span></a></p>
@@ -210,9 +212,26 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 </dl>
 </div></blockquote>
 </section>
+<section id="variables">
+<h3><a class="toc-backref" href="#id8">Variables</a><a class="headerlink" href="#variables" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">__unfurl</dt>
+<dd class="field-odd"><p>The current <a class="reference internal" href="api.html#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><code class="xref any py py-class docutils literal notranslate"><span class="pre">RefContext</span></code></a>. This can be used to call <a class="reference internal" href="expressions.html#id2"><span class="std std-ref">Expression Functions</span></a> as Jinja2 functions,
+for example: <code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">__unfurl.to_label('a','b',</span> <span class="pre">sep='.')</span> <span class="pre">}}</span></code></p>
+</dd>
+<dt class="field-even">__now</dt>
+<dd class="field-even"><p>The current time in seconds since the epoch (1970) (Python’s <code class="docutils literal notranslate"><span class="pre">time.time()</span></code>)</p>
+</dd>
+<dt class="field-odd">__python_executable</dt>
+<dd class="field-odd"><p>The location of the current python executable (Python’s <code class="docutils literal notranslate"><span class="pre">sys.executable</span></code>)</p>
+</dd>
+</dl>
+</div></blockquote>
+</section>
 </section>
 <section id="eval-expressions">
-<h2><a class="toc-backref" href="#id8">Eval Expressions</a><a class="headerlink" href="#eval-expressions" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id9">Eval Expressions</a><a class="headerlink" href="#eval-expressions" title="Permalink to this headline"></a></h2>
 <div class="contents topic" id="contents">
 <p class="topic-title">Contents</p>
 <ul class="simple">
@@ -227,15 +246,16 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 <ul>
 <li><p><a class="reference internal" href="#filters" id="id6">Filters</a></p></li>
 <li><p><a class="reference internal" href="#lookup-plugins" id="id7">Lookup plugins</a></p></li>
+<li><p><a class="reference internal" href="#variables" id="id8">Variables</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#eval-expressions" id="id8">Eval Expressions</a></p>
+<li><p><a class="reference internal" href="#eval-expressions" id="id9">Eval Expressions</a></p>
 <ul>
-<li><p><a class="reference internal" href="#expression-query-syntax" id="id9">Expression Query Syntax</a></p></li>
-<li><p><a class="reference internal" href="#expression-function-syntax" id="id10">Expression Function Syntax</a></p></li>
-<li><p><a class="reference internal" href="#evaluation-semantics" id="id11">Evaluation Semantics</a></p>
+<li><p><a class="reference internal" href="#expression-query-syntax" id="id10">Expression Query Syntax</a></p></li>
+<li><p><a class="reference internal" href="#expression-function-syntax" id="id11">Expression Function Syntax</a></p></li>
+<li><p><a class="reference internal" href="#evaluation-semantics" id="id12">Evaluation Semantics</a></p>
 <ul>
-<li><p><a class="reference internal" href="#results-flattened" id="id12">Results flattened</a></p></li>
+<li><p><a class="reference internal" href="#results-flattened" id="id13">Results flattened</a></p></li>
 </ul>
 </li>
 </ul>
@@ -246,7 +266,7 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 </div>
 <p>When jobs are run Unfurl expressions that appear in the YAML configuration files are processed.</p>
 <section id="expression-query-syntax">
-<h3><a class="toc-backref" href="#id9">Expression Query Syntax</a><a class="headerlink" href="#expression-query-syntax" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id10">Expression Query Syntax</a><a class="headerlink" href="#expression-query-syntax" title="Permalink to this headline"></a></h3>
 <pre>
 <strong id="grammar-token-expr">expr   </strong> ::=  segment? (&quot;::&quot; segment)*
 <strong id="grammar-token-segment">segment</strong> ::=  [key] (&quot;[&quot; filter &quot;]&quot;)* [&quot;?&quot;]
@@ -257,7 +277,7 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 </pre>
 </section>
 <section id="expression-function-syntax">
-<h3><a class="toc-backref" href="#id10">Expression Function Syntax</a><a class="headerlink" href="#expression-function-syntax" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id11">Expression Function Syntax</a><a class="headerlink" href="#expression-function-syntax" title="Permalink to this headline"></a></h3>
 <blockquote>
 <div><table class="docutils align-default">
 <colgroup>
@@ -301,7 +321,7 @@ For example: <code class="docutils literal notranslate"><span class="pre">{{</sp
 </div></blockquote>
 </section>
 <section id="evaluation-semantics">
-<h3><a class="toc-backref" href="#id11">Evaluation Semantics</a><a class="headerlink" href="#evaluation-semantics" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id12">Evaluation Semantics</a><a class="headerlink" href="#evaluation-semantics" title="Permalink to this headline"></a></h3>
 <p>Each segment specifies a key in a resource or JSON/YAML object.
 <code class="docutils literal notranslate"><span class="pre">::</span></code> is used as the segment delimitated to allow for keys that contain “.” and “/”</p>
 <p>Path expressions evaluations always start with a list of one or more instances.
@@ -329,7 +349,7 @@ Otherwise, the current value is set to the evaluation of <code class="docutils l
 the expression will be the result of evaluating it against the first ancestor of the current resource that it matches.</p>
 <p>If key or test needs to be a non-string type or contain reserved characters use a var reference instead.</p>
 <section id="results-flattened">
-<h4><a class="toc-backref" href="#id12">Results flattened</a><a class="headerlink" href="#results-flattened" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id13">Results flattened</a><a class="headerlink" href="#results-flattened" title="Permalink to this headline"></a></h4>
 <p>When multiple steps resolve to lists the resultant lists are flattened.
 However if the final set of matches contain values that are lists those values are not flattened.</p>
 <p>For example, given:</p>
