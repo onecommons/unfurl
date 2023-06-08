@@ -489,7 +489,7 @@ def create_project(
     if not kw.get("render"):
         if password_vault:
             yaml = make_yaml(password_vault)
-            commit_secrets(os.path.dirname(projectConfigPath), yaml)
+            commit_secrets(os.path.dirname(projectConfigPath), yaml, repo)
 
         _commit_repos(
             projectdir,

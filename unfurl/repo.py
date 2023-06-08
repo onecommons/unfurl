@@ -317,12 +317,12 @@ class Repo(abc.ABC):
         return GitRepo(repo)
 
 
-def commit_secrets(working_dir, yaml):
+def commit_secrets(working_dir, yaml, repo: "GitRepo"):
     vault = yaml and getattr(yaml.representer, "vault", None)
     if not vault or not vault.secrets:
         return []
     saved = []
-    for filepath, dotsecrets in find_dirty_secrets(working_dir):
+    for filepath, dotsecrets in find_dirty_secrets(working_dir, repo):
         with open(filepath, "r") as vf:
             vaultContents = vf.read()
         encoding = None if vaultContents.startswith("$ANSIBLE_VAULT;") else "vault"
@@ -333,14 +333,17 @@ def commit_secrets(working_dir, yaml):
     return saved
 
 
-def find_dirty_secrets(working_dir):
-    # compare .secrets with secrets
+def find_dirty_secrets(working_dir: str, repo: "GitRepo"):
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
             continue
         for filename in files:
             dotsecrets = Path(root.replace("secrets", ".secrets"))
             filepath = Path(root) / filename
+            local_path = str((dotsecrets / filename).relative_to(working_dir))
+            if repo.is_path_excluded(local_path):
+                continue
+            # compare .secrets with secrets
             if (
                 not dotsecrets.is_dir()
                 or filename not in list([p.name for p in dotsecrets.iterdir()])
@@ -434,7 +437,7 @@ class RepoView:
     def is_dirty(self):
         if self.readOnly or not self.repo:
             return False
-        for filepath, dotsecrets in find_dirty_secrets(self.working_dir):
+        for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
             return True
         return self.repo.is_dirty(untracked_files=True, path=self.path)
 
@@ -474,7 +477,8 @@ class RepoView:
                     logger.verbose("decrypted secret file to %s", target)
 
     def save_secrets(self):
-        return commit_secrets(self.working_dir, self.yaml)
+        assert self.repo
+        return commit_secrets(self.working_dir, self.yaml, self.repo)
 
     def commit(self, msg: str, add_all: bool = False) -> int:
         assert not self.readOnly
@@ -482,8 +486,7 @@ class RepoView:
         if self.yaml:
             for saved in self.save_secrets():
                 local_path = str(saved.relative_to(self.repo.working_dir))
-                if not self.repo.is_path_excluded(local_path):
-                    self.repo.repo.git.add(local_path)
+                self.repo.repo.git.add(local_path)
         if add_all:
             self.add_all()
         self.repo.repo.index.commit(msg)
@@ -499,7 +502,7 @@ class RepoView:
         modified = "\n   ".join(
             [
                 str(filepath.relative_to(self.repo.working_dir))
-                for filepath, dotsecrets in find_dirty_secrets(self.working_dir)
+                for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo)
             ]
         )
         if modified:
