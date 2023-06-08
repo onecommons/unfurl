@@ -968,7 +968,7 @@ def filter_task_request(jobOptions, req):
     return req
 
 
-def _find_implementation(interface, operation, template):
+def _find_implementation(interface: str, operation: str, template: EntitySpec):
     default = None
     for iDef in template.get_interfaces():
         if iDef.interfacename == interface or iDef.type == interface:
