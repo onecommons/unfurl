@@ -379,7 +379,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repo_view.as_git_url(), base
             )
             if repo:
-                repo_view.repo = None
+                repo_view.repo = repo
             else:
                 raise UnfurlError(
                     "Could not resolve git URL: " + repo_view.as_git_url(True)

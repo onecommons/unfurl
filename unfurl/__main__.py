@@ -1313,6 +1313,7 @@ def help(ctx, cmd=""):
 def serve(
     ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options
 ):
+    """Run unfurl as a server."""
     options.update(ctx.obj)
     # env vars need to set before importing serve
     if cors:
