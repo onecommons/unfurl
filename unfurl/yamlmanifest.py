@@ -918,7 +918,7 @@ class YamlManifest(ReadOnlyManifest):
 
     def add_all(self) -> None:
         for repository in self.repositories.values():
-            if not repository.readOnly and repository.is_dirty():
+            if not repository.read_only and repository.is_dirty():
                 repository.add_all()
 
     def commit(self, msg: str, add_all: bool = False) -> int:
@@ -926,7 +926,7 @@ class YamlManifest(ReadOnlyManifest):
         for repository in self.repositories.values():
             if repository.repo == self.repo:
                 continue
-            if not repository.readOnly and repository.is_dirty():
+            if not repository.read_only and repository.is_dirty():
                 retVal = repository.commit(msg, add_all)
                 committed += 1
                 logger.info(

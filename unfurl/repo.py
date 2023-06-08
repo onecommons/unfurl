@@ -370,6 +370,7 @@ class RepoView:
         self.revision: Optional[str] = None
         self.file_refs: List[str] = []
         self.set_repo_and_path(repo, path)
+        self.read_only = False
         self.package: Optional[Union[Literal[False], "Package"]] = None
 
     def set_repo_and_path(self, repo: Optional["GitRepo"], path: str):
@@ -379,7 +380,6 @@ class RepoView:
             self.repository.url = repo.get_url_with_path(
                 path, False, self.revision or ""
             )
-        self.readOnly = not repo
 
     @property
     def working_dir(self) -> str:
@@ -435,7 +435,7 @@ class RepoView:
         return ""
 
     def is_dirty(self):
-        if self.readOnly or not self.repo:
+        if self.read_only or not self.repo:
             return False
         for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
             return True
@@ -446,7 +446,7 @@ class RepoView:
             self.file_refs.append(file_name)
 
     def add_all(self):
-        assert not self.readOnly and self.repo
+        assert not self.read_only and self.repo
         self.repo.repo.git.add("--all", self.path or ".")
 
     def load_secrets(self, _loader):
@@ -481,7 +481,7 @@ class RepoView:
         return commit_secrets(self.working_dir, self.yaml, self.repo)
 
     def commit(self, msg: str, add_all: bool = False) -> int:
-        assert not self.readOnly
+        assert not self.read_only
         assert self.repo
         if self.yaml:
             for saved in self.save_secrets():
@@ -493,7 +493,6 @@ class RepoView:
         return 1
 
     def git_status(self):
-        assert not self.readOnly
         assert self.repo
         return self.repo.run_cmd(["status", self.path or "."])[1]
 
