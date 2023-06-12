@@ -543,7 +543,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def load_yaml(
         self,
-        importsLoader: Any,
         path: str,
         fragment: Optional[str],
         ctx,
@@ -607,7 +606,6 @@ class SimpleCacheResolver(ImportResolver):
 
     def load_yaml(
         self,
-        importsLoader: toscaparser.imports.ImportsLoader,
         path: str,
         fragment,
         ctx,
