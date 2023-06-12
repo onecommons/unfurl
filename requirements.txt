@@ -4,7 +4,9 @@ click>=8.0.1 # BSD 3-clause
 click-log  # MIT
 pyrsistent==0.15.7; python_version<'3' # last version with 2.7 support (needed for jsonschema)
 jsonschema[format_nongpl]==3.2 # MIT
-ruamel.yaml>= 0.16.13; python_version>='3'  # MIT
+ruamel.yaml==0.17.21
+charset-normalizer==2.1.1 # pin
+cryptography==38.0.3 # pin
 ansible>=4.2.0,<5.0 # gpl 3
 GitPython==3.1.20; python_version<'3.7' # last 3.6 version
 GitPython==3.1.30; python_version>='3.7' # BSD

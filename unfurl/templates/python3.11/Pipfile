@@ -9,7 +9,7 @@ click = ">=8.0.1"
 click-log = "*"
 pyrsistent = "==0.15.7"
 jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
-"ruamel.yaml" = ">=0.16.13"
+"ruamel.yaml" = "==0.17.21"
 ansible = ">=4.2.0,<5.0"
 gitpython = "==3.1.30"
 rich = "==12.4.4"
@@ -43,6 +43,8 @@ kubernetes = "==24.2.0"
 gunicorn = "==20.1.0"
 redis = "==4.4.4"
 flask-cors = "==3.0.10"
+charset-normalizer = "==2.1.1"
+cryptography = "==38.0.3"
 
 [dev-packages]
 
