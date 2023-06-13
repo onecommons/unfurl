@@ -41,6 +41,8 @@ RUN echo "Installing Terraform" && \
 
 COPY . /unfurl
 
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir pipenv && \
-    cd /unfurl/unfurl/templates/python3.9 && pipenv install --system --deploy && \
-    cd / && rm -rf /unfurl
+RUN pip install --no-cache-dir --upgrade pip pipenv && \
+    cd /unfurl/unfurl/templates/python3.9 && \
+    pipenv install --system --deploy && \
+    pip install --no-deps /unfurl && \
+    unfurl version && rm -rf /unfurl
