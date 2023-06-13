@@ -221,12 +221,11 @@ class CliTest(unittest.TestCase):
             finally:
                 os.environ["UNFURL_NORUNTIME"] = "1"
 
-    # @unittest.skipIf(
-    #     "slow" in os.getenv("UNFURL_TEST_SKIP", "")
-    #     or "docker" in os.getenv("UNFURL_TEST_SKIP", ""),
-    #     "UNFURL_TEST_SKIP set",
-    # )
-    @unittest.skip("disable while we repair the docker image")
+    @unittest.skipIf(
+        "slow" in os.getenv("UNFURL_TEST_SKIP", "")
+        or "docker" in os.getenv("UNFURL_TEST_SKIP", ""),
+        "UNFURL_TEST_SKIP set",
+    )
     def test_docker_runtime(self):
         ensemble = """
 apiVersion: unfurl/v1alpha1
