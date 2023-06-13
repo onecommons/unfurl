@@ -661,7 +661,7 @@ class Results(ABC):
                 return map_value(transform, self.context.copy(vars=dict(value=value)))
         return value
 
-    def _validate(self, key, value, src=None, propDef=None):
+    def _validate(self, key, value, src=None, propDef=None, updating=False):
         propDef = propDef or self.defs.get(key)
         if not propDef:
             return True
@@ -671,11 +671,13 @@ class Results(ABC):
                 # required attributes might be null depending on the state of the resource
                 if (
                     propDef.required
-                    and resource.template
-                    and key not in resource.template.attributeDefs
                 ):
-                    msg = f'Property "{key}" on "{resource.template.name}" cannot be null.'
-                    raise ValidationError(message=msg)
+                    assert resource.template
+                    is_attribute = key in resource.template.attributeDefs
+                    if updating or not is_attribute:
+                        key_type = "Attribute" if is_attribute else "Property"
+                        msg = f'{key_type} "{key}" on "{resource.template.name}" cannot be null.'
+                        raise ValidationError(message=msg)
             else:
                 propDef._validate(value)
             self.context.trace(f'Validated "{key}" on "{resource.name}')
@@ -708,7 +710,7 @@ class Results(ABC):
             resolved = self[key]
             if resolved != value:  # the existing value changed
                 if self.validate:
-                    self._validate(key, value)
+                    self._validate(key, value, updating=True)
                 if self.defs and is_sensitive_schema(self.defs, key):
                     value = wrap_sensitive_value(value)
 
@@ -719,7 +721,7 @@ class Results(ABC):
                 result.resolved = value
         else:
             if self.validate:
-                self._validate(key, value)
+                self._validate(key, value, updating=True)
             if self.defs and is_sensitive_schema(self.defs, key):
                 value = wrap_sensitive_value(value)
             self._attributes[key] = Result(value)
@@ -732,6 +734,8 @@ class Results(ABC):
             raise UnfurlError(
                 "Attempting to delete item {item} on a readonly instance {self.context.currentResource}"
             )
+        if self.validate:
+            self._validate(index, None, updating=True)
         val = self._attributes[index]
         self._deleted[index] = val
         del self._attributes[index]
