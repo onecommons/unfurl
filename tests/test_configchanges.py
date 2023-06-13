@@ -5,6 +5,9 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.configurator import Configurator
+from unfurl.support import Status
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner, JobOptions
 from unfurl.plan import DeployPlan
 from .utils import init_project, run_job_cmd
 
@@ -12,9 +15,16 @@ from .utils import init_project, run_job_cmd
 version1 = """
   apiVersion: unfurl/v1alpha1
   kind: Ensemble
+  changes: [] # add so changes are saved here
   spec:
     service_template:
       types:
+        nodes.RequiredAttribute:
+          derived_from: tosca.nodes.Root
+          attributes:
+            required:
+              type: string
+              required: true
         nodes.Test:
           derived_from: tosca.nodes.Root
           interfaces:
@@ -27,10 +37,10 @@ version1 = """
                     status: ok
       topology_template:
         node_templates:
-          node2: 
+          node2:
             type: nodes.Test
           node1:
-            type: tosca.nodes.Root
+            type: nodes.RequiredAttribute
             properties:
               outputVar: unset
             interfaces:
@@ -51,8 +61,10 @@ version1 = """
                       - name: .self
                         attributes:
                           outputVar: "{{ outputVar }}"
-  changes: [] # add so changes are saved here
 """
+
+# also have the resultTemplate set the "required" attribute
+requiredTestManifest = version1 + "\n                          required: null"
 
 
 class SpecChangeConfigurator(Configurator):
@@ -361,6 +373,13 @@ class ConfigChangeTest(unittest.TestCase):
             assert changes["digestKeys"] == "::node1::testProperty"
             assert changes["digestValue"] == "ae4f281df5a5d0ff3cad6371f76d5c29b6d953ec"
 
+def test_required_attribute_validation(caplog):
+    runner = Runner(YamlManifest(requiredTestManifest))
+    jobOptions1 = JobOptions(startTime=1)
+    job = runner.run(jobOptions1)
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    assert 'Validation failure while evaluating "required" on "node1": Attribute "required" on "node1" cannot be null' in caplog.text
+    assert job.status == Status.error
 
 def test_topology_input_change():
     "Test that changing the value of an input cause dependent tasks to be rerun"

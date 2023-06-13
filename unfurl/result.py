@@ -669,9 +669,7 @@ class Results(ABC):
         try:
             if value is None:
                 # required attributes might be null depending on the state of the resource
-                if (
-                    propDef.required
-                ):
+                if propDef.required:
                     assert resource.template
                     is_attribute = key in resource.template.attributeDefs
                     if updating or not is_attribute:
@@ -708,9 +706,9 @@ class Results(ABC):
             )
         if self._haskey(key):
             resolved = self[key]
+            if self.validate:
+                self._validate(key, value, updating=True)
             if resolved != value:  # the existing value changed
-                if self.validate:
-                    self._validate(key, value, updating=True)
                 if self.defs and is_sensitive_schema(self.defs, key):
                     value = wrap_sensitive_value(value)
 
