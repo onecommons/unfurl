@@ -11,15 +11,9 @@ from ..util import UnfurlTaskError, wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
 from ..eval import Ref, RefContext, set_eval_func, map_value
+from .k8s_ansible import get_api_client
 import subprocess
 import json
-from ansible_collections.kubernetes.core.plugins.module_utils.common import (
-    K8sAnsibleMixin,
-)
-
-# XXX need to define fail_json
-# class K8sAnsibleClient(K8sAnsibleMixin):
-# def fail_json(msg):
 
 
 def _get_connection_config(instance):
@@ -202,7 +196,7 @@ def make_pull_secret(name, hostname, username, password) -> str:
 class ClusterConfigurator(Configurator):
     @staticmethod
     def _get_host(connectionConfig):
-        client = K8sAnsibleMixin().get_api_client(**connectionConfig)
+        client = get_api_client(**connectionConfig)
         url = client.configuration.host
         if url:
             return re.sub("^https?://", "", url)
