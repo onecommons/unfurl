@@ -109,7 +109,7 @@ class Manifest(AttributeManager):
         self._importedManifests: Dict = {}
         self.cache: Dict[str, Any] = {}
 
-    def _add_repositories_from_environment(self):
+    def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
         context = self.localEnv.get_context()
         repositories = {}
@@ -127,7 +127,7 @@ class Manifest(AttributeManager):
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 self.package_specs[key] = PackageSpec(key, value, None)
-        resolver = self.get_import_resolver(self)
+        resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
             self.repositories[name] = RepoView(toscaRepository, None)
@@ -584,7 +584,7 @@ class Manifest(AttributeManager):
     ) -> Dict[str, dict]:
         # Called during parse time when including files
         if not resolver:
-            resolver = self.get_import_resolver(self)
+            resolver = self.get_import_resolver()
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
         for name, tpl in repositories.items():
@@ -730,7 +730,7 @@ class Manifest(AttributeManager):
         return path, doc
 
     def get_import_resolver(
-        self, ignoreFileNotFound=False, expand=False, config=None
+        self, ignoreFileNotFound: bool=False, expand: bool=False, config: Optional[dict]=None
     ) -> ImportResolver:
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
