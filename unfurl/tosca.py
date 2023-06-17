@@ -5,6 +5,8 @@ TOSCA implementation
 """
 import copy
 
+from toscaparser.elements.interfaces import OperationDef
+
 from .tosca_plugins import TOSCA_VERSION
 from .util import (
     UnfurlError,
@@ -695,7 +697,7 @@ class EntitySpec(ResourceRef):
             return getattr(self, key)
         raise KeyError(key)
 
-    def get_interfaces(self):
+    def get_interfaces(self) -> List[OperationDef]:
         return self.toscaEntityTemplate.interfaces
 
     @property
@@ -992,11 +994,11 @@ class NodeSpec(EntitySpec):
                     self._relationships.append(RelationshipSpec(r, self.topology, self))
         return self._relationships
 
-    def get_capability_interfaces(self):
+    def get_capability_interfaces(self) -> List[OperationDef]:
         idefs = [r.get_interfaces() for r in self._get_relationship_specs()]
         return [i for elem in idefs for i in elem if i.name != "default"]
 
-    def get_requirement_interfaces(self):
+    def get_requirement_interfaces(self) -> List[OperationDef]:
         idefs = [r.get_interfaces() for r in self.requirements.values()]
         return [i for elem in idefs for i in elem if i.name != "default"]
 
@@ -1193,7 +1195,7 @@ class RequirementSpec:
     def get_uri(self):
         return self.parentNode.name + "~q~" + self.name
 
-    def get_interfaces(self):
+    def get_interfaces(self) -> List[OperationDef]:
         return self.relationship.get_interfaces() if self.relationship else []
 
     def get_nodefilter_properties(self):
@@ -1234,7 +1236,7 @@ class CapabilitySpec(EntitySpec):
     def artifacts(self):
         return self.parentNode.artifacts
 
-    def get_interfaces(self):
+    def get_interfaces(self) -> List[OperationDef]:
         # capabilities don't have their own interfaces
         return self.parentNode.get_interfaces()
 
@@ -1325,7 +1327,7 @@ class TopologySpec(EntitySpec):
     def get_node_template(self, name: str) -> Optional[NodeSpec]:
         return self.node_templates.get(name)
 
-    def get_interfaces(self):
+    def get_interfaces(self) -> List[OperationDef]:
         # doesn't have any interfaces
         return []
 
