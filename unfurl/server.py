@@ -39,7 +39,14 @@ from git.objects import Commit
 
 from .projectpaths import rmtree
 from .localenv import LocalEnv, Project
-from .repo import GitRepo, Repo, add_user_to_url, normalize_git_url_hard, sanitize_url
+from .repo import (
+    GitRepo,
+    Repo,
+    RepoView,
+    add_user_to_url,
+    normalize_git_url_hard,
+    sanitize_url,
+)
 from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
@@ -372,13 +379,13 @@ class CacheEntry:
     def _cancel_inflight(self, cache: Cache):
         return cache.delete(self._inflight_key())
 
-    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any, str]:
+    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any, bool, str]:
         try:
             # NB: work shouldn't modify the working directory
-            err, value = work(self, latest_commit)
+            err, value, cacheable = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
-            return exc, None, latest_commit
+            return exc, None, False, latest_commit
         if not self.repo or self.strict:
             # self.strict might reclone the repo
             self._set_project_repo()
@@ -386,7 +393,7 @@ class CacheEntry:
         latest = self.repo.revision
         if latest:  # if revision is valid
             latest_commit = latest
-        return err, value, latest_commit
+        return err, value, cacheable, latest_commit
 
     def get_or_set(
         self,
@@ -417,10 +424,10 @@ class CacheEntry:
             # there was already work inflight and use that instead
             return None, value
 
-        err, value, latest_commit = self._do_work(work, latest_commit)
+        err, value, cacheable, latest_commit = self._do_work(work, latest_commit)
         found_inflight = self._cancel_inflight(cache)
         # skip caching work if not `found_inflight` -- that means invalidate_cache deleted it
-        if found_inflight and not err:
+        if cacheable and found_inflight and not err:
             self.set_cache(cache, latest_commit, value)
         return err, value
 
@@ -485,7 +492,7 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
     return urljoin(base_url, project_id + ".git")
 
 
-def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[str]:
+def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[GitRepo]:
     """
     Clones or pulls the latest from the given project repository and returns the repository's working directory
     or None if clone failed.
@@ -515,9 +522,11 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[str
                 new_project = Project(repo.working_dir)
                 created_local = init._create_local_config(new_project, logger, {})
                 if not created_local:
-                    logger.error(f"creating local/unfurl.yaml in {new_project.projectRoot} failed")
+                    logger.error(
+                        f"creating local/unfurl.yaml in {new_project.projectRoot} failed"
+                    )
             logger.info("clone success: %s to %s", repo.safe_url, repo.working_dir)
-    return repo and repo.working_dir or None
+    return repo
 
 
 def _get_filepath(format, deployment_path):
@@ -543,7 +552,7 @@ def format_from_path(path):
 
 
 def _export_cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
-    return _do_export(
+    err, val = _do_export(
         cache_entry.project_id,
         cache_entry.key,
         cache_entry.file_path,
@@ -551,6 +560,7 @@ def _export_cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) 
         latest_commit,
         args,
     )
+    return err, val, True
 
 
 def _validate_export(
@@ -758,16 +768,17 @@ def _localenv_from_cache(
     # we want to make cloning a project cache work to prevent concurrent cloning
     def _cache_localenv_work(
         cache_entry: CacheEntry, latest_commit: str
-    ) -> Tuple[Any, Any]:
+    ) -> Tuple[Any, Any, bool]:
         # don't try to pull -- cache will have already pulled
         clone_location = _fetch_working_dir(cache_entry.project_id, branch, args, False)
         if clone_location is None:
             return (
                 create_error_response("INTERNAL_ERROR", "Could not find repository"),
-                None,
+                None, False
             )
         clone_location = os.path.join(clone_location, deployment_path)
-        return _make_readonly_localenv(clone_location)
+        err, local_env = _make_readonly_localenv(clone_location)
+        return err, local_env, True
 
     repo = _get_project_repo(project_id, branch, args)
     return CacheEntry(
@@ -1322,7 +1333,8 @@ def _fetch_working_dir(
         else:
             # otherwise clone the project if necessary
             # root of repo not necessarily unfurl project
-            clone_location = _stage(project_path, branch, args, pull)
+            repo = _stage(project_path, branch, args, pull)
+            clone_location = repo.working_dir if repo else None
         if not clone_location:
             return clone_location
     # XXX: deployment_path must be in the project repo, split repos are not supported
