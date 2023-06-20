@@ -723,10 +723,11 @@ class GitRepo(Repo):
         # add persistent git options
         call.extend(gitcmd._persistent_git_options)
         call.extend(list(args))
+        call.extend(gitcmd.transform_kwargs(**kw))
 
         # note: sets cwd to working_dir
         return gitcmd.execute(  # type: ignore
-            call, with_exceptions=with_exceptions, with_extended_output=True, **kw
+            call, with_exceptions=with_exceptions, with_extended_output=True
         )
 
     def add_to_local_git_ignore(self, rule):
