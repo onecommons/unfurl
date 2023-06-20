@@ -44,7 +44,7 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import Repo, RepoView, split_git_url
+from .repo import Repo, RepoView, split_git_url, memoized_remote_tags
 from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -410,6 +410,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             )
         return path
 
+    @classmethod
+    def get_remote_tags(cls, url, pattern="*") -> List[str]:
+        return memoized_remote_tags(url, pattern="*")
+
     def resolve_url(
         self,
         importsLoader: toscaparser.imports.ImportsLoader,
@@ -449,6 +453,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repo_view,
                 self.manifest.packages,
                 self.manifest.package_specs,
+                self.get_remote_tags,
             )
         repo_view.add_file_ref(file_name)
         path = toscaparser.imports.normalize_path(repo_view.url)

@@ -59,12 +59,13 @@ import re
 from typing import Dict, List, NamedTuple, Optional, Union, cast
 from typing_extensions import Literal
 from urllib.parse import urlparse
-from .repo import RepoView, is_url_or_git_path, split_git_url, get_remote_tags
+from .repo import RepoView, split_git_url, get_remote_tags
 from .logs import getLogger
 from .util import UnfurlError
 from toscaparser.utils.validateutils import TOSCAVersionProperty
 
 logger = getLogger("unfurl")
+
 
 class UnfurlPackageUpdateNeeded(UnfurlError):
     pass
@@ -239,17 +240,19 @@ def get_package_from_url(url_: str):
     return Package(package_id, url, revision)
 
 
-def get_url_with_latest_revision(url: str) -> str:
+def get_url_with_latest_revision(url: str, get_remote_tags=get_remote_tags) -> str:
     pkg = get_package_from_url(url)
     if not pkg:
         return url
-    pkg.set_version_from_repo()
+    pkg.set_version_from_repo(get_remote_tags)
     pkg.set_url_from_package_id()
     return pkg.url
 
 
 class Package:
-    def __init__(self, package_id: str, url: Optional[str], minimum_version: Optional[str]):
+    def __init__(
+        self, package_id: str, url: Optional[str], minimum_version: Optional[str]
+    ):
         self.package_id = package_id
         self.revision = minimum_version
         if url is None:
@@ -272,7 +275,7 @@ class Package:
             return re.sub(r"(/v\d+)?$", "", repopath) + "/v"
         return "v"
 
-    def find_latest_semver_from_repo(self) -> Optional[str]:
+    def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
         prefix = self.version_tag_prefix()
         # get an sorted list of tags and strip the prefix from them
         vtags = [tag[len(prefix) :] for tag in get_remote_tags(self.url, prefix + "*")]
@@ -285,8 +288,8 @@ class Package:
             return tags[0]
         return None
 
-    def set_version_from_repo(self):
-        self.revision = self.find_latest_semver_from_repo()
+    def set_version_from_repo(self, get_remote_tags):
+        self.revision = self.find_latest_semver_from_repo(get_remote_tags)
         # set flag to indicate the revision wasn't explicitly specified
         self.discovered_revision = True
 
@@ -307,6 +310,7 @@ class Package:
         # is this package pointing to ref that could change?
         return not self.lock_to_commit
         # XXX if revision, see if its tag or branch
+        # if self.discovered_revision: return True
         # treat tags immutable unless it looks like a non-exact semver tag:
         # return not self.revision or self.has_semver() or self.revision_is_branch()
 
@@ -318,7 +322,7 @@ class Package:
             if self.revision:
                 url, repopath, urlrevision = split_git_url(self.url)
                 repoview.path = repopath
-                repoview.revision = self.revision
+                repoview.revision = self.revision_tag
                 repoview.repository.url = f"{url}#{self.revision_tag}:{repopath}"
             else:
                 repoview.repository.url = self.url
@@ -357,7 +361,10 @@ PackagesType = Dict[str, Union[Literal[False], Package]]
 
 
 def resolve_package(
-    repoview: RepoView, packages: PackagesType, package_specs: Dict[str, PackageSpec]
+    repoview: RepoView,
+    packages: PackagesType,
+    package_specs: Dict[str, PackageSpec],
+    get_remote_tags=get_remote_tags,
 ) -> Optional["Package"]:
     """
     If repository references a package, register it with existing package or create a new one.
@@ -381,7 +388,7 @@ def resolve_package(
             )
         if not package.revision:
             # no version specified, use the latest version tagged in the repository
-            package.set_version_from_repo()
+            package.set_version_from_repo(get_remote_tags)
         if not changed and not package.revision:
             # don't treat repository as a package
             repoview.package = False

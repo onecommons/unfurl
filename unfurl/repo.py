@@ -66,10 +66,9 @@ def normalize_git_url(url: str, hard: int = 0):
             netloc = f"{user.partition(':')[0]}@{host}"
         else:  # hard >= 2
             netloc = host
-        if hard == 3 and parts.path.endswith(".git"):
-            path = parts.path[:-4]
-        else:
-            path = parts.path
+        path = parts.path.rstrip("/")
+        if hard == 3 and path.endswith(".git"):
+            path = path[:-4]
         return parts._replace(netloc=netloc, path=path).geturl()
     return url
 
@@ -141,8 +140,12 @@ def split_git_url(url) -> Tuple[str, str, str]:
     return url, "", ""
 
 
-# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
 @lru_cache(None)  # XXX won't get up dates in server mode
+def memoized_remote_tags(url, pattern="*") -> List[str]:
+    return get_remote_tags(url, pattern)
+
+
+# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
 def get_remote_tags(url, pattern="*") -> List[str]:
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
