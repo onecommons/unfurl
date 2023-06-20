@@ -713,16 +713,21 @@ class Manifest(AttributeManager):
         repositories = self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
+        if self.localEnv and self.localEnv.project:
+            repository_root = self.localEnv.project.projectRoot
+        else:
+            repository_root=self.get_base_dir()
         loader = toscaparser.imports.ImportsLoader(
             None,
             get_base_dir(baseDir),
             repositories=repositories,
             resolver=resolver,
+            repository_root=repository_root
         )
         import_spec = dict(
             file=artifactTpl["file"], repository=artifactTpl.get("repository")
         )
-        path, doc = loader.load_yaml(import_spec)
+        base, path, doc = loader.load_yaml(import_spec)
         if doc is None:
             logger.warning(
                 f"document include {templatePath} does not exist (base: {baseDir})"
