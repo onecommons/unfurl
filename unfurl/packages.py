@@ -288,10 +288,17 @@ class Package:
             return tags[0]
         return None
 
-    def set_version_from_repo(self, get_remote_tags):
-        self.revision = self.find_latest_semver_from_repo(get_remote_tags)
+    def set_version_from_repo(self, get_remote_tags) -> bool:
+        revision = self.find_latest_semver_from_repo(get_remote_tags)
         # set flag to indicate the revision wasn't explicitly specified
-        self.discovered_revision = True
+        if revision != self.revision:
+            # e.g. if no revision was specified and there are no version tags, don't set discovered_revision 
+            # so the package continues to rely on the default branch, not future tags
+            self.revision = revision
+            self.discovered_revision = True
+            return True
+        else:
+            return False
 
     def set_url_from_package_id(self):
         self.url = package_id_to_url(self.package_id, self.revision_tag)

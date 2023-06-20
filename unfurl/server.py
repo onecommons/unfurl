@@ -34,7 +34,7 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from .packages import is_semver
+from .packages import Package, get_package_from_url, is_semver
 
 from .projectpaths import rmtree
 from .localenv import LocalEnv, Project
@@ -88,10 +88,10 @@ app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
 app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
-app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = float(
+app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
 )
-app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = float(
+app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
 )
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
@@ -251,6 +251,7 @@ class CacheItemDependency:
     do_clone: bool = False
     latest_commit: str = ""  # HEAD of this branch
     last_commit: str = ""  # last commit for file_path
+    latest_package_url: str = ""  # set when dependency uses the latest package revision
 
     def to_entry(self) -> "CacheEntry":
         return CacheEntry(
@@ -263,6 +264,8 @@ class CacheItemDependency:
         )
 
     def out_of_date(self) -> bool:
+        if self.latest_package_url:
+            return self._tag_changed()
         cache_entry = self.to_entry()
         # get dep's repo, pulls if last pull greater than stale_pull_age
         repo = cache_entry.pull(cache, self.stale_pull_age)
@@ -274,6 +277,12 @@ class CacheItemDependency:
                 # there's a newer version of files used by the cache entry
                 return True
         return False  # we're up-to-date!
+
+    def _tag_changed(self) -> bool:
+        package = get_package_from_url(self.latest_package_url)
+        assert package
+        latest_tag = package.find_latest_semver_from_repo(ServerCacheResolver.get_remote_tags)
+        return latest_tag != package.revision_tag
 
 
 # cache value, last_commit (on the file_path), latest_commit (seen in branch), list of deps this value depends on
@@ -620,9 +629,12 @@ class CacheEntry:
         return err, value
 
     def add_cache_dep(
-        self, cache_entry: "CacheEntry", stale_pull_age: int, latest_commit: str
+        self, cache_entry: "CacheEntry", stale_pull_age: int, package: Optional[Package]
     ) -> CacheItemDependency:
         assert isinstance(cache_entry.commitinfo, Commit)
+        latest_commit = cache_entry.directives and cache_entry.directives.latest_commit
+        if not latest_commit and cache_entry.repo:
+            latest_commit = cache_entry.repo.revision
         dep = CacheItemDependency(
             cache_entry.project_id,
             cache_entry.branch,
@@ -630,9 +642,11 @@ class CacheEntry:
             cache_entry.key,
             stale_pull_age,
             cache_entry.do_clone,
-            latest_commit,
+            latest_commit or "",
             cache_entry.commitinfo.hexsha,
         )
+        if package and package.discovered_revision:
+            dep.latest_package_url = package.url
         self._deps.append(dep)
         return dep
 
@@ -1625,13 +1639,14 @@ class ServerCacheResolver(SimpleCacheResolver):
 
     @classmethod
     def get_remote_tags(cls, url, pattern="*") -> List[str]:
-        tags = cast(Optional[List[str]], cache.get("tags:" + url + ":" + pattern))
+        key = normalize_git_url_hard(url)
+        tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
         if tags is not None:
             return tags
         else:
             tags = get_remote_tags(url, pattern)
             timeout = app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
-            cache.set("tags:" + url + ":" + pattern, tags, timeout)
+            cache.set("tags:" + key + ":" + pattern, tags, timeout)
             return tags
 
     def _really_resolve_to_local_path(
@@ -1719,13 +1734,13 @@ class ServerCacheResolver(SimpleCacheResolver):
                 # # version specified or explicit -> not a dependency
                 # # no revision specified -> use key for latest remote tags cache of repo
                 # # branch or tag that isn't a semver -> dep, save commit hash as latest_commit
-                is_cache_dep = repo_view.package and repo_view.package.is_mutable_ref()
+                is_cache_dep = not repo_view.package or repo_view.package.is_mutable_ref()
                 if is_cache_dep and self.root_cache_request:
                     # this will add this cache_dep to the root_cache_request's value
                     self.root_cache_request.add_cache_dep(
                         cache_entry,
                         cache_entry.stale_pull_age,
-                        repo_view.revision or "",
+                        repo_view.package,  # type: ignore
                     )
                 assert cache_entry.directives
                 cacheable = cache_entry.directives.store
