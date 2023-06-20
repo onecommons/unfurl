@@ -737,6 +737,8 @@ class Manifest(AttributeManager):
     def get_import_resolver(
         self, ignoreFileNotFound: bool=False, expand: bool=False, config: Optional[dict]=None
     ) -> ImportResolver:
+        if self.localEnv and self.localEnv.make_resolver:
+            return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
     def last_commit_time(self) -> Optional[datetime.datetime]:

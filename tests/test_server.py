@@ -1,5 +1,6 @@
 import json
 import os
+from pprint import pformat
 import threading
 import time
 import unittest
@@ -345,7 +346,8 @@ def test_server_export_remote():
             # Strip out output from the http server
             output = exported.output
             cleaned_output = output[max(output.find("{"), 0):]
-            assert res.json() == json.loads(cleaned_output)
+            expected = json.loads(cleaned_output)
+            assert res.json() == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
         finally:
             p.terminate()
             p.join()
@@ -427,9 +429,10 @@ def test_server_update_deployment():
             os.system("git push ../remote.git")  # push to remote.git
             client_repo = GitRepo(Repo.init('.'))
             last_commit = client_repo.revision
-            os.chdir("../server/remote")
+
+            os.chdir("../server/public/remote")
             commit_foo("foo")
-            os.chdir("../../remote")
+            os.chdir("../../../remote")
 
             # test deleting
 
@@ -489,6 +492,7 @@ def test_server_update_deployment():
             res = requests.post(
                 f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",
             )
+            # 'remote:main::localenv', 'remote:main:ensemble/ensemble.yaml:localenv', 'remote:main:ensemble/ensemble.yaml:deployment'
             assert res.content == b'2'  # 2 keys deleted
             assert res.status_code == 200
 
