@@ -870,6 +870,10 @@ def export():
 def populate_cache():
     project_id = get_project_id(request)
     branch = request.args.get("branch", DEFAULT_BRANCH)
+    for prefix in ["refs/heads/", "refs/tags/"]:
+        if branch.startswith(prefix):
+            branch = branch[len(prefix):]
+            break
     path = request.args["path"]
     latest_commit = request.args["latest_commit"]
     requested_format = format_from_path(path)
@@ -878,8 +882,8 @@ def populate_cache():
         project_id, branch, path, requested_format, args=request.args
     )
     visibility = request.args.get("visibility")
-    logger.info(
-        "populate cache with %s latest %s, removed %s visibility %s",
+    logger.debug(
+        "populate cache with %s at %s, (removed: %s visibility: %s)",
         cache_entry.cache_key(),
         latest_commit,
         removed,
