@@ -57,6 +57,7 @@ from ansible.parsing.yaml.objects import AnsibleMapping
 from ansible.parsing.yaml.loader import AnsibleLoader, AnsibleConstructor
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from time import perf_counter
+from jinja2.runtime import DebugUndefined
 
 logger = getLogger("unfurl")
 
@@ -91,9 +92,6 @@ def load_yaml(yaml, stream, path=None, readonly: bool = False):
 def _use_clear_text(vault):
     clear_id = CLEARTEXT_VAULT.secrets[0][0]
     return vault.secrets and all(s[0] == clear_id for s in vault.secrets)
-
-
-from jinja2.runtime import DebugUndefined
 
 
 def represent_undefined(dumper, data):
@@ -437,7 +435,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             url = os.path.join(base, file_name)
             if not toscaparser.imports.is_url(url):
                 # url is a local path
-                if self._has_path_escaped(url, base=importsLoader.repository_root):
+                repository_root = None  # default to checking if its in the project
+                if importsLoader.repository_root:
+                    if toscaparser.imports.is_url(importsLoader.repository_root):
+                        # just make sure we didn't break out of the base
+                        repository_root = base
+                    else:
+                        repository_root = importsLoader.repository_root
+                if self._has_path_escaped(url, base=repository_root):
                     return None, None
                 return url, (True, None, base, file_name)
             repo_view = self._find_repoview(url)
