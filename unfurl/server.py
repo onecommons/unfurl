@@ -409,10 +409,10 @@ class CacheEntry:
             return latest_commit or ""
         full_key = self.cache_key()
         logger.info("setting cache with %s", full_key)
-        last_commit = isinstance(self.commitinfo, Commit) and self.commitinfo.hexsha
-        if not last_commit:
+        if self.commitinfo is None:
             last_commit = self._set_commit_info()
-        assert isinstance(last_commit, str)
+        else:
+            last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
         if not directives.store:
             value = "not_stored"  # XXX
         cache.set(
@@ -556,11 +556,13 @@ class CacheEntry:
         self, work: CacheWorkCallable, latest_commit: Optional[str]
     ) -> Tuple[Optional[Any], Any, CacheDirective]:
         try:
+            self._deps = []
             # NB: work shouldn't modify the working directory
             err, value, cacheable = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
-            return exc, None, CacheDirective(latest_commit=latest_commit)
+            self.directives = CacheDirective(latest_commit=latest_commit)
+            return exc, None, self.directives
         if not self.repo or self.strict:
             # self.strict might reclone the repo
             self._set_project_repo()
@@ -635,7 +637,12 @@ class CacheEntry:
     def add_cache_dep(
         self, cache_entry: "CacheEntry", stale_pull_age: int, package: Optional[Package]
     ) -> CacheItemDependency:
-        assert isinstance(cache_entry.commitinfo, Commit)
+        if cache_entry.commitinfo is None:
+            last_commit = self._set_commit_info()
+        elif isinstance(cache_entry.commitinfo, Commit):
+            last_commit = cache_entry.commitinfo.hexsha
+        else:
+            last_commit = ""   # file is missing, no commit
         latest_commit = cache_entry.directives and cache_entry.directives.latest_commit
         if not latest_commit and cache_entry.repo:
             latest_commit = cache_entry.repo.revision
@@ -647,7 +654,7 @@ class CacheEntry:
             stale_pull_age,
             cache_entry.do_clone,
             latest_commit or "",
-            cache_entry.commitinfo.hexsha,
+            last_commit,
         )
         if package and package.discovered_revision:
             dep.latest_package_url = package.url
@@ -1705,6 +1712,19 @@ class ServerCacheResolver(SimpleCacheResolver):
         ) -> Tuple[Any, Any, bool]:
             path = os.path.join(cache_entry.checked_repo.working_dir, file_name)
             doc, cacheable = self._really_load_yaml(path, True, fragment)
+            # we only care about deps when the revision is mutable (not a version tag)
+            # # version specified or explicit -> not a dependency
+            # # no revision specified -> use key for latest remote tags cache of repo
+            # # branch or tag that isn't a semver -> dep, save commit hash as latest_commit
+            assert repo_view
+            is_cache_dep = not repo_view.package or repo_view.package.is_mutable_ref()
+            if is_cache_dep and self.root_cache_request:
+                # this will add this cache_dep to the root_cache_request's value
+                self.root_cache_request.add_cache_dep(
+                    cache_entry,
+                    cache_entry.stale_pull_age,
+                    repo_view.package,  # type: ignore
+                )
             # return the value and whether it is cacheable
             return None, doc, cacheable and not private
 
@@ -1749,18 +1769,6 @@ class ServerCacheResolver(SimpleCacheResolver):
                     # if credentials were added, to a private so we can check if clone locally with the credentials works
                     private = repo_view.has_credentials()
             else:
-                # we only care about deps when the revision is mutable (not a version tag)
-                # # version specified or explicit -> not a dependency
-                # # no revision specified -> use key for latest remote tags cache of repo
-                # # branch or tag that isn't a semver -> dep, save commit hash as latest_commit
-                is_cache_dep = not repo_view.package or repo_view.package.is_mutable_ref()
-                if is_cache_dep and self.root_cache_request:
-                    # this will add this cache_dep to the root_cache_request's value
-                    self.root_cache_request.add_cache_dep(
-                        cache_entry,
-                        cache_entry.stale_pull_age,
-                        repo_view.package,  # type: ignore
-                    )
                 assert cache_entry.directives
                 cacheable = cache_entry.directives.store
                 if cacheable and self.use_local_cache:
