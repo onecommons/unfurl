@@ -281,6 +281,21 @@ CacheWorkCallable = Callable[
 ]
 
 
+def pull(repo: GitRepo, branch: str) -> str:
+    action = "pulled"
+    firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
+    try:
+        # use shallow_since so we don't remove commits we already fetched
+        repo.pull(revision=branch, with_exceptions=True, shallow_since=str(firstCommit.committed_date))
+    except git.exc.GitCommandError as e:  # type: ignore
+        if "You are not currently on a branch." in e.stderr:
+            # we cloned a tag, not a branch, set action so we remember this
+            action = "detached"
+        else:
+            raise
+    return action
+
+
 @dataclass
 class CacheEntry:
     project_id: str
@@ -357,7 +372,6 @@ class CacheEntry:
             if not self.repo:
                 self._set_project_repo()
             repo = self.repo
-            action = "pulled"
             if not repo:
                 if self.do_clone:
                     repo = _clone_repo(self.project_id, branch, self.args or {})
@@ -365,16 +379,7 @@ class CacheEntry:
                 else:
                     raise UnfurlError(f"missing repo at {repo_key}")
             else:
-                firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
-                try:
-                    # use shallow_since so we don't remove commits we already fetched
-                    repo.pull(with_exceptions=True, shallow_since=str(firstCommit.committed_date))
-                except git.exc.GitCommandError as e:  # type: ignore
-                    if "You are not currently on a branch." in e.stderr:
-                        # we cloned a tag, not a branch, set action so we remember this
-                        action = "detached"
-                    else:
-                        raise
+                action = pull(repo, branch)
             cache.set(repo_key, (time.time(), action))
             return repo
         except Exception:
