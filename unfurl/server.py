@@ -561,7 +561,7 @@ class CacheEntry:
             err, value, cacheable = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
-            self.directives = CacheDirective(latest_commit=latest_commit)
+            self.directives = CacheDirective(latest_commit=latest_commit, store=False)
             return exc, None, self.directives
         if not self.repo or self.strict:
             # self.strict might reclone the repo
@@ -1769,8 +1769,8 @@ class ServerCacheResolver(SimpleCacheResolver):
                     # if credentials were added, to a private so we can check if clone locally with the credentials works
                     private = repo_view.has_credentials()
             else:
-                assert cache_entry.directives
-                cacheable = cache_entry.directives.store
+                # cache_entry.directives isn't set on cache hit so the value must have been cacheable if None
+                cacheable = not cache_entry.directives or cache_entry.directives.store
                 if cacheable and self.use_local_cache:
                     self.set_cache(cache_entry.cache_key, doc)
 
