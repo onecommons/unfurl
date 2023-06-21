@@ -220,17 +220,6 @@ _cache_inflight_timeout = float(
     os.getenv("UNFURL_SERVE_CACHE_TIMEOUT") or 120
 )  # should match request timeout
 
-# XXX support dependencies on multiple repositories (e.g. unfurl-types):
-# in get_and_set(), have work() return (and set_cache receives) a list of (project_id, branch, latest_commit) instead of `latest_commit`
-# get_cache would have to check all of them (and unless all latest_commits are passed to get_cache it will have check every time)
-# (and the request would still need to send the root latest_commit)
-# to mitigate cache misses on multi-use/monolithic repos use branches to partition uses? but that would require a lot of branch management for interdependent code.
-
-# more sophisticated option: allow tag refs as the last_commit, so cache.get() has a semantic versioned tags as latest_commits
-# if the primary latest_commit isn't out of date, we assume the tags are accurate
-# use git describe to get the latest tag on the dependent repo's branch
-# and then check if the latest tag is compatible using semantic versioning to decide if the cached version is out of date
-
 
 @dataclass
 class CacheDirective:
@@ -949,7 +938,8 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
         # we don't want to decrypt secrets because the export is cached and shared
         overrides = dict(
             UNFURL_SKIP_VAULT_DECRYPT=True,
-            UNFURL_SKIP_UPSTREAM_CHECK=True,
+            # XXX enable skipping when deps support private repositories
+            UNFURL_SKIP_UPSTREAM_CHECK=False,
             apply_url_credentials=True,
         )
         local_env = LocalEnv(
