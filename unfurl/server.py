@@ -1658,6 +1658,10 @@ class ServerCacheResolver(SimpleCacheResolver):
             cache.set("tags:" + key + ":" + pattern, tags, timeout)
             return tags
 
+    @property
+    def use_local_cache(self) -> bool:
+        return flask_config["CACHE_TYPE"] != 'simple'
+
     def _really_resolve_to_local_path(
         self,
         repo_view: RepoView,
@@ -1689,6 +1693,7 @@ class ServerCacheResolver(SimpleCacheResolver):
         assert repo_view  # urls must have a repo_view
 
         # private if the repo isn't on the server or the project has a local copy of the repository
+        # XXX handle remote repositories
         private = not repo_view.url.startswith(base_url) or repo_view.repo
 
         # if the repo is private, use the base implementation
@@ -1729,6 +1734,11 @@ class ServerCacheResolver(SimpleCacheResolver):
                 stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
                 do_clone=True,
             )
+            if self.use_local_cache:
+                doc = self.get_cache(cache_entry.cache_key)  # check local cache
+                if doc is not None:
+                    return doc, True
+
             latest_commit = (
                 repo_view.package.lock_to_commit if repo_view.package else None
             )
@@ -1753,6 +1763,8 @@ class ServerCacheResolver(SimpleCacheResolver):
                     )
                 assert cache_entry.directives
                 cacheable = cache_entry.directives.store
+                if cacheable and self.use_local_cache:
+                    self.set_cache(cache_entry.cache_key, doc)
 
         if private:
             doc, cacheable = super().load_yaml(url, fragment, ctx)
