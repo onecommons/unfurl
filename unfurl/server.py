@@ -582,6 +582,7 @@ class CacheEntry:
     ) -> bool:
         if value == "not_stored":
             return False
+        logger.debug("checking deps %s on %s", self._deps, self.cache_key)
         for dep in self._deps:
             if dep.out_of_date():
                 # need to regenerate the value
@@ -659,6 +660,7 @@ class CacheEntry:
         if package and package.discovered_revision:
             dep.latest_package_url = package.url
         self._deps.append(dep)
+        logger.debug("added dep %s on %s", self._deps, self.cache_key)
         return dep
 
 
