@@ -277,7 +277,7 @@ class Package:
 
     def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
         prefix = self.version_tag_prefix()
-        logger.debug(f'looking for remote tags "{prefix=}" for "{self.url}" using {get_remote_tags}')
+        logger.debug(f"looking for remote tags {prefix}* for {self.url} using {get_remote_tags}")
         # get an sorted list of tags and strip the prefix from them
         vtags = [tag[len(prefix) :] for tag in get_remote_tags(self.url, prefix + "*")]
         # only include tags look like a semver with major version of 1 or higher
