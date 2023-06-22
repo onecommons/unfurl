@@ -303,7 +303,8 @@ def test_server_export_remote():
                         # Strip out output from the http server
                         output = exported.output
                         cleaned_output = output[max(output.find("{"), 0):]
-                        assert res.json() == json.loads(cleaned_output)
+                        expected = json.loads(cleaned_output)
+                        assert res.json() == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
                     else:
                         # cache hit
                         assert res.status_code == 304
@@ -327,6 +328,7 @@ def test_server_export_remote():
                     "https://gitlab.com/onecommons/project-templates/application-blueprint",
                 ]
             )
+            last_commit = GitRepo(Repo("application-blueprint")).revision
             res = requests.get(
                 f"http://localhost:{port}/export",
                 params={
@@ -334,6 +336,9 @@ def test_server_export_remote():
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
                 },
+                headers={
+                  "If-None-Match": server._make_etag(last_commit),
+                }
             )
             assert res.status_code == 200
             # don't bother re-exporting the second time
@@ -348,6 +353,20 @@ def test_server_export_remote():
             cleaned_output = output[max(output.find("{"), 0):]
             expected = json.loads(cleaned_output)
             assert res.json() == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+
+            # # check that this public project (no auth header sent) was cached
+            res = requests.get(
+                f"http://localhost:{port}/export",
+                params={
+                    "auth_project": "onecommons/project-templates/application-blueprint",
+                    "latest_commit": last_commit,  # enable caching but just get the latest in the cache
+                    "format": "blueprint",
+                },
+                headers={
+                  "If-None-Match": server._make_etag(last_commit),
+                }
+            )
+            assert res.status_code == 304
         finally:
             p.terminate()
             p.join()
@@ -500,3 +519,6 @@ def test_server_update_deployment():
             if p:
                 p.terminate()
                 p.join()
+
+if __name__ == "__main__":
+    print(server.pull(GitRepo(Repo(".")), "v0.6.3"))

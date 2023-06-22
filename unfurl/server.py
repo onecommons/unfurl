@@ -212,7 +212,7 @@ def _clone_repo(project_id: str, branch: str, args: dict) -> GitRepo:
         "private_token", args.get("password")
     )
     git_url = get_project_url(project_id, username, password)
-    return Repo.create_working_dir(git_url, repo_path, branch)
+    return Repo.create_working_dir(git_url, repo_path, branch, depth=1)
 
 
 _cache_inflight_sleep_duration = 0.2
@@ -252,6 +252,9 @@ class CacheItemDependency:
             do_clone=self.do_clone,
         )
 
+    def cache_key(self) -> str:
+        return f"{self.project_id}:{self.branch or ''}:{self.file_path}:{self.key}"
+
     def out_of_date(self) -> bool:
         if self.latest_package_url:
             return self._tag_changed()
@@ -264,15 +267,18 @@ class CacheItemDependency:
             last_commit_for_entry = cache_entry._set_commit_info()
             if last_commit_for_entry != self.last_commit:
                 # there's a newer version of files used by the cache entry
+                logger.debug(f"dependency {self.cache_key()} changed")
                 return True
         return False  # we're up-to-date!
 
     def _tag_changed(self) -> bool:
         package = get_package_from_url(self.latest_package_url)
         assert package
-        latest_tag = package.find_latest_semver_from_repo(ServerCacheResolver.get_remote_tags)
-        return latest_tag != package.revision_tag
-
+        package.set_version_from_repo(ServerCacheResolver.get_remote_tags)
+        if self.branch != package.revision_tag:
+            logger.debug(f"newer tag {package.revision_tag} found for {self.cache_key()} (was {self.branch})")
+            return True
+        return False
 
 # cache value, last_commit (on the file_path), latest_commit (seen in branch), list of deps this value depends on
 CacheValueType = Tuple[Any, str, str, List[CacheItemDependency]]
@@ -357,6 +363,7 @@ class CacheEntry:
                     return self.repo
 
             if action == "in_flight":
+                logger.debug(f"pull inflight for {repo_key}")
                 start_time = time.time()
                 while time.time() - start_time < _cache_inflight_timeout:
                     time.sleep(_cache_inflight_sleep_duration)
@@ -374,15 +381,18 @@ class CacheEntry:
             repo = self.repo
             if not repo:
                 if self.do_clone:
+                    logger.info(f"cloning repo for {repo_key}")
                     repo = _clone_repo(self.project_id, branch, self.args or {})
                     action = "cloned"
                 else:
                     raise UnfurlError(f"missing repo at {repo_key}")
             else:
+                logger.info(f"pulling repo for {repo_key}")
                 action = pull(repo, branch)
             cache.set(repo_key, (time.time(), action))
             return repo
         except Exception:
+            logger.info(f"pull failed for {repo_key}")
             cache.set(repo_key, (time.time(), "failed"))
             raise
 
@@ -582,7 +592,7 @@ class CacheEntry:
     ) -> bool:
         if value == "not_stored":
             return False
-        logger.debug("checking deps %s on %s", self._deps, self.cache_key)
+        logger.debug("checking deps %s on %s", self._deps, self.cache_key())
         for dep in self._deps:
             if dep.out_of_date():
                 # need to regenerate the value
@@ -605,6 +615,7 @@ class CacheEntry:
             if commitinfo is True:
                 if self._validate(value, cache, latest_commit, validate):
                     return None, value
+                logger.debug(f"validation failed for {self.cache_key()}")
             # otherwise in cache but stale or invalid, fall thru to redo work
             # XXX? check date to see if its recent enough to serve anyway
             # if commitinfo.committed_date - time.time() < stale_ok_age:
@@ -622,6 +633,7 @@ class CacheEntry:
                     self._pull_if_missing_commit(latest_commit)
             elif self.do_clone:
                 self.repo = self.pull(cache)  # this will clone the repo
+        assert self.repo or not self.do_clone, self
 
         value, found_inflight = self._set_inflight(cache, latest_commit)
         if found_inflight:
@@ -660,7 +672,7 @@ class CacheEntry:
         if package and package.discovered_revision:
             dep.latest_package_url = package.url
         self._deps.append(dep)
-        logger.debug("added dep %s on %s", self._deps, self.cache_key)
+        logger.debug("added dep %s on %s", self._deps, self.cache_key())
         return dep
 
 
@@ -1757,7 +1769,7 @@ class ServerCacheResolver(SimpleCacheResolver):
                 do_clone=True,
             )
             if self.use_local_cache:
-                doc = self.get_cache(cache_entry.cache_key)  # check local cache
+                doc = self.get_cache(cache_entry.cache_key())  # check local cache
                 if doc is not None:
                     return doc, True
 
@@ -1774,7 +1786,7 @@ class ServerCacheResolver(SimpleCacheResolver):
                 # cache_entry.directives isn't set on cache hit so the value must have been cacheable if None
                 cacheable = not cache_entry.directives or cache_entry.directives.store
                 if cacheable and self.use_local_cache:
-                    self.set_cache(cache_entry.cache_key, doc)
+                    self.set_cache(cache_entry.cache_key(), doc)
 
         if private:
             doc, cacheable = super().load_yaml(url, fragment, ctx)

@@ -299,7 +299,7 @@ class Repo(abc.ABC):
         cleanurl = sanitize_url(gitUrl)
         logger.info("Fetching %s %s to %s", cleanurl, revision or "", localRepoPath)
         kwargs: Dict[str, Any] = dict(recurse_submodules=True, no_single_branch=True)
-        if depth == 1:
+        if depth:
             kwargs["depth"] = depth
             kwargs["shallow_submodules"] = True
         non_interactive = (
