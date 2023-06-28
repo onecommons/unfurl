@@ -7,6 +7,19 @@ and a patch api for updating them.
 The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access. 
 """
 
+# Security assumptions:
+# The server can read and write to private git repositories using credentials passed in HTTP requests from different users.
+# So it is important that a http request can't be manipulated into accessing a cloned local git repository the initiator doesn't have access to.
+# To wit, the following rules apply:
+# * Export requests evaluate expressions in safe mode and limit file system access to the current project or a referenced repository (enforced by ``ImportResolver._has_path_escaped()``)
+# * Patch requests never expressions and commits are pushed upstream only using transient credentials supplied with the request.
+# * Request results maybe be cached whether private or public and retrieved without authorization because the cache key is always derived from the ``auth_project`` url parameter
+# and assumption is that an upstream api proxy has already authorized the requestor access to that project.
+# * But processing a request (loading the project) it may access content in other repositories and it is not assumed that the requestor has access to those repositories.
+# (Just because a user can read a file with a reference to a repository doesn't imply they have access to the referenced repository.)
+# When accessing referenced repositories or packages only files in public repositories are cached and the repositories are cloned into the shared "public" directory.
+# But if access fails when attempting to clone the repository, the repository is accessed the using the standard project loader, which makes clone local to the project using the project repository's credentials (if on the same host), and the loaded files are not cached.
+
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
@@ -233,6 +246,15 @@ class CacheDirective:
 
 @dataclass
 class CacheItemDependency:
+    """CacheItemDependencies are used to track the dependencies referenced when generating a cached value.
+    They are saved alongside the cached value and used to validate a retrieved cached value
+    by checking if any of the dependencies are out of date (see ``CacheEntry._validate()``).
+
+    A CacheItemDependency can represent a package pinned to a major version, in which case it checks there's a newer compatible version.
+    Or it can represent a file or directory in a branch on a repository, in which case it checks if it has a new revision.
+    """
+    # XXX if the request could pass latest_commit arguments for dependent repositories we could skip having to pull from them, just like we do with the root cache check.
+
     project_id: str
     branch: Optional[str]
     file_path: str  # relative to project root
