@@ -207,7 +207,7 @@ def _get_project_repo(
     project_id: str, branch: str, args: Optional[dict]
 ) -> Optional[GitRepo]:
     path = _get_project_repo_dir(project_id, branch, args)
-    if os.path.isdir(path):
+    if os.path.isdir(os.path.join(path, ".git")):
         repo = GitRepo(git.Repo(path))
         if args:
             # make sure we are using the latest credentials:
@@ -684,17 +684,21 @@ class CacheEntry:
             #      return value
             self.hit = False
         else:  # cache miss
-            if not self.repo:
-                self._set_project_repo()
-            if self.repo:
-                # if we have a local copy of the repo
-                # make sure we pulled latest_commit before doing the work
-                if not latest_commit:
-                    self.pull(cache, self.stale_pull_age)
-                else:
-                    self._pull_if_missing_commit(latest_commit)
-            elif self.do_clone:
-                self.repo = self.pull(cache)  # this will clone the repo
+            try:
+                if not self.repo:
+                    self._set_project_repo()
+                if self.repo:
+                    # if we have a local copy of the repo
+                    # make sure we pulled latest_commit before doing the work
+                    if not latest_commit:
+                        self.pull(cache, self.stale_pull_age)
+                    else:
+                        self._pull_if_missing_commit(latest_commit)
+                elif self.do_clone:
+                    self.repo = self.pull(cache)  # this will clone the repo
+            except Exception as err:
+                logger.warning(f"exception while pulling {self.project_id}", exc_info=True)
+                return err, None
         assert self.repo or not self.do_clone, self
 
         value, found_inflight = self._set_inflight(cache, latest_commit)
