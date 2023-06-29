@@ -696,9 +696,9 @@ class CacheEntry:
                         self._pull_if_missing_commit(latest_commit)
                 elif self.do_clone:
                     self.repo = self.pull(cache)  # this will clone the repo
-            except Exception as err:
+            except Exception as pull_err:
                 logger.warning(f"exception while pulling {self.project_id}", exc_info=True)
-                return err, None
+                return pull_err, None
         assert self.repo or not self.do_clone, self
 
         value, found_inflight = self._set_inflight(cache, latest_commit)
