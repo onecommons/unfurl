@@ -747,7 +747,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
     jsontype["directives"] = ["substitute"]
 
 
-def to_graphql_nodetypes(spec: ToscaSpec, include_all=True) -> ResourceTypesByName:
+def to_graphql_nodetypes(spec: ToscaSpec, include_all=False) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
     types = cast(ResourceTypesByName, {})
     topology = spec.topology
@@ -877,7 +877,12 @@ def _get_requirement(
     if reqconstraint is None:
         return None
 
-    typeobj = types[nodespec.type]
+    if nodespec.type not in types:
+        typeobj = _node_typename_to_graphql(nodespec.type, nodespec.topology, types)
+        if not typeobj:
+            return None
+    else:
+        typeobj = types[nodespec.type]
     if "substitute" in typeobj.get("directives", []):
         # we've might have modified the type in _update_root_type()
         # and the tosca object won't know about that change so set it now
@@ -907,7 +912,7 @@ def _find_typename(
 ) -> str:
     # XXX
     # if we substituting template, generate a new type
-    # json type for root of imported blueprint only include unfulfilled requirements 
+    # json type for root of imported blueprint only include unfulfilled requirements
     # and set defaults on properties set by the inner root
     return nodetemplate.type
 
@@ -1466,9 +1471,7 @@ def _set_deployment_url(
             url = manifest.rootResource.attributes["outputs"].get("url")
         except UnfurlError as e:
             url = None  # this can be raised if the evaluation is unsafe
-            logger.warning(
-                f"export could not evaluate output 'url': {e}"
-            )
+            logger.warning(f"export could not evaluate output 'url': {e}")
 
     if url:
         deployment["url"] = url
@@ -1571,6 +1574,18 @@ def mark_leaf_types(types) -> None:
             jsontype["implementations"] = []
 
 
+def _node_typename_to_graphql(
+    reqtypename: str,
+    topology: TopologySpec,
+    types: ResourceTypesByName,
+) -> Optional[ResourceType]:
+    custom_defs = topology.topology_template.custom_defs
+    typedef = _make_typedef(reqtypename, custom_defs)
+    if typedef:
+        return node_type_to_graphql(topology, typedef, types)
+    return None
+
+
 def annotate_requirements(topology: TopologySpec, types: ResourceTypesByName) -> None:
     for jsontype in list(types.values()):  # _annotate_requirement() might modify types
         for req in jsontype.get("requirements") or []:
@@ -1586,11 +1601,8 @@ def _annotate_requirement(
     # req is a RequirementConstraint dict
     reqtype = types.get(reqtypename)
     if not reqtype:
-        custom_defs = topology.topology_template.custom_defs
-        typedef = _make_typedef(reqtypename, custom_defs)
-        if typedef:
-            reqtype = node_type_to_graphql(topology, typedef, types)
-        else:
+        reqtype = _node_typename_to_graphql(reqtypename, topology, types)
+        if not reqtype:
             return
 
     if "node_filter" not in req:

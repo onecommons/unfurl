@@ -18,7 +18,7 @@ The server manage local clones of remote git repositories and uses a in-memory o
 # * But processing a request (loading the project) it may access content in other repositories and it is not assumed that the requestor has access to those repositories.
 # (Just because a user can read a file with a reference to a repository doesn't imply they have access to the referenced repository.)
 # When accessing referenced repositories or packages only files in public repositories are cached and the repositories are cloned into the shared "public" directory.
-# But if access fails when attempting to clone the repository, the repository is accessed the using the standard project loader, which makes clone local to the project using the project repository's credentials (if on the same host), and the loaded files are not cached.
+# But if access fails when attempting to clone the repository, the repository is accessed the using the standard project loader, which makes clone local to the project using the project repository's credentials (if on the same host) (see ``apply_url_credentials``), and the loaded files are not cached.
 
 from dataclasses import dataclass, field
 import os
@@ -40,8 +40,9 @@ from typing import (
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
-from flask import Flask, current_app, jsonify, request
+from flask import Flask, Request, current_app, jsonify, request
 import flask.json
+from flask.typing import ResponseValue
 from flask_caching import Cache
 from flask_cors import CORS
 
@@ -886,11 +887,13 @@ def export():
             "BAD_REQUEST",
             "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
         )
+    deployment_path = request.args.get("deployment_path") or ""
+    return _export(request, requested_format, deployment_path)
 
+
+def _export(request: Request, requested_format: str, deployment_path: str) -> Tuple[str, int]:
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
-    deployment_path = request.args.get("deployment_path") or ""
-    cache_entry = None
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch", DEFAULT_BRANCH)
     if request.headers.get("X-Git-Credentials"):
@@ -947,6 +950,11 @@ def export():
             )
         else:
             return err
+
+
+@app.route("/types")
+def get_types():
+    return _export(request, "blueprint", "dummy-ensemble.yaml")
 
 
 @app.route("/populate_cache", methods=["POST"])

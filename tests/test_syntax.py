@@ -18,8 +18,9 @@ def test_jsonexport():
     jsonExport = to_deployment(local)
 
     # check that subtypes can remove inherited operations
-    assert jsonExport["ResourceType"]["Atlas"]['implementations'] == ['configure', 'connect']
-    assert jsonExport["ResourceType"]["SelfHostedMongoDb"]['implementations'] == ['configure']
+    assert jsonExport["ResourceType"]["Atlas"]['implementations'] == ['configure', 'connect'] 
+    assert "SelfHostedMongoDb" not in jsonExport["ResourceType"]  # not referenced by a template
+    # assert jsonExport["ResourceType"]["SelfHostedMongoDb"]['implementations'] == ['configure']
 
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
