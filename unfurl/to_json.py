@@ -747,7 +747,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
     jsontype["directives"] = ["substitute"]
 
 
-def to_graphql_nodetypes(spec: ToscaSpec, include_all=False) -> ResourceTypesByName:
+def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
     types = cast(ResourceTypesByName, {})
     topology = spec.topology
@@ -1351,6 +1351,7 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
 
 def _to_graphql(
     localEnv: LocalEnv,
+    include_all: bool = False,
 ) -> Tuple[GraphqlDB, YamlManifest, GraphqlObject, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
@@ -1362,7 +1363,7 @@ def _to_graphql(
     types_repo = tpl.get("repositories").get("types")
     if types_repo:  # only export types, avoid built-in repositories
         db["repositories"] = {"types": types_repo}
-    types = to_graphql_nodetypes(spec)
+    types = to_graphql_nodetypes(spec, include_all)
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
     environment_instances = {}
@@ -1527,7 +1528,8 @@ def add_graphql_deployment(
 
 
 def to_blueprint(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
-    db, manifest, env, env_types = _to_graphql(localEnv)
+    include_all = existing if isinstance(existing, bool) else False
+    db, manifest, env, env_types = _to_graphql(localEnv, include_all)
     assert manifest.tosca
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(

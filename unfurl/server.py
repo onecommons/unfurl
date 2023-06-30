@@ -892,22 +892,20 @@ def export():
             "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
         )
     deployment_path = request.args.get("deployment_path") or ""
-    return _export(request, requested_format, deployment_path)
+    return _export(request, requested_format, deployment_path, False)
 
 
-def _export(request: Request, requested_format: str, deployment_path: str) -> Tuple[str, int]:
+def _export(request: Request, requested_format: str, deployment_path: str, include_all: bool) -> Tuple[str, int]:
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch", DEFAULT_BRANCH)
+    args = dict(request.args)
     if request.headers.get("X-Git-Credentials"):
-        args = dict(request.args)
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
-    else:
-        args = request.args
-
+    args["include_all"] = include_all  # type: ignore
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
         project_id, branch, file_path, requested_format, repo, args=args
@@ -958,7 +956,7 @@ def _export(request: Request, requested_format: str, deployment_path: str) -> Tu
 
 @app.route("/types")
 def get_types():
-    return _export(request, "blueprint", "dummy-ensemble.yaml")
+    return _export(request, "blueprint", "dummy-ensemble.yaml", True)
 
 
 @app.route("/populate_cache", methods=["POST"])
@@ -1159,7 +1157,7 @@ def _do_export(
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     exporter = getattr(to_json, "to_" + requested_format)
-    json_summary = exporter(local_env)
+    json_summary = exporter(local_env, args.get("include_all"))
 
     return None, json_summary
 
@@ -1849,10 +1847,11 @@ class ServerCacheResolver(SimpleCacheResolver):
                 cache, _work, latest_commit, cache_dependency=dep
             )
             if err:
-                if not _get_project_repo(project_id, branch, None):
-                    # couldn't clone the repo
-                    # if credentials were added, to a private so we can check if clone locally with the credentials works
-                    private = repo_view.has_credentials()
+                private = True
+                # if not _get_project_repo(project_id, branch, None):
+                #     # couldn't clone the repo
+                #     # if credentials were added, to a private so we can check if clone locally with the credentials works
+                #     private = repo_view.has_credentials()
             else:
                 # cache_entry.directives isn't set on cache hit so the value must have been cacheable if None
                 cacheable = not cache_entry.directives or cache_entry.directives.store
