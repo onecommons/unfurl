@@ -1,10 +1,10 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates 
+API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates
 and a patch api for updating them.
 
-The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access. 
+The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access.
 """
 
 # Security assumptions:
@@ -606,11 +606,12 @@ class CacheEntry:
         work: CacheWorkCallable,
         latest_commit: Optional[str],
         cache_dependency: Optional[CacheItemDependency] = None,
+        include_all=False
     ) -> Tuple[Optional[Any], Any, CacheDirective]:
         try:
             self._deps = {}
             # NB: work shouldn't modify the working directory
-            err, value, cacheable = work(self, latest_commit)
+            err, value, cacheable = work(self, latest_commit, include_all=include_all)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
             self.directives = CacheDirective(latest_commit=latest_commit, store=False)
@@ -656,10 +657,11 @@ class CacheEntry:
         latest_commit: Optional[str],
         validate: Optional[Callable] = None,
         cache_dependency: Optional[CacheItemDependency] = None,
+        include_all=False,
     ) -> Tuple[Optional[Any], Any]:
         if latest_commit is None and not self.stale_pull_age:
             # don't use the cache
-            return self._do_work(work, latest_commit)[0:2]
+            return self._do_work(work, latest_commit, include_all=include_all)[0:2]
 
         cache_value, stale = self.get_cache(cache, latest_commit)
         if cache_value:  # cache hit
@@ -706,7 +708,7 @@ class CacheEntry:
             # there was already work inflight and use that instead
             return None, value
 
-        err, value, directives = self._do_work(work, latest_commit, cache_dependency)
+        err, value, directives = self._do_work(work, latest_commit, cache_dependency, include_all=include_all)
         cancel_succeeded = self._cancel_inflight(cache)
         # skip caching work if cancel inflight failed -- that means invalidate_cache deleted it
         if cancel_succeeded and not err:
@@ -851,7 +853,7 @@ def format_from_path(path):
 
 
 def _export_cache_work(
-    cache_entry: CacheEntry, latest_commit: Optional[str]
+    cache_entry: CacheEntry, latest_commit: Optional[str], include_all=False
 ) -> Tuple[Any, Any, bool]:
     err, val = _do_export(
         cache_entry.project_id,
@@ -860,6 +862,7 @@ def _export_cache_work(
         cache_entry,
         latest_commit,
         cache_entry.args or {},
+        include_all=include_all
     )
     return err, val, True
 
@@ -895,7 +898,7 @@ def export():
     return _export(request, requested_format, deployment_path)
 
 
-def _export(request: Request, requested_format: str, deployment_path: str) -> Tuple[str, int]:
+def _export(request: Request, requested_format: str, deployment_path: str, include_all=False) -> Tuple[str, int]:
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
@@ -916,6 +919,7 @@ def _export(request: Request, requested_format: str, deployment_path: str) -> Tu
         cache,
         _export_cache_work,
         latest_commit,
+        include_all=include_all
     )
     if not err:
         hit = cache_entry and cache_entry.hit
@@ -926,7 +930,8 @@ def _export(request: Request, requested_format: str, deployment_path: str) -> Tu
                     project_id, branch, manifest_path, "deployment", repo, args=args
                 )
                 derr, djson = dcache_entry.get_or_set(
-                    cache, _export_cache_work, latest_commit
+                    cache, _export_cache_work, latest_commit,
+                    include_all=include_all
                 )
                 if derr:
                     deployments.append(
@@ -958,7 +963,7 @@ def _export(request: Request, requested_format: str, deployment_path: str) -> Tu
 
 @app.route("/types")
 def get_types():
-    return _export(request, "blueprint", "dummy-ensemble.yaml")
+    return _export(request, "blueprint", "dummy-ensemble.yaml", include_all=True)
 
 
 @app.route("/populate_cache", methods=["POST"])
@@ -1067,10 +1072,11 @@ def _localenv_from_cache(
     deployment_path: str,
     latest_commit: Optional[str],
     args: dict,
+    include_all=False
 ) -> Tuple[Any, Optional[LocalEnv], CacheEntry]:
     # we want to make cloning a repo cache work to prevent concurrent cloning
     def _cache_localenv_work(
-        cache_entry: CacheEntry, latest_commit: Optional[str]
+        cache_entry: CacheEntry, latest_commit: Optional[str], include_all=False
     ) -> Tuple[Any, Any, bool]:
         # don't try to pull -- cache will have already pulled if latest_commit wasn't in the repo
         clone_location = _fetch_working_dir(cache_entry.project_id, branch, args, False)
@@ -1133,10 +1139,12 @@ def _do_export(
     cache_entry: CacheEntry,
     latest_commit: Optional[str],
     args: dict,
+    include_all=False
 ) -> Tuple[Optional[Any], Optional[str]]:
     assert cache_entry.branch
     err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
-        cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
+        cache, project_id, cache_entry.branch, deployment_path, latest_commit, args,
+        include_all=include_all
     )
     if err:
         return err, None
@@ -1159,7 +1167,7 @@ def _do_export(
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     exporter = getattr(to_json, "to_" + requested_format)
-    json_summary = exporter(local_env)
+    json_summary = exporter(local_env, include_all=include_all)
 
     return None, json_summary
 
@@ -1790,7 +1798,7 @@ class ServerCacheResolver(SimpleCacheResolver):
         # and track its cache entry as a dependency on the root cache entry
 
         def _work(
-            cache_entry: CacheEntry, latest_commit: Optional[str]
+            cache_entry: CacheEntry, latest_commit: Optional[str], include_all=False
         ) -> Tuple[Any, Any, bool]:
             path = os.path.join(cache_entry.checked_repo.working_dir, file_name)
             doc, cacheable = self._really_load_yaml(path, True, fragment)

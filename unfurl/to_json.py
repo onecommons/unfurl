@@ -1351,6 +1351,7 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
 
 def _to_graphql(
     localEnv: LocalEnv,
+    include_all = False
 ) -> Tuple[GraphqlDB, YamlManifest, GraphqlObject, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
@@ -1362,7 +1363,7 @@ def _to_graphql(
     types_repo = tpl.get("repositories").get("types")
     if types_repo:  # only export types, avoid built-in repositories
         db["repositories"] = {"types": types_repo}
-    types = to_graphql_nodetypes(spec)
+    types = to_graphql_nodetypes(spec, include_all)
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
     environment_instances = {}
@@ -1526,8 +1527,8 @@ def add_graphql_deployment(
     return deployment
 
 
-def to_blueprint(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
-    db, manifest, env, env_types = _to_graphql(localEnv)
+def to_blueprint(localEnv: LocalEnv, existing: Optional[str] = None, include_all=False) -> GraphqlDB:
+    db, manifest, env, env_types = _to_graphql(localEnv, include_all)
     assert manifest.tosca
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(
@@ -1663,7 +1664,7 @@ def _set_shared_instances(instances):
     return env_instances
 
 
-def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+def to_environments(localEnv: LocalEnv, existing: Optional[str] = None, include_all=False) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
     Each environment is be represented as:
@@ -1749,7 +1750,7 @@ class Deployments(DeploymentPaths):
     deployments: List[GraphqlDB]
 
 
-def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> Deployments:
+def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None, include_all=False) -> Deployments:
     assert localEnv.project
     db = cast(Deployments, set_deploymentpaths(localEnv.project))
     deployments: List[GraphqlDB] = []
