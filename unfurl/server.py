@@ -1847,11 +1847,12 @@ class ServerCacheResolver(SimpleCacheResolver):
                 cache, _work, latest_commit, cache_dependency=dep
             )
             if err:
-                private = True
-                # if not _get_project_repo(project_id, branch, None):
-                #     # couldn't clone the repo
-                #     # if credentials were added, to a private so we can check if clone locally with the credentials works
-                #     private = repo_view.has_credentials()
+                if not _get_project_repo(project_id, branch, None):
+                    # couldn't clone the repo
+                    private = True
+                    # XXX not working (not set yet?):
+                    # if credentials were added, to a private so we can check if clone locally with the credentials works
+                    # private = repo_view.has_credentials()
             else:
                 # cache_entry.directives isn't set on cache hit so the value must have been cacheable if None
                 cacheable = not cache_entry.directives or cache_entry.directives.store
