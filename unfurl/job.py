@@ -152,6 +152,7 @@ class JobOptions:
     prune: bool = False
     destroyunmanaged: bool = False
     upgrade: bool = False
+    dryrun: bool = False
 
     defaults = dict(
         global_defaults,
@@ -590,7 +591,7 @@ class Job(ConfigChange):
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
         super().__init__(self.parentJob, self.startTime, Status.ok, previousId)  # type: ignore
-        self.dry_run = jobOptions.dryrun  # type: ignore
+        self.dry_run = jobOptions.dryrun
         self.jobOptions = jobOptions
         self.manifest = manifest
         self.rootResource = rootResource
@@ -821,9 +822,9 @@ class Job(ConfigChange):
         joboptions = self.jobOptions
         self._update_joboption_instances()
         self.plan_requests = []
-        WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)  # type: ignore
+        WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
         if not WorkflowPlan:
-            raise UnfurlError(f"unknown workflow: {joboptions.workflow}")  # type: ignore
+            raise UnfurlError(f"unknown workflow: {joboptions.workflow}")
 
         if not self.jobOptions.parentJob:
             # don't do this when running a nested job
@@ -927,7 +928,7 @@ class Job(ConfigChange):
     def run_external(self, **opts: Any) -> List["Job"]:
         # note: manifest.lock() will raise error if there circular dependencies
         external_jobs = []
-        external_requests = self.external_requests[:]  # type: ignore
+        external_requests = self.external_requests[:] if self.external_requests else []
         while external_requests:
             manifest, requests = external_requests.pop(0)
             instance_specs = []
@@ -938,9 +939,11 @@ class Job(ConfigChange):
                 instance_specs.extend(request.get_instance_specs())
             jobOptions = self.jobOptions.copy(
                 instances=instance_specs,
-                masterJob=self.jobOptions.masterJob or self,  # type: ignore
+                masterJob=self.jobOptions.masterJob or self,
                 **opts,
             )
+            # currently external jobs only install artifacts needed for running the job so always disable dryrun
+            jobOptions.dryrun = False
             external_job = create_job(manifest, jobOptions)
             external_jobs.append(external_job)
             rendered, count = _render(external_job)
