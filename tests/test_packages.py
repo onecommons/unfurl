@@ -5,6 +5,7 @@ from unfurl.__main__ import cli
 import git
 from unfurl.localenv import LocalEnv
 from unfurl.packages import Package, get_package_id_from_url
+from unfurl.repo import get_remote_tags
 
 
 def test_package_rules():
@@ -15,7 +16,7 @@ def test_package_rules():
     assert package_id, (package_id, revision, url)
     assert not url, (package_id, revision, url)
     types_url = "https://unfurl.cloud/onecommons/unfurl-types.git"
-    latest_version_tag = Package("", types_url, None).find_latest_semver_from_repo()
+    latest_version_tag = Package("", types_url, None).find_latest_semver_from_repo(get_remote_tags)
     assert latest_version_tag
     # replace gitlab.com/onecommons packages unfurl.cloud/onecommons packages
     package_rules_envvar = "gitlab.com/onecommons/* unfurl.cloud/onecommons/*"

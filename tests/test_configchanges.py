@@ -86,7 +86,8 @@ kind: Ensemble
 spec:
   service_template:
     imports:
-      - file: ../spec.yaml
+      - file: spec.yaml
+        repository: spec
     topology_template:
       node_templates:
         node1:

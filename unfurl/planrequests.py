@@ -20,7 +20,7 @@ import shlex
 import sys
 import os
 import os.path
-
+from toscaparser.elements.interfaces import OperationDef
 from toscaparser.nodetemplate import NodeTemplate
 from .tosca import EntitySpec
 
@@ -968,7 +968,7 @@ def filter_task_request(jobOptions, req):
     return req
 
 
-def _find_implementation(interface: str, operation: str, template: EntitySpec):
+def _find_implementation(interface: str, operation: str, template: EntitySpec) -> Optional[OperationDef]:
     default = None
     for iDef in template.get_interfaces():
         if iDef.interfacename == interface or iDef.type == interface:
@@ -1087,23 +1087,26 @@ def create_task_request(
     iDef = _find_implementation(interface, action, resource.template)
     if iDef and iDef.name != "default":
         iDef = _maybe_mock(iDef, resource.template)
+        assert iDef
         # merge inputs
         if inputs:
-            inputs = dict(iDef.inputs, **inputs)
+            cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
+            inputs = cls(iDef.inputs, **inputs)
         else:
             inputs = iDef.inputs or {}
         if iDef.invoke:
             # get the implementation from the operation specified with the "invoke" key
             iinterface, sep, iaction = iDef.invoke.rpartition(".")
             iDef = _find_implementation(iinterface, iaction, resource.template)
-            inputs = dict(iDef.inputs, **inputs)
+            if iDef:
+                cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
+                inputs = cls(iDef.inputs, **inputs)
 
+    kw = None
+    if iDef:
         kw = _get_config_spec_args_from_implementation(
             iDef, inputs, resource, operation_host
         )
-    else:
-        kw = None
-
     if kw:
         kw["interface"] = interface
         if reason:
@@ -1219,7 +1222,7 @@ def _set_config_spec_args(kw, target, base_dir):
         return None
 
 
-def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
+def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, target, operation_host):
     implementation = iDef.implementation
     kw = dict(
         inputs=inputs,

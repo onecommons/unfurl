@@ -12,6 +12,7 @@ import os.path
 import re
 from typing import (
     Any,
+    Callable,
     Iterable,
     Dict,
     List,
@@ -969,11 +970,13 @@ class LocalEnv:
             self._manifests: dict = parent._manifests
             self.homeConfigPath: Optional[str] = parent.homeConfigPath
             self.homeProject: Optional[Project] = parent.homeProject
+            self.make_resolver: Optional[Callable] = parent.make_resolver
         else:
             self._projects = {}
             self._manifests = {}
             self.homeConfigPath = get_home_config_path(homePath)
             self.homeProject = self._get_home_project()
+            self.make_resolver = None
 
         self._resolve_path_and_project(manifestPath, can_be_empty)  # type: ignore
         if override_context:

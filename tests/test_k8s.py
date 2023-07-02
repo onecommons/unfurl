@@ -109,7 +109,9 @@ class TestK8s(unittest.TestCase):
         }
         assert len(results["tasks"]) == 2, results
 
-
+@pytest.mark.skipif(
+    "k8s" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
+)
 def test_namespace_on_connection():
     manifest = YamlManifest(NO_CLUSTER)
     job = Runner(manifest).run(JobOptions(workflow="check"))

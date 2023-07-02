@@ -12,7 +12,7 @@ import os.path
 import itertools
 
 from . import DefaultNames
-from .util import UnfurlError, to_yaml_text, filter_env
+from .util import UnfurlError, get_base_dir, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig, make_yaml
 from .result import serialize_value
@@ -252,7 +252,10 @@ class ReadOnlyManifest(Manifest):
         return self.manifest.yaml
 
     def get_base_dir(self):
-        return self.manifest.get_base_dir()
+        if self.path:
+            return get_base_dir(self.path)
+        else:
+            return "."
 
     def is_path_to_self(self, path):
         if self.path is None or path is None:

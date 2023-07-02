@@ -66,10 +66,9 @@ def normalize_git_url(url: str, hard: int = 0):
             netloc = f"{user.partition(':')[0]}@{host}"
         else:  # hard >= 2
             netloc = host
-        if hard == 3 and parts.path.endswith(".git"):
-            path = parts.path[:-4]
-        else:
-            path = parts.path
+        path = parts.path.rstrip("/")
+        if hard == 3 and path.endswith(".git"):
+            path = path[:-4]
         return parts._replace(netloc=netloc, path=path).geturl()
     return url
 
@@ -141,8 +140,12 @@ def split_git_url(url) -> Tuple[str, str, str]:
     return url, "", ""
 
 
-# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
 @lru_cache(None)  # XXX won't get up dates in server mode
+def memoized_remote_tags(url, pattern="*") -> List[str]:
+    return get_remote_tags(url, pattern)
+
+
+# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
 def get_remote_tags(url, pattern="*") -> List[str]:
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
@@ -281,7 +284,9 @@ class Repo(abc.ABC):
         return self.get_path_for_git_repo(self.url, False)
 
     @classmethod
-    def create_working_dir(cls, gitUrl, localRepoPath, revision=None, depth=1):
+    def create_working_dir(
+        cls, gitUrl, localRepoPath, revision=None, depth=1, username=None, password=None
+    ):
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
             if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
@@ -294,7 +299,7 @@ class Repo(abc.ABC):
         cleanurl = sanitize_url(gitUrl)
         logger.info("Fetching %s %s to %s", cleanurl, revision or "", localRepoPath)
         kwargs: Dict[str, Any] = dict(recurse_submodules=True, no_single_branch=True)
-        if depth == 1:
+        if depth:
             kwargs["depth"] = depth
             kwargs["shallow_submodules"] = True
         non_interactive = (
@@ -308,7 +313,17 @@ class Repo(abc.ABC):
         try:
             if revision:
                 kwargs["branch"] = revision
-            repo = git.Repo.clone_from(gitUrl, localRepoPath, **kwargs)  # type: ignore
+            # equivalent to git.Repo.clone_from() with add_transient_credentials() added
+            gitcmd = git.Repo.GitCommandWrapperType(os.getcwd())
+            if username:
+                add_transient_credentials(gitcmd, gitUrl, username, password)
+            repo = git.Repo._clone(
+                gitcmd,
+                gitUrl,
+                localRepoPath,
+                git.GitCmdObjectDB,
+                **kwargs,
+            )
         except git.exc.GitCommandError as err:  # type: ignore
             raise UnfurlError(
                 f'couldn\'t create working directory, clone failed: "{err._cmdline}"\nTry re-running that command to diagnose the problem.'
@@ -404,6 +419,10 @@ class RepoView:
         else:
             assert self.repo
             return self.repo.url
+
+    def has_credentials(self):
+        parts = urlparse(self.url)
+        return "@" in parts.netloc
 
     def as_git_url(self, sanitize=False) -> str:
         hard = 2 if sanitize else 0
@@ -501,7 +520,9 @@ class RepoView:
         modified = "\n   ".join(
             [
                 str(filepath.relative_to(self.repo.working_dir))
-                for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo)
+                for filepath, dotsecrets in find_dirty_secrets(
+                    self.working_dir, self.repo
+                )
             ]
         )
         if modified:
@@ -557,6 +578,15 @@ class RepoView:
         return record
 
 
+def add_transient_credentials(git, url, username, password):
+    transient_url = add_user_to_url(url, username, password)
+    replacement = f'url."{transient_url}".insteadOf="{url}"'
+    # _git_options get cleared after next git command is issued
+    git._git_options = git.transform_kwargs(
+        split_single_char_options=True, c=replacement
+    )
+
+
 class GitRepo(Repo):
     def __init__(self, gitrepo: git.Repo):
         self.repo = gitrepo
@@ -570,14 +600,9 @@ class GitRepo(Repo):
     def add_transient_push_credentials(self, username, password):
         if not self.remote:
             return
-        url = add_user_to_url(self.url, username, password)
         if self.push_url is None:
             self.push_url = self.repo.git.remote("get-url", "--push", self.remote.name)
-        replacement = f'url."{url}".insteadOf="{self.push_url}"'
-        # _git_options get cleared after next git command is issued
-        self.repo.git._git_options = self.repo.git.transform_kwargs(
-            split_single_char_options=True, c=replacement
-        )
+        add_transient_credentials(self.repo.git, self.push_url, username, password)
 
     def set_url_credentials(
         self, username: str, password: str, fetch_only=False
@@ -698,10 +723,11 @@ class GitRepo(Repo):
         # add persistent git options
         call.extend(gitcmd._persistent_git_options)
         call.extend(list(args))
+        call.extend(gitcmd.transform_kwargs(**kw))
 
         # note: sets cwd to working_dir
         return gitcmd.execute(  # type: ignore
-            call, with_exceptions=with_exceptions, with_extended_output=True, **kw
+            call, with_exceptions=with_exceptions, with_extended_output=True
         )
 
     def add_to_local_git_ignore(self, rule):

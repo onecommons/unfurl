@@ -109,7 +109,7 @@ class Manifest(AttributeManager):
         self._importedManifests: Dict = {}
         self.cache: Dict[str, Any] = {}
 
-    def _add_repositories_from_environment(self):
+    def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
         context = self.localEnv.get_context()
         repositories = {}
@@ -127,7 +127,7 @@ class Manifest(AttributeManager):
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 self.package_specs[key] = PackageSpec(key, value, None)
-        resolver = self.get_import_resolver(self)
+        resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
             self.repositories[name] = RepoView(toscaRepository, None)
@@ -584,7 +584,7 @@ class Manifest(AttributeManager):
     ) -> Dict[str, dict]:
         # Called during parse time when including files
         if not resolver:
-            resolver = self.get_import_resolver(self)
+            resolver = self.get_import_resolver()
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
         for name, tpl in repositories.items():
@@ -713,16 +713,21 @@ class Manifest(AttributeManager):
         repositories = self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
+        if self.localEnv and self.localEnv.project:
+            repository_root = self.localEnv.project.projectRoot
+        else:
+            repository_root=self.get_base_dir()
         loader = toscaparser.imports.ImportsLoader(
             None,
             get_base_dir(baseDir),
             repositories=repositories,
             resolver=resolver,
+            repository_root=repository_root
         )
         import_spec = dict(
             file=artifactTpl["file"], repository=artifactTpl.get("repository")
         )
-        path, doc = loader.load_yaml(import_spec)
+        base, path, doc = loader.load_yaml(import_spec)
         if doc is None:
             logger.warning(
                 f"document include {templatePath} does not exist (base: {baseDir})"
@@ -730,8 +735,10 @@ class Manifest(AttributeManager):
         return path, doc
 
     def get_import_resolver(
-        self, ignoreFileNotFound=False, expand=False, config=None
+        self, ignoreFileNotFound: bool=False, expand: bool=False, config: Optional[dict]=None
     ) -> ImportResolver:
+        if self.localEnv and self.localEnv.make_resolver:
+            return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
     def last_commit_time(self) -> Optional[datetime.datetime]:
