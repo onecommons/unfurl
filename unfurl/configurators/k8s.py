@@ -137,7 +137,7 @@ def _get_connection(ctx: RefContext) -> dict:
 
 set_eval_func(
     "kubernetes_current_namespace",
-    lambda args, ctx: _get_connection(ctx).get("namespace") if ctx.task else None,
+    lambda args, ctx: _get_connection(ctx).get("namespace"),
 )
 
 

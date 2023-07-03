@@ -119,7 +119,8 @@ def test_namespace_on_connection():
     assert job.status == Status.ok, job.summary()
     config_map_instance = manifest.rootResource.find_instance("a_config_map")
     assert config_map_instance and config_map_instance.attributes["namespace"] == TEST_NS
-
+    assert config_map_instance.query(dict(eval={"is_function_defined": "kubernetes_current_namespace"}))
+    assert TEST_NS == config_map_instance.query(dict(eval=dict(kubernetes_current_namespace=None)))
 
 def _get_resources(task):
     # verify resource start (and test get_kubectl_args)
