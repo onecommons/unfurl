@@ -113,7 +113,7 @@ topology_template:
           type: artifact.AsdfTool
           file: gcloud
           properties:
-            version: 377.0.0
+            version: 398.0.0
 
         google-auth:
           type: artifact.PythonPackage
