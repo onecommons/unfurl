@@ -27,6 +27,7 @@ from .tosca import EntitySpec
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
     from .configurator import Dependency
+    from .manifest import Manifest
 
 from .util import (
     lookup_class,
@@ -1010,7 +1011,7 @@ def find_parent_resource(root: TopologyInstance, source: EntitySpec) -> HasInsta
     )
 
 
-def create_instance_from_spec(_manifest, target: EntityInstance, rname: str, resourceSpec):
+def create_instance_from_spec(_manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec):
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:

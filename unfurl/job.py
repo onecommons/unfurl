@@ -675,7 +675,7 @@ class Job(ConfigChange):
             if not task or task.priority >= Priority.required:
                 yield e
 
-    def _run(
+    def _run_requests(
         self,
         rendered_requests: Optional[
             Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]
@@ -759,6 +759,21 @@ class Job(ConfigChange):
             self.rootResource.attributeManager.commit_changes()
         return self.rootResource
 
+    def _run(self, ready: list, notReady: list, errors: list) -> None:
+        jobOptions = self.jobOptions
+        try:
+            display.verbosity = jobOptions.verbose
+            self._run_requests((ready, notReady, errors))
+        except JobAborted as e:
+            self.local_status = Status.error  # type: ignore
+            logger.error("Aborting job: %s", e)
+        except Exception:
+            self.local_status = Status.error  # type: ignore
+            self.unexpectedAbort = UnfurlError(
+                "unexpected exception while running job", True, True
+            )
+        self._apply_workfolders()
+
     def run(self, rendered: Tuple[list, list, list]) -> None:
         manifest = self.manifest
         startTime = perf_counter()
@@ -781,19 +796,7 @@ class Job(ConfigChange):
                                 repo.working_dir,
                             )
                             return None
-                try:
-                    display.verbosity = jobOptions.verbose
-                    self._run((ready, notReady, errors))
-                except JobAborted as e:
-                    self.local_status = Status.error  # type: ignore
-                    logger.error("Aborting job: %s", e)
-                except Exception:
-                    self.local_status = Status.error  # type: ignore
-                    self.unexpectedAbort = UnfurlError(
-                        "unexpected exception while running job", True, True
-                    )
-
-                self._apply_workfolders()
+                self._run(ready, notReady, errors)
                 manifest.commit_job(self)
             finally:
                 self.timeElapsed = perf_counter() - startTime
@@ -922,7 +925,7 @@ class Job(ConfigChange):
         childJob = create_job(self.manifest, jobOptions)
         childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
-        childJob._run()
+        childJob._run_requests()
         return childJob
 
     def run_external(self, **opts: Any) -> List["Job"]:
@@ -948,7 +951,10 @@ class Job(ConfigChange):
             external_jobs.append(external_job)
             rendered, count = _render(external_job)
             if not jobOptions.planOnly and count:
-                external_job.run(rendered)
+                if manifest is not self.manifest:
+                    external_job.run(rendered)
+                else:
+                    external_job._run(*rendered)
             if external_job.status == Status.error:
                 break
         return external_jobs
