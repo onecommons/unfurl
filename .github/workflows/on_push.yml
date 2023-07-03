@@ -2,10 +2,10 @@ name: test and push docker image
 on: [push]
 env:
   # NOTE keep versions in sync with version in TOSCA templates
-  TERRAFORM_VERSION: 1.1.4 # see tosca_plugins/artifacts.yaml
-  HELM_VERSION: 3.7.1 # see configurators/helm-template.yaml
-  GCLOUD_VERSION: 398.0.0 # see tosca_plugins/artifacts.yaml
-  KOMPOSE_VERSION: v1.26.1
+  TERRAFORM_VERSION: 1.1.4 # sync with tosca_plugins/artifacts.yaml
+  HELM_VERSION: 3.7.1 # sync with configurators/helm-template.yaml
+  GCLOUD_VERSION: 398.0.0 # sync with tosca_plugins/artifacts.yaml and Dockerfile
+  KOMPOSE_VERSION: v1.26.1 # sync with Dockerfile
   KUBECTL_VERSION: v1.24.2
   K3D_VERSION: v4.4.6
 jobs:
