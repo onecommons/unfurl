@@ -52,6 +52,7 @@ spec:
               operations:
                 create:
                   implementation:
+                    primary: community.docker
                     className: unfurl.configurators.ansible.AnsibleConfigurator
                   outputs:
                     registry:
@@ -64,7 +65,7 @@ spec:
                             image_path: "{{ {'get_artifact': ['SELF', 'image']} | ref }}"
                         - set_fact:
                             registry: "{{ image.repository }}"
-                        - docker_login:
+                        - community.docker.docker_login:
                              # https://docs.ansible.com/ansible/latest/modules/docker_login_module.html#docker-login-module
                              # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_login.py
                              username: "{{ registry.credential.user }}"
@@ -98,6 +99,8 @@ class DockerTest(unittest.TestCase):
         """
         import docker
 
+        # may require "Enable default Docker socket" to be set on Docker Desktop for Mac,
+        # see https://forums.docker.com/t/docker-errors-dockerexception-error-while-fetching-server-api-version-connection-aborted-filenotfounderror-2-no-such-file-or-directory-error-in-python/135637/3
         client = docker.from_env()
         assert client, "docker not installed?"
 
@@ -111,6 +114,7 @@ class DockerTest(unittest.TestCase):
         tasks = list(run1.workDone.values())
         assert not tasks[1].target.attributes.get("container"), "testing that container property isn't required"
         # print([task.result.outputs for task in tasks])
+        assert tasks[1].result and tasks[1].result.outputs
         container = tasks[1].result.outputs.get("container")
         assert container
         self.assertEqual(container["Name"], "/test_docker")
@@ -124,7 +128,7 @@ class DockerTest(unittest.TestCase):
         assert tasks[0].target.status.name == "ok", tasks[0].target.status
         assert tasks[1].target.status.name == "ok", tasks[1].target.status
 
-        assert "::container1::container_image" in run1.manifest.manifest.config["changes"][1]["digestKeys"]
+        assert "::container1::container_image" in run1.manifest.manifest.config["changes"][2]["digestKeys"], run1.manifest.manifest.config["changes"]
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
         # stop op shouldn't be called, just delete
@@ -156,6 +160,7 @@ class DockerTest(unittest.TestCase):
         assert run1.rootResource.query("::test1::registry_password") == "a_password"
         # docker login will fail because user doesn't exist:
         assert tasks[0].status.name == "error", tasks[0].status
+        assert tasks[0].result and tasks[0].result.result, "failed for unexpected reason?"
         self.assertIn("401 Client Error", tasks[0].result.result.get("msg", ""))
         # but the repository and image path will have been created
         self.assertEqual(

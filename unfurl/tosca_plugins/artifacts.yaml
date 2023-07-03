@@ -60,11 +60,50 @@ artifact_types:
         create:
           implementation: Cmd
           inputs:
+            # XXX add version if specified
             cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} install {{SELF.file}}"
         delete:
           implementation: Cmd
           inputs:
             cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} uninstall {{SELF.file}}"
+
+# https://docs.ansible.com/ansible/latest/collections_guide/index.html
+# https://docs.ansible.com/ansible/latest/reference_appendices/config.html#collections-paths
+# preinstalled (on container), install on localhost, in ensemble/spec
+ # COLLECTIONS_PATHS
+  artifact.AnsibleCollection:
+    derived_from: tosca.artifacts.Root
+    properties:
+      version:
+        type: string
+        required: false
+    interfaces:
+      Install:
+        check:
+          implementation: Cmd
+          inputs:
+            cmd: "{{ __python_executable | dirname }}/ansible-galaxy collection list --format json {{SELF.file}}"
+            # check if output isn't not empty
+            # XXX check version if specified, set to degraded if mismatch
+            resultTemplate: |  
+              {%if returncode == 0 and stdout | from_json %}
+              readyState: ok
+              {% else %}
+              readyState: absent
+              {% endif %} 
+      Standard:
+        create:
+          implementation: Cmd
+          inputs:
+            # XXX add version if specified
+            cmd: "{{ __python_executable | dirname }}/ansible-galaxy collection install {{SELF.file}}"
+        delete:
+          implementation: Cmd
+          inputs:
+            # first directory in the collections path
+            cmd: "rm -rf {{ lookup('env', 'COLLECTIONS_PATHS' }.split(':')[0] }}/{{ SELF.file.replace('.', '/') }}"
+
+
 
   # XXX update TerraformConfigurator to read from artifact
   # unfurl.artifacts.TerraformModule:
@@ -118,3 +157,15 @@ topology_template:
         google-auth:
           type: artifact.PythonPackage
           file: google-auth
+
+        kubernetes.core:
+          type: artifact.AnsibleCollection
+          file: kubernetes.core
+          properties:
+            version: "2.4.0"
+
+        community.docker:
+          type: artifact.AnsibleCollection
+          file: community.docker
+          properties:
+            version: "1.10.2"

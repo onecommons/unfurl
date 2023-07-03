@@ -1,6 +1,9 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
+imports:
+  - repository: unfurl
+    file: tosca_plugins/artifacts.yaml
 data_types:
   unfurl.datatypes.DockerContainer:
     # properties match Docker compose schema
@@ -121,6 +124,7 @@ node_types:
     interfaces:
       defaults:
         implementation:
+          primary: community.docker
           className: unfurl.configurators.ansible.AnsibleConfigurator
         outputs:
           container: # dict matching docker container inspect output, including HostPort
@@ -132,7 +136,7 @@ node_types:
                 #jinja2: variable_start_string: '<%', variable_end_string: '%>'
                 {% filter from_yaml %}
                 {%if 'registry_user' | eval %}
-                - docker_login:
+                - community.docker.docker_login:
                      # https://docs.ansible.com/ansible/latest/modules/docker_login_module.html#docker-login-module
                      # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_login.py
                      username: "<% SELF.registry_user %>"

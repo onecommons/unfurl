@@ -45,4 +45,5 @@ RUN pip install --no-cache-dir --upgrade pip pipenv && \
     cd /unfurl/unfurl/templates/python3.9 && \
     pipenv install --system --deploy && \
     pip install --no-deps /unfurl && \
+    ansible-galaxy collection install community.docker kubernetes.core && \
     unfurl version && rm -rf /unfurl
