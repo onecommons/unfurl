@@ -1213,7 +1213,13 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         os.chdir(projectDir)
         # need to set env vars and change current dir before importing pipenv
         from pipenv import environments
-        from pipenv.core import do_install
+        try:
+            from pipenv.routines.install import do_install
+            kw: Dict = dict(categories=[], extra_pip_args=[])
+        except ImportError:
+            from pipenv.core import do_install
+            kw = dict(extra_index_url=[])
+
         from pipenv.project import Project as PipEnvProject
 
         pythonPath = os.environ["PIPENV_PYTHON"]
@@ -1224,7 +1230,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
             return f'Pipfile location is not a valid directory: "{pipfileLocation}"'
         copy_pipfiles(pipfileLocation, projectDir)
 
-        kw: Dict = dict(python=pythonPath, extra_index_url=[])
+        kw["python"] = pythonPath
         pipenv_project = PipEnvProject()
         # need to run without args first so lock isn't overwritten
         retcode = _run_pip_env(do_install, pipenv_project, kw)
