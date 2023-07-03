@@ -208,6 +208,8 @@ def _get_project_repo(
 ) -> Optional[GitRepo]:
     path = _get_project_repo_dir(project_id, branch, args)
     if os.path.isdir(os.path.join(path, ".git")):
+        if os.path.isfile(path + ".lock"):
+            return None  # in the middle of cloning this repo
         repo = GitRepo(git.Repo(path))
         if args:
             # make sure we are using the latest credentials:
@@ -227,7 +229,13 @@ def _clone_repo(project_id: str, branch: str, args: dict) -> GitRepo:
         "private_token", args.get("password")
     )
     git_url = get_project_url(project_id, username, password)
-    return Repo.create_working_dir(git_url, repo_path, branch, depth=1)
+    clone_lock_path = repo_path + ".lock"
+    try:
+        with open(clone_lock_path, "xb", buffering=0) as lockfile:
+            lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
+        return Repo.create_working_dir(git_url, repo_path, branch, depth=1)
+    finally:
+        os.unlink(clone_lock_path)
 
 
 _cache_inflight_sleep_duration = 0.2
@@ -390,9 +398,9 @@ class CacheEntry:
         branch = self.branch or DEFAULT_BRANCH
         repo_key = "pull:" + _get_project_repo_dir(self.project_id, branch, self.args)
         # treat repo_key as a mutex to serialize write operations on the repo
-        time.sleep(0.100)  # hack for redis in_flight handling
         val = cache.get(repo_key)
         if val:
+            logger.debug(f"pull cache hit found for {repo_key}: {val}")
             last_check, action = cast(Tuple[float, str], val)
             if action == "detached":
                 # we checked out a tag not a branch, no pull is needed
