@@ -83,6 +83,8 @@ artifact_types:
           implementation: Cmd
           inputs:
             cmd: "{{ __python_executable | dirname }}/ansible-galaxy collection list --format json {{SELF.file}}"
+            done:
+              success: True # command returns error if there are no collections at all so set success true regardless
             # check if output isn't not empty
             # XXX check version if specified, set to degraded if mismatch
             resultTemplate: |  

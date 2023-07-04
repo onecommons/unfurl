@@ -128,7 +128,7 @@ class DockerTest(unittest.TestCase):
         assert tasks[0].target.status.name == "ok", tasks[0].target.status
         assert tasks[1].target.status.name == "ok", tasks[1].target.status
 
-        assert "::container1::container_image" in run1.manifest.manifest.config["changes"][2]["digestKeys"], run1.manifest.manifest.config["changes"]
+        assert "::container1::container_image" in run1.manifest.manifest.config["changes"][-1]["digestKeys"], run1.manifest.manifest.config["changes"]
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
         # stop op shouldn't be called, just delete
