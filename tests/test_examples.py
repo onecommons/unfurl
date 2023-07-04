@@ -65,6 +65,7 @@ class RunTest(unittest.TestCase):
         assert job.rootResource.find_instance("gitlab-release").created
         summary = job.json_summary()
         tasks = summary.pop("tasks")
+        summary.pop("external_jobs")
         self.assertEqual(summary,
             {
                 "job": {

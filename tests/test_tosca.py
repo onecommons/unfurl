@@ -343,8 +343,10 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 4)
         # print(job._json_plan_summary(True))
-        self.assertEqual(
-            job._json_plan_summary(include_rendered=False),
+        plan_summary = job._json_plan_summary(include_rendered=False)
+        assert plan_summary[0]["instance"] == "__artifact__configurator-artifacts--kubernetes.core"
+        plan_summary.pop(0)
+        self.assertEqual(plan_summary,
             [
                 {
                     "instance": "stagingCluster",
