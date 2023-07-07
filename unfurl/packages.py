@@ -34,10 +34,9 @@ environments:
     repositories:
       # set the repository URL and optionally the version for the given package
       unfurl.cloud/onecommons/blueprints/wordpress:
-        url: https://unfurl.cloud/user/repo.git#main # choose an explicit repository and revision or replace with another package?
-        revision: 1.2.15 # (optional) pin explicit revision for this package
+        url: https://unfurl.cloud/user/repo.git#main # set the package to a specific repository url that also sets the branch
 
-      # replace a package with another
+      # if url is set to a package identifier, replace a package with another
       unfurl.cloud/onecommons/unfurl-types:
         url: github.com/user1/myfork
 
@@ -54,9 +53,11 @@ environments:
 You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable where the key value pairs are separated by spaces. This example defines two rules:
 
 ```UNFURL_PACKAGE_RULES="unfurl.cloud/onecommons/* #main unfurl.cloud/onecommons/unfurl-types github.com/user1/myfork"```
+
+The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
 """
 import re
-from typing import Dict, List, NamedTuple, Optional, Union, cast
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 from urllib.parse import urlparse
 from .repo import RepoView, split_git_url, get_remote_tags
@@ -101,12 +102,13 @@ class PackageSpec:
         self.revision = minimum_version or revision
         self.lock_to_commit: str = ""
 
-    def __str__(self):
+    def __repr__(self):
         return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.url})"
 
     def matches(self, package: "Package") -> bool:
         # * use the package name (or prefix) as the name of the repository to specify replacement or name resolution
         candidate = package.package_id
+        # print("match", candidate, self.package_spec, candidate.startswith(self.package_spec.rstrip("*")))
         if self.package_spec.endswith("*"):
             return candidate.startswith(self.package_spec.rstrip("*"))
         elif "#" in self.package_spec:
@@ -123,6 +125,10 @@ class PackageSpec:
                 package.url = self.url.replace(
                     "*", package.package_id[len(self.package_spec) - 1 :]
                 )
+                if self.revision:
+                    package.revision = self.revision
+                    # PackageSpec.url used above will always have revision stripped off
+                    package.url = package.url + "#" + package.revision_tag
                 return ""
             elif self.package_id:
                 replaced_id = package.package_id
@@ -156,9 +162,7 @@ class PackageSpec:
         return ""
 
     @staticmethod
-    def update_package(
-        package_specs: Dict[str, "PackageSpec"], package: "Package"
-    ) -> bool:
+    def update_package(package_specs: List["PackageSpec"], package: "Package") -> bool:
         """_summary_
 
         Args:
@@ -172,33 +176,41 @@ class PackageSpec:
             bool: True if the package was updated
         """
         old = []
-        while True:
-            for pkg_spec in package_specs.values():
+        changed = False
+        replaced = True
+        # if the package_id changes, start over
+        while replaced:
+            replaced = False
+            for pkg_spec in package_specs:
                 if pkg_spec.matches(package):
                     replaced_id = pkg_spec.update(package)
                     logger.trace(
-                        "updated package %s using rule %s: replaced %s",
+                        "updated package %s using rule %s: old package_id was %s",
                         package,
                         pkg_spec,
                         replaced_id,
                     )
+                    changed = True
                     if not replaced_id:
+                        # same package_id, only url or revision changed
+                        # if not package.url:
+                        #    # use default url pattern for the package_id
                         if not package.url:
-                            # use default url pattern for the package_id
                             package.set_url_from_package_id()
-                        return True  # we're done
+                        continue
                     if replaced_id in old:
                         raise UnfurlError(
                             f"Circular reference in package rules: {replaced_id}"
                         )
+                    replaced = True
                     old.append(replaced_id)
                     break  # package_id replaced start over
             else:
-                # no matches found, we're done
+                # package_id wasn't replaced, make sure url is set
                 if not package.url:
                     # use default url pattern for the package_id
                     package.set_url_from_package_id()
-                return bool(old)
+        return changed
 
 
 def get_package_id_from_url(url: str) -> Package_Url_Info:
@@ -277,7 +289,9 @@ class Package:
 
     def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
         prefix = self.version_tag_prefix()
-        logger.debug(f"looking for remote tags {prefix}* for {self.url} using {get_remote_tags}")
+        logger.debug(
+            f"looking for remote tags {prefix}* for {self.url} using {get_remote_tags}"
+        )
         # get an sorted list of tags and strip the prefix from them
         vtags = [tag[len(prefix) :] for tag in get_remote_tags(self.url, prefix + "*")]
         # only include tags look like a semver with major version of 1 or higher
@@ -293,7 +307,7 @@ class Package:
         revision = self.find_latest_semver_from_repo(get_remote_tags)
         # set flag to indicate the revision wasn't explicitly specified
         if revision != self.revision:
-            # e.g. if no revision was specified and there are no version tags, don't set discovered_revision 
+            # e.g. if no revision was specified and there are no version tags, don't set discovered_revision
             # so the package continues to rely on the default branch, not future tags
             self.revision = revision
             self.discovered_revision = True
@@ -371,7 +385,7 @@ PackagesType = Dict[str, Union[Literal[False], Package]]
 def resolve_package(
     repoview: RepoView,
     packages: PackagesType,
-    package_specs: Dict[str, PackageSpec],
+    package_specs: List[PackageSpec],
     get_remote_tags=get_remote_tags,
 ) -> Optional["Package"]:
     """
