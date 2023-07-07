@@ -101,6 +101,14 @@ class PackageSpec:
             revision = None
         self.revision = minimum_version or revision
         self.lock_to_commit: str = ""
+        if ":" in self.package_spec or "#" in self.package_spec:
+            raise UnfurlError(
+                f"Malformed package spec: {self.package_spec} must be a package id not an URL"
+            )
+        if not (self.url or self.package_id or self.revision):
+            raise UnfurlError(
+                f"Malformed package spec: {self.package_spec}: missing url or package id"
+            )
 
     def __repr__(self):
         return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.url})"
