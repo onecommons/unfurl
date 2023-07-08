@@ -1,6 +1,6 @@
 # pbr uses this for install_requires
 pipenv==2023.7.3 # MIT
-click>=8.0.1 # BSD 3-clause
+click>=8.0.1,<8.1.4 # BSD 3-clause
 pyrsistent==0.15.7; python_version<'3' # last version with 2.7 support (needed for jsonschema)
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml==0.17.21
