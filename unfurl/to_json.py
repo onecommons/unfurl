@@ -458,6 +458,7 @@ def _get_extends(
         extends.append(name)
     if types is not None and name not in types:
         node_type_to_graphql(topology, typedef, types)
+    ExceptionCollector.collecting = True
     for p in typedef.parent_types():
         _get_extends(topology, p, extends, types)
 
@@ -592,6 +593,11 @@ def attribute_value_to_json(p, value):
     return PropertyVisitor().attribute_value_to_json(p, value)
 
 
+def _add_source_info(jsontype: ResourceType, _source: Any) -> None:
+    if isinstance(_source, dict):  # could be str or None
+        jsontype["_sourceinfo"] = _source
+
+
 # XXX outputs: only include "public" attributes?
 def node_type_to_graphql(
     topology: TopologySpec,
@@ -614,20 +620,22 @@ def node_type_to_graphql(
       requirements: [RequirementConstraint!]
       implementations: [String]
       implementation_requirements: [String]
+      _sourceinfo: JSON
     }
     """
     custom_defs = topology.topology_template.custom_defs
+    typename = type_definition.type
     jsontype = ResourceType(
         GraphqlObject(
             dict(
-                name=type_definition.type,  # fully qualified name
+                name=typename,  # fully qualified name
                 title=type_definition.type.split(".")[-1],  # short, readable name
                 description=type_definition.get_value("description") or "",
             )
         )
     )
     types[
-        type_definition.type
+        typename
     ] = jsontype  # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
     inherited_metadata = type_definition.get_value("metadata", parent=True)
@@ -645,6 +653,8 @@ def node_type_to_graphql(
         if metadata.get("internal"):
             visibility = "hidden"
     jsontype["visibility"] = visibility
+    if typename in custom_defs:
+        _add_source_info(jsontype, custom_defs[typename].get("_source"))
 
     propertydefs = list(
         (p, is_property_user_visible(p))
@@ -740,7 +750,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
 
     # make optional any requirements that were set in the inner topology
     names = sub_map.get_declared_requirement_names()
-    for req in jsontype["requirements"]:
+    for req in jsontype.get("requirements", []):
         if req["name"] in names:
             req["min"] = 0
     # templates created with this type need to have the substitute directive
@@ -753,6 +763,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
     topology = spec.topology
     assert topology
     custom_defs = topology.topology_template.custom_defs
+    ExceptionCollector.collecting = True
     # create these ones first
     # XXX detect error later if these types are being used elsewhere
     for nested_topology in spec.nested_topologies:
