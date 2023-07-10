@@ -247,7 +247,7 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     schema = {}
     if toscaSchema.title or p.name:
         schema["title"] = toscaSchema.title or p.name
-    if toscaSchema.default is not None and not is_value_computed(toscaSchema.default):
+    if toscaSchema.default is not None and not is_server_only_expression(toscaSchema.default):
         schema["default"] = toscaSchema.default
     if toscaSchema.required:
         schema["required"] = True
@@ -480,7 +480,7 @@ def template_visibility(t: EntitySpec, discovered):
     return "inherit"
 
 
-def is_property_user_visible(p: PropertyDef):
+def is_property_user_visible(p: PropertyDef) -> bool:
     user_settable = p.schema.get("metadata", {}).get("user_settable")
     if user_settable is not None:
         return user_settable
@@ -489,15 +489,15 @@ def is_property_user_visible(p: PropertyDef):
     return True
 
 
-def is_value_computed(value):
+def is_server_only_expression(value) -> bool:
     if isinstance(value, list):
         return any(is_function(item) or is_template(item) for item in value)
-    if isinstance(value, dict) and "_generate" in value:  # special case for client
+    if _is_front_end_expression(value):  # special case for client
         return False
     return is_function(value) or is_template(value)
 
 
-def is_computed(p):  # p: Property | PropertyDef
+def is_computed(p) -> bool:  # p: Property | PropertyDef
     # XXX be smarter about is_computed() if the user should be able to override the default
     if isinstance(p.schema, Schema):
         metadata = p.schema.metadata
@@ -505,8 +505,8 @@ def is_computed(p):  # p: Property | PropertyDef
         metadata = p.schema.get("metadata") or {}
     return (
         p.name in ["tosca_id", "state", "tosca_name"]
-        or is_value_computed(p.value)
-        or (p.value is None and is_value_computed(p.default))
+        or is_server_only_expression(p.value)
+        or (p.value is None and is_server_only_expression(p.default))
         or metadata.get("computed")
     )
 
@@ -546,9 +546,12 @@ def maybe_export_value(prop: Property, instance: EntityInstance, attrs: List[dic
 #     return attribute_value_to_json(p, value)
 
 
-def _is_get_env_or_secret(value) -> bool:
+def _is_front_end_expression(value) -> bool:
     if isinstance(value, dict):
-        return "get_env" in value or "secret" in value or "_generate" in value
+        if "eval" in value:
+            return "abspath" in value or "get_dir" in value
+        else:
+            return "get_env" in value or "secret" in value or "_generate" in value
     return False
 
 
@@ -569,7 +572,7 @@ class PropertyVisitor:
 
     def attribute_value_to_json(self, p, value):
         if p.schema.metadata.get("sensitive"):
-            if is_value_computed(value) or _is_get_env_or_secret(value):
+            if is_server_only_expression(value) or _is_front_end_expression(value):
                 return value
             self.redacted = True
             return sensitive.redacted_str
@@ -741,7 +744,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
     for name, value in sub_map.get_declared_properties().items():
         inputsSchema = jsontype["inputsSchema"]["properties"].get(name)
         if inputsSchema:
-            if is_value_computed(value):
+            if is_server_only_expression(value):
                 del jsontype["inputsSchema"]["properties"][name]
             else:
                 inputsSchema["default"] = value
@@ -853,7 +856,7 @@ def template_properties_to_json(nodetemplate: NodeTemplate, visitor):
     # if they aren't only include ones with an explicity value
     for p in nodetemplate.get_properties_objects():
         computed = is_computed(p)
-        if computed and not _is_get_env_or_secret(p.value):
+        if computed and not _is_front_end_expression(p.value):
             # don't expose values that are expressions to the user
             value = None
         else:
@@ -1902,7 +1905,7 @@ def add_computed_properties(instance: EntityInstance) -> List[Dict[str, Any]]:
                     instance.template.toscaEntityTemplate.custom_def,
                 )
             if p.schema.get("metadata", {}).get("visibility") != "hidden":
-                if is_sensitive(value) and _is_get_env_or_secret(p.value):
+                if is_sensitive(value) and _is_front_end_expression(p.value):
                     value = p.value
                 else:
                     value = attribute_value_to_json(p, value)
