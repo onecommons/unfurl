@@ -53,7 +53,7 @@ from .tosca import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
 
-from .to_json import blueprint_metadata
+from .to_json import node_type_to_graphql
 from .repo import (
     GitRepo,
     is_git_worktree,
@@ -339,9 +339,13 @@ class UnfurlNotable(Notable):
             if schema_repo:
                 self.metadata["schema"] = schema_repo.url.strip(":")
             if node:
+                assert node.toscaEntityTemplate.type_definition
+                type_dict = node_type_to_graphql(
+                    node.topology, node.toscaEntityTemplate.type_definition, {}, True
+                )
                 self.metadata.update(
                     dict(
-                        type=node.type,
+                        type=filter_dict(type_dict),
                         dependencies=list(self.find_dependencies(node).values()),
                     )
                 )

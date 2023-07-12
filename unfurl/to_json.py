@@ -34,6 +34,7 @@ from collections import Counter
 from collections.abc import Mapping, MutableSequence
 from typing_extensions import TypedDict
 from urllib.parse import urlparse
+from toscaparser.imports import is_url
 from toscaparser.substitution_mappings import SubstitutionMappings
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
@@ -49,6 +50,7 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
+from .repo import sanitize_url
 from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
@@ -593,9 +595,41 @@ def attribute_value_to_json(p, value):
     return PropertyVisitor().attribute_value_to_json(p, value)
 
 
-def _add_source_info(jsontype: ResourceType, _source: Any) -> None:
-    if isinstance(_source, dict):  # could be str or None
-        jsontype["_sourceinfo"] = _source
+def _get_source_info(source_info: dict) -> dict:
+    _import = {}
+    root = source_info["root"]
+    prefix = source_info.get("prefix")
+    if prefix:
+        _import["prefix"] = prefix
+    repository = source_info.get("repository")
+    if repository:
+        _import["repository"] = repository
+        _import["url"] = root
+        _import["file"] = source_info["file"]
+    else:
+        path = source_info["path"]
+        base = source_info["base"]
+        # make path relative to the import base (not the file that imported)
+        # and include the fragment if present
+        # base and path will both be local file paths
+        _import["file"] = path[len(base) :] + "".join(
+            source_info["file"].partition("#")[1:]
+        )
+        if is_url(root):
+            _import["url"] = root
+        # otherwise import relative to main service template
+    return _import
+
+
+def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) -> None:
+    # if the type wasn't imported add source info pointing at the root service template
+    source_info = jsontype.get("_sourceinfo")
+    if not source_info:
+        # not an import, type defined in main service template file
+        jsontype["_sourceinfo"] = dict(url=sanitize_url(repo_url, False), file=base_path)
+    elif "url" not in source_info:
+        # root is a local path, so this was a local import, set to the repo's url
+        source_info["url"] = sanitize_url(repo_url, False)
 
 
 # XXX outputs: only include "public" attributes?
@@ -603,6 +637,7 @@ def node_type_to_graphql(
     topology: TopologySpec,
     type_definition: StatefulEntityType,
     types: ResourceTypesByName,
+    summary: bool = False,
 ) -> ResourceType:
     """
     type ResourceType {
@@ -634,9 +669,7 @@ def node_type_to_graphql(
             )
         )
     )
-    types[
-        typename
-    ] = jsontype  # set now to avoid circular reference via _get_extends
+    types[typename] = jsontype  # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
     inherited_metadata = type_definition.get_value("metadata", parent=True)
     visibility = "inherit"
@@ -652,9 +685,40 @@ def node_type_to_graphql(
             jsontype["title"] = metadata["title"]
         if metadata.get("internal"):
             visibility = "hidden"
-    jsontype["visibility"] = visibility
+
     if typename in custom_defs:
-        _add_source_info(jsontype, custom_defs[typename].get("_source"))
+        _source = custom_defs[typename].get("_source")
+        if isinstance(_source, dict):  # could be str or None
+            jsontype["_sourceinfo"] = _get_source_info(_source)
+
+    if not type_definition.is_derived_from("tosca.nodes.Root"):
+        return jsontype
+    if type_definition.defs is None:
+        logger.warning("%s is missing type definition", type_definition.type)
+        return jsontype
+
+    extends: List[str] = []
+    # add ancestors classes to extends
+    _get_extends(topology, type_definition, extends, types)
+    # add capabilities types to extends
+    for cap in type_definition.get_capability_typedefs():
+        _get_extends(topology, cap, extends, None)
+    jsontype["extends"] = extends
+
+    operations = set(
+        op.name
+        for op in EntityTemplate._create_interfaces(type_definition, None)
+        if op.interfacetype != "Mock"
+    )
+    jsontype["implementations"] = sorted(operations)
+    jsontype[
+        "implementation_requirements"
+    ] = type_definition.get_interface_requirements()
+
+    if summary:
+        return jsontype
+
+    jsontype["visibility"] = visibility
 
     propertydefs = list(
         (p, is_property_user_visible(p))
@@ -667,10 +731,6 @@ def node_type_to_graphql(
         custom_defs, (p[0] for p in propertydefs if not p[1]), None
     )
 
-    extends: List[str] = []
-    # add ancestors classes to extends
-    _get_extends(topology, type_definition, extends, types)
-    jsontype["extends"] = extends
     if not type_definition.is_derived_from("tosca.nodes.Root"):
         return jsontype
     if type_definition.defs is None:
@@ -706,16 +766,6 @@ def node_type_to_graphql(
             ],
         )
     )
-
-    operations = set(
-        op.name
-        for op in EntityTemplate._create_interfaces(type_definition, None)
-        if op.interfacetype != "Mock"
-    )
-    jsontype["implementations"] = sorted(operations)
-    jsontype[
-        "implementation_requirements"
-    ] = type_definition.get_interface_requirements()
     return jsontype
 
 
