@@ -751,7 +751,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         for repo in self.repos.values():
             if self.include_local_repo(repo):
                 path = str(
-                    Path(repo.repo.working_dir).relative_to(
+                    Path(repo.working_dir).relative_to(
                         Path(os.path.abspath(self.repos_root))
                     )
                 )

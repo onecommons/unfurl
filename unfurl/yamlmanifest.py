@@ -334,7 +334,7 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
-        self._set_spec(spec, more_spec, skip_validation)
+        self._set_spec(spec, more_spec, skip_validation, "spec")
         assert self.tosca
         if self.localEnv:
             msg = f'Loading ensemble "{self.path}" in environment "{self.localEnv.manifest_context_name}"'
@@ -629,6 +629,18 @@ class YamlManifest(ReadOnlyManifest):
             self.lockfile = None
             return True
         return False
+
+    def get_tosca_file_path(self) -> str:
+        if not self.tosca:
+            return ""
+        assert self.tosca.template
+        if self.repo:
+            file_path = self.repo.find_path(self.tosca.template.path or "")[0] or ""
+        else:
+            file_path = self.tosca.template.path or ""
+        if self.tosca.fragment:
+            return file_path + "#" + self.tosca.fragment
+        return file_path
 
     def find_last_operation(self, target, operation) -> Optional[ChangeRecordRecord]:
         if self._operationIndex is None:

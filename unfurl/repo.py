@@ -242,7 +242,7 @@ class Repo(abc.ABC):
     def is_path_excluded(self, localPath):
         return False
 
-    def find_path(self, path, importLoader=None):
+    def find_path(self, path: str, importLoader=None):
         base = self.working_dir
         if not base:  # XXX support bare repos
             return None, None, None

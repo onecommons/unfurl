@@ -132,7 +132,7 @@ class Manifest(AttributeManager):
             toscaRepository = resolver.get_repository(name, tpl)
             self.repositories[name] = RepoView(toscaRepository, None)
 
-    def _set_spec(self, spec, more_spec=None, skip_validation=False):
+    def _set_spec(self, spec, more_spec=None, skip_validation=False, fragment=""):
         """
         Set the TOSCA service template.
         """
@@ -140,7 +140,7 @@ class Manifest(AttributeManager):
             name: repo.repository.tpl for name, repo in self.repositories.items()
         }
         self.tosca = self._load_spec(
-            spec, self.path, repositories, more_spec, skip_validation
+            spec, self.path, repositories, more_spec, skip_validation, fragment
         )
         self.specDigest = self.get_spec_digest(spec)
 
@@ -155,13 +155,16 @@ class Manifest(AttributeManager):
             #     return repo
         return None
 
-    def _load_spec(self, spec, path, repositories, more_spec, skip_validation=False):
+    def _load_spec(self, spec, path, repositories, more_spec, skip_validation, fragment):
         if "service_template" in spec:
             toscaDef = spec["service_template"] or {}
+            fragment += "/service_template"
         elif "tosca" in spec:  # backward compat
             toscaDef = spec["tosca"] or {}
+            fragment += "/tosca"
         else:
             toscaDef = {}
+            fragment = ""
 
         repositoriesTpl = toscaDef.setdefault("repositories", CommentedMap())
         for name, value in repositories.items():
@@ -187,7 +190,7 @@ class Manifest(AttributeManager):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.base_dir
         return ToscaSpec(
-            toscaDef, spec, path, self.get_import_resolver(expand=True), skip_validation
+            toscaDef, spec, path, self.get_import_resolver(expand=True), skip_validation, fragment
         )
 
     def get_spec_digest(self, spec):
