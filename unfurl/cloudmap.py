@@ -117,6 +117,14 @@ def filter_dict(d: dict) -> dict:
     return {k: v for k, v in d.items() if v}
 
 
+def match_namespace(path: str, namespace: str) -> bool:
+    if not namespace or path == namespace:
+        return True
+    if not path:
+        return False
+    # don't match on partial segments
+    return path.startswith(os.path.join(namespace, ""))
+
 @dataclass
 class Repository:
     git: str  # hostname and path without protocols, unique key for this record
@@ -167,12 +175,7 @@ class Repository:
         return ""
 
     def match_path(self, path: str) -> bool:
-        if not path or path == self.path:
-            return True
-        if not self.path:
-            return False
-        # don't match on partial segments
-        return self.path.startswith(os.path.join(path, ""))
+        return match_namespace(self.path, path)
 
     @property
     def key(self):
@@ -228,7 +231,9 @@ def force_merge_local_and_push_to_remote(
     pushinfolist = remote.push(o="ci.skip", follow_tags=True, force=force)
     pushinfo = pushinfolist[0]
     if pushinfolist.error:
-        logger.error(f"pushed to {sanitize_url(remote.url, True)} failed: {pushinfo.summary}")
+        logger.error(
+            f"pushed to {sanitize_url(remote.url, True)} failed: {pushinfo.summary}"
+        )
     else:
         logger.info(f"pushed to {sanitize_url(remote.url, True)}: {pushinfo.summary}")
 
@@ -494,7 +499,7 @@ class _LocalGitRepos:
         self.repos_root = root
 
     @staticmethod
-    def _choose_remote(remotes: List[git.Remote], hint: str):
+    def _choose_remote(remotes: List[git.Remote], hint: str) -> git.Remote:
         host = origin = canonical = None
         for remote in remotes:
             if remote.name == hint:
@@ -504,7 +509,7 @@ class _LocalGitRepos:
             elif remote.name == "canonical":
                 canonical = remote
         # find best candidate
-        return origin or host or canonical or remotes[0]
+        return host or origin or canonical or remotes[0]
 
     def find_repo(self, url: str, hint: str) -> Optional[GitRepo]:
         remotes = self.remotes.get(get_remote_git_url(url))
@@ -606,6 +611,7 @@ class Directory(_LocalGitRepos):
         self.config.save()
 
     def clone_repo(self, repo_info: Repository, url: str) -> GitRepo:
+        # XXX handle conflict when same path, different host
         download_path = str(Path(self.repos_root) / repo_info.path)
         repo = git.Repo.clone_from(url or repo_info.git_url(), download_path)
         return GitRepo(repo)
@@ -650,7 +656,7 @@ class Directory(_LocalGitRepos):
         return notables
 
 
-def get_remote_git_url(url):
+def get_remote_git_url(url: str) -> str:
     """Return the location of the git server without the scheme or user"""
     parts = urlparse(url)
     if not parts.netloc and not parts.scheme and "@" in url:
@@ -726,27 +732,42 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
     Locally manage git repositories from any origin using the git protocol.
     """
+    def __init__(self, local_repo_root: str = "", namespace: str = "") -> None:
+        _LocalGitRepos.__init__(self, local_repo_root)
+        self.path = namespace
 
     def has_repository(self, repo_info: Repository) -> bool:
         return repo_info.git in self.remotes
 
     def include_local_repo(self, repo: GitRepo) -> bool:
-        return bool(repo.remote)  # XXX check host and namespace filters too
+        return bool(repo.remote)
 
     def from_host(self, directory: Directory):
         """Pull latest and update the cloudmap to match the local repositories."""
         for repo in self.repos.values():
             if self.include_local_repo(repo):
-                repo.pull()  # XXX make optional?
-                assert repo.repo.working_dir
                 path = str(
                     Path(repo.repo.working_dir).relative_to(
                         Path(os.path.abspath(self.repos_root))
                     )
                 )
-                repository = self.git_to_repository(repo, path)
+                if not match_namespace(path, self.path):
+                    continue
+                # prefer "canonical" remote
+                remote = _LocalGitRepos._choose_remote(repo.repo.remotes, "canonical")
+                assert repo.repo.working_dir
+                if not os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
+                    repo.pull(remote.name)
+                repository = self.git_to_repository(remote, path)
+                repository.initial_revision = repo.get_initial_revision()
                 previous = directory.repositories.get(repository.key)
-                directory.repositories[repository.key] = repository
+                if previous:
+                    # don't replace metadata from remote host
+                    if not previous.initial_revision:
+                        previous.initial_revision = repository.initial_revision
+                    repository = previous
+                else:
+                    directory.repositories[repository.key] = repository
                 directory.maybe_analyze(
                     repository, repo, previous.notable if previous else {}
                 )
@@ -766,14 +787,12 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         return matched
 
     @staticmethod
-    def git_to_repository(repo: GitRepo, path: str) -> "Repository":
-        assert repo.remote  # origin
-        url = repo.remote.url
+    def git_to_repository(remote: git.Remote, path: str) -> "Repository":
+        url = remote.url
         record = Repository(
             git=get_remote_git_url(url),
             path=path,
             protocols=[urlparse(url).scheme or "ssh"],
-            initial_revision=repo.get_initial_revision(),
         )
         # to get default branch:
         # first line of git ls-remote --symref url
@@ -781,8 +800,9 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
 
         # add origin's refs as branches
         # refs iterates over .git/refs/remotes/origin/*
-        remote_refs = sorted(repo.repo.remote().refs, key=lambda r: r.name)
+        remote_refs = sorted(remote.refs, key=lambda r: r.name)
         # (git fetch --tags to get the latest tag refs)
+        # XXX include branches for all remotes that point to the same url
         record.branches = {
             ref.remote_head: ref.commit.hexsha
             for ref in remote_refs
@@ -872,9 +892,7 @@ class GitlabManager(RepositoryHost):
         for p in group.projects.list(iterator=True):
             projects[p.path_with_namespace][0] = p  # type: ignore
         for subgroup in group.subgroups.list(iterator=True):
-            self._get_projects_from_group(
-                self.gitlab.groups.get(subgroup.id), projects
-            )
+            self._get_projects_from_group(self.gitlab.groups.get(subgroup.id), projects)
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
@@ -917,7 +935,9 @@ class GitlabManager(RepositoryHost):
                 if dest:
                     # if both exist, update any changed metadata
                     if self.dryrun:
-                        logger.info("dry run: skipping creating updating project %s", name)
+                        logger.info(
+                            "dry run: skipping creating updating project %s", name
+                        )
                     else:
                         self.update_project_metadata(repo_info, dest)
                     do_merge = not force and merge
@@ -944,7 +964,10 @@ class GitlabManager(RepositoryHost):
                             )
                             commit = repo.repo.head.commit
                             branch_exists = dest_branch in repo.repo.references
-                            if not branch_exists or commit != repo.repo.references[dest_branch].commit:
+                            if (
+                                not branch_exists
+                                or commit != repo.repo.references[dest_branch].commit
+                            ):
                                 # now update project repository
                                 logger.info(
                                     f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
@@ -1212,7 +1235,7 @@ class CloudMap:
             else:
                 raise UnfurlError(f"no repository host named {name} found")
         if host_config["type"] == "local":
-            return LocalRepositoryHost(host_config.get("clone_root", clone_root))
+            return LocalRepositoryHost(host_config.get("clone_root", clone_root), namespace)
 
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]
         config = local_env.map_value(host_config, environment.get("variables"))
