@@ -1476,6 +1476,15 @@ def _to_graphql(
             repositories=manifest.context.get("repositories") or {},
         )
     )
+    assert manifest.repo
+    file_path = manifest.get_tosca_file_path()
+    if include_all:
+        # if include_all, assume this export is for another repository
+        # (see get_types in server.py)
+        for t in types.values():
+            add_root_source_info(t, manifest.repo.url, file_path)
+        for t in connection_types.values():
+            add_root_source_info(t, manifest.repo.url, file_path)
     return db, manifest, env, connection_types
 
 

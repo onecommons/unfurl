@@ -48,8 +48,6 @@ from flask_cors import CORS
 
 import git
 from git.objects import Commit
-from toscaparser.imports import is_url
-
 from .packages import Package, get_package_from_url, is_semver
 
 from .projectpaths import rmtree
@@ -71,6 +69,8 @@ from .yamlloader import ImportResolver_Context, SimpleCacheResolver
 from . import __version__, DefaultNames
 from . import to_json
 from . import init
+from .cloudmap import Repository, RepositoryDict
+
 
 __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
@@ -906,8 +906,8 @@ def export():
 
 
 def _export(
-    request: Request, requested_format: str, deployment_path: str, include_all: bool
-) -> Tuple[str, int]:
+    request: Request, requested_format: str, deployment_path: str, include_all: bool, post_work=None
+):
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
@@ -928,7 +928,7 @@ def _export(
         latest_commit,
     )
     if not err:
-        hit = cache_entry and cache_entry.hit
+        hit = cache_entry.hit and not post_work
         if request.args.get("include_all_deployments"):
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
@@ -950,6 +950,8 @@ def _export(
             etag = request.headers.get("If-None-Match")
             if latest_commit and _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
+        elif post_work:
+            post_work(cache_entry, json_summary)
 
         response = json_response(
             json_summary, request.args.get("pretty"), sort_keys=False
@@ -966,9 +968,39 @@ def _export(
             return err
 
 
+def _get_cloudmap_types(project_id, root_cache_entry):
+    err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
+    repositories_dict = cast(Dict[str, Repository], doc.get("repositories") or {})
+    types = {}
+    for r in repositories_dict.values():
+        for file_path, notable in r.notable.items():
+            if notable.get("artifact_type") ==  "artifact.tosca.ServiceTemplate":
+                typeinfo = notable.get("type")
+                if typeinfo:
+                    if "_sourceinfo" not in typeinfo:
+                        typeinfo["_sourceinfo"] = dict(file=file_path, url=r.git_url())
+                    if not typeinfo.get("description") and notable.get("description"):
+                        typeinfo["description"] = notable["description"]
+                    # XXX hack, always set for root type:
+                    typeinfo["implementations"] = ["create", "connect"]
+                    types[typeinfo["name"]] = typeinfo
+    return err, types
+
+
 @app.route("/types")
 def get_types():
-    return _export(request, "blueprint", "dummy-ensemble.yaml", True)
+    # request.args.getlist("implementation_requirements")
+    # request.args.getlist("extends")
+    # request.args.getlist("implements")
+    _add_types = None
+    filename = request.args.get("file", "dummy-ensemble.yaml")
+    if request.args.get("cloudmap"):  # e.g. "onecommons/cloudmap"
+        def _add_types(cache_entry, db):
+            err, types = _get_cloudmap_types(request.args.get("cloudmap"), cache_entry)
+            if err:
+                return err
+            db["ResourceTypes"].update(types)
+    return _export(request, "blueprint", filename, True, _add_types)
 
 
 @app.route("/populate_cache", methods=["POST"])
@@ -1214,7 +1246,9 @@ def _update_imports(current: List[dict], new: List[dict]) -> List[dict]:
     return current
 
 
-def _apply_imports(template: dict, patch: List[dict]) -> None:
+def _apply_imports(
+    template: dict, patch: List[dict], repo_url: str, root_file_path: str
+) -> None:
     # use _sourceinfo to patch imports and repositories
     # imports:
     #   - file, repository, prefix
@@ -1224,14 +1258,14 @@ def _apply_imports(template: dict, patch: List[dict]) -> None:
     for source_info in patch:
         repositories = template.setdefault("repositories", {})
         repository = source_info.get("repository")
-        root = source_info["root"]
+        root = source_info.get("url")
         prefix = source_info.get("prefix")
-        _import = {}
+        file = source_info["file"]
+        _import = dict(file=file)
         if prefix:
             _import["namespace_prefix"] = prefix
         if repository:
-            _import["file"] = source_info["file"]
-            if repository != "unfurl":
+            if repository != "unfurl" and root:
                 for name, tpl in repositories.items():
                     if tpl["url"] == root:
                         repository = name
@@ -1243,13 +1277,7 @@ def _apply_imports(template: dict, patch: List[dict]) -> None:
                     repositories[repository] = dict(url=root)
             _import["repository"] = repository
         else:
-            path = source_info["path"]
-            base = source_info["base"]
-            # make path relative to the import base (not the file that imported)
-            # and include the fragment if present
-            # base and path will both be local file paths
-            _import["file"] = path[len(base) :] + "".join(source_info["file"].partition("#")[1:])
-            if is_url(root):
+            if root and normalize_git_url_hard(root) != normalize_git_url_hard(repo_url):
                 # if root is an url then this was imported by file inside a repository
                 for name, tpl in repositories.items():
                     if tpl["url"] == root:
@@ -1259,12 +1287,20 @@ def _apply_imports(template: dict, patch: List[dict]) -> None:
                     # no repository declared
                     repository = Repo.get_path_for_git_repo(root, name_only=True)
                     repository = unique_name(repository, repositories)
-                    logger.debug("adding generated repository '%s': %s", repository, root)
+                    logger.debug(
+                        "adding generated repository '%s': %s", repository, root
+                    )
                     repositories[repository] = dict(url=root)
                 _import["repository"] = repository
-            # else: root is a local path, so this was a local import, we're done
+            else:
+                if file == root_file_path:
+                    # type defined in the root template, no need to import
+                    continue
         imports.append(_import)
+    _add_imports(imports, template)
 
+
+def _add_imports(imports: List[dict], template: dict):
     for i in imports:
         repositories = template.get("repositories", {})
         logger.trace("checking for import %s", i)
@@ -1437,7 +1473,11 @@ def _apply_environment_patch(patch: list, project: Project):
                             )
                             new_target[node_name] = tpl
                         environment[key] = new_target  # replace
-                _apply_imports(environment, imports)
+                assert project.project_repoview.repo
+                # imports defined here can be included by multiple deployments so we can't specify its root file path
+                _apply_imports(
+                    environment, imports, project.project_repoview.repo.url, ""
+                )
         elif typename == "DeploymentPath":
             update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
 
@@ -1546,8 +1586,18 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                         doc = doc[key]
             if not deleted:
                 _update_imports(imports, _patch_node_template(patch_inner, doc))
-    assert manifest.manifest and manifest.manifest.config
-    _apply_imports(manifest.manifest.config["spec"]["service_template"], imports)
+    assert (
+        manifest.manifest
+        and manifest.manifest.config
+        and manifest.repo
+    )
+    _apply_imports(
+        manifest.manifest.config["spec"]["service_template"],
+        imports,
+        manifest.repo.url,
+        # template path relative to the repository root
+        manifest.get_tosca_file_path(),
+    )
 
 
 def _patch_ensemble(
@@ -1824,6 +1874,33 @@ def serve(
     # gunicorn"  , "-b", "0.0.0.0:5000", "unfurl.server:app"
     # from gunicorn.app.wsgiapp import WSGIApplication
     # WSGIApplication().run()
+
+
+def load_yaml(project_id, branch, file_name, root_entry=None, latest_commit=None):
+    from toscaparser.utils.yamlparser import load_yaml
+
+    def _work(
+        cache_entry: CacheEntry, latest_commit: Optional[str]
+    ) -> Tuple[Any, Any, bool]:
+        path = os.path.join(cache_entry.checked_repo.working_dir, cache_entry.file_path)
+        doc = load_yaml(path)
+        return None, doc, True
+
+    cache_entry = CacheEntry(
+        project_id,
+        branch,
+        file_name,
+        "load_yaml",
+        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
+        do_clone=True,
+        root_entry=root_entry,
+    )
+    # this will add this cache_dep to the root_cache_request's value
+    # XXX create package from url, branch and latest_commit to decide if a cache_dep is need
+    dep = cache_entry.make_cache_dep(
+        cache_entry.stale_pull_age, None
+    )
+    return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
 
 
 class ServerCacheResolver(SimpleCacheResolver):

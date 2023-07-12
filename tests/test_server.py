@@ -57,11 +57,9 @@ patch = """
     "title": "container_service",
     "description": "",
     "_sourceinfo": {{
-        "path": "/private/var/folders/5r/401zm__s0nsgksswhft5x7lh0000gr/T/tmpyovij7o5/public/onecommons/project-templates/application-blueprint/main/unfurl-types/service-template.yaml",
         "prefix": null,
-        "root": "https://gitlab.com/onecommons/unfurl-types.git",
+        "url": "https://gitlab.com/onecommons/unfurl-types.git",
         "repository": "types",
-        "base": "https://gitlab.com/onecommons/unfurl-types.git",
         "file": "service-template.yaml"
     }},
     "directives": [],
