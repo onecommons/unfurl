@@ -691,8 +691,6 @@ def node_type_to_graphql(
         if isinstance(_source, dict):  # could be str or None
             jsontype["_sourceinfo"] = _get_source_info(_source)
 
-    if not type_definition.is_derived_from("tosca.nodes.Root"):
-        return jsontype
     if type_definition.defs is None:
         logger.warning("%s is missing type definition", type_definition.type)
         return jsontype
@@ -700,9 +698,10 @@ def node_type_to_graphql(
     extends: List[str] = []
     # add ancestors classes to extends
     _get_extends(topology, type_definition, extends, types)
-    # add capabilities types to extends
-    for cap in type_definition.get_capability_typedefs():
-        _get_extends(topology, cap, extends, None)
+    if isinstance(type_definition, NodeType):
+        # add capabilities types to extends
+        for cap in type_definition.get_capability_typedefs():
+            _get_extends(topology, cap, extends, None)
     jsontype["extends"] = extends
 
     operations = set(
@@ -733,13 +732,6 @@ def node_type_to_graphql(
 
     if not type_definition.is_derived_from("tosca.nodes.Root"):
         return jsontype
-    if type_definition.defs is None:
-        logger.warning("%s is missing type definition", type_definition.type)
-        return jsontype
-
-    # add capabilities types to extends
-    for cap in type_definition.get_capability_typedefs():
-        _get_extends(topology, cap, extends, None)
 
     # treat each capability as a complex property
     add_capabilities_as_properties(
