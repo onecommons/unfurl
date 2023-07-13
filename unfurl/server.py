@@ -939,9 +939,12 @@ def _export(
                     cache, _export_cache_work, latest_commit
                 )
                 if derr:
-                    deployments.append(
-                        dict(deployment=manifest_path, error="Internal Error")
-                    )
+                    error_dict = dict(deployment=manifest_path, error="Internal Error")
+                    if isinstance(derr, Exception):
+                        error_dict["details"] = "".join(
+                            traceback.TracebackException.from_exception(derr).format()
+                        )
+                    deployments.append(error_dict)
                 else:
                     deployments.append(djson)
                     hit = hit and dcache_entry.hit

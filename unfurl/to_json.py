@@ -18,6 +18,7 @@ import itertools
 import json
 import datetime
 from time import perf_counter
+import traceback
 from typing import (
     Any,
     Dict,
@@ -1786,8 +1787,12 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
             env["instances"].update(_set_shared_instances(instances))
             environments[name] = env
             all_connection_types.update(env_types)
-        except Exception:
+        except Exception as err:
             logger.error("error exporting environment %s", name, exc_info=True)
+            details = "".join(
+                traceback.TracebackException.from_exception(err).format()
+            )
+            environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
     db["DeploymentEnvironment"] = environments
     if blueprintdb:
