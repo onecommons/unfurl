@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import inspect
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -82,7 +83,7 @@ class ConfiguratorResult:
         success: bool,
         modified: Optional[bool],
         status: Optional[Status] = None,
-        configChanged: bool = None,
+        configChanged: Optional[bool] = None,
         result: object = None,
         outputs: Optional[dict] = None,
         exception: Optional[UnfurlTaskError] = None,
@@ -141,6 +142,8 @@ class Configurator:
 
     attribute_output_metadata_key: Optional[str] = None
 
+    __is_generator: Optional[bool] = None
+
     @classmethod
     def set_config_spec_args(klass, kw: dict, target: EntityInstance) -> dict:
         return kw
@@ -148,8 +151,28 @@ class Configurator:
     def __init__(self, configurationSpec: ConfigurationSpec) -> None:
         self.configSpec = configurationSpec
 
+    def _run(self, task: "TaskView") -> Generator:
+        # internal function to convert user defined run() to a generator
+        result = self.run(task)
+        if isinstance(result, ConfiguratorResult):
+            yield result
+        elif isinstance(result, Status):
+            yield task.done(None, None, result)
+        elif isinstance(result, (bool, type(None))):
+            yield task.done(result)
+        else:
+            raise UnfurlTaskError(task, "bad return valuate")
+
+    def _is_generator(self):
+        if self.__is_generator is None:
+            self.__is_generator = inspect.isgeneratorfunction(self.run)
+        return self.__is_generator
+
     def get_generator(self, task: "TaskView") -> Generator:
-        return self.run(task)
+        if self._is_generator():
+            return self.run(task)  # type: ignore
+        else:
+            return self._run(task)
 
     def render(self, task: "TaskView") -> Any:
         """
@@ -164,10 +187,11 @@ class Configurator:
         return None
 
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
-    def run(self, task: "TaskView") -> Generator:
+    def run(self, task: "TaskView") -> Union[Generator, ConfiguratorResult, Status, bool]:
         """
         This should perform the operation specified in the :class:`ConfigurationSpec`
-        on the :obj:`task.target`.
+        on the :obj:`task.target`. It can be either a generator that yields one or more :class:`JobRequest` or :class:`TaskRequest`
+        or a regular function that returns a :class:`ConfiguratorResult`.
 
         Args:
             task (:class:`TaskView`) The task currently running.
@@ -665,7 +689,9 @@ class TaskView:
 
     @staticmethod
     def find_connection(
-        ctx: RefContext, target: NodeInstance, relation: str = "tosca.relationships.ConnectsTo"
+        ctx: RefContext,
+        target: NodeInstance,
+        relation: str = "tosca.relationships.ConnectsTo",
     ) -> Optional[RelationshipInstance]:
         """
         Find a relationship that this task can use to connect to the given instance.
@@ -679,9 +705,13 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection = cast(Optional[RelationshipInstance], Ref(
-            f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
-            vars=dict(target=target)).resolve_one(ctx))
+        connection = cast(
+            Optional[RelationshipInstance],
+            Ref(
+                f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
+                vars=dict(target=target),
+            ).resolve_one(ctx),
+        )
 
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
         if not connection:
@@ -968,13 +998,17 @@ class TaskView:
             assert self._manifest.tosca
             if isinstance(template, dict):
                 tname = existingResource.template.name
-                existingResource.template = existingResource.template.topology.add_node_template(
-                    tname, template
+                existingResource.template = (
+                    existingResource.template.topology.add_node_template(
+                        tname, template
+                    )
                 )
             elif (
                 isinstance(template, str) and template != existingResource.template.name
             ):
-                nodeSpec = existingResource.template.topology.get_node_template(template)
+                nodeSpec = existingResource.template.topology.get_node_template(
+                    template
+                )
                 if not nodeSpec:
                     raise UnfurlTaskError(
                         self,
