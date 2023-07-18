@@ -549,7 +549,8 @@ def maybe_export_value(prop: Property, instance: EntityInstance, attrs: List[dic
 def _is_front_end_expression(value) -> bool:
     if isinstance(value, dict):
         if "eval" in value:
-            return "abspath" in value or "get_dir" in value
+            expr = value['eval']
+            return "abspath" in expr or "get_dir" in expr
         else:
             return "get_env" in value or "secret" in value or "_generate" in value
     return False
