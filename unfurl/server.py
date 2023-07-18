@@ -900,7 +900,8 @@ def export():
             "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
         )
     deployment_path = request.args.get("deployment_path") or ""
-    return _export(request, requested_format, deployment_path, True)
+    include_all = requested_format == "blueprint"
+    return _export(request, requested_format, deployment_path, include_all)
 
 
 def _export(request: Request, requested_format: str, deployment_path: str, include_all: bool) -> Tuple[str, int]:
