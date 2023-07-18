@@ -973,11 +973,16 @@ def _export(
 
 def _get_cloudmap_types(project_id, root_cache_entry):
     err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
-    repositories_dict = cast(Dict[str, Repository], doc.get("repositories") or {})
+    if doc is None:
+        return err, {}
+    repositories_dict = cast(Dict[str, dict], doc.get("repositories") or {})
     types = {}
-    for r in repositories_dict.values():
+    for r_dict in repositories_dict.values():
+        r = Repository(**r_dict)
+        if not r.notable:
+            continue
         for file_path, notable in r.notable.items():
-            if notable.get("artifact_type") ==  "artifact.tosca.ServiceTemplate":
+            if notable.get("artifact_type") == "artifact.tosca.ServiceTemplate":
                 typeinfo = notable.get("type")
                 if typeinfo:
                     if "_sourceinfo" not in typeinfo:
@@ -1002,7 +1007,7 @@ def get_types():
             err, types = _get_cloudmap_types(request.args.get("cloudmap"), cache_entry)
             if err:
                 return err
-            db["ResourceTypes"].update(types)
+            db["ResourceType"].update(types)
     return _export(request, "blueprint", filename, True, _add_types)
 
 

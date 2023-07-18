@@ -261,13 +261,17 @@ class Notable:
         self.root_path = root_path
         self.folder = folder
         self.file = file
+        self.fragment = ""
         self.metadata: Dict[str, Any] = {}
         self.artifacts: List[ArtifactDict] = []
 
     @property
     def path(self) -> str:
         if self.file:
-            return os.path.join(self.folder, self.file)
+            path = os.path.join(self.folder, self.file)
+            if self.fragment:
+                return path + "#" + self.fragment
+            return path
         else:
             return self.folder
 
@@ -323,9 +327,11 @@ class UnfurlNotable(Notable):
                 Path(localenv.manifestPath).relative_to(Path(self.root_path))
             )
             self.folder, self.file = os.path.split(rel_path)
+            assert manifest.tosca
+            self.fragment = manifest.tosca.fragment
             spec = manifest.tosca
             assert spec
-            assert spec.template
+            assert spec.template and spec.template.tpl
             metadata = spec.template.tpl.get("metadata") or spec.template.tpl or {}
             self.metadata.update(
                 dict(

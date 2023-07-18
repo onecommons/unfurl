@@ -21,10 +21,10 @@ def _apply_package_rules(test_url, env_package_spec):
 
 
 def test_package_rules():
-    test_url = "https://unfurl.cloud/onecommons/unfurl-types" 
+    test_url = "https://unfurl.cloud/onecommons/blueprints/wordpress" 
     env_package_spec = "gitlab.com/onecommons/* unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* http://tunnel.abreidenbach.com:3000/onecommons/*#main"
     package, package_specs = _apply_package_rules(test_url, env_package_spec)
-    assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/unfurl-types#main"
+    assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress#main"
 
     package, package_specs = _apply_package_rules("https://gitlab.com/onecommons/unfurl-types", env_package_spec)
     assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/unfurl-types#main"
