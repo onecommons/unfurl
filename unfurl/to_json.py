@@ -395,7 +395,7 @@ def _make_req(
 
 
 def requirement_to_graphql(
-    topology: TopologySpec, req_dict: dict
+    topology: TopologySpec, req_dict: dict, include_omitted = False
 ) -> Optional[GraphqlObject]:
     """
     type RequirementConstraint {
@@ -420,7 +420,7 @@ def requirement_to_graphql(
         reqobj["max"] = 1
 
     visibility = _requirement_visibility(topology, name, req)
-    if visibility == "omit":
+    if not include_omitted and visibility == "omit":
         return None
 
     if visibility != "inherit":
@@ -1403,7 +1403,7 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
 
 def _to_graphql(
     localEnv: LocalEnv,
-    include_all: bool = False,
+    root_url: str = "",
 ) -> Tuple[GraphqlDB, YamlManifest, GraphqlObject, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
@@ -1415,7 +1415,7 @@ def _to_graphql(
     types_repo = tpl.get("repositories").get("types")
     if types_repo:  # only export types, avoid built-in repositories
         db["repositories"] = {"types": types_repo}
-    types = to_graphql_nodetypes(spec, include_all)
+    types = to_graphql_nodetypes(spec, bool(root_url))
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
     environment_instances = {}
@@ -1469,13 +1469,13 @@ def _to_graphql(
     )
     assert manifest.repo
     file_path = manifest.get_tosca_file_path()
-    if include_all:
+    if root_url:
         # if include_all, assume this export is for another repository
         # (see get_types in server.py)
         for t in types.values():
-            add_root_source_info(t, manifest.repo.url, file_path)
+            add_root_source_info(t, root_url, file_path)
         for t in connection_types.values():
-            add_root_source_info(t, manifest.repo.url, file_path)
+            add_root_source_info(t, root_url, file_path)
     return db, manifest, env, connection_types
 
 
@@ -1588,9 +1588,8 @@ def add_graphql_deployment(
     return deployment
 
 
-def to_blueprint(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
-    include_all = existing if isinstance(existing, bool) else False
-    db, manifest, env, env_types = _to_graphql(localEnv, include_all)
+def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None) -> GraphqlDB:
+    db, manifest, env, env_types = _to_graphql(localEnv, root_url or "")
     assert manifest.tosca
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(

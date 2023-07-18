@@ -796,6 +796,10 @@ def version():
     return f"{__version__(True)} ({get_package_digest()})"
 
 
+def get_canonical_url(project_id: str) -> str:
+    return urljoin("https://unfurl.cloud/", project_id + ".git")
+
+
 def get_project_url(project_id: str, username=None, password=None) -> str:
     base_url = current_app.config.get("UNFURL_CLOUD_SERVER")
     assert base_url
@@ -917,7 +921,7 @@ def _export(
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
-    args["include_all"] = include_all  # type: ignore
+    args["include_all"] = get_canonical_url(project_id) if include_all else ""
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
         project_id, branch, file_path, requested_format, repo, args=args
