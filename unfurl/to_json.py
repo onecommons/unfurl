@@ -625,11 +625,13 @@ def _get_source_info(source_info: dict) -> dict:
 def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) -> None:
     # if the type wasn't imported add source info pointing at the root service template
     source_info = jsontype.get("_sourceinfo")
-    if not source_info or "url" not in source_info:
+    if not source_info:
         # not an import, type defined in main service template file
         # or it's an import relative to the root, just include the root import because it will in turn import this import
         jsontype["_sourceinfo"] = dict(url=sanitize_url(repo_url, False), file=base_path)
-
+    elif "url" not in source_info:
+        # it's an import relative to the root, set to the repo's url
+        source_info["url"] = sanitize_url(repo_url, False)
 
 # XXX outputs: only include "public" attributes?
 def node_type_to_graphql(

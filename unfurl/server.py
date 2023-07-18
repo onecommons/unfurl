@@ -48,6 +48,7 @@ from flask_cors import CORS
 
 import git
 from git.objects import Commit
+from .manifest import relabel_dict
 from .packages import Package, get_package_from_url, is_semver
 
 from .projectpaths import rmtree
@@ -1259,7 +1260,7 @@ def _update_imports(current: List[dict], new: List[dict]) -> List[dict]:
 
 
 def _apply_imports(
-    template: dict, patch: List[dict], repo_url: str, root_file_path: str
+    template: dict, patch: List[dict], repo_url: str, root_file_path: str, repositories=None
 ) -> None:
     # use _sourceinfo to patch imports and repositories
     # imports:
@@ -1267,8 +1268,10 @@ def _apply_imports(
     # repositories:
     #     repo_name: url
     imports = []
+    if not repositories:
+        repositories = template.get("repositories") or {}
     for source_info in patch:
-        repositories = template.setdefault("repositories", {})
+        patch_repositories = template.setdefault("repositories", {})
         repository = source_info.get("repository")
         root = source_info.get("url")
         prefix = source_info.get("prefix")
@@ -1286,7 +1289,7 @@ def _apply_imports(
                     # don't use an existing name because the urls won't match
                     repository = unique_name(repository, repositories)
                     logger.debug("adding repository '%s': %s", repository, root)
-                    repositories[repository] = dict(url=root)
+                    patch_repositories[repository] = repositories[repository] = dict(url=root)
             _import["repository"] = repository
         else:
             if root and normalize_git_url_hard(root) != normalize_git_url_hard(repo_url):
@@ -1302,7 +1305,7 @@ def _apply_imports(
                     logger.debug(
                         "adding generated repository '%s': %s", repository, root
                     )
-                    repositories[repository] = dict(url=root)
+                    patch_repositories[repository] = repositories[repository] = dict(url=root)
                 _import["repository"] = repository
             else:
                 if file == root_file_path:
@@ -1455,7 +1458,9 @@ def _patch_response(repo: Optional[GitRepo]):
     return jsonify(dict(commit=repo and repo.revision or None))
 
 
-def _apply_environment_patch(patch: list, project: Project):
+def _apply_environment_patch(patch: list, local_env: LocalEnv):
+    project = local_env.project
+    assert project
     localConfig = project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
@@ -1487,8 +1492,10 @@ def _apply_environment_patch(patch: list, project: Project):
                         environment[key] = new_target  # replace
                 assert project.project_repoview.repo
                 # imports defined here can be included by multiple deployments so we can't specify its root file path
+                context = project.get_context(name)
+                repositories = relabel_dict(context, local_env, "repositories").copy()
                 _apply_imports(
-                    environment, imports, project.project_repoview.repo.url, ""
+                    environment, imports, project.project_repoview.repo.url, "", repositories
                 )
         elif typename == "DeploymentPath":
             update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
@@ -1521,7 +1528,7 @@ def _patch_environment(body: dict, project_id: str):
         or ""
     )
     localConfig = localEnv.project.localConfig
-    _apply_environment_patch(patch, localEnv.project)
+    _apply_environment_patch(patch, localEnv)
     localConfig.config.save()
     if not was_dirty:
         if repo.is_dirty():
