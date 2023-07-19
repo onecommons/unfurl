@@ -1312,12 +1312,11 @@ def _apply_imports(
                     # type defined in the root template, no need to import
                     continue
         imports.append(_import)
-    _add_imports(imports, template)
+    _add_imports(imports, template, repositories)
 
 
-def _add_imports(imports: List[dict], template: dict):
+def _add_imports(imports: List[dict], template: dict, repositories: dict):
     for i in imports:
-        repositories = template.get("repositories", {})
         logger.trace("checking for import %s", i)
         for existing in template.setdefault("imports", []):
             # add imports if missing
