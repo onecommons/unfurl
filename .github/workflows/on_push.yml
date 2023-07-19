@@ -117,6 +117,8 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=raw,value=stable,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
       - name: Build and push
         id: docker_build
         uses: docker/build-push-action@v4
@@ -130,6 +132,8 @@ jobs:
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   publish_dockerhub_server:
     needs: test
@@ -166,6 +170,8 @@ jobs:
             type=raw,value=latest-server,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=raw,value=stable-server,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}-server
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
       - name: Build and push unfurl server
         id: docker_build_server
         uses: docker/build-push-action@v4
@@ -174,6 +180,8 @@ jobs:
           file: ./docker/Dockerfile.server
           push: true
           tags: ${{ steps.meta_server.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   publish_dockerhub_podman:
     needs: publish_dockerhub
@@ -210,6 +218,8 @@ jobs:
             type=raw,value=latest-podman,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=raw,value=stable-podman,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}-podman
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
       - name: Build and push
         id: docker_build
         uses: docker/build-push-action@v4
@@ -224,6 +234,8 @@ jobs:
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
             UNFURL_TAG=${{ steps.get_tag_name.outputs.tag }}
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   publish_pypi:
     needs: publish_dockerhub
@@ -272,3 +284,51 @@ jobs:
           branch: gh-pages
           directory: gh-pages
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish_dev_ghcr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch repo
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Log in to registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: https://ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ghcr.io/onecommons/unfurl
+          # commit sha, branch name, tag name, latest on main
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v4
+        with:
+          context: ./
+          file: ./docker/Dockerfile
+          push: true
+          build-args: |
+            HELM_VERSION=${{ env.HELM_VERSION }}
+            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
+            GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
+            KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
