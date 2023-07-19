@@ -147,7 +147,7 @@ node_types:
                   template: >-
                     helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }} -o json 
                       {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
-                      {% if connections.K8sCluster.insecure | default(false) %}
+                      {%if lookup('env', 'KUBE_INSECURE') %}
                       --kube-insecure-skip-tls-verify
                       {% endif %}
                       {% if inputs.chart_values | default('', true) %}
