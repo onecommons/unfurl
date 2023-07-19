@@ -5,7 +5,7 @@ import datetime
 import os.path
 import hashlib
 import json
-from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, cast
+from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
 from ruamel.yaml.comments import CommentedMap
 
 from .tosca import EntitySpec, NodeSpec, ToscaSpec, TOSCA_VERSION, ArtifactSpec
@@ -99,7 +99,7 @@ class Manifest(AttributeManager):
         self.tosca = None
         self.specDigest = None
         self.repositories: Dict[str, RepoView] = {}
-        self.package_specs: Dict[str, PackageSpec] = {}
+        self.package_specs: List[PackageSpec] = []
         self.packages: PackagesType = {}
         if self.localEnv:
             # before we start parsing the manifest, add the repositories in the environment
@@ -116,9 +116,9 @@ class Manifest(AttributeManager):
         for key, value in relabel_dict(context, self.localEnv, "repositories").items():
             if "." in key:  # assume it's a package not a repository name
                 assert isinstance(value, dict)
-                self.package_specs[key] = PackageSpec(
+                self.package_specs.append( PackageSpec(
                     key, value.get("url"), value.get("revision")
-                )
+                ))
             else:
                 repositories[key] = value
         env_package_spec = context.get("variables", {}).get(
@@ -126,7 +126,7 @@ class Manifest(AttributeManager):
         )
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
-                self.package_specs[key] = PackageSpec(key, value, None)
+                self.package_specs.append( PackageSpec(key, value, None) )
         resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)

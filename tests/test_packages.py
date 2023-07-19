@@ -3,12 +3,49 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli
 import git
+import pytest
 from unfurl.localenv import LocalEnv
-from unfurl.packages import Package, get_package_id_from_url
+from unfurl.packages import PackageSpec, Package, get_package_id_from_url, get_package_from_url
 from unfurl.repo import get_remote_tags
+from unfurl.util import UnfurlError, taketwo
+
+
+def _apply_package_rules(test_url, env_package_spec):
+    package_specs = []
+    for key, value in taketwo(env_package_spec.split()):
+        package_specs.append( PackageSpec(key, value, None) )
+    package = get_package_from_url(test_url)
+    assert package
+    changed = PackageSpec.update_package(package_specs, package)
+    return package, package_specs
 
 
 def test_package_rules():
+    test_url = "https://unfurl.cloud/onecommons/unfurl-types" 
+    env_package_spec = "gitlab.com/onecommons/* unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* http://tunnel.abreidenbach.com:3000/onecommons/*#main"
+    package, package_specs = _apply_package_rules(test_url, env_package_spec)
+    assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/unfurl-types#main"
+
+    package, package_specs = _apply_package_rules("https://gitlab.com/onecommons/unfurl-types", env_package_spec)
+    assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/unfurl-types#main"
+
+    env_package_spec = """unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*
+    gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/*
+    app.dev.unfurl.cloud/* staging.unfurl.cloud/*
+    staging.unfurl.cloud/onecommons/* #main"""
+
+    package, package_specs = _apply_package_rules("https://app.dev.unfurl.cloud/onecommons/unfurl-types", env_package_spec)
+    assert package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+
+    package, package_specs = _apply_package_rules("https://app.dev.unfurl.cloud/user/dashboard", env_package_spec)
+    assert package.url == "https://staging.unfurl.cloud/user/dashboard.git"
+
+    with pytest.raises(UnfurlError) as err:
+        _apply_package_rules("https://app.dev.unfurl.cloud/user/dashboard", "http://tunnel.abreidenbach.com:3000/onecommons/* #main")
+    assert "Malformed package spec" in str(err)
+
+
+def test_remote_tags():
     # test:
     # * following multiple UNFURL_PACKAGE_RULES
     # * resolving remote tags work
@@ -91,3 +128,11 @@ def test_package_rules():
     finally:
         if UNFURL_PACKAGE_RULES:
             os.environ["UNFURL_PACKAGE_RULES"] = UNFURL_PACKAGE_RULES
+
+if __name__ == "__main__":
+    import sys
+    test_url = sys.argv[1]
+    env_package_spec = sys.argv[2]
+    package, package_specs = _apply_package_rules(test_url, env_package_spec)
+    print(package_specs)
+    print(f"from {test_url} to {package.url}")
