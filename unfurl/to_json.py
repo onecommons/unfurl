@@ -930,6 +930,7 @@ def _get_requirement(
     else:
         typeobj = types[nodespec.type]
 
+    match = req_dict.get("node")
     reqconstraint = reqconstaint_from_nodetemplate(nodespec, name, req_dict)
     if reqconstraint is None:
         return None
@@ -947,12 +948,11 @@ def _get_requirement(
     reqjson = GraphqlObject(
         dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
     )
-    if req_dict.get("node") and not _get_typedef(
-        req_dict["node"], nodespec.topology.topology_template.custom_defs
+    if match and not _get_typedef(
+        match, nodespec.topology.topology_template.custom_defs
     ):
         # it's not a type, assume it's a node template
         # (the node template name might not match a template if it is only defined in the deployment blueprints)
-        match = req_dict["node"]
         reqjson["match"] = match
     return reqjson
 
@@ -966,7 +966,6 @@ def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: di
         # use the type's "node" (unless the requirement isn't defined on the type at all)
         typeReqDef = nodespec.toscaEntityTemplate.type_definition.get_requirement_definition(name)
         if typeReqDef:
-            req_dict = req_dict.copy()
             if "node" in typeReqDef:
                 req_dict["node"] = typeReqDef["node"]
             else:
