@@ -20,3 +20,4 @@ flask<=2.1.3 # BSD 3-clause
 flask-caching<=2.0.1 # BSD 3-clause
 flask_cors==3.0.10
 uvicorn<=0.18.2 # BSD 3-clause
+python-gitlab==3.13.0
