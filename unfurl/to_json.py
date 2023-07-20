@@ -923,20 +923,17 @@ def _get_requirement(
     req_dict, rel_template = nodespec.toscaEntityTemplate._get_explicit_relationship(
         name, req_dict
     )
-    if "constraint" in req_dict.get("metadata", {}):
-        # this happens when we import graphql json directly
-        reqconstraint = req_dict["metadata"]["constraint"]
-    else:
-        reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
-    if reqconstraint is None:
-        return None
-
     if nodespec.type not in types:
         typeobj = _node_typename_to_graphql(nodespec.type, nodespec.topology, types)
         if not typeobj:
             return None
     else:
         typeobj = types[nodespec.type]
+
+    reqconstraint = reqconstaint_from_nodetemplate(nodespec, name, req_dict)
+    if reqconstraint is None:
+        return None
+
     if "substitute" in typeobj.get("directives", []):
         # we've might have modified the type in _update_root_type()
         # and the tosca object won't know about that change so set it now
@@ -958,6 +955,24 @@ def _get_requirement(
         match = req_dict["node"]
         reqjson["match"] = match
     return reqjson
+
+
+def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: dict):
+    if "constraint" in req_dict.get("metadata", {}):
+        # this happens when we import graphql json directly
+        reqconstraint = req_dict["metadata"]["constraint"]
+    else:
+        # "node" on a node template's requirement in TOSCA yaml is the node match so don't use as part of the constraint
+        # use the type's "node" (unless the requirement isn't defined on the type at all)
+        typeReqDef = nodespec.toscaEntityTemplate.type_definition.get_requirement_definition(name)
+        if typeReqDef:
+            req_dict = req_dict.copy()
+            if "node" in typeReqDef:
+                req_dict["node"] = typeReqDef["node"]
+            else:
+                req_dict.pop("node", None)
+        reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
+    return reqconstraint
 
 
 def _find_typename(
