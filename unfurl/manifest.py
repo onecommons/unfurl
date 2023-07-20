@@ -652,6 +652,7 @@ class Manifest(AttributeManager):
                 inProject = True
         if inProject and "project" not in repositories:
             repositories["project"] = self.localEnv.project.project_repoview  # type: ignore
+            repositories["project"].package = False
 
         if "spec" not in repositories:
             # if not found assume it points the project root or self if not in a project
@@ -660,7 +661,7 @@ class Manifest(AttributeManager):
                 repositories["spec"] = self.localEnv.project.project_repoview  # type: ignore
             else:
                 repositories["spec"] = repositories["self"]
-        repositories["spec"].package = False
+            repositories["spec"].package = False
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
 
     def load_yaml_include(
