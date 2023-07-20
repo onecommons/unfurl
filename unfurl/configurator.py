@@ -451,6 +451,7 @@ class TaskView:
         self.dependencies: List["Operational"] = dependencies or []
         self._resourceChanges = ResourceChanges()
         self._workFolders: Dict[str, WorkFolder] = {}
+        self._failed_paths: List[str] = []
         self._rendering = False
         self._environ: object = None
         # public:
@@ -1172,7 +1173,9 @@ class TaskView:
     def fail_work_folders(self) -> None:
         while self._workFolders:
             _, wf = self._workFolders.popitem()
-            wf.failed()
+            failed_path = wf.failed()
+            if failed_path:
+                self._failed_paths.append(failed_path)
 
     def apply_work_folders(self, *names: str) -> None:
         if not names:  # no args were passed, apply them all

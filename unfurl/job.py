@@ -503,7 +503,7 @@ class ConfigTask(TaskView, ConfigChange):
             return name + ":" + self.reason
         return name
 
-    def summary(self, asJson=False):
+    def summary(self, asJson=False, add_rendered=False):
         if self.target.name != self.target.template.name:
             rname = f"{self.target.name} ({self.target.template.name})"
         else:
@@ -536,6 +536,13 @@ class ConfigTask(TaskView, ConfigChange):
             priority=self.priority.name,
             reason=self.reason or "",
         )
+        if add_rendered:
+            summary["rendered_paths"] = [
+                path
+                for path in [wf.cwd for wf in self._workFolders.values()]
+                + self._failed_paths
+                if os.path.exists(path)
+            ]
 
         if asJson:
             return summary
@@ -1322,7 +1329,7 @@ class Job(ConfigChange):
         return JobReporter.json_plan_summary(self, pretty, include_rendered)
 
     def json_summary(
-        self, pretty: bool = False, external: bool = False
+        self, pretty: bool = False, external: bool = False, add_rendered: bool = False
     ) -> Union[str, Dict[str, Any]]:
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())  # type: ignore
@@ -1331,7 +1338,7 @@ class Job(ConfigChange):
         summary = dict(
             job=job,
             outputs=serialize_value(self.get_outputs()),
-            tasks=[task.summary(True) for task in self.workDone.values()],
+            tasks=[task.summary(True, add_rendered) for task in self.workDone.values()],
         )
         if external:
             summary["ensemble"] = self.manifest.path
