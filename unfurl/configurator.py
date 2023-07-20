@@ -94,7 +94,7 @@ class ConfiguratorResult:
         self.result = result
         self.success = success
         self.outputs = outputs
-        self.exception = None
+        self.exception = exception
 
     def __str__(self) -> str:
         result = "" if self.result is None else str(self.result)[:240] + "..."

@@ -654,7 +654,7 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance  # type: ignore
             )
 
-    def render(self) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
+    def render(self) -> Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]:
         if self.plan_requests is None:
             ready: Sequence[PlanRequest] = self.create_plan()
         else:
@@ -670,32 +670,32 @@ class Job(ConfigChange):
         # we want to run these even if we just generating a plan
         self.external_jobs = self.run_external(planOnly=False)
         if self.external_jobs and self.external_jobs[-1].status == Status.error:
-            return [], [], [UnfurlError("error running job on external ensemble")]
+            return [], [], []
 
         ready, notReady, errors = do_render_requests(self, ready)
         return ready, notReady, errors
 
     @staticmethod
-    def _yield_serious_errors(errors):
-        for e in errors:
-            task = getattr(e, "task", None)  # if UnfurlTaskError
-            if not task or task.priority >= Priority.required:
-                yield e
+    def _yield_serious_errors(errors: List[PlanRequest]) -> Iterable[UnfurlTaskError]:
+        for req in errors:
+            if not req.task or req.task.priority >= Priority.required:
+                if req.render_errors:
+                    yield from req.render_errors
 
     def _run_requests(
         self,
         rendered_requests: Optional[
-            Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]
+            Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]
         ] = None,
     ) -> ResourceRef:
         if rendered_requests:
-            ready, notReady, errors = rendered_requests
+            ready, notReady, failed = rendered_requests
         else:
-            ready, notReady, errors = self.render()
+            ready, notReady, failed = self.render()
 
         self.workDone = collections.OrderedDict()
 
-        serious_errors = list(self._yield_serious_errors(errors))
+        serious_errors = list(self._yield_serious_errors(failed))
         if serious_errors:
             logger.error(
                 "Aborting job: there were errors during rendering: %s", serious_errors
@@ -734,15 +734,23 @@ class Job(ConfigChange):
 
             # the first time we render them all, after that only re-render requests if their dependencies were fulfilled
             # the last time (when completed is empty) don't have render valid dependencies as unfulfilled
-            ready, unfulfilled, errors = do_render_requests(
+            ready, unfulfilled, errored = do_render_requests(
                 self, ready, notReady, check_target
             )
+            failed.extend(errored)
             if not ready and not completed:
                 break  # none of the stragglers are ready, give up
             if unfulfilled:
                 logger.trace("marking unfulfilled as not ready %s", unfulfilled)
                 # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
                 notReady.extend(unfulfilled)
+
+        for req in failed:
+            if req.render_errors:
+                err_msg = str(req.render_errors[0])
+            else:
+                err_msg = "render failed"
+            self._add_unrendered_task(req, err_msg)
 
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
@@ -752,10 +760,7 @@ class Job(ConfigChange):
                 ):  # we don't want to run these
                     continue
                 message = req.get_notready_message()
-                if req.task:
-                    req.task.logger.info(message)
-                    req.task.finished(ConfiguratorResult(False, False, result=message))
-                    self.add_work(req.task)
+                self._add_unrendered_task(req, message)
 
         # force outputs to be evaluated now and commit the changes
         # so any attributes that were evaluated computing the outputs are saved in the manifest.
@@ -766,7 +771,13 @@ class Job(ConfigChange):
             self.rootResource.attributeManager.commit_changes()
         return self.rootResource
 
-    def _run(self, ready: list, notReady: list, errors: list) -> None:
+    def _add_unrendered_task(self, req: PlanRequest, message: str):
+        if req.task:
+            req.task.logger.info(message)
+            req.task.finished(ConfiguratorResult(False, False, result=message))
+            self.add_work(req.task)
+
+    def _run(self, ready: List[PlanRequest], notReady: List[PlanRequest], errors: List[PlanRequest]) -> None:
         jobOptions = self.jobOptions
         try:
             display.verbosity = jobOptions.verbose
@@ -781,7 +792,7 @@ class Job(ConfigChange):
             )
         self._apply_workfolders()
 
-    def run(self, rendered: Tuple[list, list, list]) -> None:
+    def run(self, rendered: Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]) -> None:
         manifest = self.manifest
         startTime = perf_counter()
         jobOptions = self.jobOptions
@@ -1240,7 +1251,7 @@ class Job(ConfigChange):
         Returns a task.
         """
         task.target.root.set_attribute_manager(task._attributeManager)
-        errors: Any = None
+        errors: Optional[str] = None
         ok, errors = self.can_run_task(task)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
@@ -1258,10 +1269,14 @@ class Job(ConfigChange):
                     UnfurlTaskError(task, "too many subtasks spawned")
                     change = task.finished(ConfiguratorResult(False, None))
                 else:
-                    ready, _, errors = do_render_requests(self, [result])
+                    ready, _, error_reqs = do_render_requests(self, [result])
                     if not ready:
-                        return result.task.finished(  # type: ignore
-                            ConfiguratorResult(False, False, result=errors)
+                        err_msg = "render failed"
+                        if error_reqs and error_reqs[0].render_errors:
+                            err_msg = str(error_reqs[0].render_errors[0])
+                        assert result.task
+                        return result.task.finished(
+                            ConfiguratorResult(False, False, result=err_msg)
                         )
                     change = self.apply(ready, depth + 1)
             elif isinstance(result, JobRequest):
