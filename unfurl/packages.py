@@ -222,8 +222,8 @@ class PackageSpec:
 
 
 def get_package_id_from_url(url: str) -> Package_Url_Info:
-    if url.startswith(".") or url.startswith("file:"):
-        # this isn't a package id or a git url
+    if url.startswith(".") or url.startswith("file:") or url.startswith("git-local"):
+        # this isn't a package id or a non-local git url
         return Package_Url_Info(None, url, None)
 
     # package_ids can have a revision in the fragment
