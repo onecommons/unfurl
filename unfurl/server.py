@@ -314,7 +314,7 @@ class CacheItemDependency:
             return get_remote_tags_cached(url, pattern, args)
 
         package.set_version_from_repo(get_remote_tags)
-        if self.branch != package.revision_tag:
+        if package.revision_tag and self.branch != package.revision_tag:
             logger.debug(
                 f"newer tag {package.revision_tag} found for {self.cache_key()} (was {self.branch})"
             )
