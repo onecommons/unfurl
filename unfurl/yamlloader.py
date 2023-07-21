@@ -404,8 +404,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             )
         return path
 
-    @classmethod
-    def get_remote_tags(cls, url, pattern="*") -> List[str]:
+    def get_remote_tags(self, url, pattern="*") -> List[str]:
+        # XXX apply credentials to url like find_repo_from_git_url() does
         return memoized_remote_tags(url, pattern="*")
 
     def resolve_url(

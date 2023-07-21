@@ -290,9 +290,9 @@ class CacheItemDependency:
     def cache_key(self) -> str:
         return f"{self.project_id}:{self.branch or ''}:{self.file_path}:{self.key}"
 
-    def out_of_date(self) -> bool:
+    def out_of_date(self, args: Optional[dict]) -> bool:
         if self.latest_package_url:
-            return self._tag_changed()
+            return self._tag_changed(args)
         cache_entry = self.to_entry()
         # get dep's repo, pulls if last pull greater than stale_pull_age
         repo = cache_entry.pull(cache, self.stale_pull_age)
@@ -306,10 +306,14 @@ class CacheItemDependency:
                 return True
         return False  # we're up-to-date!
 
-    def _tag_changed(self) -> bool:
+    def _tag_changed(self, args: Optional[dict]) -> bool:
         package = get_package_from_url(self.latest_package_url)
         assert package
-        package.set_version_from_repo(ServerCacheResolver.get_remote_tags)
+
+        def get_remote_tags(url, pattern):
+            return get_remote_tags_cached(url, pattern, args)
+
+        package.set_version_from_repo(get_remote_tags)
         if self.branch != package.revision_tag:
             logger.debug(
                 f"newer tag {package.revision_tag} found for {self.cache_key()} (was {self.branch})"
@@ -653,7 +657,7 @@ class CacheEntry:
             return False
         logger.debug("checking deps %s on %s", list(self._deps), self.cache_key())
         for dep in self._deps.values():
-            if dep.out_of_date():
+            if dep.out_of_date(self.args):
                 # need to regenerate the value
                 return False
         return not validate or validate(value, self, cache, latest_commit)
@@ -911,7 +915,11 @@ def export():
 
 
 def _export(
-    request: Request, requested_format: str, deployment_path: str, include_all: bool, post_work=None
+    request: Request,
+    requested_format: str,
+    deployment_path: str,
+    include_all: bool,
+    post_work=None,
 ):
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
@@ -1009,11 +1017,13 @@ def get_types():
     _add_types = None
     filename = request.args.get("file", "dummy-ensemble.yaml")
     if request.args.get("cloudmap"):  # e.g. "onecommons/cloudmap"
+
         def _add_types(cache_entry, db):
             err, types = _get_cloudmap_types(request.args.get("cloudmap"), cache_entry)
             if err:
                 return err
             db["ResourceType"].update(types)
+
     return _export(request, "blueprint", filename, True, _add_types)
 
 
@@ -1261,7 +1271,11 @@ def _update_imports(current: List[dict], new: List[dict]) -> List[dict]:
 
 
 def _apply_imports(
-    template: dict, patch: List[dict], repo_url: str, root_file_path: str, repositories=None
+    template: dict,
+    patch: List[dict],
+    repo_url: str,
+    root_file_path: str,
+    repositories=None,
 ) -> None:
     # use _sourceinfo to patch imports and repositories
     # imports:
@@ -1290,10 +1304,14 @@ def _apply_imports(
                     # don't use an existing name because the urls won't match
                     repository = unique_name(repository, repositories)
                     logger.debug("adding repository '%s': %s", repository, root)
-                    patch_repositories[repository] = repositories[repository] = dict(url=root)
+                    patch_repositories[repository] = repositories[repository] = dict(
+                        url=root
+                    )
             _import["repository"] = repository
         else:
-            if root and normalize_git_url_hard(root) != normalize_git_url_hard(repo_url):
+            if root and normalize_git_url_hard(root) != normalize_git_url_hard(
+                repo_url
+            ):
                 # if root is an url then this was imported by file inside a repository
                 for name, tpl in repositories.items():
                     if tpl["url"] == root:
@@ -1306,7 +1324,9 @@ def _apply_imports(
                     logger.debug(
                         "adding generated repository '%s': %s", repository, root
                     )
-                    patch_repositories[repository] = repositories[repository] = dict(url=root)
+                    patch_repositories[repository] = repositories[repository] = dict(
+                        url=root
+                    )
                 _import["repository"] = repository
             else:
                 if file == root_file_path:
@@ -1495,7 +1515,11 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                 context = project.get_context(name)
                 repositories = relabel_dict(context, local_env, "repositories").copy()
                 _apply_imports(
-                    environment, imports, project.project_repoview.repo.url, "", repositories
+                    environment,
+                    imports,
+                    project.project_repoview.repo.url,
+                    "",
+                    repositories,
                 )
         elif typename == "DeploymentPath":
             update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
@@ -1605,11 +1629,7 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                         doc = doc[key]
             if not deleted:
                 _update_imports(imports, _patch_node_template(patch_inner, doc))
-    assert (
-        manifest.manifest
-        and manifest.manifest.config
-        and manifest.repo
-    )
+    assert manifest.manifest and manifest.manifest.config and manifest.repo
     _apply_imports(
         manifest.manifest.config["spec"]["service_template"],
         imports,
@@ -1916,10 +1936,30 @@ def load_yaml(project_id, branch, file_name, root_entry=None, latest_commit=None
     )
     # this will add this cache_dep to the root_cache_request's value
     # XXX create package from url, branch and latest_commit to decide if a cache_dep is need
-    dep = cache_entry.make_cache_dep(
-        cache_entry.stale_pull_age, None
-    )
+    dep = cache_entry.make_cache_dep(cache_entry.stale_pull_age, None)
     return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
+
+
+def get_remote_tags_cached(url, pattern, args) -> List[str]:
+    key = normalize_git_url_hard(url)
+    tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
+    if tags is not None:
+        return tags
+    else:
+        base_url = current_app.config["UNFURL_CLOUD_SERVER"] and normalize_git_url_hard(
+            current_app.config["UNFURL_CLOUD_SERVER"]
+        )
+        if args and base_url and key.startswith(base_url):
+            # repository on this server, apply credentials if present
+            username, password = args.get("username"), args.get(
+                "private_token", args.get("password")
+            )
+            if username and password:
+                url = add_user_to_url(url, username, password)
+        tags = get_remote_tags(url, pattern)
+        timeout = app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
+        cache.set("tags:" + key + ":" + pattern, tags, timeout)
+        return tags
 
 
 class ServerCacheResolver(SimpleCacheResolver):
@@ -1934,17 +1974,9 @@ class ServerCacheResolver(SimpleCacheResolver):
 
         return ctor
 
-    @classmethod
-    def get_remote_tags(cls, url, pattern="*") -> List[str]:
-        key = normalize_git_url_hard(url)
-        tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
-        if tags is not None:
-            return tags
-        else:
-            tags = get_remote_tags(url, pattern)
-            timeout = app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
-            cache.set("tags:" + key + ":" + pattern, tags, timeout)
-            return tags
+    def get_remote_tags(self, url, pattern="*") -> List[str]:
+        args = self.root_cache_request and self.root_cache_request.args
+        return get_remote_tags_cached(url, pattern, args)
 
     @property
     def use_local_cache(self) -> bool:
