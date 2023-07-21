@@ -299,7 +299,8 @@ def _requirement_visibility(topology: TopologySpec, name: str, req) -> str:
     if name in ["dependency", "installer"]:
         # skip artifact requirements and the base TOSCA relationship type that every node has
         return "omit"
-    node = req.get("node")
+    #  reqconstaint_from_nodetemplate() adds match
+    node = req.get("match") or req.get("node")
     metadata = req.get("metadata") or {}
     if metadata.get("visibility"):
         return metadata["visibility"]
@@ -967,6 +968,8 @@ def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: di
         # use the type's "node" (unless the requirement isn't defined on the type at all)
         typeReqDef = nodespec.toscaEntityTemplate.type_definition.get_requirement_definition(name)
         if typeReqDef:
+            # preserve node as "match" for _requirement_visibility
+            req_dict["match"] = req_dict.get("node")
             if "node" in typeReqDef:
                 req_dict["node"] = typeReqDef["node"]
             elif "capability" in req_dict:
