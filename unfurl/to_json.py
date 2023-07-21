@@ -440,6 +440,7 @@ def requirement_to_graphql(
     else:
         nodetype = req.get("capability")
         if not nodetype:
+            # XXX check for "relationship" and get it's valid_target_types
             logger.warning(
                 "skipping constraint %s, there was no type specified ", req_dict
             )
@@ -968,8 +969,9 @@ def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: di
         if typeReqDef:
             if "node" in typeReqDef:
                 req_dict["node"] = typeReqDef["node"]
-            else:
+            elif "capability" in req_dict:
                 req_dict.pop("node", None)
+            # else: empty typeReqDef, leave req_dict alone
         reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
     return reqconstraint
 

@@ -1,3 +1,4 @@
+import pprint
 import unittest
 import json
 import os.path
@@ -59,6 +60,7 @@ def test_jsonexport_requirement_visibility():
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
     jsonExport = to_deployment(local)
+    assert jsonExport["ResourceTemplate"]["template1"]["dependencies"], pprint.pformat(jsonExport["ResourceTemplate"]["template1"])
     assert jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"]["visibility"] == "visible"
     app_type = jsonExport["ResourceType"]["App"]
     hostRequirement = app_type['requirements'][0]
@@ -70,6 +72,7 @@ def test_jsonexport_requirement_visibility():
         'inputsSchema': {'properties': {'Memory': {'minimum': 2000, 'maximum': 20000},
                                         'CPUs': {'default': 2}}}}
         ]
+    assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"], pprint.pformat(jsonExport["ResourceTemplate"]["the_app"])
     assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"][0]["constraint"] == hostRequirement
 
 class ManifestSyntaxTest(unittest.TestCase):
