@@ -34,7 +34,7 @@ from unfurl.yamlmanifest import YamlManifest
 class SimpleConfigurator(Configurator):
     def run(self, task):
         assert self.can_run(task)
-        yield task.done(True, Status.ok)
+        return Status.ok
 
 
 simpleConfigSpec = ConfigurationSpec("subtask", "instantiate", "Simple", 0)

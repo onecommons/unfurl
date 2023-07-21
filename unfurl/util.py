@@ -104,12 +104,14 @@ class UnfurlError(Exception):
     def __init__(
         self, message: object, saveStack: bool = False, log: bool = False
     ) -> None:
+        stackInfo = None
         if saveStack:
             (etype, value, traceback) = sys.exc_info()
             if value:
                 message = str(message) + ": " + str(value)
+                stackInfo = (etype, value, traceback)
         super().__init__(message)
-        self.stackInfo = (etype, value, traceback) if saveStack and value else None
+        self.stackInfo = stackInfo
         if log:
             logger.error(message, exc_info=True)
 

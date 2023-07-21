@@ -752,7 +752,7 @@ def set_fulfilled_stragglers(
     return ready, notReady
 
 
-def _prepare_request(job: "Job", req: PlanRequest, errors: List) -> bool:
+def _prepare_request(job: "Job", req: PlanRequest, errors: List[PlanRequest]) -> bool:
     if not isinstance(req, TaskRequest):
         return True
     if req.task:
@@ -788,9 +788,9 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List) -> bool:
     finally:
         task.restore_envvars()
     if error:
+        errors.append(req)
         task._reset()
         task._attributeManager.attributes = {}  # rollback changes
-        errors.append(error)
     else:
         task.commit_changes()
     return proceed
@@ -891,10 +891,10 @@ def do_render_requests(
     requests: Sequence[PlanRequest],
     future_requests: List[PlanRequest] = [],
     check_target: str = "",
-) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
+) -> Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]:
     ready: List[PlanRequest] = []
     notReady: List[PlanRequest] = []
-    errors: List[UnfurlError] = []
+    errors: List[PlanRequest] = []
     flattened_requests = list(
         r for r in get_render_requests(requests) if _prepare_request(job, r, errors)
     )
@@ -928,7 +928,7 @@ def do_render_requests(
                 job, request, flattened_requests + future_requests, check_target
             )
             if error:
-                errors.append(error)
+                errors.append(request)
             elif deps:
                 notready_group = request.group
                 _add_to_req_list(notReady, request)

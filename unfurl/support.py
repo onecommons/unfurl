@@ -317,10 +317,10 @@ def _wrap_sequence(v):
 
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
-
 def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined):
     from jinja2.sandbox import SandboxedEnvironment
     from jinja2.nativetypes import NativeCodeGenerator, native_concat
+    from .filter_plugins import ref
 
     SandboxedEnvironment.code_generator_class = NativeCodeGenerator
     SandboxedEnvironment.concat = staticmethod(native_concat)  # type: ignore
@@ -329,6 +329,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined)
     if not ctx.strict:
         env.undefined = _UnfurlUndefined
     ctx.templar = None
+    env.filters.update(ref.SAFE_FILTERS)
     return env.from_string(value).render(vars)
 
 

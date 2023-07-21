@@ -16,7 +16,7 @@ dsl_definitions:
             if: $connections::K8sCluster::api_server
             then:
               if: "{{ '//' in '$connections::K8sCluster::api_server' | eval }}"
-              then: 
+              then:
                 eval: $connections::K8sCluster::api_server
               else: "{{ '$connections::K8sCluster::protocol' | eval }}://{{ '$connections::K8sCluster::api_server' | eval }}"
             else: null
@@ -145,7 +145,7 @@ node_types:
               command:
                 eval:
                   template: >-
-                    helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }} -o json 
+                    helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }} -o json
                       {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
                       {%if lookup('env', 'KUBE_INSECURE') %}
                       --kube-insecure-skip-tls-verify
@@ -219,7 +219,7 @@ node_types:
               command:
                 eval:
                   template: >-
-                    helm uninstall {{ "release_name" | eval }} 
+                    helm uninstall {{ "release_name" | eval }}
                       {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
                       {% if task.verbose > 0 %}--debug{%endif%}
                       {% if task.timeout %}--timeout {{task.timeout}}{%endif%}

@@ -222,8 +222,8 @@ class PackageSpec:
 
 
 def get_package_id_from_url(url: str) -> Package_Url_Info:
-    if url.startswith(".") or url.startswith("file:"):
-        # this isn't a package id or a git url
+    if url.startswith(".") or url.startswith("file:") or url.startswith("git-local"):
+        # this isn't a package id or a non-local git url
         return Package_Url_Info(None, url, None)
 
     # package_ids can have a revision in the fragment
@@ -301,7 +301,8 @@ class Package:
             f"looking for remote tags {prefix}* for {self.url} using {get_remote_tags}"
         )
         # get an sorted list of tags and strip the prefix from them
-        vtags = [tag[len(prefix) :] for tag in get_remote_tags(self.url, prefix + "*")]
+        url, repopath, urlrevision = split_git_url(self.url)
+        vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
         # as if it didn't specify a semver at all. Unrelease versions have no backwards compatibility

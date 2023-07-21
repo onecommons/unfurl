@@ -254,6 +254,7 @@ class ToscaSpec:
         inputs: Optional[Dict[str, Any]],
         toscaDef: Dict[str, Any],
         resolver,
+        fragment,
     ):
         # need to set a path for the import loader
         mode = os.getenv("UNFURL_VALIDATION_MODE")
@@ -268,6 +269,7 @@ class ToscaSpec:
             yaml_dict_tpl=toscaDef,
             import_resolver=resolver,
             verify=False,  # we display the error messages ourselves so we don't need to verify here
+            fragment=fragment,
         )
         ExceptionCollector.collecting = True  # don't stop collecting validation errors
         ExceptionCollector.near = " while instantiating the spec"
@@ -316,7 +318,8 @@ class ToscaSpec:
         spec: Optional[Dict[str, Any]] = None,
         path: Optional[str] = None,
         resolver=None,
-        skip_validation=False,
+        skip_validation: bool = False,
+        fragment: str = "",
     ):
         self.discovered: Optional[CommentedMap] = None
         self.nested_discovered: Dict[str, dict] = {}
@@ -345,7 +348,7 @@ class ToscaSpec:
 
             logger.info("Validating TOSCA template at %s", path)
             try:
-                self._parse_template(path, inputs, toscaDef, resolver)
+                self._parse_template(path, inputs, toscaDef, resolver, fragment)
             except:
                 if (
                     not ExceptionCollector.exceptionsCaught()
@@ -359,7 +362,7 @@ class ToscaSpec:
             patched = self._patch(toscaDef, path, errorsSoFar)
             if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
-                self._parse_template(path, inputs, toscaDef, resolver)
+                self._parse_template(path, inputs, toscaDef, resolver, fragment)
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
 
@@ -388,6 +391,10 @@ class ToscaSpec:
         if self.template.path is None:
             return ""
         return get_base_dir(self.template.path)
+
+    @property
+    def fragment(self) -> str:
+        return self.template.fragment
 
     def _get_project_dir(self, home=False):
         # hacky
