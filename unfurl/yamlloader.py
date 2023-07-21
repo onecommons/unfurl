@@ -31,6 +31,7 @@ from .util import (
     sensitive_bytes,
     sensitive_dict,
     sensitive_list,
+    unique_name,
     wrap_sensitive_value,
     UnfurlError,
     UnfurlValidationError,
@@ -279,16 +280,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 pass  # reload
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
-        counter = 1
-        basename = name
-        while name in self.manifest.repositories:
-            if unique:
-                # create Repository instance with a unique name
-                name = basename + str(counter)
-                counter += 1
-            else:
-                # don't create another Repository instance
-                return self.manifest.repositories[name].repository
+        if not unique and name in self.manifest.repositories:
+            # don't create another Repository instance
+            return self.manifest.repositories[name].repository
+        else:
+            name = unique_name(name, list(self.manifest.repositories))
 
         if isinstance(tpl, dict) and "url" in tpl:
             url = tpl["url"]

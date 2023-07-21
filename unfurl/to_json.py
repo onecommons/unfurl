@@ -247,7 +247,7 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     schema = {}
     if toscaSchema.title or p.name:
         schema["title"] = toscaSchema.title or p.name
-    if toscaSchema.default is not None and not is_value_computed(toscaSchema.default):
+    if toscaSchema.default is not None and not is_server_only_expression(toscaSchema.default):
         schema["default"] = toscaSchema.default
     if toscaSchema.required:
         schema["required"] = True
@@ -458,6 +458,7 @@ def _get_extends(
         extends.append(name)
     if types is not None and name not in types:
         node_type_to_graphql(topology, typedef, types)
+    ExceptionCollector.collecting = True
     for p in typedef.parent_types():
         _get_extends(topology, p, extends, types)
 
@@ -479,7 +480,7 @@ def template_visibility(t: EntitySpec, discovered):
     return "inherit"
 
 
-def is_property_user_visible(p: PropertyDef):
+def is_property_user_visible(p: PropertyDef) -> bool:
     user_settable = p.schema.get("metadata", {}).get("user_settable")
     if user_settable is not None:
         return user_settable
@@ -488,15 +489,15 @@ def is_property_user_visible(p: PropertyDef):
     return True
 
 
-def is_value_computed(value):
+def is_server_only_expression(value) -> bool:
     if isinstance(value, list):
         return any(is_function(item) or is_template(item) for item in value)
-    if isinstance(value, dict) and "_generate" in value:  # special case for client
+    if _is_front_end_expression(value):  # special case for client
         return False
     return is_function(value) or is_template(value)
 
 
-def is_computed(p):  # p: Property | PropertyDef
+def is_computed(p) -> bool:  # p: Property | PropertyDef
     # XXX be smarter about is_computed() if the user should be able to override the default
     if isinstance(p.schema, Schema):
         metadata = p.schema.metadata
@@ -504,8 +505,8 @@ def is_computed(p):  # p: Property | PropertyDef
         metadata = p.schema.get("metadata") or {}
     return (
         p.name in ["tosca_id", "state", "tosca_name"]
-        or is_value_computed(p.value)
-        or (p.value is None and is_value_computed(p.default))
+        or is_server_only_expression(p.value)
+        or (p.value is None and is_server_only_expression(p.default))
         or metadata.get("computed")
     )
 
@@ -545,9 +546,13 @@ def maybe_export_value(prop: Property, instance: EntityInstance, attrs: List[dic
 #     return attribute_value_to_json(p, value)
 
 
-def _is_get_env_or_secret(value) -> bool:
+def _is_front_end_expression(value) -> bool:
     if isinstance(value, dict):
-        return "get_env" in value or "secret" in value or "_generate" in value
+        if "eval" in value:
+            expr = value['eval']
+            return "abspath" in expr or "get_dir" in expr
+        else:
+            return "get_env" in value or "secret" in value or "_generate" in value
     return False
 
 
@@ -568,7 +573,7 @@ class PropertyVisitor:
 
     def attribute_value_to_json(self, p, value):
         if p.schema.metadata.get("sensitive"):
-            if is_value_computed(value) or _is_get_env_or_secret(value):
+            if is_server_only_expression(value) or _is_front_end_expression(value):
                 return value
             self.redacted = True
             return sensitive.redacted_str
@@ -590,6 +595,11 @@ class PropertyVisitor:
 
 def attribute_value_to_json(p, value):
     return PropertyVisitor().attribute_value_to_json(p, value)
+
+
+def _add_source_info(jsontype: ResourceType, _source: Any) -> None:
+    if isinstance(_source, dict):  # could be str or None
+        jsontype["_sourceinfo"] = _source
 
 
 # XXX outputs: only include "public" attributes?
@@ -614,20 +624,22 @@ def node_type_to_graphql(
       requirements: [RequirementConstraint!]
       implementations: [String]
       implementation_requirements: [String]
+      _sourceinfo: JSON
     }
     """
     custom_defs = topology.topology_template.custom_defs
+    typename = type_definition.type
     jsontype = ResourceType(
         GraphqlObject(
             dict(
-                name=type_definition.type,  # fully qualified name
+                name=typename,  # fully qualified name
                 title=type_definition.type.split(".")[-1],  # short, readable name
                 description=type_definition.get_value("description") or "",
             )
         )
     )
     types[
-        type_definition.type
+        typename
     ] = jsontype  # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
     inherited_metadata = type_definition.get_value("metadata", parent=True)
@@ -645,6 +657,8 @@ def node_type_to_graphql(
         if metadata.get("internal"):
             visibility = "hidden"
     jsontype["visibility"] = visibility
+    if typename in custom_defs:
+        _add_source_info(jsontype, custom_defs[typename].get("_source"))
 
     propertydefs = list(
         (p, is_property_user_visible(p))
@@ -731,7 +745,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
     for name, value in sub_map.get_declared_properties().items():
         inputsSchema = jsontype["inputsSchema"]["properties"].get(name)
         if inputsSchema:
-            if is_value_computed(value):
+            if is_server_only_expression(value):
                 del jsontype["inputsSchema"]["properties"][name]
             else:
                 inputsSchema["default"] = value
@@ -740,7 +754,7 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
 
     # make optional any requirements that were set in the inner topology
     names = sub_map.get_declared_requirement_names()
-    for req in jsontype["requirements"]:
+    for req in jsontype.get("requirements", []):
         if req["name"] in names:
             req["min"] = 0
     # templates created with this type need to have the substitute directive
@@ -753,6 +767,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
     topology = spec.topology
     assert topology
     custom_defs = topology.topology_template.custom_defs
+    ExceptionCollector.collecting = True
     # create these ones first
     # XXX detect error later if these types are being used elsewhere
     for nested_topology in spec.nested_topologies:
@@ -842,7 +857,7 @@ def template_properties_to_json(nodetemplate: NodeTemplate, visitor):
     # if they aren't only include ones with an explicity value
     for p in nodetemplate.get_properties_objects():
         computed = is_computed(p)
-        if computed and not _is_get_env_or_secret(p.value):
+        if computed and not _is_front_end_expression(p.value):
             # don't expose values that are expressions to the user
             value = None
         else:
@@ -1891,7 +1906,7 @@ def add_computed_properties(instance: EntityInstance) -> List[Dict[str, Any]]:
                     instance.template.toscaEntityTemplate.custom_def,
                 )
             if p.schema.get("metadata", {}).get("visibility") != "hidden":
-                if is_sensitive(value) and _is_get_env_or_secret(p.value):
+                if is_sensitive(value) and _is_front_end_expression(p.value):
                     value = p.value
                 else:
                     value = attribute_value_to_json(p, value)

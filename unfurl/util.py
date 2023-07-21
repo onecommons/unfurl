@@ -11,6 +11,7 @@ from typing import (
     List,
     MutableMapping,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -625,6 +626,16 @@ def taketwo(seq):
             yield last, x
         else:
             last = x
+
+
+def unique_name(name: str, existing: Sequence) -> str:
+    counter = 1
+    basename = name
+    while name in existing:
+        # create Repository instance with a unique name
+        name = basename + str(counter)
+        counter += 1
+    return name
 
 
 def substitute_env(contents, env=None, preserve_missing=False):

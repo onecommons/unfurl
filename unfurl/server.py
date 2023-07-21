@@ -48,6 +48,7 @@ from flask_cors import CORS
 
 import git
 from git.objects import Commit
+from toscaparser.imports import is_url
 
 from .packages import Package, get_package_from_url, is_semver
 
@@ -63,7 +64,7 @@ from .repo import (
     split_git_url,
     get_remote_tags,
 )
-from .util import UnfurlError, get_package_digest
+from .util import UnfurlError, get_package_digest, unique_name
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from .yamlloader import ImportResolver_Context, SimpleCacheResolver
@@ -262,6 +263,7 @@ class CacheItemDependency:
     A CacheItemDependency can represent a package pinned to a major version, in which case it checks there's a newer compatible version.
     Or it can represent a file or directory in a branch on a repository, in which case it checks if it has a new revision.
     """
+
     # XXX if the request could pass latest_commit arguments for dependent repositories we could skip having to pull from them, just like we do with the root cache check.
 
     project_id: str
@@ -596,9 +598,7 @@ class CacheEntry:
                     time.sleep(_cache_inflight_sleep_duration)
                     if not cache.get(self._inflight_key()):
                         # no longer in flight
-                        cache_value, stale = self.get_cache(
-                            cache, inflight_commit
-                        )
+                        cache_value, stale = self.get_cache(cache, inflight_commit)
                         if cache_value:  # hit, use this instead of doing our work
                             return cache_value.value, True
                         break  # missing, so inflight work must have failed, continue with our work
@@ -705,7 +705,9 @@ class CacheEntry:
                 elif self.do_clone:
                     self.repo = self.pull(cache)  # this will clone the repo
             except Exception as pull_err:
-                logger.warning(f"exception while pulling {self.project_id}", exc_info=True)
+                logger.warning(
+                    f"exception while pulling {self.project_id}", exc_info=True
+                )
                 return pull_err, None
         assert self.repo or not self.do_clone, self
 
@@ -903,7 +905,9 @@ def export():
     return _export(request, requested_format, deployment_path, False)
 
 
-def _export(request: Request, requested_format: str, deployment_path: str, include_all: bool) -> Tuple[str, int]:
+def _export(
+    request: Request, requested_format: str, deployment_path: str, include_all: bool
+) -> Tuple[str, int]:
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
@@ -1205,14 +1209,93 @@ def create_provider():
     return _patch_ensemble(body, True, project_id, False)
 
 
+def _update_imports(current: List[dict], new: List[dict]) -> List[dict]:
+    current.extend(new)
+    return current
+
+
+def _apply_imports(template: dict, patch: List[dict]) -> None:
+    # use _sourceinfo to patch imports and repositories
+    # imports:
+    #   - file, repository, prefix
+    # repositories:
+    #     repo_name: url
+    imports = []
+    for source_info in patch:
+        repositories = template.setdefault("repositories", {})
+        repository = source_info.get("repository")
+        root = source_info["root"]
+        prefix = source_info.get("prefix")
+        _import = {}
+        if prefix:
+            _import["namespace_prefix"] = prefix
+        if repository:
+            _import["file"] = source_info["file"]
+            if repository != "unfurl":
+                for name, tpl in repositories.items():
+                    if tpl["url"] == root:
+                        repository = name
+                        break
+                else:
+                    # don't use an existing name because the urls won't match
+                    repository = unique_name(repository, repositories)
+                    logger.debug("adding repository '%s': %s", repository, root)
+                    repositories[repository] = dict(url=root)
+            _import["repository"] = repository
+        else:
+            path = source_info["path"]
+            base = source_info["base"]
+            # make path relative to the import base (not the file that imported)
+            # and include the fragment if present
+            # base and path will both be local file paths
+            _import["file"] = path[len(base) :] + "".join(source_info["file"].partition("#")[1:])
+            if is_url(root):
+                # if root is an url then this was imported by file inside a repository
+                for name, tpl in repositories.items():
+                    if tpl["url"] == root:
+                        repository = name
+                        break
+                else:
+                    # no repository declared
+                    repository = Repo.get_path_for_git_repo(root, name_only=True)
+                    repository = unique_name(repository, repositories)
+                    logger.debug("adding generated repository '%s': %s", repository, root)
+                    repositories[repository] = dict(url=root)
+                _import["repository"] = repository
+            # else: root is a local path, so this was a local import, we're done
+        imports.append(_import)
+
+    for i in imports:
+        repositories = template.get("repositories", {})
+        logger.trace("checking for import %s", i)
+        for existing in template.setdefault("imports", []):
+            # add imports if missing
+            if i["file"] == existing["file"]:
+                if i.get("namespace_prefix") == existing.get("namespace_prefix"):
+                    existing_repository = existing.get("repository")
+                    if "repository" in i:
+                        if "repository" in existing:
+                            if (
+                                repositories[i["repository"]]["url"]
+                                == repositories[existing["repository"]]["url"]
+                            ):
+                                break
+                    elif not existing_repository:
+                        break  # match
+        else:
+            logger.debug("added import %s", i)
+            template["imports"].append(i)
+
+
 def _patch_deployment_blueprint(
     patch: dict, manifest: "YamlManifest", deleted: bool
-) -> None:
+) -> List[dict]:
     deployment_blueprint = patch["name"]
     doc = manifest.manifest.config
     deployment_blueprints = doc.setdefault("spec", {}).setdefault(
         "deployment_blueprints", {}
     )
+    imports: List[dict] = []
     current = deployment_blueprints.setdefault(deployment_blueprint, {})
     if deleted:
         del deployment_blueprints[deployment_blueprint]
@@ -1227,9 +1310,10 @@ def _patch_deployment_blueprint(
                 new_node_templates = {}
                 for name, val in prop.items():
                     tpl = old_node_templates.get(name, {})
-                    _patch_node_template(val, tpl)
+                    _update_imports(imports, _patch_node_template(val, tpl))
                     new_node_templates[name] = tpl
                 current["resource_templates"] = new_node_templates
+    return imports
 
 
 def _make_requirement(dependency) -> dict:
@@ -1239,10 +1323,13 @@ def _make_requirement(dependency) -> dict:
     return req
 
 
-def _patch_node_template(patch: dict, tpl: dict) -> None:
+def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
+    imports: List[dict] = []
     for key, value in patch.items():
         if key in ["type", "directives", "imported", "metadata"]:
             tpl[key] = value
+        elif key == "_sourceinfo":
+            imports.append(value)
         elif key == "title":
             if value != patch["name"]:
                 tpl.setdefault("metadata", {})["title"] = value
@@ -1268,6 +1355,7 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
             ]
             if requirements or "requirements" in tpl:
                 tpl["requirements"] = requirements
+    return imports
 
 
 # XXX
@@ -1333,6 +1421,7 @@ def _apply_environment_patch(patch: list, project: Project):
                 if name in environments:
                     del environments[name]
             else:
+                imports: List[dict] = []
                 environment = environments.setdefault(name, {})
                 for key in patch_inner:
                     if key == "instances" or key == "connections":
@@ -1343,9 +1432,12 @@ def _apply_environment_patch(patch: list, project: Project):
                             if not isinstance(tpl, dict):
                                 # connections keys can be a string or null
                                 tpl = {}
-                            _patch_node_template(node_patch, tpl)
+                            _update_imports(
+                                imports, _patch_node_template(node_patch, tpl)
+                            )
                             new_target[node_name] = tpl
                         environment[key] = new_target  # replace
+                _apply_imports(environment, imports)
         elif typename == "DeploymentPath":
             update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
 
@@ -1420,13 +1512,16 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
 
 
 def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
+    imports: List[dict] = []
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
         deleted = patch_inner.get("__deleted") or False
         assert isinstance(deleted, bool)
         if typename == "DeploymentTemplate":
-            _patch_deployment_blueprint(patch_inner, manifest, deleted)
+            _update_imports(
+                imports, _patch_deployment_blueprint(patch_inner, manifest, deleted)
+            )
         elif typename == "ResourceTemplate":
             # notes: only update or delete node_templates declared directly in the manifest
             doc = manifest.manifest.config
@@ -1450,7 +1545,9 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                     else:
                         doc = doc[key]
             if not deleted:
-                _patch_node_template(patch_inner, doc)
+                _update_imports(imports, _patch_node_template(patch_inner, doc))
+    assert manifest.manifest and manifest.manifest.config
+    _apply_imports(manifest.manifest.config["spec"]["service_template"], imports)
 
 
 def _patch_ensemble(
