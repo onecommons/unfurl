@@ -301,7 +301,8 @@ class Package:
             f"looking for remote tags {prefix}* for {self.url} using {get_remote_tags}"
         )
         # get an sorted list of tags and strip the prefix from them
-        vtags = [tag[len(prefix) :] for tag in get_remote_tags(self.url, prefix + "*")]
+        url, repopath, urlrevision = split_git_url(self.url)
+        vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
         # as if it didn't specify a semver at all. Unrelease versions have no backwards compatibility
