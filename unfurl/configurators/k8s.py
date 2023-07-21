@@ -313,7 +313,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             apiVersion="v1",
             kind="Secret",
             data=sensitive_dict(
-                {k: b64encode(str(v).encode()).decode() for k, v in data.items()}
+                {k: b64encode(str(v).encode()).decode() for k, v in data.items() if v is not None}
             ),
         )
 
