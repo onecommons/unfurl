@@ -90,7 +90,8 @@ node_types:
           inputs:
             command: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
             done:
-              success: True # helm repo list returns error if there are no repos so set success true regardless
+              success: true # helm repo list returns error if there are no repos so set success true regardless
+              modified: false
             resultTemplate: |
               {%if returncode == 0 %}
                 {%for json in stdout | from_json %}
@@ -235,6 +236,11 @@ node_types:
           check:
             invoke: Helm.execute
             inputs:
+              done:
+                success: true # helm status returns an error if the release doesn't exist
+                modified: false
+              resultTemplate: |
+                - readyState: {%if returncode == 0 %}ok{%else%}absent{%endif%}
               helmcmd: status
               dryrun: "--dry-run"
               # don't pass these as cmd arguments

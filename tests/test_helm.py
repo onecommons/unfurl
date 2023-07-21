@@ -61,7 +61,7 @@ class HelmTest(unittest.TestCase):
 
         summary = run1.json_summary()
         # print(run1.json_summary(True))
-        # print(run1._jsonPlanSummary(True))
+        # print(run1._json_plan_summary(True))
 
         self.assertEqual(summary["job"], {
                     "id": "A01110000000",
@@ -141,10 +141,9 @@ class HelmTest(unittest.TestCase):
                 YamlManifest(localEnv=LocalEnv(path, homePath="./unfurl_home"))
             )
             run = runner.run(JobOptions(workflow="check", startTime=2))
-            summary = run.json_summary()
             assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
-
             # print("check")
+            # print(run._json_plan_summary(True))
             # print(runner.manifest.status_summary())
             # print(run.json_summary(True))
             summary = run.json_summary()
@@ -219,11 +218,11 @@ class HelmTest(unittest.TestCase):
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 7,
+                        "total": 3,
                         "ok": 3,
                         "error": 0,
                         "unknown": 0,
-                        "skipped": 4,
+                        "skipped": 0,
                         "changed": 3,
                     },
                     "outputs": {}
