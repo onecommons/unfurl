@@ -1004,7 +1004,7 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                     if not typeinfo.get("description") and notable.get("description"):
                         typeinfo["description"] = notable["description"]
                     # XXX hack, always set for root type:
-                    typeinfo["implementations"] = ["create", "connect"]
+                    typeinfo["implementations"] = ["connect", "create"]
                     typeinfo["directives"] = ["substitution"]
                     types[typeinfo["name"]] = typeinfo
     return err, types
@@ -1708,7 +1708,9 @@ def _patch_ensemble(
     )
     # don't validate in case we are still an incomplete draft
     local_env = LocalEnv(clone_location, overrides=overrides)
-    local_env.make_resolver = ServerCacheResolver.make_factory(None)
+    local_env.make_resolver = ServerCacheResolver.make_factory(
+        None, dict(username=username, password=password)
+    )
     manifest = local_env.get_manifest(skip_validation=True, safe_mode=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     _apply_ensemble_patch(patch, manifest)
@@ -1965,19 +1967,29 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
 
 class ServerCacheResolver(SimpleCacheResolver):
     root_cache_request: Optional[CacheEntry] = None
+    args: Optional[dict] = None
 
     @classmethod
-    def make_factory(cls, root_cache_request: Optional[CacheEntry]):
+    def make_factory(
+        cls,
+        root_cache_request: Optional[CacheEntry],
+        credentials: Optional[dict] = None,
+    ):
         def ctor(*args, **kw):
+            assert root_cache_request or credentials
             resolver = cls(*args, **kw)
             resolver.root_cache_request = root_cache_request
+            resolver.args = (
+                credentials
+                if credentials is not None
+                else root_cache_request and root_cache_request.args
+            )
             return resolver
 
         return ctor
 
     def get_remote_tags(self, url, pattern="*") -> List[str]:
-        args = self.root_cache_request and self.root_cache_request.args
-        return get_remote_tags_cached(url, pattern, args)
+        return get_remote_tags_cached(url, pattern, self.args)
 
     @property
     def use_local_cache(self) -> bool:
