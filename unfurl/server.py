@@ -1000,6 +1000,7 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                 if typeinfo:
                     if "_sourceinfo" not in typeinfo:
                         typeinfo["_sourceinfo"] = dict(file=file_path, url=r.git_url())
+                    typeinfo["_sourceinfo"]["incomplete"] = True
                     if not typeinfo.get("description") and notable.get("description"):
                         typeinfo["description"] = notable["description"]
                     # XXX hack, always set for root type:
