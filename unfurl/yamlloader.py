@@ -45,7 +45,7 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import Repo, RepoView, split_git_url, memoized_remote_tags
+from .repo import Repo, RepoView, add_user_to_url, split_git_url, memoized_remote_tags
 from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -405,7 +405,24 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return path
 
     def get_remote_tags(self, url, pattern="*") -> List[str]:
-        # XXX apply credentials to url like find_repo_from_git_url() does
+        # apply credentials to url like find_repo_from_git_url() does
+        if self.manifest.repo:
+            candidate_parts = urlsplit(self.manifest.repo.url)
+            password = candidate_parts.password
+        else:
+            password = ""
+            candidate_parts = None
+        if password:
+            url_parts = urlsplit(url)
+            assert candidate_parts
+            if (
+                candidate_parts.hostname == url_parts.hostname
+                and candidate_parts.port == url_parts.port
+            ):
+                # rewrite url to add credentials
+                url = add_user_to_url(
+                    url, candidate_parts.username, password
+                )
         return memoized_remote_tags(url, pattern="*")
 
     def resolve_url(
