@@ -238,9 +238,10 @@ opportunity to do early validation and error detection and generate any plan inf
 
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator.run">
-<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><span class="pre">unfurl.configurator.TaskView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Generator</span></span></span><a class="headerlink" href="#unfurl.configurator.Configurator.run" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><span class="pre">unfurl.configurator.TaskView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">Generator</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">unfurl.configurator.ConfiguratorResult</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status"><span class="pre">unfurl.support.Status</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#unfurl.configurator.Configurator.run" title="Permalink to this definition"></a></dt>
 <dd><p>This should perform the operation specified in the <code class="xref py py-class docutils literal notranslate"><span class="pre">ConfigurationSpec</span></code>
-on the <code class="xref py py-obj docutils literal notranslate"><span class="pre">task.target</span></code>.</p>
+on the <code class="xref py py-obj docutils literal notranslate"><span class="pre">task.target</span></code>. It can be either a generator that yields one or more <a class="reference internal" href="#unfurl.configurator.JobRequest" title="unfurl.configurator.JobRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">JobRequest</span></code></a> or <a class="reference internal" href="#unfurl.configurator.TaskRequest" title="unfurl.configurator.TaskRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskRequest</span></code></a>
+or a regular function that returns a <code class="xref py py-class docutils literal notranslate"><span class="pre">ConfiguratorResult</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – </p>
@@ -250,7 +251,7 @@ on the <code class="xref py py-obj docutils literal notranslate"><span class="pr
 or a <code class="xref py py-class docutils literal notranslate"><span class="pre">ConfiguratorResult</span></code> when done</p>
 </dd>
 <dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p><em>Generator</em></p>
+<dd class="field-odd"><p><em>Union</em>[<em>Generator</em>, unfurl.configurator.ConfiguratorResult, <a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status">unfurl.support.Status</a>, bool]</p>
 </dd>
 </dl>
 </dd></dl>
