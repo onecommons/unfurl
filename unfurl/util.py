@@ -11,6 +11,7 @@ from typing import (
     List,
     MutableMapping,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -103,12 +104,14 @@ class UnfurlError(Exception):
     def __init__(
         self, message: object, saveStack: bool = False, log: bool = False
     ) -> None:
+        stackInfo = None
         if saveStack:
             (etype, value, traceback) = sys.exc_info()
             if value:
                 message = str(message) + ": " + str(value)
+                stackInfo = (etype, value, traceback)
         super().__init__(message)
-        self.stackInfo = (etype, value, traceback) if saveStack and value else None
+        self.stackInfo = stackInfo
         if log:
             logger.error(message, exc_info=True)
 
@@ -625,6 +628,16 @@ def taketwo(seq):
             yield last, x
         else:
             last = x
+
+
+def unique_name(name: str, existing: Sequence) -> str:
+    counter = 1
+    basename = name
+    while name in existing:
+        # create Repository instance with a unique name
+        name = basename + str(counter)
+        counter += 1
+    return name
 
 
 def substitute_env(contents, env=None, preserve_missing=False):

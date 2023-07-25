@@ -31,6 +31,7 @@ from .util import (
     sensitive_bytes,
     sensitive_dict,
     sensitive_list,
+    unique_name,
     wrap_sensitive_value,
     UnfurlError,
     UnfurlValidationError,
@@ -44,7 +45,7 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import Repo, RepoView, split_git_url, memoized_remote_tags
+from .repo import Repo, RepoView, add_user_to_url, split_git_url, memoized_remote_tags
 from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -279,16 +280,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 pass  # reload
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
-        counter = 1
-        basename = name
-        while name in self.manifest.repositories:
-            if unique:
-                # create Repository instance with a unique name
-                name = basename + str(counter)
-                counter += 1
-            else:
-                # don't create another Repository instance
-                return self.manifest.repositories[name].repository
+        if not unique and name in self.manifest.repositories:
+            # don't create another Repository instance
+            return self.manifest.repositories[name].repository
+        else:
+            name = unique_name(name, list(self.manifest.repositories))
 
         if isinstance(tpl, dict) and "url" in tpl:
             url = tpl["url"]
@@ -408,8 +404,25 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             )
         return path
 
-    @classmethod
-    def get_remote_tags(cls, url, pattern="*") -> List[str]:
+    def get_remote_tags(self, url, pattern="*") -> List[str]:
+        # apply credentials to url like find_repo_from_git_url() does
+        if self.manifest.repo:
+            candidate_parts = urlsplit(self.manifest.repo.url)
+            password = candidate_parts.password
+        else:
+            password = ""
+            candidate_parts = None
+        if password:
+            url_parts = urlsplit(url)
+            assert candidate_parts
+            if (
+                candidate_parts.hostname == url_parts.hostname
+                and candidate_parts.port == url_parts.port
+            ):
+                # rewrite url to add credentials
+                url = add_user_to_url(
+                    url, candidate_parts.username, password
+                )
         return memoized_remote_tags(url, pattern="*")
 
     def resolve_url(

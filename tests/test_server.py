@@ -53,9 +53,15 @@ spec:
 patch = """
 [{{
     "name": "container_service",
-    "type": "tosca:Root",
+    "type": "unfurl.nodes.ContainerService",
     "title": "container_service",
     "description": "",
+    "_sourceinfo": {{
+        "prefix": null,
+        "url": "https://gitlab.com/onecommons/unfurl-types.git",
+        "repository": "types",
+        "file": "service-template.yaml"
+    }},
     "directives": [],
     "properties": [{{
         "name": "container",
@@ -79,7 +85,7 @@ delete_patch = """
 
 _static_server_port = 8090
 _server_port = 8091
-CLOUD_TEST_SERVER = "https://gitlab.com/"
+CLOUD_TEST_SERVER = "https://unfurl.cloud"  # "https://gitlab.com"
 
 
 #  Increment port just in case server ports aren't closed in time for next test
@@ -249,6 +255,13 @@ def test_server_export_local():
             p.join()
 
 
+def _strip_sourceinfo(export, log=False):
+    for name, typedef in export["ResourceType"].items():
+        _sourceinfo = typedef.pop("_sourceinfo", None)
+        if _sourceinfo and log:
+            print(name, _sourceinfo)
+
+
 @unittest.skipIf(
     "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
@@ -268,7 +281,7 @@ def test_server_export_remote():
                     "--home", "",
                     "clone",
                     "--empty",
-                    "https://gitlab.com/onecommons/project-templates/dashboard",
+                    f"{CLOUD_TEST_SERVER}/onecommons/project-templates/dashboard",
                 ],
             )
             last_commit = GitRepo(Repo("dashboard")).revision
@@ -303,8 +316,8 @@ def test_server_export_remote():
                         # Strip out output from the http server
                         output = exported.output
                         cleaned_output = output[max(output.find("{"), 0):]
-                        expected = json.loads(cleaned_output)
-                        assert res.json() == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+                        expected = _strip_sourceinfo(json.loads(cleaned_output))
+                        assert _strip_sourceinfo(res.json()) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
                     else:
                         # cache hit
                         assert res.status_code == 304
@@ -325,7 +338,7 @@ def test_server_export_remote():
                     "--home", "",
                     "clone",
                     "--empty",
-                    "https://gitlab.com/onecommons/project-templates/application-blueprint",
+                    f"{CLOUD_TEST_SERVER}/onecommons/project-templates/application-blueprint",
                 ]
             )
             last_commit = GitRepo(Repo("application-blueprint")).revision
@@ -351,8 +364,8 @@ def test_server_export_remote():
             # Strip out output from the http server
             output = exported.output
             cleaned_output = output[max(output.find("{"), 0):]
-            expected = json.loads(cleaned_output)
-            assert res.json() == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+            expected = _strip_sourceinfo(json.loads(cleaned_output))
+            assert _strip_sourceinfo(res.json(), True) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
 
             # # check that this public project (no auth header sent) was cached
             res = requests.get(
@@ -412,6 +425,7 @@ def test_server_update_deployment():
             new_commit = res.json()["commit"]
             assert last_commit != new_commit
             last_commit = new_commit
+            # os.system("git --git-dir server/public/remote/main/.git log -p")
 
             res = requests.get(
                 f"http://localhost:{port}/export",

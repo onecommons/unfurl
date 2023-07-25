@@ -125,9 +125,10 @@ class WorkFolder:
     If a task completes successfully ``apply()`` is called, which copies it back to the
     permanent location of the folder.
     """
+
     always_apply = False
 
-    def __init__(self, task, location, preserve):
+    def __init__(self, task, location: str, preserve: bool):
         self.task = task  # owner
         self.pending_state = True
         self.location = location
@@ -204,10 +205,12 @@ class WorkFolder:
         return path
 
     @staticmethod
-    def _get_job_path(task, name, pending):
+    def _get_job_path(task, name: str, pending: str):
         instance = task.target
         if name in [Folders.artifacts, Folders.secrets, Folders.local, Folders.tasks]:
-            return os.path.join(instance.base_dir, pending, name, _get_instance_dir_name(instance))
+            return os.path.join(
+                instance.base_dir, pending, name, _get_instance_dir_name(instance)
+            )
         elif name == Folders.operation:
             return os.path.join(
                 instance.base_dir,
@@ -225,7 +228,9 @@ class WorkFolder:
                 task.configSpec.workflow,
             )
         elif name == Folders.tasks:
-            return os.path.join(instance.base_dir, pending, "tasks", _get_instance_dir_name(instance))
+            return os.path.join(
+                instance.base_dir, pending, "tasks", _get_instance_dir_name(instance)
+            )
         else:
             assert False, f"unexpected name '{name}' for workfolder"
 
@@ -244,9 +249,10 @@ class WorkFolder:
         )
         return pendingpath
 
-    def apply(self):
+    def apply(self) -> str:
         # save_as_previous = False
         pendingpath = self._pending
+        renamed_path = ""
         if os.path.exists(pendingpath):
             if os.path.exists(self._active):
                 # if save_as_previous:
@@ -261,20 +267,24 @@ class WorkFolder:
                 self._rmtree(self._active)
             # rename the pending version as the current one
             self._rename_dir(pendingpath, self._active)
+            renamed_path = self._active
         self.pending_state = False
+        return renamed_path
 
-    def discard(self):
+    def discard(self) -> None:
         pendingpath = self._pending
         if os.path.exists(pendingpath):
             self._rmtree(pendingpath)
 
-    def failed(self):
+    def failed(self) -> str:
         pendingpath = self._pending
+        errorpath = ""
         if os.path.exists(pendingpath):
             error_dir = "failed." + self.task.changeId
             errorpath = self._get_job_path(self.task, self.location, error_dir)
             self._rename_dir(pendingpath, errorpath)
         self.pending_state = False
+        return errorpath
 
     def _rename_dir(self, src, dst):
         return rename_dir(src, dst, self.task.logger)
@@ -556,7 +566,7 @@ def _get_base_dir(ctx, name=None):
 
     Otherwise look for a repository with the given name and return its path or None if not found.
     """
-    
+
     instance = ctx.currentResource
     spec = instance.template and instance.template.spec
     if not name or name == ".":

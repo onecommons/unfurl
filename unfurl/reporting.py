@@ -303,7 +303,7 @@ class JobReporter:
             )
             return console.export_text()
 
-        logger.info("", extra=dict(json=job.json_summary()))
+        logger.info("", extra=dict(json=job.json_summary(add_rendered=True)))
         title = "Job %s completed in %.3fs: [%s]%s[/]. %s:\n    " % (
             job.changeId,
             job.timeElapsed,
