@@ -116,6 +116,10 @@ if cors:
     CORS(app, origins=cors.split())
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
+git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
+if git_user_name:
+    os.system(f'git config --global user.email "{git_user_name}-unfurl-server+noreply@unfurl.cloud"')
+    os.system(f'git config --global user.name "{git_user_name} unfurl-server-{__version__(True)}-{get_package_digest()}"')
 
 def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend = cache.cache

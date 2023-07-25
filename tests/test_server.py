@@ -34,6 +34,7 @@ if UNFURL_TEST_REDIS_URL:
     # time out in 2 minutes so we don't fill up the cache with cruft:
     os.environ["CACHE_DEFAULT_TIMEOUT"] = "120"
 os.environ["CACHE_CLEAR_ON_START"] = "1"
+os.environ["UNFURL_SET_GIT_USER"] = "unittest"
 # Very minimal deployment
 deployment = """
 apiVersion: unfurl/v1alpha1
