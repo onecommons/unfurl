@@ -36,7 +36,7 @@ extensions = [
 
 suppress_warnings = ["autosectionlabel.*", "toc.excluded"]
 
-autodoc_typehints = "both"
+autodoc_typehints = "description"
 modindex_common_prefix = ["unfurl."]
 
 myst_enable_extensions = [

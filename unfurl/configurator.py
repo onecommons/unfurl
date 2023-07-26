@@ -72,10 +72,9 @@ logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))
 
 class ConfiguratorResult:
     """
-    Modified indicates whether the underlying state of configuration,
-    was changed i.e. the physically altered the system this configuration represents.
+    Represents the result of a task that ran. 
 
-    status reports the Status of the current configuration.
+    See :py:meth:`TaskView.done` for more documentation.
     """
 
     def __init__(
@@ -133,6 +132,19 @@ class AutoRegisterClass(type):
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator:
+    """
+    Base class for implementing `Configurators`. 
+    Subclasses should at least implement a :py:meth:`~Configurator.run`, for example:
+
+    .. code-block:: python
+
+        class MinimalConfigurator(Configurator):
+            def run(self, task):
+                assert self.can_run(task)
+                return Status.ok    
+
+    """
+
     short_name: Optional[str] = None
     """shortName can be used to customize the "short name" of the configurator
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
@@ -176,7 +188,7 @@ class Configurator:
 
     def render(self, task: "TaskView") -> Any:
         """
-        This method is called is called during the planning phase to give the configurator an
+        This method is called during the planning phase to give the configurator an
         opportunity to do early validation and error detection and generate any plan information or configuration files that the user may want to review before the running the deployment task.
 
         Property access and writes will be tracked and used to establish dynamic dependencies between instances so the plan can be ordered properly. Any updates made to instances maybe reverted if it has dependencies on attributes that might be changed later in the plan, so this method should be idempotent.
@@ -189,16 +201,20 @@ class Configurator:
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
     def run(self, task: "TaskView") -> Union[Generator, ConfiguratorResult, Status, bool]:
         """
-        This should perform the operation specified in the :class:`ConfigurationSpec`
+        Subclasses of Configurator need to implement this method.
+        It should perform the operation specified in the :class:`ConfigurationSpec`
         on the :obj:`task.target`. It can be either a generator that yields one or more :class:`JobRequest` or :class:`TaskRequest`
-        or a regular function that returns a :class:`ConfiguratorResult`.
+        or a regular function.
 
         Args:
-            task (:class:`TaskView`) The task currently running.
+            task (:class:`TaskView`): The task currently running.
 
         Yields:
-            Should yield either a :class:`JobRequest`, :class:`TaskRequest`
-            or a :class:`ConfiguratorResult` when done
+            Optionally ``run`` can yield either a :class:`JobRequest`, :class:`TaskRequest` to run subtasks
+            and finally a :class:`ConfiguratorResult` when done
+
+        Returns:
+            If ``run`` is not defined as a generator it must return either a :py:class:`~unfurl.support.Status`, a ``bool`` or a :class:`ConfiguratorResult` to indicate if the task succeeded and any changes to the target's state.
         """
         yield task.done(False)
 
@@ -208,7 +224,7 @@ class Configurator:
         (And should check :attr:`.TaskView.dry_run` in during run().
 
         Args:
-            task (:obj:`TaskView`) The task about to be run.
+            task (:obj:`TaskView`): The task about to be run.
 
         Returns:
             bool
@@ -222,7 +238,7 @@ class Configurator:
         and given the current state of the target instance?
 
         Args:
-            task (:class:`TaskView`) The task that is about to be run.
+            task (:class:`TaskView`): The task that is about to be run.
 
         Returns:
             (bool or str): Should return True or a message describing why the task couldn't be run.
@@ -289,10 +305,8 @@ class Configurator:
         were accessed in the previous run.
 
         Args:
-            task (:class:`TaskView`) The task that might execute this operation.
-
-        Args:
-            changest (:class:`ChangeRecord`) The task that might execute this operation.
+            task (:class:`TaskView`): The task that might execute this operation.
+            changeset (:class:`ChangeRecordRecord`): The task that might execute this operation.
 
         Returns:
             bool: True if configuration's digest has changed, False if it is the same.
@@ -701,7 +715,7 @@ class TaskView:
 
         Args:
             target (NodeInstance): The instance to connect to.
-            relation (str, optional): The relationship type. Defaults to "tosca.relationships.ConnectsTo".
+            relation (str, optional): The relationship type. Defaults to ``tosca.relationships.ConnectsTo``.
 
         Returns:
             RelationshipInstance or None: The connection instance.
@@ -787,7 +801,7 @@ class TaskView:
         ] = None,  # so the docstring says dict, but ConfiguratorResult
         captureException: Optional[object] = None,
     ) -> ConfiguratorResult:
-        """:py:meth:`unfurl.configurator.Configurator.run` should call this method and yield its return value before terminating.
+        """:py:meth:`unfurl.configurator.Configurator.run` should call this method and return or yield its return value before terminating.
 
         >>> yield task.done(True)
 

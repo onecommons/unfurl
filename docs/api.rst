@@ -9,7 +9,7 @@ API for writing configurators
 -----------------------------
 
 .. automodule:: unfurl.configurator
-  :members: Configurator, TaskRequest, JobRequest, TaskView
+  :members: Configurator, TaskRequest, JobRequest, TaskView, ConfiguratorResult
   :undoc-members:
 
 .. automodule:: unfurl.support
