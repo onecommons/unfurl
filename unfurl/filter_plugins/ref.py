@@ -18,7 +18,8 @@ from jinja2.filters import contextfilter  # type: ignore
 def ref(context, ref, *args, **vars):
     refContext = context["__unfurl"]
     trace = vars.pop("trace", None)
-    return Ref(ref, trace=trace, vars=vars).resolve_one(refContext)
+    wantList = vars.pop("wantList", False)
+    return Ref(ref, trace=trace, vars=vars).resolve(refContext, wantList = wantList)
 
 
 @contextfilter
