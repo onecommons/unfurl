@@ -707,6 +707,7 @@ def node_type_to_graphql(
 
     if type_definition.defs is None:
         logger.warning("%s is missing type definition", type_definition.type)
+        jsontype["extends"] = []
         return jsontype
 
     extends: List[str] = []
