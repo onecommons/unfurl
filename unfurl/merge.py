@@ -12,6 +12,14 @@ from ansible.parsing.yaml.objects import AnsibleMapping
 from .util import UnfurlError
 
 
+def __as_dict_repr__(self):
+    return dict.__repr__(self)
+
+
+# make CommentedMap repr much more concise
+CommentedMap.__repr__ = __as_dict_repr__  # type: ignore
+
+
 def _mapCtor(self):
     if hasattr(self, "base_dir"):
         return make_map_with_base(self, self.base_dir, CommentedMap)
@@ -457,7 +465,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
             else:
                 if len(current) > 1:  # XXX include merge directive keys in count
                     raise UnfurlError(
-                        f"can not merge non-map value of type {type(template)}: {template}"
+                        f"can not merge {mergeKey} with non-map value of type {type(template)}: {template}"
                     )
                 else:
                     return template  # current dict is replaced with a value
