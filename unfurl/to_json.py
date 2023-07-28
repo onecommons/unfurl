@@ -250,7 +250,9 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     schema = {}
     if toscaSchema.title or p.name:
         schema["title"] = toscaSchema.title or p.name
-    if toscaSchema.default is not None and not is_server_only_expression(toscaSchema.default):
+    if toscaSchema.default is not None and not is_server_only_expression(
+        toscaSchema.default
+    ):
         schema["default"] = toscaSchema.default
     if toscaSchema.required:
         schema["required"] = True
@@ -381,6 +383,8 @@ def _make_req(
     if "occurrences" in req:
         reqobj["min"] = req["occurrences"][0]
         reqobj["max"] = req["occurrences"][1]
+        if reqobj["max"] == "UNBOUNDED":
+            reqobj["max"] = 0xFFFFFFFF
 
     if req.get("node_filter"):
         reqobj["node_filter"] = req["node_filter"]
@@ -396,7 +400,7 @@ def _make_req(
 
 
 def requirement_to_graphql(
-    topology: TopologySpec, req_dict: dict, include_omitted = False
+    topology: TopologySpec, req_dict: dict, include_omitted=False
 ) -> Optional[GraphqlObject]:
     """
     type RequirementConstraint {
@@ -496,10 +500,10 @@ def is_property_user_visible(p: PropertyDef) -> bool:
 
 def is_server_only_expression(value) -> bool:
     if isinstance(value, list):
-        return any(is_function(item) or is_template(item) for item in value)
+        return any(is_function(item) for item in value)
     if _is_front_end_expression(value):  # special case for client
         return False
-    return is_function(value) or is_template(value)
+    return is_function(value)
 
 
 def is_computed(p) -> bool:  # p: Property | PropertyDef
@@ -554,7 +558,7 @@ def maybe_export_value(prop: Property, instance: EntityInstance, attrs: List[dic
 def _is_front_end_expression(value) -> bool:
     if isinstance(value, dict):
         if "eval" in value:
-            expr = value['eval']
+            expr = value["eval"]
             return "abspath" in expr or "get_dir" in expr
         else:
             return "get_env" in value or "secret" in value or "_generate" in value
@@ -619,7 +623,7 @@ def _get_source_info(source_info: dict) -> dict:
         # make path relative to the import base (not the file that imported)
         # and include the fragment if present
         # base and path will both be local file paths
-        _import["file"] = path[len(base) :].strip('/') + "".join(
+        _import["file"] = path[len(base) :].strip("/") + "".join(
             source_info["file"].partition("#")[1:]
         )
         if is_url(root):
@@ -634,10 +638,13 @@ def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) 
     if not source_info:
         # not an import, type defined in main service template file
         # or it's an import relative to the root, just include the root import because it will in turn import this import
-        jsontype["_sourceinfo"] = dict(url=sanitize_url(repo_url, False), file=base_path)
+        jsontype["_sourceinfo"] = dict(
+            url=sanitize_url(repo_url, False), file=base_path
+        )
     elif "url" not in source_info:
         # it's an import relative to the root, set to the repo's url
         source_info["url"] = sanitize_url(repo_url, False)
+
 
 # XXX outputs: only include "public" attributes?
 def node_type_to_graphql(
@@ -970,7 +977,11 @@ def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: di
     else:
         # "node" on a node template's requirement in TOSCA yaml is the node match so don't use as part of the constraint
         # use the type's "node" (unless the requirement isn't defined on the type at all)
-        typeReqDef = nodespec.toscaEntityTemplate.type_definition.get_requirement_definition(name)
+        typeReqDef = (
+            nodespec.toscaEntityTemplate.type_definition.get_requirement_definition(
+                name
+            )
+        )
         if typeReqDef:
             # preserve node as "match" for _requirement_visibility
             req_dict["match"] = req_dict.get("node")
@@ -1811,9 +1822,7 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
             all_connection_types.update(env_types)
         except Exception as err:
             logger.error("error exporting environment %s", name, exc_info=True)
-            details = "".join(
-                traceback.TracebackException.from_exception(err).format()
-            )
+            details = "".join(traceback.TracebackException.from_exception(err).format())
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
     db["DeploymentEnvironment"] = environments
