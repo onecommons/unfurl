@@ -18,11 +18,6 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
 
-if TYPE_CHECKING:
-    from .manifest import Manifest
-
-pathname2url = urllib.request.pathname2url
-
 from .util import (
     filter_env,
     to_bytes,
@@ -59,6 +54,9 @@ from ansible.parsing.yaml.loader import AnsibleLoader, AnsibleConstructor
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from time import perf_counter
 from jinja2.runtime import DebugUndefined
+
+if TYPE_CHECKING:
+    from .manifest import Manifest
 
 logger = getLogger("unfurl")
 
@@ -420,9 +418,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 and candidate_parts.port == url_parts.port
             ):
                 # rewrite url to add credentials
-                url = add_user_to_url(
-                    url, candidate_parts.username, password
-                )
+                url = add_user_to_url(url, candidate_parts.username, password)
         return memoized_remote_tags(url, pattern="*")
 
     def resolve_url(
@@ -861,7 +857,7 @@ class YamlConfig:
             path = None
         baseUri = None
         if path:
-            baseUri = urljoin("file:", pathname2url(path))
+            baseUri = urljoin("file:", urllib.request.pathname2url(path))
         return find_schema_errors(config, self.schema, baseUri)
 
     def search_includes(self, key=None, pathPrefix=None):
