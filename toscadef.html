@@ -349,9 +349,9 @@ node_types:
         type: scalar-unit.size
         constraints:
           - greater_or_equal: 0 GB
-      capabilities:
-        storage_endpoint:
-          type: tosca.capabilities.Endpoint
+    capabilities:
+      storage_endpoint:
+        type: tosca.capabilities.Endpoint
 
   tosca.nodes.network.Network:
     derived_from: tosca.nodes.Root
