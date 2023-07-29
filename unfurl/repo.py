@@ -24,6 +24,20 @@ if TYPE_CHECKING:
 
 logger = getLogger("unfurl")
 
+try:
+    Path.is_relative_to
+except AttributeError:
+    # for python < 3.9
+    def is_relative_to(self, *other):
+        """Return True if the path is relative to another path or False.
+        """
+        try:
+            self.relative_to(*other)
+            return True
+        except ValueError:
+            return False
+    Path.is_relative_to = is_relative_to  # type: ignore
+
 
 def is_git_worktree(path, gitDir=".git"):
     # NB: if work tree is a submodule .git will be a file that looks like "gitdir: ./relative/path"
