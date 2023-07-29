@@ -632,13 +632,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 yaml_dict = yaml_dict_type(self.readonly)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
-                        # XXX doc won't have a loadTemplate attribute set so document includes aren't support here
-                        # to support relative includes in a file in a repository, the repository root would have to be passed to the load include hook
-                        includes, doc = expand_doc(
+                        # self.expand is true when doing a TOSCA import (see Manifest_load_spec())
+                        doc = YamlConfig(
                             doc,
-                            cls=make_map_with_base(doc, get_base_dir(path), yaml_dict),
-                        )
-                        doc.includes = includes
+                            get_base_dir(path),
+                            loadHook=self.manifest.load_yaml_include,
+                            readonly=self.readonly,
+                        ).expanded
                     doc.path = path
             if fragment and doc:
                 return _refResolver.resolve_fragment(doc, fragment), cacheable

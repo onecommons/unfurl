@@ -69,7 +69,8 @@ def make_map_with_base(doc, baseDir, cls):
             map.loadTemplate = loadTemplate
         if _anchorCache is not None:
             map._anchorCache = _anchorCache
-        if lc is not None:
+        if lc is not None and hasattr(map, "lc"):
+            # map and doc might be different types
             map.lc.line = lc.line
             map.lc.col = lc.col
         return map

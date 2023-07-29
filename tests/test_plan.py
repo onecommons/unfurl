@@ -123,6 +123,13 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
                 os.environ["UNFURL_LOGGING"] = old_env_level
         # print(job.manifest.status_summary()
         assert job.rootResource.find_instance("my_server").required
+        my_block_storage = job.rootResource.find_instance("my_block_storage")
+        assert my_block_storage
+        assert my_block_storage.query("{{ '.sources::local_storage' | eval(wantList=true) | count }}") == 1
+        assert my_block_storage.query("{{ '.sources::local_storage[name=compute]' | eval(wantList=true) | count }}") == 1
+        assert my_block_storage.query("{{ '.sources::local_storage[name=wrongname]' | eval(wantList=true) | count }}") == 0
+        assert my_block_storage.query("{{ '.sources::local_storage[nonexistent_property]' | eval(wantList=true) | count }}") == 0
+
         relinstance = job.rootResource.find_instance("my_server").get_requirements(
             "local_storage"
         )[0]
