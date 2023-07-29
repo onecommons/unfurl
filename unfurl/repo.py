@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = getLogger("unfurl")
 
 try:
-    Path.is_relative_to
+    Path.is_relative_to  # type: ignore
 except AttributeError:
     # for python < 3.9
     def is_relative_to(self, *other):
@@ -262,7 +262,7 @@ class Repo(abc.ABC):
             return None, None, None
         repoRoot = os.path.abspath(base)
         abspath = os.path.abspath(path).rstrip("/")
-        if Path(abspath).is_relative_to(repoRoot):
+        if Path(abspath).is_relative_to(repoRoot):  # type: ignore
             # XXX find pinned
             # if importLoader:
             #   revision = importLoader.getRevision(self)
