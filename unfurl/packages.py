@@ -60,7 +60,7 @@ import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 from urllib.parse import urlparse
-from .repo import RepoView, split_git_url, get_remote_tags
+from .repo import RepoView, split_git_url, get_remote_tags, sanitize_url
 from .logs import getLogger
 from .util import UnfurlError
 from toscaparser.utils.validateutils import TOSCAVersionProperty
@@ -110,8 +110,14 @@ class PackageSpec:
                 f"Malformed package spec: {self.package_spec}: missing url or package id"
             )
 
+    @property
+    def safe_url(self) -> str:
+        if not self.url:
+            return ""
+        return sanitize_url(self.url, True)
+
     def __repr__(self):
-        return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.url})"
+        return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.safe_url})"
 
     def matches(self, package: "Package") -> bool:
         # * use the package name (or prefix) as the name of the repository to specify replacement or name resolution
@@ -282,8 +288,14 @@ class Package:
         self.discovered_revision = False
         self.lock_to_commit = ""
 
+    @property
+    def safe_url(self):
+        if not self.url:
+            return ""
+        return sanitize_url(self.url, True)
+
     def __str__(self):
-        return f"Package({self.package_id} {self.revision} {self.url})"
+        return f"Package({self.package_id} {self.revision} {self.safe_url})"
 
     def version_tag_prefix(self) -> str:
         # see https://go.dev/ref/mod#vcs-version
@@ -298,11 +310,19 @@ class Package:
     def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
         prefix = self.version_tag_prefix()
         logger.debug(
-            f"looking for remote tags {prefix}* for {self.url} using {get_remote_tags}"
+            f"looking for remote tags {prefix}* for {self.safe_url} using {get_remote_tags}"
         )
         # get an sorted list of tags and strip the prefix from them
         url, repopath, urlrevision = split_git_url(self.url)
-        vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
+        try:
+            vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
+        except Exception:
+            logger.warning(
+                "failed to look up version tags on remote git at %s",
+                sanitize_url(url),
+                exc_info=True,
+            )
+            return None
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
         # as if it didn't specify a semver at all. Unrelease versions have no backwards compatibility
