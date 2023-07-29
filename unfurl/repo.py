@@ -242,13 +242,13 @@ class Repo(abc.ABC):
     def is_path_excluded(self, localPath):
         return False
 
-    def find_path(self, path: str, importLoader=None):
+    def find_path(self, path: str, importLoader=None) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
         base = self.working_dir
         if not base:  # XXX support bare repos
             return None, None, None
         repoRoot = os.path.abspath(base)
         abspath = os.path.abspath(path).rstrip("/")
-        if repoRoot in abspath:
+        if Path(abspath).is_relative_to(repoRoot):
             # XXX find pinned
             # if importLoader:
             #   revision = importLoader.getRevision(self)
