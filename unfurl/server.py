@@ -838,19 +838,23 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[Git
     else:
         # repo doesn't exists, clone it
         repo = _clone_repo(project_id, branch, args)
-        path = Path(repo.working_dir)
-        if (path / DefaultNames.LocalConfigTemplate).is_file() and not (
-            path / "local" / DefaultNames.LocalConfig
-        ).is_file():
-            # create local/unfurl.yaml in the new project
-            new_project = Project(repo.working_dir)
-            created_local = init._create_local_config(new_project, logger, {})
-            if not created_local:
-                logger.error(
-                    f"creating local/unfurl.yaml in {new_project.projectRoot} failed"
-                )
+        working_dir = repo.working_dir
+        ensure_local_config(working_dir)
         logger.info("clone success: %s to %s", repo.safe_url, repo.working_dir)
     return repo
+
+def ensure_local_config(working_dir):
+    path = Path(working_dir)
+    if (path / DefaultNames.LocalConfigTemplate).is_file() and not (
+            path / "local" / DefaultNames.LocalConfig
+        ).is_file():
+        # create local/unfurl.yaml in the new project
+        new_project = Project( str(path / DefaultNames.LocalConfig) )
+        created_local = init._create_local_config(new_project, logger, {})
+        if not created_local:
+            logger.error(
+                    f"creating local/unfurl.yaml in {new_project.projectRoot} failed"
+                )
 
 
 def _get_filepath(format, deployment_path):
@@ -1712,11 +1716,12 @@ def _patch_ensemble(
         UNFURL_CLOUD_VARS_URL=cloud_vars_url,
         apply_url_credentials=True,
     )
-    # don't validate in case we are still an incomplete draft
+    ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, overrides=overrides)
     local_env.make_resolver = ServerCacheResolver.make_factory(
         None, dict(username=username, password=password)
     )
+    # don't validate in case we are still an incomplete draft
     manifest = local_env.get_manifest(skip_validation=True, safe_mode=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     _apply_ensemble_patch(patch, manifest)

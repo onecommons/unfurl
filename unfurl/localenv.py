@@ -75,6 +75,8 @@ class Project:
         readonly: Optional[bool] = False,
     ):
         assert isinstance(path, str), path
+        if os.path.isdir(path):
+            path = os.path.join(path, DefaultNames.LocalConfig)
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         self.overrides = overrides or {}
         if os.path.exists(path):
