@@ -95,13 +95,18 @@ node_types:
             done:
               status: ok
 """
-nested_type_import = nested_import_types + """
+nested_type_import = (
+    nested_import_types
+    + """
 topology_template:
   substitution_mappings:
     node_type: Nested
 """
+)
 
-nested_node_import = nested_import_types + """
+nested_node_import = (
+    nested_import_types
+    + """
 topology_template:
   substitution_mappings:
     node: nested
@@ -119,6 +124,7 @@ topology_template:
           eval:
             ::nested::.targets::host::outer
 """
+)
 
 
 def test_substitution_with_type():
@@ -232,10 +238,16 @@ def test_substitution_with_type():
         assert expected == [
             i.name for i in manifest2.rootResource.get_self_and_descendants()
         ]
-        assert "outer" == manifest2.rootResource.find_instance("nested1").attributes["nested_attribute"]
+        assert (
+            "outer"
+            == manifest2.rootResource.find_instance("nested1").attributes[
+                "nested_attribute"
+            ]
+        )
         jsonExport = to_deployment(manifest2.localEnv)
         assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
         assert list(jsonExport["Resource"]) == ["external", "nested1", "nested2"]
+
 
 def test_substitution_with_node():
     cli_runner = CliRunner()
@@ -274,22 +286,22 @@ def test_substitution_with_node():
 
         result, job, summary = run_job_cmd(cli_runner)
         assert job.json_summary()["job"] == {
-                "id": "A01110000000",
-                "status": "ok",
-                "total": 5,
-                "ok": 5,
-                "error": 0,
-                "unknown": 0,
-                "skipped": 0,
-                "changed": 5,
-            }
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 5,
+            "ok": 5,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 5,
+        }
 
-
+        # test serialization and loading:
         manifest2 = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
 
         inner = manifest2.rootResource.find_instance("nested1:inner")
         assert inner
-        assert inner.attributes["from_outer2"] == "outer"        
+        assert inner.attributes["from_outer2"] == "outer"
         assert inner.attributes["from_outer"] == "outer"
 
         assert manifest2.rootResource.find_instance("nested2:nested")
@@ -297,7 +309,130 @@ def test_substitution_with_node():
         assert expected == [
             i.name for i in manifest2.rootResource.get_self_and_descendants()
         ]
-        assert "outer" == manifest2.rootResource.find_instance("nested1").attributes["nested_attribute"]
+        assert (
+            "outer"
+            == manifest2.rootResource.find_instance("nested1").attributes[
+                "nested_attribute"
+            ]
+        )
         jsonExport = to_deployment(manifest2.localEnv)
         assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
-        assert list(jsonExport["Resource"]) == ['external', 'nested1', 'nested1:inner', 'nested2', 'nested2:inner']
+        assert list(jsonExport["Resource"]) == [
+            "external",
+            "nested1",
+            "nested1:inner",
+            "nested2",
+            "nested2:inner",
+        ]
+
+
+nested_with_placeholder_import = """
+node_types:
+  nodes.Test:
+    derived_from: tosca.nodes.Root
+    interfaces:
+      Standard:
+       operations:
+        create:
+          implementation: Template
+          inputs:
+            done:
+              status: ok
+
+  NestedWithPlaceHolder:
+    derived_from: tosca:Root
+    requirements:
+    - placeholder:
+        node: placeholder_node
+    interfaces:
+      Standard:
+       operations:
+        create:
+          implementation: Template
+          inputs:
+            done:
+              status: ok
+
+topology_template:
+  substitution_mappings:
+    node_type: NestedWithPlaceHolder
+
+  node_templates:
+    placeholder_node:
+      type: nodes.Test
+      directives:
+      - default
+
+    inner:
+      type: nodes.Test
+      requirements:
+        - host: placeholder_node
+"""
+
+replaceholder_ensemble = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - file: ./nested1.yaml
+    topology_template:
+      node_templates:
+        replacement:
+          type: nodes.Test
+          # XXX plan should create this instance despite this directive
+          # directives:
+          # - dependent
+
+        nested1:
+          type: NestedWithPlaceHolder
+          directives:
+          - substitute
+          requirements:
+            - placeholder: replacement
+"""
+
+
+def test_replace_placeholder():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        init_project(
+            cli_runner,
+            args=["init", "--mono", "--skeleton=aws"],
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(replaceholder_ensemble)
+
+        with open("nested1.yaml", "w") as f:
+            f.write(nested_with_placeholder_import)
+
+        manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
+        node1 = manifest.tosca.get_template("nested1")
+        assert node1 and node1.substitution and node1.topology is not node1.substitution
+        inner_nodespec = node1.substitution.get_node_template("inner")
+        assert inner_nodespec
+        assert (
+            inner_nodespec.requirements["host"].relationship.target.name
+            == "replacement"
+        )
+
+        # verify inner matches with external not placeholder
+
+        result, job, summary = run_job_cmd(cli_runner, print_result=True)
+        assert job.json_summary()["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 2,
+            "ok": 2,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 2,
+        }
+
+        # # test serialization and loading:
+        manifest2 = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
+        inner = manifest2.rootResource.find_instance("nested1:inner")
+        assert inner
+        assert inner.query(".targets::host::.name") == "replacement"
