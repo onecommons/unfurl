@@ -1026,7 +1026,12 @@ class NodeSpec(EntitySpec):
         source_topology = reqSpec.parentNode.topology
         substituted = source_topology.parent_topology is self.topology
         req_source_name = reqSpec.parentNode.name
-        if source_topology and substituted and reqSpec.parentNode.name == source_topology.substitution_node.name:
+        if (
+            source_topology
+            and substituted
+            and source_topology.substitution_node
+            and reqSpec.parentNode.name == source_topology.substitution_node.name
+        ):
             # use the name of the node in the target's topology
             assert source_topology.substitute_of
             req_source_name = source_topology.substitute_of.name
