@@ -179,7 +179,7 @@ VALUE_TYPES.update(
         "scalar-unit.size": _SCALAR_TYPE,
         "scalar-unit.frequency": _SCALAR_TYPE,
         "scalar-unit.time": _SCALAR_TYPE,
-        # "scalar-unit.bitrate": _SCALAR_TYPE, # XXX add parser support 3.3.6.7 scalar-unit.bitrate
+        "scalar-unit.bitrate": _SCALAR_TYPE,
         "tosca.datatypes.network.PortDef": VALUE_TYPES["PortDef"],
         "tosca.datatypes.network.PortSpec": VALUE_TYPES["PortSpec"],
     }
