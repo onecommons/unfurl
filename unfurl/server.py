@@ -147,6 +147,7 @@ def clear_all(cache, prefix):
     redis = getattr(backend, "_write_client", None)
     if redis:
         keys = redis.keys(pattern=prefix + "*")
+        logger.info(f"clearing cache with prefix {prefix}, found {len(keys)} keys")
         if keys:
             redis.delete(*keys)
     else:
