@@ -553,19 +553,23 @@ def expand_list(doc, path, includes, value, cls=dict):
             yield item
 
 
-def diff_dicts(old, new, cls=dict):
+def diff_dicts(old, new, cls=dict, skipkeys=()):
     """
     given old, new return diff where merge_dicts(old, diff) == new
     """
     diff = cls()
     # start with old to preserve original order
     for key, oldval in old.items():
+        if key in skipkeys:
+            continue
         if key in new:
             newval = new[key]
             if oldval != newval:
                 if isinstance(oldval, Mapping):
                     if isinstance(newval, Mapping):
-                        diff[key] = diff_dicts(oldval, newval, cls)
+                        diff = diff_dicts(oldval, newval, cls, skipkeys)
+                        if not skipkeys or diff:
+                            diff[key] = diff
                     elif newval is None:
                         # dicts merge with None so add a nullout directive to preserve the None
                         diff[key] = cls((("+%", "nullout"),))
@@ -577,6 +581,8 @@ def diff_dicts(old, new, cls=dict):
             diff[key] = cls((("+%", "whiteout"),))
 
     for key in new:
+        if key in skipkeys:
+            continue
         if key not in old:
             diff[key] = new[key]
     return diff
