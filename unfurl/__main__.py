@@ -983,7 +983,8 @@ def clone(ctx, source, dest, **options):
 @click.argument("gitargs", nargs=-1)
 def git(ctx, gitargs, dir="."):
     """
-    unfurl git [git command] [git command arguments]: Run the given git command on each project repository."""
+    unfurl git [git command] [git command arguments]: Run the given git command on each project repository.
+    """
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
@@ -1161,7 +1162,9 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 @click.option(
     "--format",
     default="deployment",
-    type=click.Choice(["blueprint", "environments", "deployment", "deployments"]),
+    type=click.Choice(
+        ["python", "blueprint", "environments", "deployment", "deployments"]
+    ),
 )
 @click.option(
     "--use-environment",
@@ -1174,7 +1177,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     help="Write json export to this file instead of the console.",
 )
 def export(ctx, project_or_ensemble_path, format, file, **options):
-    """Export ensemble in a simplified json format."""
+    """Export ensemble in a simplified json format or as Python source."""
     from . import to_json
 
     options.update(ctx.obj)
@@ -1184,6 +1187,19 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
         override_context=options.get("use_environment") or "",
         readonly=True,
     )
+    if format == "python":
+        from tosca import yaml2python
+
+        manifest = localEnv.get_manifest(skip_validation=True,) # XXX safe_mode=True
+        assert manifest.tosca and manifest.tosca.template
+        python_path = Path(manifest.get_base_dir()) / (
+            re.sub(r"\W", "_", Path(localEnv.manifestPath).stem) + ".py"
+        )
+        python_src = yaml2python.convert_service_template(manifest.tosca.template, path=python_path)
+        logger = logging.getLogger("unfurl")
+        logger.info("Export to %s", python_path)
+        return
+
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv, file)
     output = json.dumps(jsonSummary, indent=2)
@@ -1328,9 +1344,21 @@ def serve(
 @cli.command(short_help="Manage a cloud map")
 @click.pass_context
 @click.argument("cloudmap", default="cloudmap")
-@click.option("--sync", default=None, help='Sync the given repository host ("local", name, or url).')
-@click.option("--import", default=None, help='Update the cloudmap with the given repository host ("local", name, or url).')
-@click.option("--export", default=None, help='Update the given repository host ("local", name, or url) with the local repositories recorded in the cloudmap.')
+@click.option(
+    "--sync",
+    default=None,
+    help='Sync the given repository host ("local", name, or url).',
+)
+@click.option(
+    "--import",
+    default=None,
+    help='Update the cloudmap with the given repository host ("local", name, or url).',
+)
+@click.option(
+    "--export",
+    default=None,
+    help='Update the given repository host ("local", name, or url) with the local repositories recorded in the cloudmap.',
+)
 @click.option(
     "--namespace",
     default=None,
@@ -1344,7 +1372,7 @@ def serve(
 @click.option(
     "--visibility",
     type=click.Choice(["public", "any"]),
-    help='Only filter projects by visibility (overrides config).',
+    help="Only filter projects by visibility (overrides config).",
 )
 @click.option(
     "--project",
