@@ -5,14 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tosca"
 version = "0.0.1"
+requires-python = ">=3.7"
 authors = [
   { name="Adam Souzis", email="adam@onecommons.org" },
 ]
-description = "A small example package"
+description = "TOSCA as Python"
 readme = "README.md"
-requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+]
+dependencies = [
+  "black",
+  "typing_extensions"
 ]
