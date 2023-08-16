@@ -1,6 +1,3 @@
-[build-system]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "tosca"
 version = "0.0.1"
