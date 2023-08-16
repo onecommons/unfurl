@@ -35,6 +35,12 @@ def is_version_unreleased(v: Union[None, str] = None) -> bool:
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
+try:
+    import tosca
+except ImportError as e:
+    # developer mode only, otherwise tosca should be in a separate package dependency
+    tosca_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", 'tosca-package')
+    sys.path.insert(0, tosca_dir)
 
 class DefaultNames:
     SpecDirectory = "spec"

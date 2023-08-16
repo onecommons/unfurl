@@ -40,6 +40,8 @@ node_types:
     interfaces:
       Install: # all nodes can implement this interface
         type: unfurl.interfaces.Install
+      Standard:
+        type: tosca.interfaces.node.lifecycle.Standard
 
   unfurl.nodes.Repository:
     derived_from: tosca.nodes.Root

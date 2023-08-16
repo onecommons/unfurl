@@ -611,6 +611,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             is_file = True
         return self._really_load_yaml(path, is_file, fragment)
 
+    def _convert_to_yaml(self, contents, path):
+        if path.endswith(".py"):
+            from tosca import convert_to_tosca
+            self.expand = False
+            return convert_to_tosca(contents, path, yaml_dict_type(self.readonly))
+        else:
+            return load_yaml(yaml, contents, path, self.readonly)
+
     def _really_load_yaml(
         self,
         path: str,
@@ -628,7 +636,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
             with f:
                 contents = f.read()
-                doc = load_yaml(yaml, contents, path, self.readonly)
+                doc = self._convert_to_yaml(contents, path)
                 yaml_dict = yaml_dict_type(self.readonly)
                 if isinstance(doc, yaml_dict):
                     if self.expand:

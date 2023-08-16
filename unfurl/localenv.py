@@ -9,6 +9,7 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
+from pathlib import Path
 import re
 from typing import (
     Any,
@@ -37,6 +38,7 @@ from .repo import (
 from .util import (
     UnfurlError,
     filter_env,
+    get_base_dir,
     substitute_env,
     wrap_sensitive_value,
     save_to_tempfile,
@@ -1378,6 +1380,25 @@ class LocalEnv:
             else:
                 return repo, filePath, revision, bare
         return None, None, None, None
+
+    def link_repo(self, base_path: str, name: str, url: str, revision):
+        if base_path:
+            base_path = get_base_dir(base_path)
+        else:
+            base_path = os.getcwd()
+        assert name.isidentifier()
+        repo = self.find_git_repo(url, revision)
+        assert repo, url
+        repo_root = Path(base_path) / "tosca_repositories"
+        if not repo_root.exists():
+            os.mkdir(repo_root)
+            with open(repo_root / ".gitignore", "w") as gi:
+                gi.write("*")
+        target = repo_root / name
+        if os.path.exists(target):
+            os.unlink(target)
+        os.symlink(repo.working_dir, repo_root / name, True)
+        return repo.working_dir
 
     def map_value(self, val: Any, env_rules: Optional[dict]) -> Any:
         """
