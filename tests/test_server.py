@@ -526,8 +526,8 @@ def test_server_update_deployment():
             res = requests.post(
                 f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",
             )
-            # 'remote:main::localenv', 'remote:main:ensemble/ensemble.yaml:localenv', 'remote:main:ensemble/ensemble.yaml:deployment'
-            assert res.content == b'2'  # 2 keys deleted
+            # 'remote:main::localenv', 'remote:pull:...', 'remote:main:ensemble/ensemble.yaml:deployment'
+            assert res.content == b'3'  # 3 keys deleted
             assert res.status_code == 200
 
         finally:

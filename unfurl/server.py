@@ -147,6 +147,7 @@ def clear_all(cache, prefix):
     redis = getattr(backend, "_write_client", None)
     if redis:
         keys = redis.keys(pattern=prefix + "*")
+        logger.info(f"clearing cache with prefix {prefix}, found {len(keys)} keys")
         if keys:
             redis.delete(*keys)
     else:
@@ -409,7 +410,7 @@ class CacheEntry:
 
     def pull(self, cache: Cache, stale_ok_age: int = 0) -> GitRepo:
         branch = self.branch or DEFAULT_BRANCH
-        repo_key = "pull:" + _get_project_repo_dir(self.project_id, branch, self.args)
+        repo_key = self.project_id + ":pull:" + _get_project_repo_dir(self.project_id, branch, self.args)
         # treat repo_key as a mutex to serialize write operations on the repo
         val = cache.get(repo_key)
         if val:
