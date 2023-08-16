@@ -1010,6 +1010,9 @@ def convert_service_template(
     repositories = tpl.get("repositories")
     if repositories and isinstance(repositories, dict):
         for name, repo in repositories.items():
+            if not name.isidentifier():
+                logging.error("supported repositories name: %s %s", name, repo)
+                continue
             converter.convert_repository(name, repo)
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):

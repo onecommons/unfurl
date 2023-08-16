@@ -1386,7 +1386,7 @@ class LocalEnv:
             base_path = get_base_dir(base_path)
         else:
             base_path = os.getcwd()
-        assert name.isidentifier()
+        assert name.isidentifier(), name
         repo = self.find_git_repo(url, revision)
         assert repo, url
         repo_root = Path(base_path) / "tosca_repositories"
