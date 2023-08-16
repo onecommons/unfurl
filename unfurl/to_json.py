@@ -35,6 +35,7 @@ from collections import Counter
 from collections.abc import Mapping, MutableSequence
 from typing_extensions import TypedDict
 from urllib.parse import urlparse
+from toscaparser.elements.artifacttype import ArtifactTypeDef
 from toscaparser.imports import is_url
 from toscaparser.substitution_mappings import SubstitutionMappings
 from toscaparser.properties import Property
@@ -309,12 +310,10 @@ def _requirement_visibility(topology: TopologySpec, name: str, req) -> str:
     if metadata.get("internal"):
         return "hidden"
     if node:
-        nodespec = topology.get_node_template(node)
-        if nodespec:
+        entity_tpl = topology.get_node_src(node)
+        if entity_tpl:
             # if there's already a resource template assigned and it is marked internal
-            node_metadata = (
-                nodespec.toscaEntityTemplate.entity_tpl.get("metadata") or {}
-            )
+            node_metadata = entity_tpl.get("metadata") or {}
             if not node_metadata.get("user_settable") and not metadata.get(
                 "user_settable"
             ):
@@ -438,18 +437,31 @@ def requirement_to_graphql(
     nodetype = req.get("node")
     if nodetype:
         # req['node'] can be a node_template instead of a type
-        if nodetype in topology.node_templates:
+        entity_tpl = topology.get_node_src(nodetype)
+        if entity_tpl:
             reqobj["match"] = nodetype
-            nodetype = topology.node_templates[nodetype].type
+            nodetype = entity_tpl["type"]
         nodetype = expand_prefix(nodetype)
     else:
         nodetype = req.get("capability")
         if not nodetype:
-            # XXX check for "relationship" and get it's valid_target_types
-            logger.warning(
-                "skipping constraint %s, there was no type specified ", req_dict
-            )
-            return None
+            rel = req.get("relationship")
+            if rel:
+                if isinstance(rel, str):
+                    if rel in topology.relationship_templates:
+                        relspec = topology.relationship_templates[rel]
+                        if relspec.target:
+                            reqobj["match"] = relspec.target.name
+                            nodetype = relspec.target.type
+                        else:
+                            target_types = relspec.toscaEntityTemplate.type_definition.valid_target_types
+                            if target_types:
+                                nodetype = target_types[0]
+    if not nodetype:
+        logger.warning(
+            "skipping requirement constraint %s, there was no type specified ", req_dict
+        )
+        return None
     reqobj["resourceType"] = nodetype
     return reqobj
 
@@ -777,7 +789,7 @@ def node_type_to_graphql(
 
 
 def _make_typedef(
-    typename: str, custom_defs: CustomDefs
+    typename: str, custom_defs: CustomDefs, all=False
 ) -> Optional[StatefulEntityType]:
     typedef = None
     # prefix is only used to expand "tosca:Type"
@@ -788,6 +800,11 @@ def _make_typedef(
         typedef = NodeType(typename, custom_defs)
     elif test_typedef.is_derived_from("tosca.relationships.Root"):
         typedef = RelationshipType(typename, custom_defs)
+    elif all:
+        if test_typedef.is_derived_from("tosca.artifacts.Root"):
+            typedef = ArtifactTypeDef(typename, custom_defs)
+        else:
+            return test_typedef
     return typedef
 
 

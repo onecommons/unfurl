@@ -1341,6 +1341,13 @@ class TopologySpec(EntitySpec):
     def get_node_template(self, name: str) -> Optional[NodeSpec]:
         return self.node_templates.get(name)
 
+    def get_node_src(self, name: str) -> Optional[dict]:
+        nodespec = self.node_templates.get(name)
+        if nodespec:
+            return nodespec.toscaEntityTemplate.entity_tpl
+        else:
+            return None
+
     def get_interfaces(self) -> List[OperationDef]:
         # doesn't have any interfaces
         return []
