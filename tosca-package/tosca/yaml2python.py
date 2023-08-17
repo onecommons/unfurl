@@ -616,9 +616,13 @@ class Convert:
             for name, tpl in caps.items():
                 src += self.add_capability(name, tpl, indent)
 
-        for tpl in nodetype.get_value("requirements") or []:
-            assert tpl, tpl
-            src += self.add_req(tpl, indent)
+        if isinstance(nodetype, NodeType):
+            reqs = nodetype.requirement_definitions
+            for tpl in nodetype.get_value("requirements") or []:
+                assert tpl, tpl
+                req_name, req = list(tpl.items())[0]
+                # get the full req including inherited values
+                src += self.add_req(req_name, reqs[req_name], indent)
 
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
@@ -754,7 +758,7 @@ class Convert:
 
     def _get_req_types(self, req: dict) -> Tuple[List[str], str, bool]:
         types: List[str] = []
-        relationship = req.get("relationship")  # , "tosca.relationships.Root")
+        relationship = req.get("relationship")
         if relationship:
             if isinstance(relationship, dict):
                 relationship = relationship["type"]
@@ -763,7 +767,8 @@ class Convert:
                     dict, self.topology["relationship_templates"][relationship]
                 )
                 relationship = reltpl["type"]
-            types.append(relationship)
+            if relationship != "tosca.relationships.Root":
+                types.append(relationship)
 
         match = ""
         nodetype = req.get("node")
@@ -784,8 +789,7 @@ class Convert:
             explicit = False
         return types, match, explicit
 
-    def add_req(self, tpl: dict, indent: str) -> str:
-        req_name, req = list(tpl.items())[0]
+    def add_req(self, req_name: str, req: dict, indent: str) -> str:
         if isinstance(req, str):
             req = dict(node=req)
         types, match, explicit = self._get_req_types(req)
@@ -832,10 +836,12 @@ class Convert:
     def get_configurator_decl(self, implementation):
         if isinstance(implementation, dict):
             if "className" in implementation:
-                return implementation["className"]
+                # XXX need to add to imports
+                # XXX handle class names like helpers.py#GCPComputeInstanceConfigurator
+                return self._get_name(implementation["className"][0])  # XXX wrong!
             else:
                 configuratorClass = "configurator"  # XXX get class name from artifact
-                return f"self.{implementation['primary']}.{configuratorClass}"
+                return f"self.{self._get_name(implementation['primary'])[0]}.{configuratorClass}"  # wrong!
         elif implementation:
             # XXX _set_config_spec_args()
             name, not_name = self._get_name(implementation)
