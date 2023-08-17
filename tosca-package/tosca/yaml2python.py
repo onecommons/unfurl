@@ -258,27 +258,33 @@ class Convert:
     def init_names(self, names):
         self.names = names or {}
 
-    def convert_repository(self, name, tpl):
+    def find_repository(self, name) -> Tuple[str, str]:
         if name in ["unfurl", "self"]:
-            return
+            return name, ""
+        name, tosca_name = self._get_name(name)
+        if name in self.repository_paths:
+            return name, self.repository_paths[name]
         if self.template.import_resolver and self.template.import_resolver.manifest:
-            self.repository_paths[
-                name
-            ] = self.template.import_resolver.manifest.localEnv.link_repo(
+            assert self.template and self.template.tpl
+            tpl = self.template.tpl["repositories"][tosca_name or name]
+            local_path = self.template.import_resolver.manifest.localEnv.link_repo(
                 self.template.path, name, tpl["url"], tpl.get("revision")
             )
+            self.repository_paths[name] = local_path
+            return name, local_path
+        return name, ""
 
     def convert_import(self, tpl) -> Tuple[str, str]:
         repository = tpl.get("repository")
         in_package = False  # XXX
         import_path = os.path.dirname(self.template.path or "")
         if repository:
-            if repository == "unfurl":
-                module_name = repository
-                import_path = "unfurl"
-            else:
+            repository, import_path = self.find_repository(repository)
+            if import_path:
                 module_name = "tosca_repositories." + repository
-                import_path = self.repository_paths[repository]
+            else:
+                module_name = repository
+                import_path = repository
         else:
             module_name = "." if in_package else ""
 
@@ -982,8 +988,10 @@ class Convert:
 
 def generate_builtins() -> str:
     return convert_service_template(
-        ToscaTemplate(path=EntityType.TOSCA_DEF_FILE,
-        yaml_dict_tpl=EntityType.TOSCA_DEF_LOAD_AS_IS),
+        ToscaTemplate(
+            path=EntityType.TOSCA_DEF_FILE,
+            yaml_dict_tpl=EntityType.TOSCA_DEF_LOAD_AS_IS,
+        ),
         7,
         f"tosca.",
         True,
@@ -1012,13 +1020,6 @@ def convert_service_template(
         imports,
         custom_defs,
     )
-    repositories = tpl.get("repositories")
-    if repositories and isinstance(repositories, dict):
-        for name, repo in repositories.items():
-            if not name.isidentifier():
-                logging.error("supported repositories name: %s %s", name, repo)
-                continue
-            converter.convert_repository(name, repo)
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):
         for imp_def in imports_tpl:
