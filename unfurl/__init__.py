@@ -34,7 +34,8 @@ def is_version_unreleased(v: Union[None, str] = None) -> bool:
 
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
-
+vendor_dir2 = os.path.join(vendor_dir, "tosca", "vendor")
+sys.path.insert(0, vendor_dir2)
 
 def __getattr__(name):
     _tosca_types_str = (
