@@ -323,6 +323,8 @@ class Convert:
         src = ""
         self.namespace_prefix = namespace_prefix
         for name in node_types:
+            if self._builtin_prefix and not name.startswith(self._builtin_prefix):
+                continue
             logging.debug("converting %s", name)
             try:
                 toscatype = _make_typedef(name, self.custom_defs, True)
@@ -351,9 +353,13 @@ class Convert:
         return prefix + "".join([w[0].upper() + w[1:] for w in parts[2:]])
 
     def _get_name(self, fullname: str, minimize=False) -> Tuple[str, str]:
-        builtin = "tosca."  # XXX
-        if fullname.startswith(builtin):
-            return self._builtin_name(fullname, builtin, minimize), fullname
+        if fullname.startswith("tosca."):
+            return self._builtin_name(fullname, "tosca.", minimize), fullname
+        elif self._builtin_prefix and fullname.startswith(self._builtin_prefix):
+            return (
+                self._builtin_name(fullname, self._builtin_prefix, minimize),
+                fullname,
+            )
         elif (
             minimize
             and self.namespace_prefix
@@ -516,7 +522,10 @@ class Convert:
 
         if default_value is not MISSING:
             value_repr = self._get_prop_value_repr(prop.schema, default_value)
-            if fieldparams:
+            if value_repr[0] in ("{", "["):
+                ctor = "dict" if value_repr[0] == "{" else "list"
+                fieldparams.append(f"default_factory={ctor}({value_repr})")
+            elif fieldparams:
                 fieldparams.append(f"default={value_repr}")
             else:
                 fielddecl = f"= {value_repr}"
@@ -838,7 +847,7 @@ class Convert:
             if "className" in implementation:
                 # XXX need to add to imports
                 # XXX handle class names like helpers.py#GCPComputeInstanceConfigurator
-                return self._get_name(implementation["className"][0])  # XXX wrong!
+                return self._get_name(implementation["className"])[0]  # XXX wrong!
             else:
                 configuratorClass = "configurator"  # XXX get class name from artifact
                 return f"self.{self._get_name(implementation['primary'])[0]}.{configuratorClass}"  # wrong!
@@ -867,7 +876,7 @@ class Convert:
         if toscaname:
             decorator.append(f'name="{toscaname}"')
         if op.name == "default":
-            apply_to = ", ".join([f"{op[0]}.{op[1]}" for op in default_ops])
+            apply_to = ", ".join([f'"{op[0]}.{op[1]}"' for op in default_ops])
             decorator.append(f"apply_to=[{apply_to}]")
         if decorator:  # add decorator
             src += f"{indent}@operation({', '.join(decorator)})\n"
@@ -1000,6 +1009,19 @@ def generate_builtins() -> str:
         ),
         7,
         f"tosca.",
+        True,
+        EntityType.TOSCA_DEF,
+    )
+
+
+def generate_builtin_extensions() -> str:
+    def_path = ToscaTemplate.exttools.get_defs_file("tosca_simple_unfurl_1_0_0")
+    return convert_service_template(
+        ToscaTemplate(
+            path=def_path,
+        ),
+        7,
+        f"unfurl.",
         True,
         EntityType.TOSCA_DEF,
     )

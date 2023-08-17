@@ -36,6 +36,18 @@ vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
 
+def __getattr__(name):
+    _tosca_types_str = (
+        "nodes capabilities relationships interfaces datatypes artifacts policies groups"
+    )
+
+    if name in _tosca_types_str:
+        from .tosca_plugins import tosca_ext
+
+        return getattr(tosca_ext, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 class DefaultNames:
     SpecDirectory = "spec"
     EnsembleDirectory = "ensemble"
