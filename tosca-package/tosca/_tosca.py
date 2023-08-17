@@ -206,7 +206,11 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
     collection_types = (list, collections.abc.Sequence, dict)
     if origin in collection_types:
         collection = origin
-        _type = get_args(_type)[1 if origin is dict else 0]
+        args = get_args(_type)
+        if args:
+            _type = get_args(_type)[1 if origin is dict else 0]
+        else:
+            _type = Any
         origin = get_origin(_type)
 
     if origin == Union:
@@ -241,7 +245,7 @@ def to_tosca_value(obj):
 
 
 def metadata_to_yaml(metadata: Mapping):
-    return metadata
+    return dict(metadata)
 
 
 class ToscaFieldType(Enum):
@@ -282,7 +286,7 @@ class _Tosca_Field(dataclasses.Field):
         self.owner = owner
 
     def _resolve_class(self, _type):
-        assert self.owner
+        assert self.owner, (self, _type)
         return self.owner._resolve_class(_type)
 
     def get_type_info(self) -> TypeInfo:
@@ -365,8 +369,8 @@ class _Tosca_Field(dataclasses.Field):
         info = self.get_type_info()
         assert len(info.types) == 1
         _type = info.types[0]
-
-        cap_def = dict(type=_type.tosca_type_name())
+        assert issubclass(_type, _ToscaType), (self, _type)
+        cap_def: dict = dict(type=_type.tosca_type_name())
         self._add_occurrences(cap_def, info)
 
         if self.valid_source_types:
@@ -492,19 +496,28 @@ def Capability(
 
 # XXX Artifact()
 
+class _Ref:
+    def __init__(self, expr):
+        self.expr = expr
+    
+    def to_yaml(self):
+        return self.expr
 
+# XXX
 def Ref(
-    *,
+    expr=None, *,
     default=dataclasses.MISSING,
     default_factory=dataclasses.MISSING,
     init=False,
     name: str = "",
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Any:
-    field = _Tosca_Field(
-        ToscaFieldType.capability, default, default_factory, name, metadata
-    )
-    return field
+    return _Ref(expr)
+    # default_factory = lambda: expr
+    # field = _Tosca_Field(
+    #     ToscaFieldType.property, default, default_factory, name, metadata
+    # )
+    # return field
 
 
 # XXX class RefList(Ref)
@@ -617,9 +630,9 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         if obj is None:
             raise NameError(f"{qname} not found")
         while names:
-            ns = obj.__dict__
             name = names.pop(0)
-            obj = ns.get(name)
+            ns = obj
+            obj = getattr(obj, name, None)
             if obj is None:
                 raise AttributeError(f"can't find {name} in {qname}")
         return obj
@@ -658,6 +671,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             body["description"] = doc
 
         for field in cls.tosca_fields:
+            assert field.name, field
             item = field.to_yaml()
             if field.section == "requirements":
                 body.setdefault("requirements", []).append(item)
@@ -741,9 +755,11 @@ class RelationshipType(ToscaType):
     def _cls_to_yaml(cls) -> dict:
         yaml = super()._cls_to_yaml()
         # XXX add interfaces
-        if cls._valid_target_types:
+        # don't include inherited declarations
+        _valid_target_types = cls.__dict__.get("_valid_target_types")
+        if _valid_target_types:
             target_types = [
-                cls._resolve_class(t).tosca_type_name() for t in cls._valid_target_types
+                cls._resolve_class(t).tosca_type_name() for t in _valid_target_types
             ]
             yaml[cls.tosca_type_name()]["valid_target_types"] = target_types
         return yaml
