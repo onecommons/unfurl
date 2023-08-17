@@ -411,6 +411,8 @@ class Convert:
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
         if value is None:
             return "None"
+        if has_function(value):
+            return value2python_repr(value)
         datatype = schema.type
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
         if schema.entry_schema:
@@ -433,7 +435,6 @@ class Convert:
                 assert scalar_unit_class
                 canonical = scalar_unit_class(value).validate_scalar_unit()
                 return canonical.strip().replace(" ", "*")  # value * unit
-            typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
             if typename:
                 # simple value type
                 return value2python_repr(value)
@@ -449,9 +450,12 @@ class Convert:
                     # use a TOSCA datatype
                     dt = DataType(datatype, self.custom_defs)
                     cls = None
+                if dt.value_type:
+                    # its a simple value type
+                    return value2python_repr(value)
                 if not isinstance(value, dict):
                     logging.error(
-                        "what kind of datatype is this %s with %s", datatype, value
+                        "expected a dict value for %s, got: %s", datatype, value
                     )
                     return str(value)
                 return self.convert_datatype_value(typename, cls, dt, value)
@@ -460,7 +464,8 @@ class Convert:
         datatype = schema.type
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
         if not typename:
-            # its a tosca datatype
+            # it's a tosca datatype
+            datatype = _tosca.TOSCA_SHORT_NAMES.get(datatype, datatype)
             typename = self.python_name_from_type(datatype)
             if self.forward_refs:
                 typename = repr(typename)

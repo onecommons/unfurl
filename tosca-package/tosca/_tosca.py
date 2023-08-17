@@ -1,3 +1,5 @@
+# Copyright (c) 2023 Adam Souzis
+# SPDX-License-Identifier: MIT
 from abc import ABC
 import collections.abc
 from contextlib import contextmanager
@@ -163,15 +165,10 @@ TOSCA_SIMPLE_TYPES.update(
 PYTHON_TO_TOSCA_TYPES = {v: k for k, v in TOSCA_SIMPLE_TYPES.items()}
 PYTHON_TO_TOSCA_TYPES["Tuple"] = "range"
 
-# next add types that can't be eval'd:
-TOSCA_SIMPLE_TYPES.update(
-    {
-        "PortDef": "tosca.datatypes.network.PortDef",
-        # "tosca.datatypes.network.PortDef": "int",
-        "PortSpec": "tosca.datatypes.network.PortSpec",
-        # "tosca.datatypes.network.PortSpec": "dict",
-    }
-)
+TOSCA_SHORT_NAMES = {
+    "PortDef": "tosca.datatypes.network.PortDef",
+    "PortSpec": "tosca.datatypes.network.PortSpec",
+}
 
 
 def get_optional_type(_type) -> Tuple[bool, Any]:
@@ -726,7 +723,6 @@ class DataType(ToscaType):
     @classmethod
     def get_tosca_datatype(cls):
         custom_defs = cls._cls_to_yaml()
-        # XXX "type" (for simple types)
         return ToscaDataType(cls.tosca_type_name(), custom_defs)
 
 
