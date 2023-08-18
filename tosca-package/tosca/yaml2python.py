@@ -35,6 +35,7 @@ from typing import (
     cast,
 )
 from toscaparser import functions
+from toscaparser.imports import is_url, normalize_path
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.elements.relationshiptype import RelationshipType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
@@ -114,8 +115,7 @@ DT = TypeVar("DT", bound=_tosca.DataType)
 
 
 def value2python_repr(value, quote=False) -> str:
-    # XXX parse scalars and output as f"{val} * {unit}"
-    pprinted = pprint.pformat(value, indent=value_indent, sort_dicts=False)
+    pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)
     if not quote:
         if has_function(value):
             return f"Ref({pprinted})"
@@ -181,8 +181,9 @@ def section2typename(section: str) -> str:
 
 class Imports:
     def __init__(self, imports=None):
-        self.imports: Dict[str, Tuple[str, Type[_tosca.ToscaType]]] = {}
+        self._imports: Dict[str, Tuple[str, Type[_tosca.ToscaType]]] = {}
         self._add_imports("", imports or {})
+        self._import_statements = set()
 
     def _add_imports(self, basename: str, namespace: Dict[str, Any]):
         for name, ref in namespace.items():
@@ -190,17 +191,28 @@ class Imports:
                 qname = basename + "." + name
             else:
                 qname = name
-            if issubclass(ref, _tosca.Namespace):
+            if not isinstance(ref, type):
+                continue
+            elif issubclass(ref, _tosca.Namespace):
                 self._add_imports(qname, ref.get_defs())
             elif issubclass(ref, _tosca.ToscaType):
-                self.imports[ref.tosca_type_name()] = (qname, ref)
+                self._imports[ref.tosca_type_name()] = (qname, ref)
+
+    def _set_ext_imports(self):
+        # unfurl's builtin types' import specifier matches tosca name
+        # so add those as imports here so we don't try convert the full tosca name to python identifiers
+        try:
+            from unfurl.tosca_plugins import tosca_ext
+
+            self._add_imports("unfurl", tosca_ext.__dict__)
+        except ImportError:
+            pass
 
     def prelude(self) -> str:
         return textwrap.dedent(
             """
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
-        import unfurl
         from tosca import (
         Size,
         Time,
@@ -213,20 +225,26 @@ class Imports:
         Attribute,
         Requirement,
         Capability,
+        Ref,
         InterfaceType,
         NodeType,
         RelationshipType,
-        DataType
+        DataType,
+        ArtifactType
         )
         from tosca import *
         import tosca
-        """
-        )
+        """ 
+        ) + "\n".join([f"import {name}" for name in self._import_statements])+"\n"
 
     def get_type_ref(
         self, tosca_type_name: str
     ) -> Tuple[str, Optional[Type[_tosca.ToscaType]]]:
-        return self.imports.get(tosca_type_name, ("", None))
+        qname, ref = self._imports.get(tosca_type_name, ("", None))
+        if qname:
+            # just support one level of import for now
+            self._import_statements.add(qname.split(".")[0])
+        return qname, ref
 
 
 class Convert:
@@ -259,32 +277,31 @@ class Convert:
         self.names = names or {}
 
     def find_repository(self, name) -> Tuple[str, str]:
-        if name in ["unfurl", "self"]:
+        if name in ["self"]:
             return name, ""
         name, tosca_name = self._get_name(name)
         if name in self.repository_paths:
-            return name, self.repository_paths[name]
-        if self.template.import_resolver and self.template.import_resolver.manifest:
-            assert self.template and self.template.tpl
-            tpl = self.template.tpl["repositories"][tosca_name or name]
-            local_path = self.template.import_resolver.manifest.localEnv.link_repo(
-                self.template.path, name, tpl["url"], tpl.get("revision")
-            )
-            self.repository_paths[name] = local_path
-            return name, local_path
-        return name, ""
+            return "tosca_repositories." + name, self.repository_paths[name]
+        assert self.template and self.template.tpl
+        tpl = self.template.tpl["repositories"][tosca_name or name]
+        url = normalize_path(tpl["url"])
+        if is_url(url):
+            if self.template.import_resolver and self.template.import_resolver.manifest:
+                local_path = self.template.import_resolver.manifest.localEnv.link_repo(
+                    self.template.path, name, url, tpl.get("revision")
+                )
+                self.repository_paths[name] = local_path
+                return "tosca_repositories." + name, local_path
+        else:
+            return name, url
+        return name, name
 
     def convert_import(self, tpl) -> Tuple[str, str]:
         repository = tpl.get("repository")
         in_package = False  # XXX
         import_path = os.path.dirname(self.template.path or "")
         if repository:
-            repository, import_path = self.find_repository(repository)
-            if import_path:
-                module_name = "tosca_repositories." + repository
-            else:
-                module_name = repository
-                import_path = repository
+            module_name, import_path = self.find_repository(repository)
         else:
             module_name = "." if in_package else ""
 
@@ -304,7 +321,8 @@ class Convert:
         uri_prefix = tpl.get("uri_prefix")
         if uri_prefix:
             uri_prefix, tosca_name = self._get_name(uri_prefix)
-            self.import_prefixes[tosca_name or uri_prefix] = uri_prefix
+            tosca_prefix = tosca_name or uri_prefix
+            self.import_prefixes[tosca_prefix] = uri_prefix
         if module_name:
             if uri_prefix:
                 import_stmt = f"from {module_name} import {file_name} as {uri_prefix}"
@@ -418,7 +436,8 @@ class Convert:
         if self.python_compatible < 10:
             return f"Union[{', '.join(types)}]"
         else:
-            return " | ".join(types)
+            # avoid "union syntax can't be used with string operand" error by combining strings
+            return " | ".join(types).replace('" | "', " | ").replace("' | '", " | ")
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
         if value is None:
@@ -551,7 +570,7 @@ class Convert:
         interfaces = entity_type.get_value(entity_type.INTERFACES) or {}
         for name, val in interfaces.items():
             itype = val and val.get("type")
-            if itype and itype != "unfurl.interfaces.Install":  # XXX fix when generated
+            if itype:
                 # don't add interface to bases if a base type already declared it
                 for p in parents:
                     if p is entity_type:
@@ -607,7 +626,7 @@ class Convert:
         # XXX: 'version', 'artifacts'
         assert nodetype.defs
         src += add_description(nodetype.defs, indent)
-        if toscaname:
+        if toscaname != cls_name:
             src += f'{indent}_tosca_name = "{toscaname}"\n'
         metadata = nodetype.defs.get("metadata")
         if metadata:
@@ -976,8 +995,8 @@ class Convert:
         file_path = str(Path(import_path).parent / Path(import_def["file"]).name)
         if file_path not in self.template.nested_tosca_tpls:
             logging.warning(
-                "can't import: %s not found", file_path
-            )  # in", list(self.template.nested_tosca_tpls))
+                f"can't import: {file_path} not found in {list(self.template.nested_tosca_tpls)}"
+            )
             return
         tpl = self.template.nested_tosca_tpls[file_path]
         tpl["tosca_definitions_version"] = self.template.tpl[
@@ -1027,6 +1046,7 @@ def generate_builtin_extensions() -> str:
     )
 
 
+
 def convert_service_template(
     template: ToscaTemplate,
     python_compatible=None,
@@ -1036,9 +1056,9 @@ def convert_service_template(
     path="",
 ) -> str:
     src = ""
-    # XXX ???? add all the builtin_tosca_types to imports
-    # if not builtin_prefix, add unfurl to prologue if present
     imports = Imports()
+    if not builtin_prefix:
+        imports._set_ext_imports()
     tpl = cast(Dict[str, Any], template.tpl)
     converter = Convert(
         template,

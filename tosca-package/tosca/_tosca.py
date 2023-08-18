@@ -390,7 +390,7 @@ class _Tosca_Field(dataclasses.Field):
             tosca_type = PYTHON_TO_TOSCA_TYPES.get(_type.__name__, "")
             if not tosca_type:  # it must be a datatype
                 tosca_type = _type.tosca_type_name()
-        schema = dict(type=tosca_type)
+        schema: Dict[str, Any] = dict(type=tosca_type)
         if info.collection:
             schema["entry_schema"] = self.pytype_to_tosca_schema(_type)[0]
         if info.metadata:
@@ -483,12 +483,12 @@ T = TypeVar("T")
 def Capability(
     *,
     default=dataclasses.MISSING,
-    factory: Type[T] = dataclasses.MISSING,
+    factory=dataclasses.MISSING,
     name: str = "",
     metadata: Optional[Dict[str, Any]] = None,
     valid_source_types: Optional[List[str]] = None,
     # init: Literal[False] = False,
-) -> T:
+) -> Any:
     field = _Tosca_Field(ToscaFieldType.capability, default, factory, name, metadata)
     field.valid_source_types = valid_source_types or []
     return field
@@ -660,7 +660,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         # XXX _type_metadata, version
 
         body: Dict[str, Any] = {}
-        bases = list(cls.tosca_bases())
+        bases: Union[list, str] = list(cls.tosca_bases())
         if bases:
             if len(bases) == 1:
                 bases = bases[0]
@@ -688,12 +688,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         tpl = {cls.tosca_type_name(): body}
         return tpl
 
-    def to_yaml(self) -> Optional[dict]:
-        # XXX directives, metadata, everything else
-        # XXX tosca_name for the object
-        return {self.tosca_name(): dict(type=self.tosca_type_name())}
-
-
 class ToscaType(_ToscaType):
     _type_section: ClassVar[str] = ""
     _template_section: ClassVar[str] = ""
@@ -705,6 +699,10 @@ class ToscaType(_ToscaType):
     _name: str = ""
 
     # XXX version (type and template?)
+
+    def to_yaml(self) -> Optional[dict]:
+        # XXX directives, metadata, everything else
+        return {self._name: dict(type=self.tosca_type_name())}
 
 
 class NodeType(ToscaType):
@@ -793,7 +791,7 @@ class InterfaceType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls) -> dict:
-        body = {}
+        body: Dict[str, Any] = {}
         for name, obj in cls.__dict__.items():
             if name[0] != "_" and callable(obj):
                 doc = obj.__doc__ and obj.__doc__.strip()
@@ -851,8 +849,8 @@ def module2yaml(namespace, sections=None, globals=None, yaml_cls=dict) -> dict:
             # this is a class not an instance
             section = obj._type_section  # type: ignore
             to_yaml = obj._cls_to_yaml  # type: ignore
-            obj._globals = globals
-            obj._namespace = namespace
+            obj._globals = globals  # type: ignore
+            obj._namespace = namespace  # type: ignore
         else:
             section = getattr(obj, "_template_section", None)
             to_yaml = getattr(obj, "to_yaml", None)
@@ -899,7 +897,7 @@ def operation2yaml(toscaobj, operation):
 
 
 def convert_to_tosca(python_src: str, path: str = "", yaml_cls=dict):
-    namespace = {}
+    namespace: Dict[str, Any] = {}
     exec(python_src, namespace)
     yaml_dict = module2yaml(namespace, yaml_cls=yaml_cls)
     # XXX
