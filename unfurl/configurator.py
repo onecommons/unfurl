@@ -62,7 +62,7 @@ from .planrequests import (
     find_operation_host,
     create_instance_from_spec,
 )
-from .tosca import find_env_vars
+from .tosca import find_env_vars, EntitySpec
 
 import logging
 
@@ -157,7 +157,7 @@ class Configurator:
     __is_generator: Optional[bool] = None
 
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target: EntityInstance) -> dict:
+    def set_config_spec_args(cls, kw: dict, template: EntitySpec) -> dict:
         return kw
 
     def __init__(self, configurationSpec: ConfigurationSpec) -> None:

@@ -813,6 +813,7 @@ def _render_request(
     try:
         task.logger.debug("rendering %s %s", task.target.name, task.name)
         task._rendering = True
+        task.configurator  # make sure it runs before task.inputs
         task.inputs
         task.set_envvars()
         assert task._inputs is not None and not task._inputs.context.strict
@@ -1081,7 +1082,7 @@ def create_task_request(
     startState=None,
     operation_host=None,
     skip_filter=False,
-):
+) -> Optional[TaskRequest]:
     """implementation can either be a named artifact (including a python configurator class),
     or a file path"""
     interface, sep, action = operation.rpartition(".")
@@ -1106,7 +1107,7 @@ def create_task_request(
     kw = None
     if iDef:
         kw = _get_config_spec_args_from_implementation(
-            iDef, inputs, resource, operation_host
+            iDef, inputs, resource.template, operation_host
         )
     if kw:
         kw["interface"] = interface
@@ -1180,13 +1181,13 @@ def set_default_command(kw, implementation):
     return kw
 
 
-def _set_config_spec_args(kw, target, base_dir):
+def _set_config_spec_args(kw, template: EntitySpec, base_dir):
     # if no artifact or className, an error
     artifact = kw["primary"]
     className = kw.get("className")
     if not className and not artifact:  # malformed implementation
         logger.warning(
-            "no artifact or className set on operation for %s: %s", target.name, kw
+            "no artifact or className set on operation for %s: %s", template.name, kw
         )
         return None
     guessing = False
@@ -1205,14 +1206,14 @@ def _set_config_spec_args(kw, target, base_dir):
             klass = getattr(mod, fragment)  # raise if missing
         else:
             klass = lookup_class(className)
-    except:
+    except Exception:
         klass = None
         logger.debug("exception while instantiating %s", className, exc_info=True)
 
     # invoke configurator classmethod to give configurator a chance to customize configspec (e.g. add dependencies)
     if klass:
         kw["className"] = f"{klass.__module__}.{klass.__name__}"
-        return klass.set_config_spec_args(kw, target)
+        return klass.set_config_spec_args(kw, template)
     elif guessing:
         # otherwise assume it's a shell command line
         logger.debug("interpreting 'implementation' as a shell command: %s", guessing)
@@ -1223,7 +1224,7 @@ def _set_config_spec_args(kw, target, base_dir):
         return None
 
 
-def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, target, operation_host):
+def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, template: EntitySpec, operation_host):
     implementation = iDef.implementation
     kw = dict(
         inputs=inputs,
@@ -1259,7 +1260,7 @@ def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, target
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
     kw["base_dir"] = base_dir
     if artifactTpl:
-        artifact = target.template.find_or_create_artifact(
+        artifact = template.find_or_create_artifact(
             artifactTpl, base_dir, predefined
         )
     else:
@@ -1268,10 +1269,10 @@ def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, target
 
     if dependencies:
         kw["dependencies"] = [
-            target.template.find_or_create_artifact(artifactTpl, base_dir, True)
+            template.find_or_create_artifact(artifactTpl, base_dir, True)
             for artifactTpl in dependencies
         ]
     else:
         kw["dependencies"] = []
 
-    return _set_config_spec_args(kw, target, base_dir)
+    return _set_config_spec_args(kw, template, base_dir)

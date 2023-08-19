@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 from typing import TYPE_CHECKING
 
-from ..runtime import EntityInstance
 from ..util import save_to_file, UnfurlTaskError, wrap_var, which
 from .shell import ShellConfigurator, clean_output, make_regex_filter
 from ..support import Status
@@ -163,9 +162,9 @@ class TerraformConfigurator(ShellConfigurator):
     ]
 
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target: EntityInstance):
+    def set_config_spec_args(cls, kw: dict, template):
         if not which("terraform"):
-            artifact = target.template.find_or_create_artifact(
+            artifact = template.find_or_create_artifact(
                 "terraform", predefined=True
             )
             if artifact:

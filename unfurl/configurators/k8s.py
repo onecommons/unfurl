@@ -289,8 +289,8 @@ def mark_sensitive(task, resource):
 class ResourceConfigurator(AnsibleConfigurator):
 
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target: EntityInstance):
-        artifact = target.template.find_or_create_artifact(
+    def set_config_spec_args(cls, kw: dict, template):
+        artifact = template.find_or_create_artifact(
             "kubernetes.core", predefined=True
         )
         if artifact:

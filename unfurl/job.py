@@ -637,8 +637,8 @@ class Job(ConfigChange):
     ) -> ConfigTask:
         task = ConfigTask(self, configSpec, target, reason=reason)
         try:
+            task.configurator # make sure it runs before task.inputs
             task.inputs
-            task.configurator
         except Exception:
             UnfurlTaskError(task, "unable to create task")
         return task
