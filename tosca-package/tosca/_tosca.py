@@ -57,7 +57,7 @@ class _Constraint(ToscaObject):
         self.constraint = constraint
 
     def to_yaml(self) -> Optional[Dict]:
-        return {self.__class__.__name__: self.constraint}
+        return {self.__class__.__name__: to_tosca_value(self.constraint)}
 
 
 class equal(_Constraint):
@@ -205,7 +205,10 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
     collection = None
     collection_types = (list, collections.abc.Sequence, dict)
     if origin in collection_types:
-        collection = origin
+        if origin == collections.abc.Sequence:
+            collection = list
+        else:
+            collection = origin
         args = get_args(_type)
         if args:
             _type = get_args(_type)[1 if origin is dict else 0]
@@ -326,8 +329,10 @@ class _Tosca_Field(dataclasses.Field):
         return self.tosca_field_type.value
 
     def to_yaml(self) -> dict:
-        if self.tosca_field_type in [ToscaFieldType.property, ToscaFieldType.attribute]:
+        if self.tosca_field_type == ToscaFieldType.property:
             field_def = self._to_property_yaml()
+        elif self.tosca_field_type == ToscaFieldType.attribute:
+            field_def = self._to_attribute_yaml()
         elif self.tosca_field_type == ToscaFieldType.requirement:
             field_def = self._to_requirement_yaml()
         elif self.tosca_field_type == ToscaFieldType.capability:
@@ -343,7 +348,7 @@ class _Tosca_Field(dataclasses.Field):
 
     def _add_occurrences(self, field_def: dict, info: TypeInfo) -> None:
         occurrences = [1, 1]
-        if info.optional:
+        if info.optional or self.default == ():
             occurrences[0] = 0
         if info.collection is list:
             occurrences[1] = "UNBOUNDED"  # type: ignore
@@ -373,7 +378,7 @@ class _Tosca_Field(dataclasses.Field):
         cap_def: dict = dict(type=_type.tosca_type_name())
         self._add_occurrences(cap_def, info)
 
-        if self.valid_source_types:
+        if self.valid_source_types:  # is not None: XXX only set to [] if declared
             cap_def["valid_source_types"] = self.valid_source_types
         return cap_def
 
@@ -396,6 +401,19 @@ class _Tosca_Field(dataclasses.Field):
         if info.metadata:
             schema["constraints"] = [c.to_yaml() for c in info.metadata]
         return schema, info.optional
+
+    def _to_attribute_yaml(self) -> dict:
+        # self.type is from __annotations__
+        prop_def, optional = self.pytype_to_tosca_schema(self.type)
+        if self.default is not dataclasses.MISSING and self.default is not None:
+            # only set the default to null if required (not optional)
+            prop_def["default"] = to_tosca_value(self.default)
+        # XXX self.default_factory, ref() ?
+        if self.title:
+            prop_def["title"] = self.title
+        if self.status:
+            prop_def["status"] = self.status
+        return prop_def
 
     def _to_property_yaml(self) -> dict:
         # self.type is from __annotations__
@@ -496,16 +514,19 @@ def Capability(
 
 # XXX Artifact()
 
+
 class _Ref:
     def __init__(self, expr):
         self.expr = expr
-    
+
     def to_yaml(self):
         return self.expr
 
+
 # XXX
 def Ref(
-    expr=None, *,
+    expr=None,
+    *,
     default=dataclasses.MISSING,
     default_factory=dataclasses.MISSING,
     init=False,
@@ -589,6 +610,14 @@ class _Tosca_Names_Getter:
         return {f.tosca_name(): f for f in (obj or objtype).tosca_fields}
 
 
+class _Set_ConfigSpec_Method:
+    def __get__(self, obj, objtype) -> callable:
+        if obj:
+            return obj._set_config_spec_
+        else:
+            return objtype._class_set_config_spec
+
+
 # Ref and RefList aren't actually field specifiers but they are listed here so static type checking works
 @dataclass_transform(
     kw_only_default=True,
@@ -599,6 +628,14 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     tosca_fields = _Tosca_Fields_Getter()  # list of _ToscaFields
     tosca_names = _Tosca_Names_Getter()  # map of tosca names to _ToscaFields
+    set_config_spec_args = _Set_ConfigSpec_Method()
+
+    @classmethod
+    def _class_set_config_spec(cls, kw: dict, target) -> dict:
+        return kw
+
+    def _set_config_spec_(self, kw: dict, target) -> dict:
+        return self._class_set_config_spec(kw, target)
 
     _namespace: Optional[Dict[str, Any]] = None
     _globals: Optional[Dict[str, Any]] = None
@@ -677,6 +714,10 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 body.setdefault("requirements", []).append(item)
             else:  # properties, attribute, capabilities
                 body.setdefault(field.section, {}).update(item)
+                if field.declare_attribute:
+                    # a property that is also declared as an attribute
+                    item = {field.tosca_name: field._to_attribute_yaml()}
+                    body.setdefault("attributes", {}).update(item)
 
         interfaces = cls._interfaces_yaml()
         if interfaces:
@@ -687,6 +728,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             return {}
         tpl = {cls.tosca_type_name(): body}
         return tpl
+
 
 class ToscaType(_ToscaType):
     _type_section: ClassVar[str] = ""
@@ -896,8 +938,14 @@ def operation2yaml(toscaobj, operation):
     }
 
 
-def convert_to_tosca(python_src: str, path: str = "", yaml_cls=dict):
-    namespace: Dict[str, Any] = {}
+def convert_to_tosca(
+    python_src: str,
+    namespace: Optional[Dict[str, Any]] = None,
+    path: str = "",
+    yaml_cls=dict,
+):
+    if namespace is None:
+        namespace = {}
     exec(python_src, namespace)
     yaml_dict = module2yaml(namespace, yaml_cls=yaml_cls)
     # XXX

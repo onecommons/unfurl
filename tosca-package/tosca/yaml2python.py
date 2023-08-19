@@ -115,7 +115,9 @@ DT = TypeVar("DT", bound=_tosca.DataType)
 
 
 def value2python_repr(value, quote=False) -> str:
-    pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)
+    pprinted = pprint.pformat(
+        value, compact=True, indent=value_indent, sort_dicts=False
+    )
     if not quote:
         if has_function(value):
             return f"Ref({pprinted})"
@@ -139,18 +141,6 @@ def add_description(defs, indent):
     else:
         src = ""
     return src
-
-
-def to_constraints(constraints):
-    # note: c.constraint_value_msg is unconverted value
-    # constraint_key will correspond to constraint class names
-    src_list = [
-        f"{c.constraint_key}({value2python_repr(c.constraint_value)})"
-        for c in constraints
-    ]
-    if len(src_list) == 1:
-        return f"({src_list[0]},)"
-    return f"({', '.join(src_list)})"
 
 
 def metadata_repr(metadata) -> str:
@@ -209,8 +199,9 @@ class Imports:
             pass
 
     def prelude(self) -> str:
-        return textwrap.dedent(
-            """
+        return (
+            textwrap.dedent(
+                """
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
         from tosca import (
@@ -234,8 +225,11 @@ class Imports:
         )
         from tosca import *
         import tosca
-        """ 
-        ) + "\n".join([f"import {name}" for name in self._import_statements])+"\n"
+        """
+            )
+            + "\n".join([f"import {name}" for name in self._import_statements])
+            + "\n"
+        )
 
     def get_type_ref(
         self, tosca_type_name: str
@@ -440,14 +434,16 @@ class Convert:
             return " | ".join(types).replace('" | "', " | ").replace("' | '", " | ")
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
+        return self._get_typed_value_repr(schema.type, schema.entry_schema, value)
+
+    def _get_typed_value_repr(self, datatype: str, entry_schema, value: Any) -> str:
         if value is None:
             return "None"
         if has_function(value):
             return value2python_repr(value)
-        datatype = schema.type
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
-        if schema.entry_schema:
-            entry_schema = Schema(None, schema.entry_schema)
+        if entry_schema:
+            entry_schema = Schema(None, entry_schema)
             if typename == "Dict":
                 items = [
                     f"{k}: {self._get_prop_value_repr(entry_schema, item)}"
@@ -491,6 +487,17 @@ class Convert:
                     return str(value)
                 return self.convert_datatype_value(typename, cls, dt, value)
 
+    def to_constraints(self, constraints):
+        # note: c.constraint_value_msg is unconverted value
+        # constraint_key will correspond to constraint class names
+        src_list = [
+            f"{c.constraint_key}({self._get_typed_value_repr(c.property_type, None, c.constraint_value_msg)})"
+            for c in constraints
+        ]
+        if len(src_list) == 1:
+            return f"({src_list[0]},)"
+        return f"({', '.join(src_list)})"
+
     def _prop_type(self, schema: Schema) -> str:
         datatype = schema.type
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
@@ -509,7 +516,7 @@ class Convert:
                 typename += f"[{item_type_name}]"
 
         if schema.constraints:
-            typename = f"Annotated[{typename}, {to_constraints(schema.constraints)}]"
+            typename = f"Annotated[{typename}, {self.to_constraints(schema.constraints)}]"
         return typename
 
     def _prop_decl(
@@ -717,8 +724,8 @@ class Convert:
             shadowed = nodetype.get_value("properties") or {}
         else:
             shadowed = nodetype.get_value("attributes") or {}
-        both = False
         for name, schema in props.items():
+            both = False
             if name not in declared_props:
                 # exclude inherited properties
                 continue
@@ -1044,7 +1051,6 @@ def generate_builtin_extensions() -> str:
         True,
         EntityType.TOSCA_DEF,
     )
-
 
 
 def convert_service_template(
