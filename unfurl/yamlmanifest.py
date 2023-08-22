@@ -20,7 +20,7 @@ from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .tosca import ArtifactSpec, NodeSpec, find_env_vars
+from .spec import ArtifactSpec, NodeSpec, find_env_vars
 from .runtime import EntityInstance, NodeInstance, TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec

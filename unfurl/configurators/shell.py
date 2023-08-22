@@ -111,6 +111,9 @@ class ShellConfigurator(TemplateConfigurator):
     _default_cmd: Optional[str] = None
     _default_dryrun_arg: Optional[str] = None
 
+
+    # def __init__(self, *, cmd: Union[str, List[str], None])
+
     @staticmethod
     def _cmd(cmd, keeplines):
         if not isinstance(cmd, six.string_types):

@@ -62,7 +62,7 @@ from .planrequests import (
     find_operation_host,
     create_instance_from_spec,
 )
-from .tosca import find_env_vars, EntitySpec
+from .spec import find_env_vars, EntitySpec
 
 import logging
 

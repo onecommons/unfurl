@@ -1245,7 +1245,7 @@ def _get_instances_from_keyname(ctx, entity_name):
 
 
 if TYPE_CHECKING:
-    from .tosca import ArtifactSpec
+    from .spec import ArtifactSpec
 
 
 def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":

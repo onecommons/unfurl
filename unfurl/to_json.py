@@ -57,7 +57,7 @@ from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
 from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
-from .tosca import (
+from .spec import (
     EntitySpec,
     NodeSpec,
     TopologySpec,

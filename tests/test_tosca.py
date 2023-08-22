@@ -9,7 +9,7 @@ from unfurl.projectpaths import _get_base_dir
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import make_vault_lib
-from unfurl.tosca import find_env_vars
+from unfurl.spec import find_env_vars
 import six
 from click.testing import CliRunner
 import json

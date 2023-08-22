@@ -146,7 +146,7 @@ def _create_repo(gitDir, ignore=True):
 
 
 def write_service_template(projectdir):
-    from .tosca import TOSCA_VERSION
+    from .spec import TOSCA_VERSION
 
     vars = dict(version=TOSCA_VERSION)
     return write_template(

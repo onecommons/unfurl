@@ -49,7 +49,7 @@ from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 
-from .tosca import NodeSpec, ToscaSpec
+from .spec import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
 

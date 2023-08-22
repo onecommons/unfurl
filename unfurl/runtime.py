@@ -38,7 +38,7 @@ from .support import (
     NodeState,
     Templar,
 )
-from .tosca import (
+from .spec import (
     EntitySpec,
     CapabilitySpec,
     RelationshipSpec,

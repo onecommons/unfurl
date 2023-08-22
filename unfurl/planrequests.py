@@ -23,7 +23,7 @@ import os
 import os.path
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.nodetemplate import NodeTemplate
-from .tosca import ArtifactSpec, EntitySpec
+from .spec import ArtifactSpec, EntitySpec
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions

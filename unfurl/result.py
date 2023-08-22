@@ -11,7 +11,7 @@ import re
 from toscaparser.common.exception import ValidationError
 
 if TYPE_CHECKING:
-    from .tosca import EntitySpec
+    from .spec import EntitySpec
     from .support import Templar
 
 from .merge import diff_dicts

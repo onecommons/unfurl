@@ -21,7 +21,7 @@ from .planrequests import (
     find_resources_from_template_name,
     _find_implementation,
 )
-from .tosca import (
+from .spec import (
     NodeSpec,
     TopologySpec,
     Workflow,

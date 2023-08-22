@@ -8,7 +8,7 @@ import json
 from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
 from ruamel.yaml.comments import CommentedMap
 
-from .tosca import EntitySpec, NodeSpec, ToscaSpec, TOSCA_VERSION, ArtifactSpec
+from .spec import EntitySpec, NodeSpec, ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
 from .support import (
     ResourceChanges,
