@@ -31,7 +31,6 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
-    Union,
     cast,
 )
 from toscaparser import functions
@@ -115,9 +114,10 @@ DT = TypeVar("DT", bound=_tosca.DataType)
 
 
 def value2python_repr(value, quote=False) -> str:
-    pprinted = pprint.pformat(
-        value, compact=True, indent=value_indent, sort_dicts=False
-    )
+    if sys.version_info.minor > 7:
+        pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)  # type: ignore
+    else:
+        pprinted = pprint.pformat(value, compact=True, indent=value_indent)
     if not quote:
         if has_function(value):
             return f"Ref({pprinted})"
@@ -144,7 +144,10 @@ def add_description(defs, indent):
 
 
 def metadata_repr(metadata) -> str:
-    return pprint.pformat(metadata, indent=value_indent, sort_dicts=False)
+    if sys.version_info.minor > 7:
+        return pprint.pformat(metadata, indent=value_indent, sort_dicts=False)  # type: ignore
+    else:
+        return pprint.pformat(metadata, indent=value_indent)
 
 
 def expand_prefix(nodetype: str):
@@ -202,6 +205,7 @@ class Imports:
         return (
             textwrap.dedent(
                 """
+        import unfurl
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
         from tosca import (
@@ -212,16 +216,20 @@ class Imports:
         Namespace,
         tosca_version,
         tosca_timestamp,
+        operation,
         Property,
         Attribute,
         Requirement,
         Capability,
         Ref,
         InterfaceType,
+        CapabilityType,
         NodeType,
         RelationshipType,
         DataType,
-        ArtifactType
+        ArtifactType,
+        GroupType,
+        PolicyType,
         )
         from tosca import *
         import tosca
@@ -230,6 +238,9 @@ class Imports:
             + "\n".join([f"import {name}" for name in self._import_statements])
             + "\n"
         )
+
+    def add_import(self, module: str):
+        self._import_statements.add(module)
 
     def get_type_ref(
         self, tosca_type_name: str
@@ -250,6 +261,7 @@ class Convert:
         builtin_prefix="",
         imports: Optional[Imports] = None,
         custom_defs: Optional[Dict[str, Any]] = None,
+        path: Optional[str] = None,
     ):
         self.template = template
         self.names: Dict[str, Any] = {}
@@ -266,6 +278,7 @@ class Convert:
         assert self.template.topology_template
         self.custom_defs = custom_defs or self.template.topology_template.custom_defs
         self.repository_paths: Dict[str, str] = {}
+        self.path = path
 
     def init_names(self, names):
         self.names = names or {}
@@ -337,7 +350,7 @@ class Convert:
         for name in node_types:
             if self._builtin_prefix and not name.startswith(self._builtin_prefix):
                 continue
-            logging.debug("converting %s", name)
+            logging.info("converting %s", name)
             try:
                 toscatype = _make_typedef(name, self.custom_defs, True)
                 if toscatype:
@@ -345,6 +358,8 @@ class Convert:
                     src += (
                         self.nodetype2class(toscatype, baseclass_name, indent) + "\n\n"
                     )
+                else:
+                    logging.info("couldn't create type %s", name)
             except Exception:
                 logging.error("error converting %s", name, exc_info=True)
         return src
@@ -431,7 +446,13 @@ class Convert:
             return f"Union[{', '.join(types)}]"
         else:
             # avoid "union syntax can't be used with string operand" error by combining strings
-            return " | ".join(types).replace('" | "', " | ").replace("' | '", " | ")
+            return (
+                " | ".join(types)
+                .replace('" | None', ' | None"')
+                .replace("' | None", " | None'")
+                .replace('" | "', " | ")
+                .replace("' | '", " | ")
+            )
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
         return self._get_typed_value_repr(schema.type, schema.entry_schema, value)
@@ -458,9 +479,15 @@ class Convert:
                 return "[" + ", ".join(items) + "]"
         else:
             if datatype.startswith("scalar-unit."):
+                if isinstance(value, (list, tuple)):
+                    # for in_range constraints
+                    return self._get_typed_value_repr(
+                        "list", dict(type=datatype), value
+                    )
                 scalar_unit_class = get_scalarunit_class(datatype)
                 assert scalar_unit_class
                 canonical = scalar_unit_class(value).validate_scalar_unit()
+                # XXX add unit to imports
                 return canonical.strip().replace(" ", "*")  # value * unit
             if typename:
                 # simple value type
@@ -516,7 +543,9 @@ class Convert:
                 typename += f"[{item_type_name}]"
 
         if schema.constraints:
-            typename = f"Annotated[{typename}, {self.to_constraints(schema.constraints)}]"
+            typename = (
+                f"Annotated[{typename}, {self.to_constraints(schema.constraints)}]"
+            )
         return typename
 
     def _prop_decl(
@@ -549,8 +578,7 @@ class Convert:
         if default_value is not MISSING:
             value_repr = self._get_prop_value_repr(prop.schema, default_value)
             if value_repr[0] in ("{", "["):
-                ctor = "dict" if value_repr[0] == "{" else "list"
-                fieldparams.append(f"default_factory={ctor}({value_repr})")
+                fieldparams.append(f"default_factory=lambda:({value_repr})")
             elif fieldparams:
                 fieldparams.append(f"default={value_repr}")
             else:
@@ -683,7 +711,7 @@ class Convert:
             return class_decl + f"{indent}pass"
 
     def _add_operations(self, nodetype: StatefulEntityType, indent: str) -> str:
-        # XXX nodetype.get_interface_requirements()
+        # XXX
         # XXX default_ops doesn't seem to be working (see artifacts.yaml.py)
         src = ""
         default_ops = []
@@ -697,19 +725,34 @@ class Convert:
                     default_ops.append((iname, oname))
 
         defaulted = False
+        declared_ops = []
+        declared_interfaces: Optional[Dict] = nodetype.get_value("interfaces")
+        declared_requirements = []
+        if declared_interfaces:
+            for iname, interface in declared_interfaces.items():
+                requirements = interface.get("requirements")
+                if requirements:
+                    declared_requirements.extend(requirements)
+                if "operations" in interface:
+                    ops = interface["operations"]
+                else:
+                    ops = interface
+                for oname, op in ops.items():
+                    if op:
+                        declared_ops.append((iname, oname))
+
+        if declared_requirements:
+            # include inherited interface_requirements
+            src += f"{indent}_interface_requirements = {value2python_repr(nodetype.get_interface_requirements())}\n"
+
         for op in EntityTemplate._create_interfaces(nodetype, None):
             if op.interfacetype != "Mock":
-                if (op.interfacename, op.name) not in default_ops:
-                    # XXX check if implementation points to a python operation
-                    # if it does, check if this class and merge somehow
-                    # otherwise, import and call or raise error
-                    if op.name == "default":
-                        if defaulted:
-                            continue  # only generate once
-                        else:
-                            defaulted = True
+                op_id = (op.interfacename, op.name)
+                if op_id in declared_ops and op_id not in default_ops:
                     src += self.operation2func(op, indent, default_ops) + "\n"
-
+                elif op.name == "default" and not defaulted:
+                    defaulted = True  # only generate once
+                    src += self.operation2func(op, indent, default_ops) + "\n"
         return src
 
     def add_properties_decl(
@@ -868,34 +911,56 @@ class Convert:
         src += add_description(req, indent)
         return src
 
-    def get_configurator_decl(self, implementation):
-        if isinstance(implementation, dict):
-            if "className" in implementation:
-                # XXX need to add to imports
-                # XXX handle class names like helpers.py#GCPComputeInstanceConfigurator
-                return self._get_name(implementation["className"])[0]  # XXX wrong!
+    def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
+        assert self.template.import_resolver
+        kw = self.template.import_resolver.find_implementation(op)
+        cmd = ""
+        if kw is None:
+            if isinstance(op.implementation, dict):
+                artifact = op.implementation["primary"]
+                kw = op.implementation.copy()
             else:
-                configuratorClass = "configurator"  # XXX get class name from artifact
-                return f"self.{self._get_name(implementation['primary'])[0]}.{configuratorClass}"  # wrong!
-        elif implementation:
-            # XXX _set_config_spec_args()
-            name, not_name = self._get_name(implementation)
-            if not_name:
-                return f"Shell({value2python_repr(implementation)})"
-            else:
-                return name
+                artifact = op.implementation
+                kw = dict(primary=artifact)
+            kw["inputs"] = op.inputs
+            if isinstance(artifact, str):
+                artifact, toscaname = self._get_name(artifact)
+                if hasattr(self, artifact):
+                    # add direct reference to allow static type checking
+                    cmd = f"self.{artifact}.execute("
+            if not cmd and artifact:
+                cmd = f"self.find_artifact({value2python_repr(artifact)})"
         else:
-            return ""
+            cmd = kw["className"]
+            module, sep, klass = cmd.rpartition(".")
+            if module:
+                if module.endswith(
+                    "_py"
+                ):  # hack for now... see load_module in unfurl.util
+                    module_path = sys.modules[module].__file__
+                    assert module_path
+                    if self.path:
+                        module_path = os.path.relpath(
+                            module_path, start=os.path.abspath(self.path)
+                        )
+                    cmd = f'self.load_class("{module_path}", "{klass}")'
+                else:
+                    self.imports.add_import(module)
+
+        # XXX other kw:
+        # environment, dependencies, operation_host, timeout
+        return cmd, kw
 
     # XXX if default operation defined with empty operations, don't call operation2func, add decorator instead
     # XXX track python imports
     def operation2func(
         self, op: OperationDef, indent: str, default_ops: List[Tuple[str, str]]
     ) -> str:
+        # XXX op.invoke
+        # iDef.entry_state: add to decorator
         # note: defaults and base class inputs and implementations already merged in
-        configurator_decl = self.get_configurator_decl(
-            op.implementation
-        )  # artifact property reference or configurator class
+        # artifact property reference or configurator class
+        configurator_decl, kw = self.get_configurator_decl(op)
         name, toscaname = self._set_name(op.name, "operation")
         src = ""
         decorator = []
@@ -920,9 +985,10 @@ class Convert:
             return src
         src += f"{indent}return {configurator_decl}("
         # all on one line for now
-        if op.inputs:
+        inputs = kw["inputs"]
+        if inputs:
             src += "\n"
-            for name, value in op.inputs.items():
+            for name, value in inputs.items():
                 # use encode_identifier to handle input names that aren't valid python identifiers
                 src += f"{indent}{indent}{encode_identifier(name)} = {value2python_repr(value)},"
             src += f"{indent})\n"
@@ -1027,11 +1093,12 @@ class Convert:
         )
 
 
-def generate_builtins() -> str:
+def generate_builtins(import_resolver) -> str:
     return convert_service_template(
         ToscaTemplate(
             path=EntityType.TOSCA_DEF_FILE,
             yaml_dict_tpl=EntityType.TOSCA_DEF_LOAD_AS_IS,
+            import_resolver=import_resolver,
         ),
         7,
         f"tosca.",
@@ -1040,12 +1107,10 @@ def generate_builtins() -> str:
     )
 
 
-def generate_builtin_extensions() -> str:
+def generate_builtin_extensions(import_resolver) -> str:
     def_path = ToscaTemplate.exttools.get_defs_file("tosca_simple_unfurl_1_0_0")
     return convert_service_template(
-        ToscaTemplate(
-            path=def_path,
-        ),
+        ToscaTemplate(path=def_path, import_resolver=import_resolver),
         7,
         f"unfurl.",
         True,
@@ -1067,12 +1132,7 @@ def convert_service_template(
         imports._set_ext_imports()
     tpl = cast(Dict[str, Any], template.tpl)
     converter = Convert(
-        template,
-        True,
-        python_compatible,
-        builtin_prefix,
-        imports,
-        custom_defs,
+        template, True, python_compatible, builtin_prefix, imports, custom_defs, path
     )
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):
@@ -1119,6 +1179,8 @@ def convert_service_template(
                     src += class_src + "\n"
     prologue = f"# Generated by tosca.yaml2python from {os.path.relpath(template.path)} at {datetime.datetime.now()}\n"
     src = prologue + imports.prelude() + src
+    src += '\nif __name__ == "__main__":\n    tosca.dump_yaml(globals())'
+
     if format:
         try:
             src = black.format_file_contents(src, fast=True, mode=black.mode.Mode())

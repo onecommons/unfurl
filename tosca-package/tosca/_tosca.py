@@ -8,16 +8,20 @@ from enum import Enum, auto
 import functools
 import inspect
 import json
+from pathlib import Path
+import typing
+import os.path
 from typing import (
     Any,
+    Callable,
     ClassVar,
     Dict,
     ForwardRef,
     Iterator,
-    Literal,
     Mapping,
     NamedTuple,
     Sequence,
+    Set,
     Union,
     List,
     Optional,
@@ -28,7 +32,13 @@ from typing import (
     Tuple,
 )
 import types
-from typing_extensions import dataclass_transform, get_args, get_origin, Annotated
+from typing_extensions import (
+    dataclass_transform,
+    get_args,
+    get_origin,
+    Annotated,
+    Literal,
+)
 import sys
 
 from toscaparser import topology_template
@@ -46,7 +56,8 @@ class ToscaObject:
 
     @classmethod
     def tosca_type_name(cls) -> str:
-        return cls._tosca_name if cls._tosca_name else cls.__name__
+        _tosca_name = cls.__dict__.get("_tosca_name")
+        return _tosca_name if _tosca_name else cls.__name__
 
     def to_yaml(self) -> Optional[Dict]:
         return None
@@ -119,11 +130,11 @@ class Namespace(types.SimpleNamespace):
     location: str
 
 
+# XXX operation_host, environment, timeout, dependencies, invoke, preConditions
 def operation(name="", apply_to=()):
     def decorator_operation(func):
         func.operation_name = name or func.__name__
         func.apply_to = apply_to
-        # XXX func.to_yaml =
         return func
 
     return decorator_operation
@@ -171,11 +182,28 @@ TOSCA_SHORT_NAMES = {
 }
 
 
+def _to_union(types):
+    if len(types) == 3:
+        return Union[types[0], types[1], types[2]]
+    elif len(types) == 2:
+        return Union[types[0], types[1]]
+    else:
+        return ForwardRef(types[0])
+
+
 def get_optional_type(_type) -> Tuple[bool, Any]:
     # if not optional return false, type
     # else return true, type or type
+    if isinstance(_type, str):
+        union = [t.strip() for t in _type.split("|")]
+        try:
+            union.remove("None")
+            return True, _to_union(union)
+        except ValueError:
+            return False, _to_union(union)
     args = get_args(_type)
-    if get_origin(_type) == Union and type(None) in args:
+    origin = get_origin(_type)
+    if origin and origin.__name__ in ["Union", "UnionType"] and type(None) in args:
         _types = [arg for arg in args if arg is not type(None)]
         if not _types:
             return True, type(None)
@@ -278,6 +306,11 @@ class _Tosca_Field(dataclasses.Field):
         args = [self, default, default_factory, True, True, None, True, metadata or {}]
         if sys.version_info.minor > 9:
             args.append(True)  # kw_only
+        elif default is dataclasses.MISSING and default_factory is dataclasses.MISSING:
+            # we have to have all fields have a default value
+            # because the ToscaTypes base classes have init args with them
+            # XXX mark as this required and add a __post_init that raises error
+            args[1] = None  # set default
         dataclasses.Field.__init__(*args)
         self._tosca_field_type = field_type
         self._tosca_name = name
@@ -384,7 +417,7 @@ class _Tosca_Field(dataclasses.Field):
 
     def pytype_to_tosca_schema(self, _type) -> Tuple[dict, bool]:
         info = pytype_to_tosca_type(_type)
-        assert len(info.types) == 1
+        assert len(info.types) == 1, info
         _type = info.types[0]
         if info.collection is dict:
             tosca_type = "map"
@@ -611,7 +644,7 @@ class _Tosca_Names_Getter:
 
 
 class _Set_ConfigSpec_Method:
-    def __get__(self, obj, objtype) -> callable:
+    def __get__(self, obj, objtype) -> Callable:
         if obj:
             return obj._set_config_spec_
         else:
@@ -639,6 +672,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     _namespace: Optional[Dict[str, Any]] = None
     _globals: Optional[Dict[str, Any]] = None
+    _interface_requirements: Optional[List[str]] = None
 
     @classmethod
     def _resolve_class(cls, _type):
@@ -687,17 +721,67 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     def _interfaces_yaml(cls) -> Dict[str, dict]:
         # interfaces are inherited
         interfaces = {}
-        for name in cls.tosca_bases("interface_types"):
+        for c in cls.__mro__:
+            if not issubclass(c, ToscaType) or c._type_section != "interface_types":
+                continue
+            name = c.tosca_type_name()
             shortname = name.split(".")[-1]
-            interfaces[shortname] = dict(type=name)
+            i_def: Dict[str, Any] = dict(type=name)
+            if cls._interface_requirements:
+                i_def["requirements"] = cls._interface_requirements
+            operations = cls.get_interface_yaml(c)
+            if operations:
+                i_def["operations"] = operations
+                interfaces[shortname] = i_def
         return interfaces
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def get_interface_yaml(cls, interface) -> dict:
+        operations = {}
+        for methodname in interface.__dict__:
+            if methodname[0] == "_":
+                continue
+            if methodname in cls.__dict__:
+                operation = getattr(cls, methodname)
+            # XXX
+            # elif methodname in cls._apply_to:
+            #     operation = cls._apply_to[methodname]
+            else:
+                operation = None
+            if callable(operation):
+                operation_name = getattr(operation, "operation_name", methodname)
+                # operation is either a method or a descriptor
+                operations[operation_name] = cls._operation2yaml(operation)
+        return operations
+
+    @classmethod
+    def _operation2yaml(cls, operation):
+        result = operation(_ToscaTypeProxy(cls))
+        if result is None:
+            return result
+        if isinstance(result, _ArtifactProxy):
+            implementation = dict(primary=result.name_or_tpl)
+        else:
+            className = f"{result.__class__.__module__}.{result.__class__.__name__}"
+            implementation = dict(className=className)
+
+        # XXX add to implementation: operation_host, environment, timeout, dependencies, invoke, preConditions
+        op_def: Dict[str, Any] = {"implementation": implementation}
+        if result.inputs:
+            op_def["inputs"] = to_tosca_value(result.inputs)
+        description = getattr(operation, "__doc__", "")
+        if description and description.strip():
+            op_def["description"] = description.strip()
+        # XXX add to op_def: outputs, entry_state
+        return op_def
+
+    @classmethod
+    def _shared_cls_to_yaml(cls) -> dict:
         # XXX _type_metadata, version
 
         body: Dict[str, Any] = {}
-        bases: Union[list, str] = list(cls.tosca_bases())
+        tosca_name = cls.tosca_type_name()
+        bases: Union[list, str] = [b for b in cls.tosca_bases() if b != tosca_name]
         if bases:
             if len(bases) == 1:
                 bases = bases[0]
@@ -726,7 +810,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         # XXX interfaces, operations
         if not body:  # skip this
             return {}
-        tpl = {cls.tosca_type_name(): body}
+        tpl = {tosca_name: body}
         return tpl
 
 
@@ -746,6 +830,15 @@ class ToscaType(_ToscaType):
         # XXX directives, metadata, everything else
         return {self._name: dict(type=self.tosca_type_name())}
 
+    def load_class(self, module_path: str, class_name: str):
+        from unfurl.util import load_module
+
+        current_mod = sys.modules[self.__class__.__module__]
+        assert current_mod.__file__
+        path = os.path.join(os.path.dirname(current_mod.__file__), module_path)
+        loaded = load_module(path)
+        return getattr(loaded, class_name)
+
 
 class NodeType(ToscaType):
     _type_section: ClassVar[str] = "node_types"
@@ -755,9 +848,13 @@ class NodeType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls) -> dict:
-        yaml = super()._cls_to_yaml()
+        yaml = cls._shared_cls_to_yaml()
         # XXX add artifacts
         return yaml
+
+    def find_artifact(self, name_or_tpl) -> Optional["ArtifactType"]:
+        # XXX
+        return None
 
 
 class DataType(ToscaType):
@@ -767,7 +864,7 @@ class DataType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls) -> dict:
-        yaml = super()._cls_to_yaml()
+        yaml = cls._shared_cls_to_yaml()
         if cls._type:
             yaml[cls.tosca_type_name()]["type"] = cls._type
         if cls._constraints:
@@ -783,6 +880,10 @@ class DataType(ToscaType):
 class CapabilityType(ToscaType):
     _type_section: ClassVar[str] = "capability_types"
 
+    @classmethod
+    def _cls_to_yaml(cls) -> dict:
+        return cls._shared_cls_to_yaml()
+
 
 class RelationshipType(ToscaType):
     _type_section: ClassVar[str] = "relationship_types"
@@ -793,7 +894,7 @@ class RelationshipType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls) -> dict:
-        yaml = super()._cls_to_yaml()
+        yaml = cls._shared_cls_to_yaml()
         # XXX add interfaces
         # don't include inherited declarations
         _valid_target_types = cls.__dict__.get("_valid_target_types")
@@ -812,7 +913,7 @@ class ArtifactType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls) -> dict:
-        yaml = super()._cls_to_yaml()
+        yaml = cls._shared_cls_to_yaml()
         if cls._mime_type:
             yaml[cls.tosca_type_name()]["mime_type"] = cls._mime_type
         if cls._file_ext:
@@ -824,6 +925,10 @@ class ArtifactType(ToscaType):
     #     typedef = yaml[self.tosca_type_name()]
     #     return yaml
 
+    def execute(self, **kw):
+        self.inputs = kw
+        return self
+
 
 class InterfaceType(ToscaType):
     # "Note: Interface types are not derived from ToscaType"
@@ -834,6 +939,7 @@ class InterfaceType(ToscaType):
     @classmethod
     def _cls_to_yaml(cls) -> dict:
         body: Dict[str, Any] = {}
+        tosca_name = cls.tosca_type_name()
         for name, obj in cls.__dict__.items():
             if name[0] != "_" and callable(obj):
                 doc = obj.__doc__ and obj.__doc__.strip()
@@ -841,19 +947,24 @@ class InterfaceType(ToscaType):
                     body[obj.__name__] = dict(description=doc)
                 else:
                     body[obj.__name__] = None
-        yaml = super()._cls_to_yaml()
+        yaml = cls._shared_cls_to_yaml()
         if not yaml:
             if not body:
                 return yaml
-            yaml = {cls.tosca_type_name(): body}
+            yaml = {tosca_name: body}
         else:
-            yaml[cls.tosca_type_name()].update(body)
+            yaml[tosca_name].pop("interfaces", None)
+            yaml[tosca_name].update(body)
         return yaml
 
 
 class PolicyType(ToscaType):
     _type_section: ClassVar[str] = "policy_types"
     _template_section: ClassVar[str] = "policies"
+
+    @classmethod
+    def _cls_to_yaml(cls) -> dict:
+        return cls._shared_cls_to_yaml()
 
 
 class GroupType(ToscaType):
@@ -862,80 +973,137 @@ class GroupType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls) -> dict:
-        yaml = super()._cls_to_yaml()
-        return yaml
+        return cls._shared_cls_to_yaml()
 
 
-def module2yaml(namespace, sections=None, globals=None, yaml_cls=dict) -> dict:
-    if sections is None:
-        topology_sections: Dict[str, Any] = yaml_cls()
-        sections = yaml_cls(topology_template=topology_sections)
-    else:
-        topology_sections = sections["topology_template"]
+class _ArtifactProxy:
+    def __init__(self, name_or_tpl):
+        self.name_or_tpl = name_or_tpl
 
-    # XXX imports and repositories ??
-    if not isinstance(namespace, dict):
-        names = getattr(namespace, "__all__", None)
-        if names is None:
-            names = dir(namespace)
-        namespace = {name: getattr(namespace, name) for name in names}
-
-    if globals is None:
-        globals = namespace
-
-    for name, obj in namespace.items():
-        if hasattr(obj, "get_defs"):  # namespace
-            module2yaml(obj.get_defs(), sections, globals, yaml_cls)
-            continue
-        if isinstance(obj, _DataclassType):
-            # this is a class not an instance
-            section = obj._type_section  # type: ignore
-            to_yaml = obj._cls_to_yaml  # type: ignore
-            obj._globals = globals  # type: ignore
-            obj._namespace = namespace  # type: ignore
-        else:
-            section = getattr(obj, "_template_section", None)
-            to_yaml = getattr(obj, "to_yaml", None)
-        if section:
-            assert to_yaml
-            parent = sections
-            if section in topology_template.SECTIONS:
-                parent = topology_sections
-            parent.setdefault(section, {}).update(to_yaml())
-    return sections
-
-
-# exec()'s __import__ replaces configurators types with proxy class:
-
-
-# XXX
-class ConfiguratorProxy:
-    def __init__(self, **kw):
-        self.configurator_name = self.__class__.__name__
+    def execute(self, **kw):
         self.inputs = kw
-
-    def __getattribute__(self, __name: str) -> Any:
-        pass
+        return self
 
 
-def get_interface_yaml(cls_or_self, interface):
-    for methodname in interface:
-        if methodname in cls_or_self.__dict__:
-            operation = cls_or_self.__dict__[methodname]
-            # operation is either a method or a descriptor
-            # def operation(arg: type=default) -> ImplementationArtifact:
-            configurator = cls_or_self.__dict__.methodname()
-            configurator.to_yaml()  # could know artifact and inputs via __getattribute__
+class _ToscaTypeProxy:
+    """
+    Stand-in for ToscaTypes when generating yaml
+    """
+
+    def __init__(self, cls):
+        self.proxy_cls = cls
+
+    def __getattr__(self, name):
+        # XXX check attribute in proxy_cls.__annotations__
+        # including inherited
+        #     # attribute access as Refs (refs need to chain)
+        #     return _AttrRef(name)
+        # for now, assume its an artifact
+        return _ArtifactProxy(name)
+
+    def find_artifact(self, name_or_tpl):
+        return _ArtifactProxy(name_or_tpl)
 
 
-def operation2yaml(toscaobj, operation):
-    result = toscaobj.operator()
-    assert isinstance(result, ConfiguratorProxy)
-    inputs = to_tosca_value(result.inputs)
-    # XXX if configurator was constructed via artifact reference, use that artifact as the implementation
-    return {
-        operation.name: {"implementation": result.configurator_name, "inputs": inputs}
-    }
+class PythonToYaml:
+    def __init__(self, namespace, yaml_cls=dict):
+        self.globals = namespace
+        self.imports: Set[Tuple[str, Path]] = set()
+        self.repos: Dict[str, Path] = {}
+        self.yaml_cls = yaml_cls
+        self.sections: Dict[str, Any] = yaml_cls(topology_template=yaml_cls())
+
+    def find_yaml_import(self, module: str) -> Optional[Path]:
+        path = sys.modules[module].__file__
+        assert path
+        dirname, filename = os.path.split(path)
+        before, sep, remainder = filename.rpartition(".")
+        glob = before.replace("_", "?") + ".*"
+        for p in Path(dirname).glob(glob):
+            if p.suffix in [".yaml", ".yml"]:
+                return p
+        return None
+
+    def find_repo(self, module: str, path: Path):
+        parts = module.split(".")
+        root_module = parts[0]
+        root_path = sys.modules[root_module].__file__
+        assert root_path
+        repo_path = Path(root_path).parent
+        self.repos[root_module] = repo_path
+        return root_module, path.relative_to(repo_path)
+
+    def module2yaml(self) -> dict:
+        self._namespace2yaml(self.globals)
+        self.add_repositories_and_imports()
+        return self.sections
+
+    def add_repositories_and_imports(self) -> None:
+        imports = []
+        repositories = {}
+        for repo, p in self.imports:
+            _import = dict(file=str(p))
+            if repo:
+                _import["repository"] = repo
+                if repo != "unfurl":  # skip built-in repository
+                    repositories[repo] = dict(url=self.repos[repo].as_uri())
+            imports.append(_import)
+        if repositories:
+            self.sections.setdefault("repositories", {}).update(repositories)
+        if imports:
+            self.sections.setdefault("import", []).extend(imports)
+
+    def _namespace2yaml(self, namespace):
+        current_module = self.globals.get("__name__", "builtins")  # exec() adds to builtins
+        path = self.globals.get("__file__")
+        topology_sections = self.sections["topology_template"]
+
+        if not isinstance(namespace, dict):
+            names = getattr(namespace, "__all__", None)
+            if names is None:
+                names = dir(namespace)
+            namespace = {name: getattr(namespace, name) for name in names}
+
+        for name, obj in namespace.items():
+            if hasattr(obj, "get_defs"):  # class Namespace
+                self._namespace2yaml(obj.get_defs())
+                continue
+            if isinstance(obj, _DataclassType):
+                if obj.__module__ != current_module:
+                    if not obj.__module__.startswith("tosca."):
+                        p = self.find_yaml_import(obj.__module__)
+                        if p:
+                            try:
+                                self.imports.add(("", p.relative_to(path)))
+                            except ValueError:
+                                # not a subpath of the current module, add a repository
+                                self.imports.add(self.find_repo(obj.__module__, p))
+                        # else: # XXX
+                        #     no yaml file found, convert to yaml now
+                    continue
+                # this is a class not an instance
+                section = obj._type_section  # type: ignore
+                to_yaml = obj._cls_to_yaml  # type: ignore
+                obj._globals = self.globals  # type: ignore
+                obj._namespace = namespace  # type: ignore
+            else:
+                section = getattr(obj, "_template_section", None)
+                to_yaml = getattr(obj, "to_yaml", None)
+            if section:
+                assert to_yaml
+                parent = self.sections
+                if section in topology_template.SECTIONS:
+                    parent = topology_sections
+                parent.setdefault(section, {}).update(to_yaml())
+
+
+def dump_yaml(namespace, out=sys.stdout):
+    from unfurl.yamlloader import yaml
+
+    converter = PythonToYaml(namespace)
+    doc = converter.module2yaml()
+    yaml.dump(doc, out)
+    return doc
 
 
 def convert_to_tosca(
@@ -943,11 +1111,12 @@ def convert_to_tosca(
     namespace: Optional[Dict[str, Any]] = None,
     path: str = "",
     yaml_cls=dict,
-):
+) -> dict:
     if namespace is None:
         namespace = {}
     exec(python_src, namespace)
-    yaml_dict = module2yaml(namespace, yaml_cls=yaml_cls)
+    converter = PythonToYaml(namespace, yaml_cls)
+    yaml_dict = converter.module2yaml()
     # XXX
     # if path:
     #     with open(path, "w") as yo:

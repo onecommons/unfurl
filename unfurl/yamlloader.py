@@ -256,9 +256,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None
     ):
         self.manifest = manifest
-        self.readonly = bool(manifest.localEnv and manifest.localEnv.readonly)
+        self.readonly = bool(manifest and manifest.localEnv and manifest.localEnv.readonly)
         self.ignoreFileNotFound = ignoreFileNotFound
-        self.yamlloader = manifest.loader
+        self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
 
@@ -623,7 +623,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if path.endswith(".py"):
             from tosca import convert_to_tosca
             self.expand = False
-            namespace = {}
+            namespace: Dict[str, Any] = {}
             yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict_type(self.readonly))
             # XXX save module namespace:
             # self.manifest.modules[path] = namespace
