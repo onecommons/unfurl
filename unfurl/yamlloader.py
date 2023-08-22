@@ -47,6 +47,7 @@ from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
 from toscaparser.repositories import Repository
+from toscaparser.elements.interfaces import OperationDef
 
 from ansible.parsing.vault import VaultLib, VaultSecret
 from ansible.parsing.yaml.objects import AnsibleMapping
@@ -276,6 +277,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 return super().load_imports(importsLoader, importslist)
             except UnfurlPackageUpdateNeeded:
                 pass  # reload
+
+    def find_implementation(self, op: OperationDef) -> Optional[Dict[str, Any]]:
+        from .planrequests import _get_config_spec_args_from_implementation
+        from . import configurators  # need to import configurators to get short names
+
+        inputs = op.inputs if op.inputs is not None else {}
+        return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
         if not unique and name in self.manifest.repositories:
@@ -615,7 +623,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if path.endswith(".py"):
             from tosca import convert_to_tosca
             self.expand = False
-            return convert_to_tosca(contents, path, yaml_dict_type(self.readonly))
+            namespace = {}
+            yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict_type(self.readonly))
+            # XXX save module namespace:
+            # self.manifest.modules[path] = namespace
+            return yaml_src
         else:
             return load_yaml(yaml, contents, path, self.readonly)
 

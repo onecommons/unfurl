@@ -16,13 +16,14 @@ from typing import (
     Union,
     cast,
 )
+from typing_extensions import TypedDict
 import shlex
 import sys
 import os
 import os.path
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.nodetemplate import NodeTemplate
-from .tosca import EntitySpec
+from .tosca import ArtifactSpec, EntitySpec
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
@@ -46,30 +47,24 @@ import logging
 logger = getLogger("unfurl")
 
 
+class ConfigurationSpecKeywords(TypedDict, total=False):
+    className: Optional[str]
+    preConditions: Optional[dict]
+    primary: Optional["ArtifactSpec"]
+    inputs: Optional[Mapping[str, Any]]
+    base_dir: Optional[str]
+    dependencies: Optional[List["ArtifactSpec"]]
+    outputs: Optional[dict]
+    operation_host: Optional[str]
+    entry_state: Optional[str]
+    workflow: Optional[str]
+    interface: Optional[str]
+    environment: Optional[Dict[str, str]]
+    timeout: Optional[int]
+
+
 # we want ConfigurationSpec to be independent of our object model and easily serializable
 class ConfigurationSpec:
-    @classmethod
-    def getDefaults(cls):
-        return dict(
-            className=None,
-            majorVersion=0,
-            minorVersion="",
-            workflow=Defaults.workflow,
-            timeout=None,
-            operation_host=None,
-            environment=None,
-            inputs=None,
-            inputSchema=None,
-            preConditions=None,
-            postConditions=None,
-            primary=None,
-            dependencies=None,
-            outputs=None,
-            interface=None,
-            entry_state=None,
-            base_dir=None,
-        )
-
     def __init__(
         self,
         name,
@@ -110,7 +105,9 @@ class ConfigurationSpec:
         self.artifact = primary
         self.dependencies = dependencies
         self.interface = interface
-        self.entry_state = to_enum(NodeState, entry_state, NodeState.creating)
+        self.entry_state = cast(
+            NodeState, to_enum(NodeState, entry_state, NodeState.creating)
+        )
         self.base_dir = base_dir
 
     def find_invalidate_inputs(self, inputs):
@@ -461,9 +458,11 @@ class TaskRequest(PlanRequest):
                         not in operation_host.template.topology.topology_template.custom_defs
                     ):
                         # operation_host must be in an external ensemble that doesn't have the type def
-                        artifact_type_def = self.target.template.topology.topology_template.custom_defs[
-                            artifact_type
-                        ]
+                        artifact_type_def = (
+                            self.target.template.topology.topology_template.custom_defs[
+                                artifact_type
+                            ]
+                        )
                         template["custom_types"] = {artifact_type: artifact_type_def}
                 else:
                     template = name
@@ -686,6 +685,7 @@ def get_render_requests(
         else:
             assert not req, f"unexpected type of request: {req}"
 
+
 def set_fulfilled(
     upcoming: List[PlanRequest], completed: List[PlanRequest]
 ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
@@ -875,7 +875,9 @@ def _add_to_req_list(reqs, request):
         reqs.append(request)
 
 
-def _reevaluate_not_required(not_required: List[PlanRequest], render_requests) -> List[PlanRequest]:
+def _reevaluate_not_required(
+    not_required: List[PlanRequest], render_requests
+) -> List[PlanRequest]:
     # keep rendering if a not_required template was referenced and is now required
     new_not_required: List[PlanRequest] = []
     for request in not_required:
@@ -970,7 +972,9 @@ def filter_task_request(jobOptions, req):
     return req
 
 
-def _find_implementation(interface: str, operation: str, template: EntitySpec) -> Optional[OperationDef]:
+def _find_implementation(
+    interface: str, operation: str, template: EntitySpec
+) -> Optional[OperationDef]:
     default = None
     for iDef in template.get_interfaces():
         if iDef.interfacename == interface or iDef.type == interface:
@@ -994,7 +998,9 @@ def find_parent_template(source: NodeTemplate) -> Optional[NodeTemplate]:
     return None
 
 
-def find_parent_resource(root: TopologyInstance, source: EntitySpec) -> HasInstancesInstance:
+def find_parent_resource(
+    root: TopologyInstance, source: EntitySpec
+) -> HasInstancesInstance:
     source_nodetemplate = cast(NodeTemplate, source.toscaEntityTemplate)
     parentTemplate = find_parent_template(source_nodetemplate)
     source_root = root.get_root_instance(source_nodetemplate)
@@ -1012,7 +1018,9 @@ def find_parent_resource(root: TopologyInstance, source: EntitySpec) -> HasInsta
     )
 
 
-def create_instance_from_spec(_manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec):
+def create_instance_from_spec(
+    _manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec
+):
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:
@@ -1026,7 +1034,9 @@ def create_instance_from_spec(_manifest: "Manifest", target: EntityInstance, rna
     if isinstance(resourceSpec.get("template"), dict):
         # inline node template, add it to the spec
         tname = resourceSpec["template"].pop("name", rname)
-        nodeSpec = target.template.topology.add_node_template(tname, resourceSpec["template"])
+        nodeSpec = target.template.topology.add_node_template(
+            tname, resourceSpec["template"]
+        )
         resourceSpec["template"] = nodeSpec.name
 
     if resourceSpec.get("readyState") and "created" not in resourceSpec:
@@ -1078,7 +1088,7 @@ def create_task_request(
     operation: str,
     resource: "EntityInstance",
     reason: Optional[str] = None,
-    inputs: Optional[Mapping] = None,
+    inputs: Optional[Mapping[str, Any]] = None,
     startState=None,
     operation_host=None,
     skip_filter=False,
@@ -1104,8 +1114,9 @@ def create_task_request(
                 cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
                 inputs = cls(iDef.inputs, **inputs)
 
-    kw = None
+    kw: Optional[ConfigurationSpecKeywords] = None
     if iDef:
+        assert inputs is not None
         kw = _get_config_spec_args_from_implementation(
             iDef, inputs, resource.template, operation_host
         )
@@ -1145,10 +1156,15 @@ def create_task_request(
         return filter_task_request(jobOptions, req)
 
 
-def set_default_command(kw, implementation):
-    inputs = kw["inputs"]
+def set_default_command(
+    kw: ConfigurationSpecKeywords, implementation: str
+) -> ConfigurationSpecKeywords:
+    inputs = kw.get("inputs") or {}
     if not implementation:
-        implementation = inputs.get("cmd")
+        implementation = inputs.get("cmd", "")
+        if not implementation:
+            return kw
+
     # is it a shell script or a command line?
     shell = inputs.get("shell")
     if shell is None:
@@ -1181,21 +1197,27 @@ def set_default_command(kw, implementation):
     return kw
 
 
-def _set_config_spec_args(kw, template: EntitySpec, base_dir):
+def _set_config_spec_args(
+    kw: ConfigurationSpecKeywords, guessing: str, template: Optional[EntitySpec], base_dir
+) -> Optional[ConfigurationSpecKeywords]:
     # if no artifact or className, an error
-    artifact = kw["primary"]
+    artifact = kw.get("primary")
     className = kw.get("className")
-    if not className and not artifact:  # malformed implementation
-        logger.warning(
-            "no artifact or className set on operation for %s: %s", template.name, kw
-        )
+    if not className and not artifact and not guessing:  # malformed implementation
+        if template:
+            # if no template no need to warn, this is expected
+            logger.warning(
+                "no artifact or className set on operation for %s: %s",
+                template.name,
+                kw,
+            )
         return None
-    guessing = False
     if not className:
-        className = artifact.properties.get("className")
-        if not className:
-            className = artifact.file
-            guessing = className
+        if artifact:
+            className = artifact.properties.get("className")
+    if not className:
+        className = guessing
+    assert className
 
     # load the configurator class
     try:
@@ -1213,7 +1235,10 @@ def _set_config_spec_args(kw, template: EntitySpec, base_dir):
     # invoke configurator classmethod to give configurator a chance to customize configspec (e.g. add dependencies)
     if klass:
         kw["className"] = f"{klass.__module__}.{klass.__name__}"
-        return klass.set_config_spec_args(kw, template)
+        if template:
+            return klass.set_config_spec_args(kw, template)  # type: ignore
+        else:
+            return kw
     elif guessing:
         # otherwise assume it's a shell command line
         logger.debug("interpreting 'implementation' as a shell command: %s", guessing)
@@ -1224,16 +1249,18 @@ def _set_config_spec_args(kw, template: EntitySpec, base_dir):
         return None
 
 
-def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, template: EntitySpec, operation_host):
+def _get_config_spec_args_from_implementation(
+    iDef: OperationDef, inputs: Mapping[str, Any], template: Optional[EntitySpec], operation_host
+) -> Optional[ConfigurationSpecKeywords]:
+    # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
-    kw = dict(
-        inputs=inputs,
-        outputs=iDef.outputs,
-        operation_host=operation_host,
-        entry_state=iDef.entry_state,
-    )
-    configSpecArgs = ConfigurationSpec.getDefaults()
-    artifactTpl = None
+    kw: ConfigurationSpecKeywords = {
+        "inputs": inputs,
+        "outputs": iDef.outputs,
+        "operation_host": operation_host,
+        "entry_state": iDef.entry_state,
+    }
+    artifactTpl: Union[str, dict, None] = None
     dependencies = None
     predefined = False
     if isinstance(implementation, dict):
@@ -1246,9 +1273,9 @@ def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, templa
                 predefined = True
             elif name == "dependencies":
                 dependencies = value
-            elif name in configSpecArgs:
-                # sets operation_host, environment, timeout, className
-                kw[name] = value
+            elif name in ConfigurationSpecKeywords.__annotations__:
+                # sets operation_host, environment, timeout, className, etc.
+                kw[name] = value  # type: ignore
     else:
         # "either because it refers to a named artifact specified in the artifacts section of a type or template,
         # or because it represents the name of a script in the CSAR file that contains the definition."
@@ -1259,20 +1286,32 @@ def _get_config_spec_args_from_implementation(iDef: OperationDef, inputs, templa
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
     kw["base_dir"] = base_dir
+    artifact = None
+    guessing = ""
     if artifactTpl:
-        artifact = template.find_or_create_artifact(
-            artifactTpl, base_dir, predefined
-        )
-    else:
-        artifact = None
+        if template:
+            artifact = template.find_or_create_artifact(
+                artifactTpl, base_dir, predefined
+            )
+            if artifact:
+                guessing = artifact.file
+        else:
+            if isinstance(artifactTpl, str):
+                guessing = artifactTpl
+            else:
+                guessing = artifactTpl.get("file") or ""
     kw["primary"] = artifact
 
-    if dependencies:
+    if dependencies and template:
         kw["dependencies"] = [
-            template.find_or_create_artifact(artifactTpl, base_dir, True)
-            for artifactTpl in dependencies
+            dep
+            for dep in [
+                template.find_or_create_artifact(artifactTpl, base_dir, True)
+                for artifactTpl in dependencies
+            ]
+            if dep
         ]
     else:
         kw["dependencies"] = []
 
-    return _set_config_spec_args(kw, template, base_dir)
+    return _set_config_spec_args(kw, guessing, template, base_dir)

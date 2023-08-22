@@ -6,9 +6,9 @@ from ..configurator import Configurator, TaskView
 from ..result import Results, ResultsMap
 from ..util import register_short_names
 from ..support import Status
-from ..planrequests import set_default_command
+from ..planrequests import set_default_command, ConfigurationSpecKeywords
 import importlib
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, cast
 from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
@@ -24,7 +24,7 @@ register_short_names(
 class CmdConfigurator(Configurator):
     @classmethod
     def set_config_spec_args(klass, kw: dict, target):
-        return set_default_command(kw, "")
+        return set_default_command(cast(ConfigurationSpecKeywords, kw), "")
 
 
 class PythonPackageCheckConfigurator(Configurator):
