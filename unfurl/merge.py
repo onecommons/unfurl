@@ -567,9 +567,9 @@ def diff_dicts(old, new, cls=dict, skipkeys=()):
             if oldval != newval:
                 if isinstance(oldval, Mapping):
                     if isinstance(newval, Mapping):
-                        diff = diff_dicts(oldval, newval, cls, skipkeys)
-                        if not skipkeys or diff:
-                            diff[key] = diff
+                        _diff = diff_dicts(oldval, newval, cls, skipkeys)
+                        if not skipkeys or _diff:
+                            diff[key] = _diff
                     elif newval is None:
                         # dicts merge with None so add a nullout directive to preserve the None
                         diff[key] = cls((("+%", "nullout"),))
