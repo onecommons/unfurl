@@ -133,7 +133,7 @@ class ConfigurationSpec:
             raise UnfurlError(f"Could not load configurator {self.className}")
         else:
             assert callable(klass)
-            return klass(self)
+            return klass()
 
     def should_run(self):
         return Defaults.shouldRun

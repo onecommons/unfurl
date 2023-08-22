@@ -160,8 +160,8 @@ class Configurator:
     def set_config_spec_args(cls, kw: dict, template: EntitySpec) -> dict:
         return kw
 
-    def __init__(self, configurationSpec: ConfigurationSpec) -> None:
-        self.configSpec = configurationSpec
+    def __init__(self, **kw) -> None:
+        self.inputs = kw
 
     def _run(self, task: "TaskView") -> Generator:
         # internal function to convert user defined run() to a generator
@@ -247,7 +247,7 @@ class Configurator:
 
     def should_run(self, task: "TaskView") -> Union[bool, Priority]:
         """Does this configuration need to be run?"""
-        return self.configSpec.should_run()
+        return task.configSpec.should_run()
 
     def save_digest(self, task: "TaskView") -> dict:
         """

@@ -942,7 +942,7 @@ class RunNowPlan(Plan):
                 operation = find_standard_interface(operation) + "." + operation
         for resource in resources:
             if configSpec:
-                req = TaskRequest(configSpec, resource, "run")
+                req: Optional[TaskRequest] = TaskRequest(configSpec, resource, "run")
                 yield filter_task_request(self.jobOptions, req)
             else:
                 assert operation

@@ -32,7 +32,7 @@ class TestShellConfigurator:
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
 
     def test_timeout(self):
-        configurator = ShellConfigurator(None)
+        configurator = ShellConfigurator()
 
         err = configurator.run_process(cmd="sleep 5", timeout=1)
 

@@ -79,8 +79,8 @@ def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
 class AnsibleConfigurator(TemplateConfigurator):
     """The current resource is the inventory."""
 
-    def __init__(self, configSpec):
-        super().__init__(configSpec)
+    def __init__(self, **kw):
+        super().__init__(**kw)
         self._cleanupRoutines = []
 
     def can_dry_run(self, task):
