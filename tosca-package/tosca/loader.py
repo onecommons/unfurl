@@ -16,8 +16,8 @@ class RepositoryFinder(PathFinder):
     @classmethod
     def find_spec(cls, fullname: str, path=None, target=None):
         # path is a list with a path to the parent package or None if no parent
-        split_name = fullname.split(".")
-        tail = split_name[-1]
+        names = fullname.split(".")
+        tail = names[-1]
         if path:
             dir_path = path[0]
         else:
@@ -25,6 +25,7 @@ class RepositoryFinder(PathFinder):
         if tail == "tosca_repositories":
             return ModuleSpec(fullname, None, is_package=True)
         elif tail == "service_template":
+            # "tosca_repositories" or "unfurl" in names 
             filepath = os.path.join(dir_path, "service_template.yaml")
             # XXX look for service-template.yaml or ensemble-template.yaml files
             loader = ToscaYamlLoader(fullname, filepath)
@@ -44,17 +45,14 @@ class ToscaYamlLoader(Loader):
 
     def exec_module(self, module):
         python_filepath = Path(self.filepath).stem
-
+        # XXX!
         # parse to TOSCA template and convert to python
-        # resolver.load_yaml(self.filepath, "", ctx)
-        # XXX
-        tosca_tpl = load_yaml(self.filepath)
-        src = convert_service_template(tosca_tpl, builtin_tosca_types)
-
-        with open(python_filepath, "w") as f:
-            f.write(src)
-        globals = vars(module)  # module.__dict__x
-        exec(src, globals)
+        # tosca_tpl = resolver.load_yaml(self.filepath, "", ctx)
+        # src = convert_service_template(tosca_tpl)
+        # with open(python_filepath, "w") as f:
+        #     f.write(src)
+        # globals = vars(module)  # module.__dict__x
+        # exec(src, globals)
 
 
 loader_details = ToscaYamlLoader, [".yaml", ".yml"]
