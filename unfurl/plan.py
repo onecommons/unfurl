@@ -430,8 +430,8 @@ class Plan:
                 skip = "protected instance"
             elif "virtual" in resource.template.directives:
                 skip = 'instance with "virtual" directive'
-            elif resource.status in [Status.absent, Status.pending]:
-                skip = "instance doesn't exists"
+            elif resource.local_status in [Status.absent, Status.pending]:
+                skip = "instance doesn't exist"
 
             if skip:
                 logger.verbose("skip instance %s for removal: %s", resource.name, skip)
