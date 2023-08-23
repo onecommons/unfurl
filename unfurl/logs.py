@@ -64,6 +64,7 @@ LOGGING = {
         },
     },
     "loggers": {
+        "blib2to3.pgen2.driver": {"level": logging.INFO, "handlers": ["console"]},
         "git": {"level": logging.INFO, "handlers": ["console"]},
         HIDDEN_MSG_LOGGER: {
             "handlers": ["HiddenOutputLogHandler"],

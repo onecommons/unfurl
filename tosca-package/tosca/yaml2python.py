@@ -135,9 +135,9 @@ def add_description(defs, indent):
         if "\n" in description:
             src = f"{indent}{quote}\n"
             src += textwrap.indent(description.rstrip(), indent)
-            src += f"\n{indent}{quote}\n"
+            src += f"\n{indent}{quote}\n\n"
         else:
-            src = f"{indent}{quote}{description}{quote}\n"
+            src = f"{indent}{quote}{description}{quote}\n\n"
     else:
         src = ""
     return src
@@ -350,7 +350,7 @@ class Convert:
         for name in node_types:
             if self._builtin_prefix and not name.startswith(self._builtin_prefix):
                 continue
-            logging.info("converting %s", name)
+            logging.debug("converting type %s to python", name)
             try:
                 toscatype = _make_typedef(name, self.custom_defs, True)
                 if toscatype:
@@ -361,7 +361,7 @@ class Convert:
                 else:
                     logging.info("couldn't create type %s", name)
             except Exception:
-                logging.error("error converting %s", name, exc_info=True)
+                logging.error("error converting type %s to python", name, exc_info=True)
         return src
 
     def _builtin_name(self, fullname: str, prefix: str, minimize=False) -> str:
@@ -904,7 +904,7 @@ class Convert:
         if fieldparams or explicit:
             if default:
                 fieldparams.insert(0, "default" + default)
-            fielddecl = f"= Requirement({', '.join(fieldparams)})\n"
+            fielddecl = f"= Requirement({', '.join(fieldparams)})"
         else:
             fielddecl = default
         src = f"{indent}{name}: {typedecl} {fielddecl}\n"
@@ -1093,7 +1093,7 @@ class Convert:
         )
 
 
-def generate_builtins(import_resolver) -> str:
+def generate_builtins(import_resolver, format=True) -> str:
     return convert_service_template(
         ToscaTemplate(
             path=EntityType.TOSCA_DEF_FILE,
@@ -1102,7 +1102,7 @@ def generate_builtins(import_resolver) -> str:
         ),
         7,
         f"tosca.",
-        True,
+        format,
         EntityType.TOSCA_DEF,
     )
 
