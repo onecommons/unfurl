@@ -308,7 +308,8 @@ class _Tosca_Field(dataclasses.Field):
             args.append(True)  # kw_only
         elif default is dataclasses.MISSING and default_factory is dataclasses.MISSING:
             # we have to have all fields have a default value
-            # because the ToscaTypes base classes have init args with them
+            # because the ToscaType base classes have init fields with default values
+            # and python < 3.10 dataclasses will raise an error
             # XXX mark as this required and add a __post_init that raises error
             args[1] = None  # set default
         dataclasses.Field.__init__(*args)
@@ -721,38 +722,50 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     def _interfaces_yaml(cls) -> Dict[str, dict]:
         # interfaces are inherited
         interfaces = {}
+        interface_ops = {}
+        direct_bases = []
         for c in cls.__mro__:
             if not issubclass(c, ToscaType) or c._type_section != "interface_types":
                 continue
             name = c.tosca_type_name()
             shortname = name.split(".")[-1]
-            i_def: Dict[str, Any] = dict(type=name)
+            i_def: Dict[str, Any] = {}
+            if shortname not in ["Standard", "Configure", "Install"] or cls.tosca_type_name().startswith("tosca."):
+                # built-in interfaces don't need their type declared
+                i_def["type"] = name
             if cls._interface_requirements:
                 i_def["requirements"] = cls._interface_requirements
-            operations = cls.get_interface_yaml(c)
-            if operations:
-                i_def["operations"] = operations
-                interfaces[shortname] = i_def
-        return interfaces
+            interfaces[shortname] = i_def
+            if c in cls.__bases__:
+                direct_bases.append(shortname)
+            for methodname in c.__dict__:
+                if methodname[0] == "_":
+                    continue
+                interface_ops[methodname] = i_def
+                interface_ops[shortname + "." + methodname] = i_def
+        cls._find_operations(interface_ops, interfaces)
+        # filter out interfaces with no operations declared unless inheriting the interface directly
+        return {k: v for k, v in interfaces.items() if k == "defaults" or k in direct_bases or v.get("operations")}
 
     @classmethod
-    def get_interface_yaml(cls, interface) -> dict:
-        operations = {}
-        for methodname in interface.__dict__:
+    def _find_operations(cls, interface_ops, interfaces) -> None:
+        for methodname, operation in cls.__dict__.items():
             if methodname[0] == "_":
                 continue
-            if methodname in cls.__dict__:
-                operation = getattr(cls, methodname)
-            # XXX
-            # elif methodname in cls._apply_to:
-            #     operation = cls._apply_to[methodname]
-            else:
-                operation = None
             if callable(operation):
-                operation_name = getattr(operation, "operation_name", methodname)
-                # operation is either a method or a descriptor
-                operations[operation_name] = cls._operation2yaml(operation)
-        return operations
+                if hasattr(operation, "apply_to"):
+                    apply_to = operation.apply_to
+                    for name in apply_to:
+                        interface = interface_ops.get(name)
+                        if interface is not None:
+                            # set to null to so they use the default operation
+                            interface.setdefault("operations", {})[name.split(".")[-1]] = None
+                    interfaces["defaults"] = cls._operation2yaml(operation)
+                else:
+                    name = getattr(operation, "operation_name", methodname)
+                    interface = interface_ops.get(name)
+                    if interface is not None:
+                        interface.setdefault("operations", {})[name] = cls._operation2yaml(operation)
 
     @classmethod
     def _operation2yaml(cls, operation):
@@ -1102,7 +1115,8 @@ def dump_yaml(namespace, out=sys.stdout):
 
     converter = PythonToYaml(namespace)
     doc = converter.module2yaml()
-    yaml.dump(doc, out)
+    if out:
+        yaml.dump(doc, out)
     return doc
 
 

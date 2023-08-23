@@ -90,6 +90,24 @@ class interfaces(Namespace):
             Operation to notify source some property or attribute of the target changed
             """
 
+    class Install(InterfaceType):
+        _tosca_name = "unfurl.interfaces.Install"
+
+        def check(self):
+            """Checks and sets the status and attributes of the instance"""
+
+        def discover(self):
+            """Discovers current state of the current instance and (possibly) related instances, updates the spec as needed."""
+
+        def revert(self):
+            """Restore the instance to the state it was original found in."""
+
+        def connect(self):
+            """Connect to a pre-existing resource."""
+
+        def restart(self):
+            """Restart the resource."""
+
 
 class datatypes(Namespace):
     class Root(DataType):
@@ -393,7 +411,7 @@ class relationships(Namespace):
 
 
 class nodes(Namespace):
-    class Root(NodeType, interfaces.NodeLifecycleStandard):
+    class Root(NodeType, interfaces.NodeLifecycleStandard, interfaces.Install):
         """
         The TOSCA root node all other TOSCA base node types derive from.
         """

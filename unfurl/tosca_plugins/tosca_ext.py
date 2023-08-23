@@ -33,23 +33,8 @@ import unfurl.configurators.gcp
 
 
 class interfaces(Namespace):
-    class Install(tosca.interfaces.Root):
-        _tosca_name = "unfurl.interfaces.Install"
-
-        def check(self):
-            """Checks and sets the status and attributes of the instance"""
-
-        def discover(self):
-            """Discovers current state of the current instance and (possibly) related instances, updates the spec as needed."""
-
-        def revert(self):
-            """Restore the instance to the state it was original found in."""
-
-        def connect(self):
-            """Connect to a pre-existing resource."""
-
-        def restart(self):
-            """Restart the resource."""
+    # this is already defined because tosca.nodes.Root needs to inherit from it
+    Install = tosca.interfaces.Install
 
 
 class datatypes(Namespace):
