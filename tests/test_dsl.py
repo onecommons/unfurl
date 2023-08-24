@@ -1,9 +1,31 @@
-import sys
 from unfurl.merge import diff_dicts
-from tosca import yaml2python, convert_to_tosca, dump_yaml
+from tosca import yaml2python
+from tosca.python2yaml import convert_to_tosca, dump_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
+
+
+def _to_python(yaml_str: str):
+    tosca_yaml = load_yaml(yaml, yaml_str)
+    tosca_yaml["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
+    if "topology_template" not in tosca_yaml:
+        tosca_yaml["topology_template"] = dict(
+            node_templates={}, relationship_templates={}
+        )
+    import_resolver = ImportResolver(None)  # type: ignore
+    template = ToscaTemplate(
+        path=__file__, yaml_dict_tpl=tosca_yaml, import_resolver=import_resolver
+    )
+    src = yaml2python.convert_service_template(template)
+    return src, tosca_yaml
+
+
+def _to_yaml(python_src: str) -> dict:
+    namespace = {}
+    tosca_tpl = convert_to_tosca(python_src, namespace)
+    # yaml.dump(tosca_tpl, sys.stdout)
+    return tosca_tpl
 
 
 def test_builtin_name():
@@ -89,35 +111,71 @@ class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
         return unfurl.configurators.terraform.TerraformConfigurator(
             main=Ref({"get_property": ["SELF", "main"]}),
         )
+foo = 1
 """
-
-
-def _to_python(yaml_str: str):
-    tosca_yaml = load_yaml(yaml, yaml_str)
-    tosca_yaml["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
-    if "topology_template" not in tosca_yaml:
-        tosca_yaml["topology_template"] = dict(
-            node_templates={}, relationship_templates={}
-        )
-    import_resolver = ImportResolver(None)  # type: ignore
-    template = ToscaTemplate(
-        path=__file__, yaml_dict_tpl=tosca_yaml, import_resolver=import_resolver
-    )
-    src = yaml2python.convert_service_template(template)
-    return src, tosca_yaml
-
-
-def _to_yaml(python_src: str) -> dict:
-    namespace = {}
-    tosca_tpl = convert_to_tosca(python_src, namespace)
-    # yaml.dump(tosca_tpl, sys.stdout)
-    return tosca_tpl
 
 def test_default_operations():
     src, src_tpl = _to_python(default_operations_yaml)
     tosca_tpl = _to_yaml(src)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
+    tosca_tpl2 = _to_yaml(default_operations_python)
+    assert src_tpl["node_types"] == tosca_tpl2["node_types"]
+
+
+# from 9.3.4.2
+example_wordpress_yaml = """
+node_types:
+  WordPress:
+    derived_from: tosca.nodes.WebApplication
+    description: Description of the Wordpress type
+    properties:
+        admin_user:
+          type: string
+        admin_password:
+          type: string
+        db_host:
+          type: string
+          description: Description of the db_host property
+    requirements:
+      - database_endpoint:
+          description: Description of the database_endpoint requirement
+          capability: tosca.capabilities.Endpoint.Database
+          node: tosca.nodes.Database
+          relationship: tosca.relationships.ConnectsTo
+"""
+
+example_wordpress_python = '''
+import tosca
+class WordPress(tosca.nodes.WebApplication):
+    """
+    Description of the Wordpress type
+    """
+    admin_user: str
+    admin_password: str
+    db_host: str
+    "Description of the db_host property"
+
+    database_endpoint: "tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"
+    "Description of the database_endpoint requirement"
+'''
+
+def test_example_wordpress():
+    src, src_tpl = _to_python(example_wordpress_yaml)
+    tosca_tpl = _to_yaml(src)
+    assert src_tpl["node_types"] == tosca_tpl["node_types"]
+
+    tosca_tpl2 = _to_yaml(example_wordpress_python)
+    assert src_tpl["node_types"] == tosca_tpl2["node_types"]
+
+# class Example(tosca.nodes.Root):
+
+#   shellScript = Artifact("s.sh")
+  
+#   def create(self):
+#       return self.shellScript.execute(input1=self.prop1)
+
+# my_template = Example(prop1="foo", db=Database())
 
 if __name__ == "__main__":
     dump = True

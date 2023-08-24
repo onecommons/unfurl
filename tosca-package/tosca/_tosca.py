@@ -224,7 +224,7 @@ class TypeInfo(NamedTuple):
 def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
     optional, _type = get_optional_type(_type)
     origin = get_origin(_type)
-    if origin is Annotated:  # XXX does field.type support annotated < 3.9?
+    if origin is Annotated:
         metadata = _type.__metadata__[0]
         _type = get_args(_type)[0]
     else:
@@ -316,7 +316,7 @@ class _Tosca_Field(dataclasses.Field):
         self._tosca_field_type = field_type
         self._tosca_name = name
         # note self.name and self.type are set later (in dataclasses._get_field)
-        self.description = None  # set when parsing AST
+        self.description: Optional[str] = None  # set in _shared_cls_to_yaml
         self.title = title
         self.status = status
         self.declare_attribute = declare_attribute
@@ -674,6 +674,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     _namespace: Optional[Dict[str, Any]] = None
     _globals: Optional[Dict[str, Any]] = None
     _interface_requirements: Optional[List[str]] = None
+    _docstrings: Optional[Dict[str, str]] = None
 
     @classmethod
     def _resolve_class(cls, _type):
@@ -806,6 +807,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
         for field in cls.tosca_fields:
             assert field.name, field
+            if cls._docstrings:
+                field.description = cls._docstrings.get(field.name)
             item = field.to_yaml()
             if field.section == "requirements":
                 body.setdefault("requirements", []).append(item)
@@ -1016,123 +1019,3 @@ class _ToscaTypeProxy:
 
     def find_artifact(self, name_or_tpl):
         return _ArtifactProxy(name_or_tpl)
-
-
-class PythonToYaml:
-    def __init__(self, namespace, yaml_cls=dict):
-        self.globals = namespace
-        self.imports: Set[Tuple[str, Path]] = set()
-        self.repos: Dict[str, Path] = {}
-        self.yaml_cls = yaml_cls
-        self.sections: Dict[str, Any] = yaml_cls(topology_template=yaml_cls())
-
-    def find_yaml_import(self, module: str) -> Optional[Path]:
-        path = sys.modules[module].__file__
-        assert path
-        dirname, filename = os.path.split(path)
-        before, sep, remainder = filename.rpartition(".")
-        glob = before.replace("_", "?") + ".*"
-        for p in Path(dirname).glob(glob):
-            if p.suffix in [".yaml", ".yml"]:
-                return p
-        return None
-
-    def find_repo(self, module: str, path: Path):
-        parts = module.split(".")
-        root_module = parts[0]
-        root_path = sys.modules[root_module].__file__
-        assert root_path
-        repo_path = Path(root_path).parent
-        self.repos[root_module] = repo_path
-        return root_module, path.relative_to(repo_path)
-
-    def module2yaml(self) -> dict:
-        self._namespace2yaml(self.globals)
-        self.add_repositories_and_imports()
-        return self.sections
-
-    def add_repositories_and_imports(self) -> None:
-        imports = []
-        repositories = {}
-        for repo, p in self.imports:
-            _import = dict(file=str(p))
-            if repo:
-                _import["repository"] = repo
-                if repo != "unfurl":  # skip built-in repository
-                    repositories[repo] = dict(url=self.repos[repo].as_uri())
-            imports.append(_import)
-        if repositories:
-            self.sections.setdefault("repositories", {}).update(repositories)
-        if imports:
-            self.sections.setdefault("import", []).extend(imports)
-
-    def _namespace2yaml(self, namespace):
-        current_module = self.globals.get("__name__", "builtins")  # exec() adds to builtins
-        path = self.globals.get("__file__")
-        topology_sections = self.sections["topology_template"]
-
-        if not isinstance(namespace, dict):
-            names = getattr(namespace, "__all__", None)
-            if names is None:
-                names = dir(namespace)
-            namespace = {name: getattr(namespace, name) for name in names}
-
-        for name, obj in namespace.items():
-            if hasattr(obj, "get_defs"):  # class Namespace
-                self._namespace2yaml(obj.get_defs())
-                continue
-            if isinstance(obj, _DataclassType):
-                if obj.__module__ != current_module:
-                    if not obj.__module__.startswith("tosca."):
-                        p = self.find_yaml_import(obj.__module__)
-                        if p:
-                            try:
-                                self.imports.add(("", p.relative_to(path)))
-                            except ValueError:
-                                # not a subpath of the current module, add a repository
-                                self.imports.add(self.find_repo(obj.__module__, p))
-                        # else: # XXX
-                        #     no yaml file found, convert to yaml now
-                    continue
-                # this is a class not an instance
-                section = obj._type_section  # type: ignore
-                to_yaml = obj._cls_to_yaml  # type: ignore
-                obj._globals = self.globals  # type: ignore
-                obj._namespace = namespace  # type: ignore
-            else:
-                section = getattr(obj, "_template_section", None)
-                to_yaml = getattr(obj, "to_yaml", None)
-            if section:
-                assert to_yaml
-                parent = self.sections
-                if section in topology_template.SECTIONS:
-                    parent = topology_sections
-                parent.setdefault(section, {}).update(to_yaml())
-
-
-def dump_yaml(namespace, out=sys.stdout):
-    from unfurl.yamlloader import yaml
-
-    converter = PythonToYaml(namespace)
-    doc = converter.module2yaml()
-    if out:
-        yaml.dump(doc, out)
-    return doc
-
-
-def convert_to_tosca(
-    python_src: str,
-    namespace: Optional[Dict[str, Any]] = None,
-    path: str = "",
-    yaml_cls=dict,
-) -> dict:
-    if namespace is None:
-        namespace = {}
-    exec(python_src, namespace)
-    converter = PythonToYaml(namespace, yaml_cls)
-    yaml_dict = converter.module2yaml()
-    # XXX
-    # if path:
-    #     with open(path, "w") as yo:
-    #         yaml.dump(yaml_dict, yo)
-    return yaml_dict

@@ -36,6 +36,8 @@ class RepositoryFinder(PathFinder):
 
 
 class ToscaYamlLoader(Loader):
+    """Loads a Yaml service template and converts it to Python
+    """
     def __init__(self, full_name, filepath):
         self.full_name = full_name
         self.filepath = filepath

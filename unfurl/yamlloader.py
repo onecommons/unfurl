@@ -621,7 +621,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _convert_to_yaml(self, contents, path):
         if path.endswith(".py"):
-            from tosca import convert_to_tosca
+            from tosca.python2yaml import convert_to_tosca
             self.expand = False
             namespace: Dict[str, Any] = {}
             yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict_type(self.readonly))
