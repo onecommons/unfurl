@@ -19,7 +19,11 @@ class RepositoryFinder(PathFinder):
         names = fullname.split(".")
         tail = names[-1]
         if path:
-            dir_path = path[0]
+            try:
+                dir_path = path[0]
+            except TypeError:
+                # _NamespacePath missing __getitem__ on older Pythons
+                dir_path = path._path[0]  # type: ignore
         else:
             dir_path = os.getcwd()
         if tail == "tosca_repositories":
