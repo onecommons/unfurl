@@ -140,8 +140,11 @@ def dump_yaml(namespace, out=sys.stdout):
 
 
 def doc_str(node):
-    if isinstance(node, Expr) and isinstance(node.value, (Constant, Str)) and isinstance(node.value.value, str):
-        return node.value.value
+    if isinstance(node, Expr):
+        if isinstance(node.value, Constant) and isinstance(node.value.value, str):
+            return node.value.value
+        elif isinstance(node.value, Str):
+            return str(node.value.s)
     return None
 
 def get_descriptions(body):

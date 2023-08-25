@@ -1,5 +1,10 @@
 from unfurl.merge import diff_dicts
-from tosca import yaml2python
+import sys
+try:
+    from tosca import yaml2python
+except ImportError:
+    print(sys.path)
+    raise
 from tosca.python2yaml import convert_to_tosca, dump_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
@@ -101,10 +106,11 @@ default_operations_python = """
 import unfurl
 import unfurl.configurators.terraform
 from tosca import operation, Property, Ref
+from typing import Union
 
 class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
     _tosca_name = "unfurl.nodes.Installer.Terraform"
-    main: str | None = Property(metadata={"user_settable": False}, default=None)
+    main: Union[str , None] = Property(metadata={"user_settable": False}, default=None)
 
     @operation(apply_to=["Install.check", "Standard.delete"])
     def default(self):

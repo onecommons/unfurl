@@ -191,6 +191,11 @@ def _to_union(types):
         return ForwardRef(types[0])
 
 
+def _get_type_name(_type):
+    # work-around _SpecialType limitations in older Python versions
+    return getattr(_type, "__name__", getattr(_type, "_name", ""))
+
+
 def get_optional_type(_type) -> Tuple[bool, Any]:
     # if not optional return false, type
     # else return true, type or type
@@ -203,7 +208,11 @@ def get_optional_type(_type) -> Tuple[bool, Any]:
             return False, _to_union(union)
     args = get_args(_type)
     origin = get_origin(_type)
-    if origin and origin.__name__ in ["Union", "UnionType"] and type(None) in args:
+    if (
+        origin
+        and _get_type_name(origin) in ["Union", "UnionType"]
+        and type(None) in args
+    ):
         _types = [arg for arg in args if arg is not type(None)]
         if not _types:
             return True, type(None)
@@ -244,7 +253,7 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
             _type = Any
         origin = get_origin(_type)
 
-    if origin == Union:
+    if _get_type_name(origin) in ["Union", "UnionType"]:
         types = get_args(_type)
     else:
         types = (_type,)
@@ -286,6 +295,13 @@ class ToscaFieldType(Enum):
     requirement = "requirements"
 
 
+class _REQUIRED_TYPE:
+    pass
+
+
+REQUIRED = _REQUIRED_TYPE()
+
+
 class _Tosca_Field(dataclasses.Field):
     title = None
     node_filter: Optional[Dict[str, Any]] = None
@@ -304,14 +320,18 @@ class _Tosca_Field(dataclasses.Field):
         owner: Optional["_ToscaType"] = None,
     ):
         args = [self, default, default_factory, True, True, None, True, metadata or {}]
+        _has_default = (
+            default is not dataclasses.MISSING
+            or default_factory is not dataclasses.MISSING
+        )
         if sys.version_info.minor > 9:
             args.append(True)  # kw_only
-        elif default is dataclasses.MISSING and default_factory is dataclasses.MISSING:
+        elif not _has_default:
             # we have to have all fields have a default value
             # because the ToscaType base classes have init fields with default values
             # and python < 3.10 dataclasses will raise an error
-            # XXX mark as this required and add a __post_init that raises error
-            args[1] = None  # set default
+            # XXX add  __post_init that raises error if value is REQUIRED (i.e. keyword argument was missing)
+            args[1] = REQUIRED  # set default
         dataclasses.Field.__init__(*args)
         self._tosca_field_type = field_type
         self._tosca_name = name
@@ -426,7 +446,7 @@ class _Tosca_Field(dataclasses.Field):
             tosca_type = "list"
         else:
             _type = self._resolve_class(_type)
-            tosca_type = PYTHON_TO_TOSCA_TYPES.get(_type.__name__, "")
+            tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
             if not tosca_type:  # it must be a datatype
                 tosca_type = _type.tosca_type_name()
         schema: Dict[str, Any] = dict(type=tosca_type)
@@ -439,10 +459,15 @@ class _Tosca_Field(dataclasses.Field):
     def _to_attribute_yaml(self) -> dict:
         # self.type is from __annotations__
         prop_def, optional = self.pytype_to_tosca_schema(self.type)
-        if self.default is not dataclasses.MISSING and self.default is not None:
+        if self.default_factory and self.default_factory is not dataclasses.MISSING:
+            prop_def["default"] = to_tosca_value(self.default_factory())
+        elif (
+            self.default is not dataclasses.MISSING
+            and self.default is not REQUIRED
+            and self.default is not None
+        ):
             # only set the default to null if required (not optional)
             prop_def["default"] = to_tosca_value(self.default)
-        # XXX self.default_factory, ref() ?
         if self.title:
             prop_def["title"] = self.title
         if self.status:
@@ -454,12 +479,12 @@ class _Tosca_Field(dataclasses.Field):
         prop_def, optional = self.pytype_to_tosca_schema(self.type)
         if optional:  # omit if required is True (the default)
             prop_def["required"] = False
-        if self.default is not dataclasses.MISSING and not (
-            self.default is None and optional
-        ):
-            # only set the default to null if required (not optional)
-            prop_def["default"] = to_tosca_value(self.default)
-        # XXX self.default_factory, ref() ?
+        if self.default_factory and self.default_factory is not dataclasses.MISSING:
+            prop_def["default"] = to_tosca_value(self.default_factory())
+        elif self.default is not dataclasses.MISSING and self.default is not REQUIRED:
+            if self.default is not None or not optional:
+                # only set the default to null when if property is required
+                prop_def["default"] = to_tosca_value(self.default)
         if self.title:
             prop_def["title"] = self.title
         if self.status:
@@ -731,7 +756,11 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             name = c.tosca_type_name()
             shortname = name.split(".")[-1]
             i_def: Dict[str, Any] = {}
-            if shortname not in ["Standard", "Configure", "Install"] or cls.tosca_type_name().startswith("tosca."):
+            if shortname not in [
+                "Standard",
+                "Configure",
+                "Install",
+            ] or cls.tosca_type_name().startswith("tosca."):
                 # built-in interfaces don't need their type declared
                 i_def["type"] = name
             if cls._interface_requirements:
@@ -746,7 +775,11 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 interface_ops[shortname + "." + methodname] = i_def
         cls._find_operations(interface_ops, interfaces)
         # filter out interfaces with no operations declared unless inheriting the interface directly
-        return {k: v for k, v in interfaces.items() if k == "defaults" or k in direct_bases or v.get("operations")}
+        return {
+            k: v
+            for k, v in interfaces.items()
+            if k == "defaults" or k in direct_bases or v.get("operations")
+        }
 
     @classmethod
     def _find_operations(cls, interface_ops, interfaces) -> None:
@@ -760,13 +793,17 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                         interface = interface_ops.get(name)
                         if interface is not None:
                             # set to null to so they use the default operation
-                            interface.setdefault("operations", {})[name.split(".")[-1]] = None
+                            interface.setdefault("operations", {})[
+                                name.split(".")[-1]
+                            ] = None
                     interfaces["defaults"] = cls._operation2yaml(operation)
                 else:
                     name = getattr(operation, "operation_name", methodname)
                     interface = interface_ops.get(name)
                     if interface is not None:
-                        interface.setdefault("operations", {})[name] = cls._operation2yaml(operation)
+                        interface.setdefault("operations", {})[
+                            name
+                        ] = cls._operation2yaml(operation)
 
     @classmethod
     def _operation2yaml(cls, operation):
