@@ -1094,6 +1094,11 @@ class Convert:
 
 
 def generate_builtins(import_resolver, format=True) -> str:
+    custom_defs = EntityType.TOSCA_DEF.copy()
+    custom_defs["tosca.nodes.Root"] = custom_defs["tosca.nodes.Root"].copy()
+    # remove the Install interface, we need to manually add it later
+    custom_defs["tosca.nodes.Root"]["interfaces"] = {'Standard': {'type': 'tosca.interfaces.node.lifecycle.Standard'}}
+
     return convert_service_template(
         ToscaTemplate(
             path=EntityType.TOSCA_DEF_FILE,
@@ -1103,7 +1108,7 @@ def generate_builtins(import_resolver, format=True) -> str:
         7,
         f"tosca.",
         format,
-        EntityType.TOSCA_DEF,
+        custom_defs,
     )
 
 

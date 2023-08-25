@@ -75,6 +75,7 @@ def test_builtin_generation():
         print(yaml2python.value2python_repr(diffs))
         if diffs:
             # these diffs exist because requirements include inherited types
+            diffs.pop('tosca.nodes.Root', None) # this one might exist depending on test execution order
             assert section == "node_types" and len(diffs) == 5
 
 
