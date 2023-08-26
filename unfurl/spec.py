@@ -576,6 +576,16 @@ class ToscaSpec:
     def get_repository(self, name: str):
         return self.template and self.template.repositories.get(name)
 
+    def find_matching_node(self, relTpl, req_name, req_def):
+        if relTpl.target:
+            # found a match already
+            # XXX validate that it matches any constraints
+            return relTpl.target, relTpl.capability
+        source = relTpl.source
+        node = req_def.get('node')
+        node_filter = req_def.get('node_filter')
+        capability = req_def.get('capability')
+        return source._find_matching_node(relTpl, req_name, node, capability, node_filter)
 
 def find_env_vars(props_iter):
     for propdef, value in props_iter:

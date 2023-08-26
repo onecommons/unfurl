@@ -1044,14 +1044,11 @@ def get_ancestor_templates(
     source: NodeSpec, templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
     if not source.abstract:
-        # NodeTemplate.relationships return the node's requirements
-        # (the opposite of NodeSpec.relationships)
-        for rel, req, reqDef in source.toscaEntityTemplate.relationships:
-            if rel.target is not source.toscaEntityTemplate:
-                target = rel.target and templates.get(rel.target.name)
-                if target:
-                    for ancestor in get_ancestor_templates(target, templates):
-                        yield ancestor
+        for req in source.requirements.values():
+            target = req.relationship and req.relationship.target
+            if target and target is not source:
+                for ancestor in get_ancestor_templates(target, templates):
+                    yield ancestor
     yield source
 
 

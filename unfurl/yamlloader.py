@@ -278,6 +278,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             except UnfurlPackageUpdateNeeded:
                 pass  # reload
 
+    def find_matching_node(self, relTpl, req_name, req_def):
+        if self.manifest.tosca:
+            return self.manifest.tosca.find_matching_node(relTpl, req_name, req_def)
+        else:
+            return super().find_matching_node(relTpl, req_name, req_def)
+
     def find_implementation(self, op: OperationDef) -> Optional[Dict[str, Any]]:
         from .planrequests import _get_config_spec_args_from_implementation
         from . import configurators  # need to import configurators to get short names
