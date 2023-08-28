@@ -1186,6 +1186,7 @@ def _get_or_make_primary(
         properties_tpl = root_type.get_definition("properties") or {}
         if nested:
             # find all the default nodes that are being referenced by another template
+            assert spec.topology
             placeholders = [
                 node.toscaEntityTemplate
                 for node in spec.topology.node_templates.values()
