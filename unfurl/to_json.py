@@ -1120,7 +1120,9 @@ def nodetemplate_to_json(
 primary_name = "__primary"
 
 
-def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemplate:
+def _generate_primary(
+    spec: ToscaSpec, db: GraphqlDB, node_tpl=None, roots=None
+) -> NodeTemplate:
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
@@ -1134,12 +1136,14 @@ def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemp
     )
     # set as requirements all the node templates that aren't the target of any other requirements
     assert spec.topology
-    roots = [
-        node.toscaEntityTemplate
-        for node in spec.topology.node_templates.values()
-        if not node.toscaEntityTemplate.get_relationship_templates()
-        and "default" not in node.directives
-    ]
+    if roots is None:
+        roots = [
+            node.toscaEntityTemplate
+            for node in spec.topology.node_templates.values()
+            if not node.toscaEntityTemplate.get_relationship_templates()
+            and "default" not in node.directives
+        ]
+        # XXX copy node_filter and metadata from get_relationship_templates()
     nodetype_tpl["requirements"] = [{node.name: dict(node=node.type)} for node in roots]
 
     topology.custom_defs[primary_name] = nodetype_tpl
@@ -1162,7 +1166,9 @@ def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemp
 
 
 # if a node type or template is specified, use that, but it needs to be compatible with the generated type
-def _get_or_make_primary(spec: ToscaSpec, db: GraphqlDB) -> Tuple[str, str]:
+def _get_or_make_primary(
+    spec: ToscaSpec, db: GraphqlDB, nested: bool
+) -> Tuple[str, str]:
     ExceptionCollector.start()  # topology.add_template may generate validation exceptions
     assert spec.template
     topology = spec.template.topology_template
@@ -1176,8 +1182,19 @@ def _get_or_make_primary(spec: ToscaSpec, db: GraphqlDB) -> Tuple[str, str]:
 
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
+        if nested:
+            # find all the default nodes that are being referenced by another template
+            placeholders = [
+                node.toscaEntityTemplate
+                for node in spec.topology.node_templates.values()
+                if "default" in node.directives
+                and not node.type
+                == "unfurl.nodes.LocalRepository"  # exclude reified artifacts
+                and node.toscaEntityTemplate.get_relationship_templates()
+            ]
+            root = _generate_primary(spec, db, root and root.entity_tpl, placeholders)
         # if no property mapping in use, generate a new root template if there are any missing inputs
-        if (
+        elif (
             not topology.substitution_mappings
             or not topology.substitution_mappings.has_property_mapping()
         ):
@@ -1220,7 +1237,9 @@ def blueprint_metadata(spec: ToscaSpec, root_name: str) -> GraphqlObject:
     return blueprint
 
 
-def to_graphql_blueprint(spec: ToscaSpec, db: GraphqlDB) -> Tuple[GraphqlObject, str]:
+def to_graphql_blueprint(
+    spec: ToscaSpec, db: GraphqlDB, nested=False
+) -> Tuple[GraphqlObject, str]:
     """
     Returns json object as ApplicationBlueprint
 
@@ -1239,7 +1258,7 @@ def to_graphql_blueprint(spec: ToscaSpec, db: GraphqlDB) -> Tuple[GraphqlObject,
     }
     """
     # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
-    root_name, root_type = _get_or_make_primary(spec, db)
+    root_name, root_type = _get_or_make_primary(spec, db, nested)
     blueprint = blueprint_metadata(spec, root_name)
     blueprint["__typename"] = "ApplicationBlueprint"
     blueprint["primary"] = root_type
@@ -1628,7 +1647,7 @@ def add_graphql_deployment(
 def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv, root_url or "")
     assert manifest.tosca
-    blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
+    blueprint, root_name = to_graphql_blueprint(manifest.tosca, db, bool(root_url))
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
     )
