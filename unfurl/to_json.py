@@ -1121,7 +1121,7 @@ primary_name = "__primary"
 
 
 def _generate_primary(
-    spec: ToscaSpec, db: GraphqlDB, node_tpl=None, roots=None
+    spec: ToscaSpec, db: GraphqlDB, node_tpl=None, requirements=None
 ) -> NodeTemplate:
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
@@ -1136,17 +1136,19 @@ def _generate_primary(
     )
     # set as requirements all the node templates that aren't the target of any other requirements
     assert spec.topology
-    if roots is None:
+    if requirements is None:
         roots = [
             node.toscaEntityTemplate
             for node in spec.topology.node_templates.values()
             if not node.toscaEntityTemplate.get_relationship_templates()
             and "default" not in node.directives
         ]
-    # XXX copy node_filter and metadata from get_relationship_templates()
-    nodetype_tpl["requirements"] = [
-        {node.name: dict(node=node.name)} for node in roots
-    ]
+        requirements = [
+            {node.name: dict(node=node.type)} for node in roots
+        ]
+    else:
+        roots = None
+    nodetype_tpl["requirements"] = requirements
 
     topology.custom_defs[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
@@ -1155,7 +1157,7 @@ def _generate_primary(
         {name: dict(get_input=name) for name in topology._tpl_inputs()}
     )
     # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
-    if not node_tpl:
+    if not node_tpl and roots:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
     node_spec = spec.topology.add_node_template(primary_name, tpl, False)
     node_template = cast(NodeTemplate, node_spec.toscaEntityTemplate)
@@ -1188,14 +1190,16 @@ def _get_or_make_primary(
             # find all the default nodes that are being referenced by another template
             assert spec.topology
             placeholders = [
-                node.toscaEntityTemplate
+                node
                 for node in spec.topology.node_templates.values()
                 if "default" in node.directives
                 and not node.type
                 == "unfurl.nodes.LocalRepository"  # exclude reified artifacts
                 and node.toscaEntityTemplate.get_relationship_templates()
             ]
-            root = _generate_primary(spec, db, root and root.entity_tpl, placeholders)
+            requirements = [{node.name: dict(node=node.name)} for node in placeholders]
+            # XXX copy node_filter and metadata from get_relationship_templates()
+            root = _generate_primary(spec, db, root and root.entity_tpl, requirements)
         # if no property mapping in use, generate a new root template if there are any missing inputs
         elif (
             not topology.substitution_mappings
