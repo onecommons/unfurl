@@ -1644,7 +1644,7 @@ def add_graphql_deployment(
     return deployment
 
 
-def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None) -> GraphqlDB:
+def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv, root_url or "")
     assert manifest.tosca
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db, bool(root_url))
@@ -1658,7 +1658,7 @@ def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None) -> GraphqlD
 
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
-def to_deployment(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+def to_deployment(localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None) -> GraphqlDB:
     logger.debug("exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
@@ -1781,7 +1781,7 @@ def _set_shared_instances(instances):
     return env_instances
 
 
-def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+def to_environments(localEnv: LocalEnv, ignored=None,  *, file: Optional[str] = None) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
     Each environment is be represented as:
@@ -1804,7 +1804,7 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
     """
 
     # XXX one manifest and blueprint per environment
-    db = _load_db(existing)
+    db = _load_db(file)
     environments = {}
     all_connection_types = cast(ResourceTypesByName, {})
     blueprintdb = None
@@ -1869,7 +1869,7 @@ class Deployments(DeploymentPaths):
     deployments: List[GraphqlDB]
 
 
-def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> Deployments:
+def to_deployments(localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None) -> Deployments:
     assert localEnv.project
     db = cast(Deployments, set_deploymentpaths(localEnv.project))
     deployments: List[GraphqlDB] = []

@@ -1185,7 +1185,7 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
         readonly=True,
     )
     exporter = getattr(to_json, "to_" + format)
-    jsonSummary = exporter(localEnv, file)
+    jsonSummary = exporter(localEnv, file=file)
     output = json.dumps(jsonSummary, indent=2)
     if file:
         with open(file, "w") as f:
