@@ -1237,7 +1237,7 @@ def _do_export(
     elif args.get("implementation_requirements"):
         primary_provider = args["implementation_requirements"]
         assert local_env.project
-        local_env.project.contexts["_export_types_placeholder"] = dict(connections=dict(primary_provider=primary_provider))
+        local_env.project.contexts["_export_types_placeholder"] = dict(connections=dict(primary_provider=dict(type=primary_provider)))
         local_env.manifest_context_name = "_export_types_placeholder"
 
     if cache_entry:
