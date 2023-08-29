@@ -1234,12 +1234,11 @@ def _do_export(
     assert local_env
     if args.get("environment"):
         local_env.manifest_context_name = args["environment"]
-    elif args.get("implementation_requirements"):
-        primary_provider = args["implementation_requirements"]
-        assert local_env.project
-        local_env.project.contexts["_export_types_placeholder"] = dict(connections=dict(primary_provider=dict(type=primary_provider)))
-        local_env.manifest_context_name = "_export_types_placeholder"
-
+    # elif args.get("implementation_requirements"):
+    #     primary_provider = args["implementation_requirements"]
+    #     assert local_env.project
+    #     local_env.project.contexts["_export_types_placeholder"] = dict(connections=dict(primary_provider=dict(type=primary_provider)))
+    #     local_env.manifest_context_name = "_export_types_placeholder"
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     exporter = getattr(to_json, "to_" + requested_format)

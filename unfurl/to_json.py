@@ -400,7 +400,7 @@ def _make_req(
 
 
 def requirement_to_graphql(
-    topology: TopologySpec, req_dict: dict, include_omitted=False
+    topology: TopologySpec, req_dict: dict, include_omitted=False, include_matches: bool=True
 ) -> Optional[GraphqlObject]:
     """
     type RequirementConstraint {
@@ -439,7 +439,8 @@ def requirement_to_graphql(
     if nodetype:
         # req['node'] can be a node_template instead of a type
         if nodetype in topology.node_templates:
-            reqobj["match"] = nodetype
+            if include_matches:
+                reqobj["match"] = nodetype
             nodetype = topology.node_templates[nodetype].type
         nodetype = expand_prefix(nodetype)
     else:
@@ -652,6 +653,7 @@ def node_type_to_graphql(
     type_definition: StatefulEntityType,
     types: ResourceTypesByName,
     summary: bool = False,
+    include_matches: bool = True,
 ) -> ResourceType:
     """
     type ResourceType {
@@ -768,7 +770,7 @@ def node_type_to_graphql(
         filter(
             None,
             [
-                requirement_to_graphql(topology, req)
+                requirement_to_graphql(topology, req, include_matches=include_matches)
                 for req in type_definition.get_all_requirements()
             ],
         )
@@ -1197,7 +1199,7 @@ def _get_or_make_primary(
                 == "unfurl.nodes.LocalRepository"  # exclude reified artifacts
                 and node.toscaEntityTemplate.get_relationship_templates()
             ]
-            requirements = [{node.name: dict(node=node.name)} for node in placeholders]
+            requirements = [{node.name: dict(node=node.type)} for node in placeholders]
             # XXX copy node_filter and metadata from get_relationship_templates()
             root = _generate_primary(spec, db, root and root.entity_tpl, requirements)
         # if no property mapping in use, generate a new root template if there are any missing inputs

@@ -288,12 +288,13 @@ def clone(localEnv: LocalEnv, destPath) -> ReadOnlyManifest:
     return clone
 
 def _match_deployment_blueprints(deployment_blueprints, context):
+    primary_provider_name = context.get("primary_provider", "primary_provider")
     connections = context.get("connections") or {}
-    primary_provider = connections.get("primary_provider")
-    if not primary_provider:
+    primary_provider = connections.get(primary_provider_name)
+    if not primary_provider or "type" not in primary_provider:
         return None
     for name, tpl in deployment_blueprints.items():
-        if tpl.get("cloud") == primary_provider:
+        if tpl.get("cloud") == primary_provider["type"]:
             return name
     return None
 
