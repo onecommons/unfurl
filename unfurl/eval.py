@@ -39,7 +39,15 @@ from ruamel.yaml.comments import CommentedMap
 from unfurl.logs import UnfurlLogger
 
 from .util import validate_schema, UnfurlError, assert_form
-from .result import ResultsList, Result, Results, ExternalValue, ResourceRef, ResultsMap
+from .result import (
+    AnyRef,
+    ResultsList,
+    Result,
+    Results,
+    ExternalValue,
+    ResourceRef,
+    ResultsMap,
+)
 
 import logging
 
@@ -49,16 +57,17 @@ if TYPE_CHECKING:
 
 logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))
 
+
 class UnfurlEvalError(UnfurlError):
     pass
+
 
 def map_value(
     value: Any,
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
 ) -> Any:
-    """Resolves any expressions or template strings embedded in the given map or list.
-    """
+    """Resolves any expressions or template strings embedded in the given map or list."""
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
     return _map_value(value, resourceOrCxt, False, applyTemplates)
@@ -117,7 +126,7 @@ class _Tracker:
         referenced = self.referenced[index:]
         if not referenced:
             return
-        for (ref, results) in referenced:
+        for ref, results in referenced:
             if not isinstance(ref, Ref):
                 assert isinstance(results, Result)
                 yield results
@@ -275,13 +284,16 @@ class RefContext:
     def __getattr__(self, key):
         func = self._Funcs.get(key)
         if not func:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{key}'"
+            )
 
         def _eval_func(*args, **kw):
             self.currentFunc = key
             self.kw = kw
             assert func
             return func(args, self)
+
         return _eval_func
 
 
@@ -420,7 +432,8 @@ class Ref:
                     return list(results)
 
     def resolve_one(
-        self, ctx: RefContext,
+        self,
+        ctx: RefContext,
         strict: Optional[bool] = None,
     ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         """
@@ -443,7 +456,11 @@ class Ref:
 
             if "ref" in value or "eval" in value:
                 return len(
-                    [x for x in ["vars", "trace", "foreach", "select", "strict"] if x in value]
+                    [
+                        x
+                        for x in ["vars", "trace", "foreach", "select", "strict"]
+                        if x in value
+                    ]
                 ) + 1 == len(value)
             if len(value) == 1 and first in _FuncsTop:
                 return True
@@ -636,6 +653,16 @@ class SafeRefContext(RefContext):
     _Funcs = _CoreFuncs.copy()
 
 
+def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
+    ctx = ctx_cls(AnyRef(""), vars={n: AnyRef(n) for n in var_list})
+    try:
+        result = Ref(expr).resolve(ctx)
+    except:
+        return ctx.currentResource  # type: ignore
+    # return the last AnyRef
+    return result[-1] if result else ctx.currentResource  # type: ignore
+
+
 def get_eval_func(name):
     return RefContext._Funcs.get(name)
 
@@ -689,7 +716,10 @@ def eval_ref(
                 if isinstance(ctx, SafeRefContext):
                     msg = f"function unsafe or missing in {dict(val)}"
                     if not ctx.strict:
-                        logger.warning("In safe mode, skipping unsafe eval: " + msg, stack_info=True)
+                        logger.warning(
+                            "In safe mode, skipping unsafe eval: " + msg,
+                            stack_info=True,
+                        )
                         return [Result("Error: in safe mode, skipping unsafe eval")]
                     else:
                         msg = "Error: unsafe eval: " + msg

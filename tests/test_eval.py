@@ -6,7 +6,7 @@ import pickle
 import io
 
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
-from unfurl.eval import Ref, UnfurlEvalError, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
+from unfurl.eval import Ref, UnfurlEvalError, analyze_expr, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
 from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
@@ -819,3 +819,14 @@ def test_env_sub():
     ]
     for test, expected in pairs(tests):
         assert expected == substitute_env(test, env), test
+
+def test_analyze_expr():
+    result = analyze_expr(".targets::foo::baz")
+    assert result and result.get_keys() == ["", ".targets", "foo", "baz"]
+
+    result = analyze_expr("$SOURCE::.targets::foo::baz", ["SOURCE"])
+    assert result and result.get_keys() == ["SOURCE", ".targets", "foo", "baz"]
+
+    result = analyze_expr({"get_property": ["HOST", "host", "disk_size"]})
+    assert result and not result.key
+

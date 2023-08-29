@@ -152,6 +152,27 @@ class ResourceRef(ABC):
         return self.root._environ
 
 
+class AnyRef(ResourceRef):
+    "Use this to analyze expressions"
+
+    def __init__(self, name: str, parent=None):
+        self.parent = parent
+        self.key = name
+
+    def _get_prop(self, name: str) -> Optional["AnyRef"]:
+        if name == ".":
+            return self
+        elif name == "..":
+            return self.parent
+        return AnyRef(name, self)
+
+    def _resolve(self, key):
+        return AnyRef(key, self)
+
+    def get_keys(self):
+        return [p.key for p in reversed(self.ancestors)]
+
+
 class ChangeRecord:
     """
     A ChangeRecord represents a job or task in the change log file.
