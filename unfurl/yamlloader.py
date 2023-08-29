@@ -625,12 +625,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             is_file = True
         return self._really_load_yaml(path, is_file, fragment)
 
-    def _convert_to_yaml(self, contents, path):
+    def _convert_to_yaml(self, contents, path, yaml_dict: type=dict):
         if path.endswith(".py"):
             from tosca.python2yaml import convert_to_tosca
             self.expand = False
             namespace: Dict[str, Any] = {}
-            yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict_type(self.readonly))
+            yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict)
             # XXX save module namespace:
             # self.manifest.modules[path] = namespace
             return yaml_src
@@ -654,8 +654,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
             with f:
                 contents = f.read()
-                doc = self._convert_to_yaml(contents, path)
                 yaml_dict = yaml_dict_type(self.readonly)
+                doc = self._convert_to_yaml(contents, path, yaml_dict)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
                         # self.expand is true when doing a TOSCA import (see Manifest_load_spec())

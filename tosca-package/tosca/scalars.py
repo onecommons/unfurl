@@ -21,7 +21,7 @@ class _Scalar(float):
     def as_unit(self) -> float:
         return self / self.scale
 
-    def to_yaml(self) -> str:
+    def to_yaml(self, dict_cls=dict) -> str:
         "return this value and this type's TOSCA unit suffix, eg. 10 kB"
         # strip "_Scalar" suffix
         return f"{self.as_unit or '0'} {self.__class__.__name__[:-7]}"

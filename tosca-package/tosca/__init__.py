@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import os.path
 import sys
+from typing import TYPE_CHECKING
 
 try:
     import toscaparser
@@ -17,6 +18,16 @@ loader.install()
 _tosca_types_str = (
     "nodes capabilities relationships interfaces datatypes artifacts policies groups"
 )
+
+if TYPE_CHECKING:
+    from .builtin_types import nodes
+    from .builtin_types import interfaces
+    from .builtin_types import relationships
+    from .builtin_types import capabilities
+    from .builtin_types import datatypes
+    from .builtin_types import artifacts
+    from .builtin_types import policies
+    from .builtin_types import groups
 
 
 def __getattr__(name):

@@ -50,6 +50,8 @@ from .scalars import *
 #     "Root"
 # ]
 
+yaml_cls = dict
+
 
 class ToscaObject:
     _tosca_name: str = ""
@@ -59,7 +61,7 @@ class ToscaObject:
         _tosca_name = cls.__dict__.get("_tosca_name")
         return _tosca_name if _tosca_name else cls.__name__
 
-    def to_yaml(self) -> Optional[Dict]:
+    def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return None
 
 
@@ -67,7 +69,7 @@ class _Constraint(ToscaObject):
     def __init__(self, constraint):
         self.constraint = constraint
 
-    def to_yaml(self) -> Optional[Dict]:
+    def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return {self.__class__.__name__: to_tosca_value(self.constraint)}
 
 
@@ -271,15 +273,15 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
     return TypeInfo(optional, collection, types, metadata)
 
 
-def to_tosca_value(obj):
+def to_tosca_value(obj, dict_cls=dict):
     if isinstance(obj, dict):
-        return {k: to_tosca_value(v) for k, v in obj.items()}
+        return {k: to_tosca_value(v, dict_cls) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [to_tosca_value(v) for v in obj]
+        return [to_tosca_value(v, dict_cls) for v in obj]
     else:
         to_yaml = getattr(obj, "to_yaml", None)
         if to_yaml:  # e.g. datatypes, _Scalar
-            return to_yaml()
+            return to_yaml(dict_cls)
         else:
             return obj
 
@@ -382,7 +384,7 @@ class _Tosca_Field(dataclasses.Field):
     def section(self) -> str:
         return self.tosca_field_type.value
 
-    def to_yaml(self) -> dict:
+    def to_yaml(self, dict_cls=dict) -> dict:
         if self.tosca_field_type == ToscaFieldType.property:
             field_def = self._to_property_yaml()
         elif self.tosca_field_type == ToscaFieldType.attribute:
@@ -578,11 +580,13 @@ class _Ref:
     def __init__(self, expr):
         self.expr = expr
 
-    def to_yaml(self):
+    def __str__(self):
+        return str(self.expr)
+
+    def to_yaml(self, dict_cls=dict):
         return self.expr
 
 
-# XXX
 def Ref(
     expr=None,
     *,
@@ -879,8 +883,10 @@ class ToscaType(_ToscaType):
 
     # XXX version (type and template?)
 
-    def to_yaml(self) -> Optional[dict]:
+    def to_yaml(self, dict_cls=dict) -> Optional[dict]:
         # XXX directives, metadata, everything else
+        # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
+        # so we need to look for _ToscaFields and operation function in the object's __dict__ and generate yaml for them too
         return {self._name: dict(type=self.tosca_type_name())}
 
     def load_class(self, module_path: str, class_name: str):
@@ -916,7 +922,7 @@ class DataType(ToscaType):
     _constraints: ClassVar[Optional[List[dict]]] = None
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def _cls_to_yaml(cls, dict_cls=dict) -> dict:
         yaml = cls._shared_cls_to_yaml()
         if cls._type:
             yaml[cls.tosca_type_name()]["type"] = cls._type
@@ -946,7 +952,7 @@ class RelationshipType(ToscaType):
     _default_for: Optional[str] = None
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def _cls_to_yaml(cls, dict_cls=dict) -> dict:
         yaml = cls._shared_cls_to_yaml()
         # XXX add interfaces
         # don't include inherited declarations
@@ -963,9 +969,16 @@ class ArtifactType(ToscaType):
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
+    # XXX
+    # file
+    # repository
+    # deploy_path
+    # version
+    # checksum
+    # checksum_algorithm
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def _cls_to_yaml(cls, dict_cls=dict) -> dict:
         yaml = cls._shared_cls_to_yaml()
         if cls._mime_type:
             yaml[cls.tosca_type_name()]["mime_type"] = cls._mime_type
@@ -973,7 +986,7 @@ class ArtifactType(ToscaType):
             yaml[cls.tosca_type_name()]["file_ext"] = cls._file_ext
         return yaml
 
-    # def to_yaml(self) -> Dict[str, Any]:
+    # def to_yaml(self, dict_cls=dict) -> Dict[str, Any]:
     #     yaml = super().to_yaml()
     #     typedef = yaml[self.tosca_type_name()]
     #     return yaml
@@ -990,7 +1003,7 @@ class InterfaceType(ToscaType):
     _type_metadata: ClassVar[Optional[Dict[str, str]]] = None
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def _cls_to_yaml(cls, dict_cls=dict) -> dict:
         body: Dict[str, Any] = {}
         tosca_name = cls.tosca_type_name()
         for name, obj in cls.__dict__.items():
@@ -1016,7 +1029,7 @@ class PolicyType(ToscaType):
     _template_section: ClassVar[str] = "policies"
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def _cls_to_yaml(cls, dict_cls=dict) -> dict:
         return cls._shared_cls_to_yaml()
 
 
@@ -1025,7 +1038,7 @@ class GroupType(ToscaType):
     _template_section: ClassVar[str] = "groups"
 
     @classmethod
-    def _cls_to_yaml(cls) -> dict:
+    def _cls_to_yaml(cls, dict_cls=dict) -> dict:
         return cls._shared_cls_to_yaml()
 
 
