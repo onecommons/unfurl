@@ -9,7 +9,7 @@ from tosca.python2yaml import convert_to_tosca, dump_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
-
+import tosca
 
 def _to_python(yaml_str: str):
     tosca_yaml = load_yaml(yaml, yaml_str)
@@ -175,14 +175,23 @@ def test_example_wordpress():
     tosca_tpl2 = _to_yaml(example_wordpress_python)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
 
-# class Example(tosca.nodes.Root):
+def test_set_constraints():
+    class Example(tosca.nodes.Root):
 
-#   shellScript = Artifact("s.sh")
-  
-#   def create(self):
-#       return self.shellScript.execute(input1=self.prop1)
+      shellScript = tosca.artifacts.Root() # (file="example.sh")
+      prop1: str | None
+      host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
-# my_template = Example(prop1="foo", db=Database())
+      @classmethod
+      def _set_constraints(cls):
+          cls.host = tosca.nodes.Compute()
+          cls.prop1 = cls.host.os.distribution 
+
+      def create(self):
+          return self.shellScript.execute(input1=self.prop1)
+
+    my_template = Example()
+    # assert my_template.prop1 == {'eval': '.targets::host::.capabilities[.name=os]::distribution'}
 
 if __name__ == "__main__":
     dump = True

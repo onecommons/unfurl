@@ -758,7 +758,7 @@ class CapabilityInstance(EntityInstance):
         # XXX implement something like _ChildResources to enable ::name instead of [.name]
         assert self.parent
         return cast(
-            InstanceKey, f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]"
+            InstanceKey, f"{self.parent.key}::.capabilities::[.name={self.name}]"
         )
 
 
