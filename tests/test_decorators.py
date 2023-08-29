@@ -22,6 +22,17 @@ class DecoratorTest(unittest.TestCase):
             result1 = Ref("my_server::dependency::tosca.nodes.Compute").resolve(ctx)
             self.assertEqual("my_server2", result1[0].name)
 
+            result2 = Ref("::my_server::.targets::dependency").resolve(ctx)
+            assert result2 and result2[0].name == "my_server2"
+
+            # EntitySpec._resolve_prop() resolution
+            result3 = Ref("::anothernode::foo").resolve(ctx)
+            assert result3 and result3[0].name == "my_server"
+
+            result4 = Ref("::anothernode::disk_size").resolve(ctx)
+            # EntitySpec._resolve_prop() doesn't _work with get_property
+            assert result4 and result4[0].name == "anothernode"
+
             self.assertEqual(
                 {"test": "annotated"},
                 manifest.tosca.topology.node_templates["my_server2"].properties,
@@ -47,6 +58,9 @@ class DecoratorTest(unittest.TestCase):
             assert result and result.name == "node3"
             result2 = manifest.rootResource.query("::my_server::.targets::dependency")
             assert result2 and result2.name == "my_server2"
+
+            result3 = manifest.rootResource.query("::anothernode::disk_size", trace=1)
+            assert result3 == "10 GB", result3
 
     def test_unsafe_decorator(self):
         cliRunner = CliRunner()

@@ -187,7 +187,7 @@ class ToscaSpec:
             for req in nodespec.requirements.values():
                 for prop, value in req.get_nodefilter_properties():
                     # the target already has a node so treat the node filter
-                    # as coersive by annotating the target's properties
+                    # as coercive by annotating the target's properties
                     target = req.relationship and req.relationship.target
                     if target:
                         if isinstance(value, dict):
@@ -466,7 +466,7 @@ class ToscaSpec:
         else:
             return None
 
-    def get_all_node_templates(self) -> Generator:
+    def get_all_node_templates(self) -> Iterator["NodeSpec"]:
         assert self.topology
         for node in self.topology.node_templates.values():
             yield node
@@ -656,7 +656,7 @@ class EntitySpec(ResourceRef):
         if not toscaNodeTemplate:
             toscaNodeTemplate = next(iter(topology.topology_template.nodetemplates))
         self.toscaEntityTemplate: EntityTemplate = toscaNodeTemplate
-        self.topology = topology
+        self.topology: TopologySpec = topology
         self.spec = topology.spec
         self.name = toscaNodeTemplate.name
         if not validate_unfurl_identifier(self.name):
@@ -708,10 +708,25 @@ class EntitySpec(ResourceRef):
         else:
             self.defaultAttributes = {}
 
+    def _resolve_prop(self, key: str) -> "EntitySpec":
+        # Returns the EntitySpec associated with this property.
+        # If it's plain property, return self
+        # if the property is computed, resolve the expression as a template expression to recursively find the EntitySpec it depends on.
+        prop = self.propertyDefs[key]
+        if prop.default and is_function(prop.default):
+            # treat default like a constraint
+            # evaluate expression as a template expression and if it resolves to 
+            result = cast(list, Ref(prop.default).resolve(SafeRefContext(self)))
+            if result and isinstance(result[0], EntitySpec):
+                return result[0]
+        return self 
+
     def _resolve(self, key):
-        """Make attributes available to expressions"""
+        """Expose attributes to eval expressions"""
         if key in ["name", "type", "uri", "groups", "policies"]:
             return getattr(self, key)
+        if key in self.propertyDefs:
+            return self._resolve_prop(key)
         raise KeyError(key)
 
     def get_interfaces(self) -> List[OperationDef]:
@@ -926,10 +941,10 @@ class NodeSpec(EntitySpec):
             if not req:
                 raise KeyError(key)
             relationship = req.relationship
-            # hack!
-            relationship.toscaEntityTemplate.entity_tpl = list(req.entity_tpl.values())[
-                0
-            ]
+            if relationship:
+                # hack!
+                tpl = list(req.entity_tpl.values())[0]
+                relationship.toscaEntityTemplate.entity_tpl = tpl
             return relationship
 
     def get_interface_requirements(self):
@@ -960,6 +975,14 @@ class NodeSpec(EntitySpec):
                     yield p
 
     @property
+    def targets(self):
+        return {
+            n: r.relationship.target
+            for n, r in self.requirements.items()
+            if r.relationship and r.relationship.target
+        }
+    
+    @property
     def requirements(self) -> Dict[str, "RequirementSpec"]:
         if self._requirements is None:
             self._requirements = {}
@@ -978,10 +1001,10 @@ class NodeSpec(EntitySpec):
                 self._requirements[name] = reqSpec
         return self._requirements
 
-    def get_requirement(self, name):
+    def get_requirement(self, name: str) -> Optional["RequirementSpec"]:
         return self.requirements.get(name)
 
-    def get_relationship(self, name):
+    def get_relationship(self, name: str) -> Optional["RelationshipSpec"]:
         req = self.requirements.get(name)
         if not req:
             return None
@@ -1420,8 +1443,11 @@ class TopologySpec(EntitySpec):
         else:
             return self.spec.base_dir
 
+    @property
+    def all(self):
+        return self
+
     def _resolve(self, key):
-        """Make attributes available to expressions"""
         try:
             return super()._resolve(key)
         except KeyError:
@@ -1467,7 +1493,8 @@ class TopologySpec(EntitySpec):
             nodeTemplate = self.node_templates.get(nodeName)
             if not nodeTemplate:
                 return None
-            return nodeTemplate.get_requirement(requirement)
+            # note: RequirementSpec is not an EntitySpec
+            return nodeTemplate.get_requirement(requirement)  # type: ignore
         elif "~a~" in name:
             nodeTemplate = None
             nodeName, artifactName = name.split("~a~")

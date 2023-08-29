@@ -34,7 +34,12 @@ from urllib.parse import quote, quote_plus, urlsplit
 
 if TYPE_CHECKING:
     from .manifest import Manifest
-    from .runtime import EntityInstance, InstanceKey, HasInstancesInstance, TopologyInstance
+    from .runtime import (
+        EntityInstance,
+        InstanceKey,
+        HasInstancesInstance,
+        TopologyInstance,
+    )
     from .configurator import Dependency
 
 from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -316,6 +321,7 @@ def _wrap_sequence(v):
 
 
 unsafe_proxy._wrap_sequence = _wrap_sequence
+
 
 def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined):
     from jinja2.sandbox import SandboxedEnvironment
@@ -625,13 +631,18 @@ set_eval_func("token", token, True, True)
 # XXX this doesn't work with node_filters, need an instance to get a specific result
 def get_tosca_property(args, ctx):
     from toscaparser.functions import get_function
+    from .spec import EntitySpec
 
-    tosca_tpl = ctx.currentResource.root.template.toscaEntityTemplate
-    node_template = ctx.currentResource.template.toscaEntityTemplate
+    if isinstance(ctx.currentResource, EntitySpec):
+        tosca_tpl = ctx.currentResource.topology.toscaEntityTemplate
+        node_template = ctx.currentResource.toscaEntityTemplate
+    else:
+        tosca_tpl = ctx.currentResource.root.template.toscaEntityTemplate
+        node_template = ctx.currentResource.template.toscaEntityTemplate
     return get_function(tosca_tpl, node_template, {"get_property": args}).result()
 
 
-set_eval_func("get_property", get_tosca_property, True)
+set_eval_func("get_property", get_tosca_property, True, True)
 
 
 def has_env(arg, ctx):

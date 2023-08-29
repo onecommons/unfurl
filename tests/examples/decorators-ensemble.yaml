@@ -29,9 +29,13 @@ spec:
       testy.nodes.aNodeType:
         derived_from: tosca.nodes.Root
         attributes:
-          distribution:
+          disk_size:
             type: string
-            default: { get_attribute: [HOST, os, distribution] }
+            default: { get_property: [HOST, host, disk_size] }
+          foo:
+            type: string
+            default: 
+              eval: .targets::host::foo
         properties:
           private_address:
             type: string
@@ -56,6 +60,9 @@ spec:
           properties:
             private_address: base
             ports: []
+          requirements:
+            - host:
+                node: my_server
 
         node3:
           type: tosca:Root
