@@ -426,13 +426,13 @@ class ToscaSpec:
             topology_spec = TopologySpec(topology, self, self.topology, path=name)
             self.nested_topologies.append(topology_spec)
             for nodeTemplate in topology.nodetemplates:
-                if (
-                    "default" in nodeTemplate.directives
-                    and nodeTemplate.name not in self.topology.node_templates
-                ):
-                    # put in root topology
-                    nodeSpec = NodeSpec(nodeTemplate, self.topology)
-                    self.topology.node_templates[nodeSpec.name] = nodeSpec
+                if "default" in nodeTemplate.directives:
+                    if nodeTemplate.name in self.topology.node_templates:
+                        nodeTemplate.directives.append("override")
+                    else:
+                        # put in root topology
+                        nodeSpec = NodeSpec(nodeTemplate, self.topology)
+                        self.topology.node_templates[nodeSpec.name] = nodeSpec
 
     def load_workflows(self) -> None:
         # we want to let different types defining standard workflows like deploy
