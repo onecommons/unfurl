@@ -1205,6 +1205,7 @@ def _get_or_make_primary(
             jsontype = types.get(root_type.type)
             if jsontype:
                 jsontype = node_type_to_graphql(spec.topology, root_type, types)
+            assert jsontype
             for node in placeholders:
                 # XXX copy node_filter and metadata from get_relationship_templates()
                 req = {node.name: dict(node=node.type)}
