@@ -400,7 +400,10 @@ def _make_req(
 
 
 def requirement_to_graphql(
-    topology: TopologySpec, req_dict: dict, include_omitted=False, include_matches: bool=True
+    topology: TopologySpec,
+    req_dict: dict,
+    include_omitted=False,
+    include_matches: bool = True,
 ) -> Optional[GraphqlObject]:
     """
     type RequirementConstraint {
@@ -1145,9 +1148,7 @@ def _generate_primary(
             if not node.toscaEntityTemplate.get_relationship_templates()
             and "default" not in node.directives
         ]
-        requirements = [
-            {node.name: dict(node=node.type)} for node in roots
-        ]
+        requirements = [{node.name: dict(node=node.type)} for node in roots]
     else:
         roots = None
     nodetype_tpl["requirements"] = requirements
@@ -1191,17 +1192,27 @@ def _get_or_make_primary(
         if nested:
             # find all the default nodes that are being referenced by another template
             assert spec.topology
+            dh = spec.topology.node_templates.get("dockerhost")
             placeholders = [
                 node
                 for node in spec.topology.node_templates.values()
-                if "default" in node.directives
-                and not node.type
-                == "unfurl.nodes.LocalRepository"  # exclude reified artifacts
+                if ("default" in node.directives or node.name in spec.overridden_default_templates)
+                and node.type
+                != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
                 and node.toscaEntityTemplate.get_relationship_templates()
             ]
-            requirements = [{node.name: dict(node=node.type)} for node in placeholders]
-            # XXX copy node_filter and metadata from get_relationship_templates()
-            root = _generate_primary(spec, db, root and root.entity_tpl, requirements)
+            types = _get_types(db)
+            jsontype = types.get(root_type.type)
+            if jsontype:
+                jsontype = node_type_to_graphql(spec.topology, root_type, types)
+            for node in placeholders:
+                # XXX copy node_filter and metadata from get_relationship_templates()
+                req = {node.name: dict(node=node.type)}
+                req_json = requirement_to_graphql(
+                    spec.topology, req, True, include_matches=False
+                )
+                if req_json:
+                    jsontype["requirements"].append(req_json)
         # if no property mapping in use, generate a new root template if there are any missing inputs
         elif (
             not topology.substitution_mappings

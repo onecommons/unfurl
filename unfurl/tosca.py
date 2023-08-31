@@ -4,6 +4,7 @@
 TOSCA implementation
 """
 import copy
+import sys
 
 from toscaparser.elements.interfaces import OperationDef
 
@@ -325,6 +326,7 @@ class ToscaSpec:
         self.nested_discovered: Dict[str, dict] = {}
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
+        self.overridden_default_templates: Set[str] = set()
         if spec:
             inputs = cast(Optional[Dict[str, Any]], spec.get("inputs"))
         else:
@@ -428,7 +430,7 @@ class ToscaSpec:
             for nodeTemplate in topology.nodetemplates:
                 if "default" in nodeTemplate.directives:
                     if nodeTemplate.name in self.topology.node_templates:
-                        nodeTemplate.directives.append("override")
+                        self.overridden_default_templates.add(nodeTemplate.name)
                     else:
                         # put in root topology
                         nodeSpec = NodeSpec(nodeTemplate, self.topology)
