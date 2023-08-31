@@ -404,6 +404,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def get_remote_tags(self, url, pattern="*") -> List[str]:
         # apply credentials to url like find_repo_from_git_url() does
+        if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
+            return []
         if self.manifest.repo:
             candidate_parts = urlsplit(self.manifest.repo.url)
             password = candidate_parts.password
