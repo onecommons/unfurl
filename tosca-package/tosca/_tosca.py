@@ -45,10 +45,6 @@ from toscaparser import topology_template
 from toscaparser.elements.datatype import DataType as ToscaDataType
 from .scalars import *
 
-# XXX
-# __all__ = [
-#     "Root"
-# ]
 
 yaml_cls = dict
 
@@ -407,12 +403,14 @@ class _Tosca_Field(dataclasses.Field):
         if prop_name:
             prop_filters = self.node_filter.setdefault("properties", [])
             if not isinstance(val, _Ref):
+                # XXX validate that val is compatible type
                 val = {
                     "q": val
                 }  # quote the value to distinguish from built-in tosca node_filters
             prop_filters.append({prop_name: val})
         elif isinstance(val, _Ref):
-            self.node_filter = dict(match=val)
+            match_filters = self.node_filter.setdefault("match", [])
+            match_filters.append(val)
         else:
             # val is concrete value, just replace the default
             # XXX we can be smarter based on val type, e.g. node or relationship template and merge with the existing default values
@@ -421,17 +419,17 @@ class _Tosca_Field(dataclasses.Field):
             self.default = val
 
     def as_ref_expr(self) -> str:
-        if self._tosca_field_type in [
+        if self.tosca_field_type in [
             ToscaFieldType.property,
             ToscaFieldType.attribute,
         ]:
-            return ".::" + self.tosca_name
-        elif self._tosca_field_type == ToscaFieldType.requirement:
+            return self.tosca_name
+        elif self.tosca_field_type == ToscaFieldType.requirement:
             return ".targets::" + self.tosca_name
             # but if accessing the relationship template, need to use the form below
         else:
             assert self.tosca_field_type
-            return f".{self.tosca_field_type.name}::[.name={self.tosca_name}]"
+            return f".{self.tosca_field_type.value}[.name={self.tosca_name}]"
 
     def _resolve_class(self, _type):
         assert self.owner, (self, _type)
@@ -511,6 +509,8 @@ class _Tosca_Field(dataclasses.Field):
                 req_def["capability"] = _type.tosca_type_name()
             elif issubclass(_type, NodeType):
                 req_def["node"] = _type.tosca_type_name()
+        if self.node_filter:
+            req_def["node_filter"] = to_tosca_value(self.node_filter)
         # XXX set node or relationship name if defaultValue is node or relationship template
         self._add_occurrences(req_def, info)
         return req_def
@@ -670,22 +670,24 @@ class _Ref:
     def __init__(self, expr):
         self.expr = expr
 
-    def __str__(self):
-        return str(self.expr)
+    def __repr__(self):
+        return f"_Ref({self.expr})"
 
     def to_yaml(self, dict_cls=dict):
         return self.expr
 
+    def __hash__(self) -> int:
+        return hash(self.expr)
 
-def Ref(
-    expr=None,
-    *,
-    default=dataclasses.MISSING,
-    default_factory=dataclasses.MISSING,
-    init=False,
-    name: str = "",
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Any:
+    def __eq__(self, __value: object) -> bool:
+        if isinstance(__value, type(self.expr)):
+            return self.expr == __value
+        elif isinstance(__value, _Ref):
+            return self.expr == self.expr
+        return False
+
+
+def Ref(expr=None) -> Any:
     return _Ref(expr)
 
 
@@ -696,42 +698,58 @@ class FieldProjection(_Ref):
     "A reference to a tosca field or projection off a tosca field"
     # created by _DataclassTypeProxy, invoked via _set_constraint
 
-    def __init__(self, field: _Tosca_Field, name: Optional[str]):
+    def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
         expr = field.as_ref_expr()
-        if name:
+        if parent:
             # XXX map to tosca name but we can't do this now because it might be too early to resolve the attribute's type
-            expr += "::" + name
+            expr = parent.expr["eval"] + "::" + expr
         super().__init__(dict(eval=expr))
         self.field = field
-        self.name = name
+        self.parent = parent
 
     def __getattr__(self, name):
         # unfortunately _set_constraints is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
         # cls = self._resolve_class(self.field.type)
-        ti = self.field.get_type_info()
-        field = ti.types[0].tosca_names[name]  # XXX
-        return FieldProjection(field, name)
-
-        if self.name:
-            try:
-                ti = self.field.get_type_info()
-                field = ti.types[0].tosca_names[name]  # XXX
-                return FieldProjection(field, name)
-            except:
-                # couldn't resolve the type
-                raise
-                raise Exception(
-                    f"Can't project {name} from {self}: Only one level of field projection currently supported"
-                )
-        return FieldProjection(self.field, name)
+        try:
+            ti = self.field.get_type_info()
+            field = ti.types[0].__dataclass_fields__[name]
+            return FieldProjection(field, self)
+        except:
+            # couldn't resolve the type
+            # XXX if current field type isn't a requirement we can assume name is property
+            raise AttributeError(
+                f"Can't project {name} from {self}: Only one level of field projection currently supported"
+            )
 
     def __setattr__(self, name, val):
-        if name in  ["expr", "field", "name"]:
+        if name in ["expr", "field", "parent"]:
             object.__setattr__(self, name, val)
             return
-        self.field.set_property_constraint(name, val)
+        if self.parent:
+            raise ValueError(
+                f"Can't set {name} on {self}: Only one level of field projection currently supported"
+            )
+        try:
+            ti = self.field.get_type_info()
+            field = ti.types[0].__dataclass_fields__[name]
+            if field._tosca_field_type in [
+                ToscaFieldType.property,
+                ToscaFieldType.attribute,
+            ]:
+                self.field.set_property_constraint(name, val)
+            else:
+                raise ValueError(
+                    f'Can not set "{name}" on {self}: "{name}" is a {field._tosca_field_type.name}, not a TOSCA property'
+                )
+        except:
+            raise
+            # couldn't resolve the type
+            # XXX if current field type isn't a requirement we can assume name is property
+            raise AttributeError(
+                f"Can't project {name} from {self}: Only one level of field projection currently supported"
+            )
 
 
 def get_annotations(o):
@@ -778,7 +796,7 @@ def _make_dataclass(cls):
         repr=True,
         eq=True,
         order=False,
-        unsafe_hash=False,
+        unsafe_hash=True,
         frozen=False,
     )
     if sys.version_info.minor > 9:
@@ -845,10 +863,29 @@ class _Set_ConfigSpec_Method:
             return objtype._class_set_config_spec
 
 
+def field(
+    *,
+    default=dataclasses.MISSING,
+    default_factory=dataclasses.MISSING,
+    kw_only=dataclasses.MISSING,
+):
+    kw: Dict[str, Any] = dict(default=default, default_factory=default_factory)
+    if sys.version_info.minor > 9:
+        kw["kw_only"] = kw_only
+    return dataclasses.field(**kw)
+
+
 # Ref and RefList aren't actually field specifiers but they are listed here so static type checking works
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=(Attribute, Property, Capability, Requirement, Ref),
+    field_specifiers=(
+        Attribute,
+        Property,
+        Capability,
+        Requirement,
+        field,
+        dataclasses.field,
+    ),
 )
 class _ToscaType(ToscaObject, metaclass=_DataclassType):
     # we need this intermediate type because the base class with the @dataclass_transform can't specify fields
@@ -857,15 +894,18 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     tosca_names = _Tosca_Names_Getter()  # map of tosca names to _ToscaFields
     set_config_spec_args = _Set_ConfigSpec_Method()
 
-    # def __getattribute__(self, name):
-    #     # the only times we want the actual value of a tosca field returned
-    #     # is during yaml generation or directly executing a plan
-    #     # but when constructing a topology return Refs instead
-    #     if self.__dict__['__mode']:
-    #         field = self.as_ref(name)
-    #         if field:
-    #             return field
-    #     return object.__getattribute__(self, name)
+    if not typing.TYPE_CHECKING:
+
+        def __getattribute__(self, name: str):
+            # the only times we want the actual value of a tosca field returned
+            # is during yaml generation or directly executing a plan
+            # but when constructing a topology return absolute Refs to fields instead
+            if object.__getattribute__(self, "_mode") == "spec":
+                fields = object.__getattribute__(self, "__dataclass_fields__")
+                field = fields.get(name)
+                if field and isinstance(field, _Tosca_Field):
+                    return _Ref(dict(eval=f"::{self._name}::{field.as_ref_expr()}"))
+            return object.__getattribute__(self, name)
 
     @classmethod
     def _class_set_config_spec(cls, kw: dict, target) -> dict:
@@ -874,10 +914,21 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     def _set_config_spec_(self, kw: dict, target) -> dict:
         return self._class_set_config_spec(kw, target)
 
-    _namespace: Optional[Dict[str, Any]] = None
-    _globals: Optional[Dict[str, Any]] = None
-    _interface_requirements: Optional[List[str]] = None
-    _docstrings: Optional[Dict[str, str]] = None
+    _namespace: Optional[Dict[str, Any]] = dataclasses.field(
+        default=None, init=False, repr=False
+    )
+    _globals: Optional[Dict[str, Any]] = dataclasses.field(
+        default=None, init=False, repr=False
+    )
+    _interface_requirements: Optional[List[str]] = dataclasses.field(
+        default=None, init=False, repr=False
+    )
+    _docstrings: Optional[Dict[str, str]] = dataclasses.field(
+        default=None, init=False, repr=False
+    )
+    _mode: str = dataclasses.field(
+        default="spec", init=False, repr=False
+    )
 
     @classmethod
     def _resolve_class(cls, _type):
@@ -1046,16 +1097,41 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
 
 class ToscaType(_ToscaType):
+    # _name needs to come first for python < 3.10
+    _name: str = field(default="", kw_only=False)
+
     _type_section: ClassVar[str] = ""
     _template_section: ClassVar[str] = ""
 
     _type_metadata: ClassVar[Optional[Dict[str, str]]] = None
-
     _metadata: Dict[str, str] = dataclasses.field(default_factory=dict)
 
-    _name: str = ""
-
     # XXX version (type and template?)
+
+    @classmethod
+    def set_source(cls, requirement: Any, reference: Any) -> None:
+        """
+        Create a constraint that sets a requirement to the source of the property reference.
+
+        Should be called from ``_set_constraints(cls)``. For example,
+
+        ``cls._set_source(cls.requirement, cls.property)``
+
+        is equivalent to:
+
+        ``cls.requirement = cls.property``
+
+        But this method can be used to avoid static type checker complaints with that assignment.
+        """
+        if isinstance(requirement, FieldProjection):
+            requirement = requirement.field
+        if isinstance(requirement, _Tosca_Field):
+            if requirement.owner != cls:
+                raise ValueError(f"Field {requirement} isn't owned by {cls}")
+            return requirement.set_constraint(reference)
+        raise TypeError(
+            f"{requirement} isn't a TOSCA field -- this method should be called from _set_constraints()"
+        )
 
     def to_yaml(self, dict_cls=dict) -> Optional[dict]:
         # XXX directives, metadata, everything else
@@ -1234,12 +1310,16 @@ class _ToscaTypeProxy:
         self.proxy_cls = cls
 
     def __getattr__(self, name):
-        # XXX check attribute in proxy_cls.__annotations__
-        # including inherited
-        #     # attribute access as Refs (refs need to chain)
-        #     return _AttrRef(name)
-        # for now, assume its an artifact
-        return _ArtifactProxy(name)
+        attr = getattr(self.proxy_cls, name)
+        if isinstance(attr, ArtifactType):
+            return _ArtifactProxy(name)
+        else:
+            fields = self.proxy_cls.__dataclass_fields__
+            field = fields.get(name)
+            if field and isinstance(field, _Tosca_Field):
+                return _Ref(dict(eval=".::" + field.as_ref_expr()))
+            else:
+                return attr
 
     def find_artifact(self, name_or_tpl):
         return _ArtifactProxy(name_or_tpl)

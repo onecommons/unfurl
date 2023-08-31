@@ -1,15 +1,21 @@
+import inspect
+from typing import Optional
+
+import pytest
 from unfurl.merge import diff_dicts
 import sys
+
 try:
     from tosca import yaml2python
 except ImportError:
     print(sys.path)
     raise
-from tosca.python2yaml import convert_to_tosca, dump_yaml
+from tosca.python2yaml import PythonToYaml, convert_to_tosca, dump_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
 import tosca
+
 
 def _to_python(yaml_str: str):
     tosca_yaml = load_yaml(yaml, yaml_str)
@@ -27,7 +33,7 @@ def _to_python(yaml_str: str):
 
 
 def _to_yaml(python_src: str) -> dict:
-    namespace = {}
+    namespace: dict = {}
     tosca_tpl = convert_to_tosca(python_src, namespace)
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
@@ -72,10 +78,12 @@ def test_builtin_generation():
         diffs = diff_dicts(
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
-        print(yaml2python.value2python_repr(diffs))
+        # print(yaml2python.value2python_repr(diffs))
         if diffs:
             # these diffs exist because requirements include inherited types
-            diffs.pop('tosca.nodes.Root', None) # this one might exist depending on test execution order
+            diffs.pop(
+                "tosca.nodes.Root", None
+            )  # this one might exist depending on test execution order
             assert section == "node_types" and len(diffs) == 5
 
 
@@ -120,6 +128,7 @@ class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
         )
 foo = 1
 """
+
 
 def test_default_operations():
     src, src_tpl = _to_python(default_operations_yaml)
@@ -167,6 +176,7 @@ class WordPress(tosca.nodes.WebApplication):
     "Description of the database_endpoint requirement"
 '''
 
+
 def test_example_wordpress():
     src, src_tpl = _to_python(example_wordpress_yaml)
     tosca_tpl = _to_yaml(src)
@@ -175,23 +185,74 @@ def test_example_wordpress():
     tosca_tpl2 = _to_yaml(example_wordpress_python)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
 
-def test_set_constraints():
+
+def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
+        shellScript = tosca.artifacts.Root("example.sh")  # (file="example.sh")
+        prop1: Optional[str] = tosca.Ref()
+        host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
-      shellScript = tosca.artifacts.Root() # (file="example.sh")
-      prop1: str | None
-      host: tosca.nodes.Compute = tosca.Requirement(default=None)
+        @classmethod
+        def _set_constraints(cls) -> None:
+            cls.host.public_address = cls.prop1 or ""
 
-      @classmethod
-      def _set_constraints(cls):
-          cls.host = tosca.nodes.Compute()
-          cls.prop1 = cls.host.os.distribution 
+            with pytest.raises(ValueError) as e_info1:
+                cls.host.host = cls.host.host
+            assert '"host" is a capability, not a TOSCA property' in str(e_info1)
 
-      def create(self):
-          return self.shellScript.execute(input1=self.prop1)
+            # XXX need to add anonymous templates created and assigned here to yaml
+            cls.host = tosca.nodes.Compute("my_compute")
+            cls.prop1 = cls.host.os.distribution
+            # same as cls.host = cls.prop1 but avoids the static type mismatch error
+            cls.set_source(cls.host, cls.prop1)
 
-    my_template = Example()
-    # assert my_template.prop1 == {'eval': '.targets::host::.capabilities[.name=os]::distribution'}
+        def create(self) -> tosca.artifacts.Root:
+            return self.shellScript.execute(input1=self.prop1)
+
+    # print( str(inspect.signature(Example.__init__)) )
+
+    my_template = Example("my_template")
+
+    assert my_template.prop1 == {"eval": "::my_template::prop1"}
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    assert yaml_dict["node_types"] == {
+        "Example": {
+            "derived_from": "tosca.nodes.Root",
+            "properties": {
+                "prop1": {
+                    "type": "string",
+                    "required": False,
+                    "default": {
+                        "eval": ".targets::host::.capabilities[.name=os]::distribution"
+                    },
+                }
+            },
+            "requirements": [
+                {
+                    "host": {
+                        "node": "tosca.nodes.Compute",  # XXX should reference my_compute
+                        "node_filter": {
+                            "match": [{"eval": "prop1"}],
+                            "properties": [{"public_address": {"eval": "prop1"}}],
+                        },
+                    }
+                }
+            ],
+            "interfaces": {
+                "Standard": {
+                    "operations": {
+                        "create": {
+                            "implementation": {"primary": "shellScript"},
+                            "inputs": {"input1": {"eval": ".::prop1"}},
+                        }
+                    }
+                }
+            },
+        }
+    }
+
 
 if __name__ == "__main__":
     dump = True
