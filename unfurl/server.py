@@ -21,6 +21,7 @@ The server manage local clones of remote git repositories and uses a in-memory o
 # But if access fails when attempting to clone the repository, the repository is accessed the using the standard project loader, which makes clone local to the project using the project repository's credentials (if on the same host) (see ``apply_url_credentials``), and the loaded files are not cached.
 
 from dataclasses import dataclass, field
+import json
 import os
 from pathlib import Path
 import time
@@ -122,6 +123,8 @@ if git_user_name:
     os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
     os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
     os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
+
+UNFURL_SERVER_DEBUG_PATCH = os.environ.get("UNFURL_TEST_SERVER_DEBUG_PATCH")
 
 def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend = cache.cache
@@ -1573,7 +1576,7 @@ def _patch_environment(body: dict, project_id: str):
     localConfig.config.save()
     if not was_dirty:
         if repo.is_dirty():
-            commit_msg = body.get("commit_msg", "Update environment")
+            commit_msg = _get_commit_msg(body, "Update environment")
             err = _commit_and_push(
                 repo,
                 cast(str, localConfig.config.path),
@@ -1655,6 +1658,14 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
         manifest.get_tosca_file_path(),
     )
 
+def _get_commit_msg(body, default_msg):
+    msg = body.get("commit_msg", default_msg)
+    if UNFURL_SERVER_DEBUG_PATCH:
+        body.pop("username", None)
+        body.pop("private_token", None)
+        body.pop("password", None)
+        msg += '\n' + json.dumps(body, indent=2)
+    return msg 
 
 def _patch_ensemble(
     body: dict, create: bool, project_id: str, check_lastcommit=True
@@ -1738,7 +1749,7 @@ def _patch_ensemble(
             clone_location,
         )
     else:
-        commit_msg = body.get("commit_msg", "Update deployment")
+        commit_msg = _get_commit_msg(body, "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, True)
         if committed or create:
