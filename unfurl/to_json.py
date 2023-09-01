@@ -51,6 +51,7 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
+from .plan import _get_templates_from_topology
 from .repo import sanitize_url
 from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
@@ -61,6 +62,7 @@ from .tosca import (
     NodeSpec,
     TopologySpec,
     ToscaSpec,
+    _get_roots,
     is_function,
     get_nodefilters,
 )
@@ -1192,14 +1194,20 @@ def _get_or_make_primary(
         if nested:
             # find all the default nodes that are being referenced by another template
             assert spec.topology
+            # this will find the required nodes
+            list(_get_templates_from_topology(spec.topology, set(), None))
             dh = spec.topology.node_templates.get("dockerhost")
+            assert dh
             placeholders = [
                 node
                 for node in spec.topology.node_templates.values()
-                if ("default" in node.directives or node.name in spec.overridden_default_templates)
+                if (
+                    "default" in node.directives
+                    or node.name in spec.overridden_default_templates
+                )
                 and node.type
                 != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
-                and node.toscaEntityTemplate.get_relationship_templates()
+                and node.required
             ]
             types = _get_types(db)
             jsontype = types.get(root_type.type)
