@@ -752,7 +752,7 @@ def node_type_to_graphql(
         custom_defs, (p[0] for p in propertydefs if not p[1]), None
     )
 
-    if not type_definition.is_derived_from("tosca.nodes.Root"):
+    if not isinstance(type_definition, NodeType):
         return jsontype
 
     # treat each capability as a complex property
@@ -791,6 +791,18 @@ def _make_typedef(
     test_typedef = StatefulEntityType(
         typename, StatefulEntityType.NODE_PREFIX, custom_defs
     )
+    if not test_typedef.defs:
+        logger.warning("Missing type definition for %s", typename)
+        return typedef
+    elif "derived_from" not in test_typedef.defs:
+        _source = test_typedef.defs.get("_source")
+        section = isinstance(_source, dict) and _source.get("section")
+        if _source and not section:
+            logger.warning('Unable to determine type of %s: missing "derived_from" key', typename)
+        elif section == "node_types":
+            custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
+        elif section == "relationship_types":
+            custom_defs[typename]["derived_from"] = "tosca.relationships.Root"
     if test_typedef.is_derived_from("tosca.nodes.Root"):
         typedef = NodeType(typename, custom_defs)
     elif test_typedef.is_derived_from("tosca.relationships.Root"):
@@ -1082,7 +1094,7 @@ def nodetemplate_to_json(
         json["visibility"] = visibility
         logger.debug(f"setting visibility {visibility} on template {nodetemplate.name}")
 
-    if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
+    if not isinstance(nodetemplate.type_definition, NodeType):
         return json
 
     # treat each capability as a complex property
