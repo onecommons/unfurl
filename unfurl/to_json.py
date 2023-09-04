@@ -17,7 +17,6 @@ import sys
 import itertools
 import json
 import datetime
-from time import perf_counter
 import traceback
 from typing import (
     Any,
@@ -27,9 +26,7 @@ from typing import (
     NewType,
     Optional,
     Tuple,
-    Union,
     cast,
-    TYPE_CHECKING,
 )
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
@@ -55,19 +52,17 @@ from .plan import _get_templates_from_topology
 from .repo import sanitize_url
 from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
-from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
 from .tosca import (
     EntitySpec,
     NodeSpec,
     TopologySpec,
     ToscaSpec,
-    _get_roots,
     is_function,
     get_nodefilters,
 )
 from .util import to_enum, UnfurlError
-from .support import Status, is_template
+from .support import Status
 from .result import ChangeRecord
 from .localenv import LocalEnv, Project
 
@@ -798,7 +793,9 @@ def _make_typedef(
         _source = test_typedef.defs.get("_source")
         section = isinstance(_source, dict) and _source.get("section")
         if _source and not section:
-            logger.warning('Unable to determine type of %s: missing "derived_from" key', typename)
+            logger.warning(
+                'Unable to determine type of %s: missing "derived_from" key', typename
+            )
         elif section == "node_types":
             custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
         elif section == "relationship_types":
@@ -1208,8 +1205,6 @@ def _get_or_make_primary(
             assert spec.topology
             # this will find the required nodes
             list(_get_templates_from_topology(spec.topology, set(), None))
-            dh = spec.topology.node_templates.get("dockerhost")
-            assert dh
             placeholders = [
                 node
                 for node in spec.topology.node_templates.values()
