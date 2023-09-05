@@ -1200,7 +1200,7 @@ def _get_or_make_primary(
 
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
-        if nested:
+        if True: # nested
             # find all the default nodes that are being referenced by another template
             assert spec.topology
             # this will find the required nodes
@@ -1889,7 +1889,7 @@ def to_environments(
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
     db["DeploymentEnvironment"] = environments
-    if blueprintdb:
+    if False: # blueprintdb:
         # XXX re-enable this?
         # if blueprintdb.get("repositories", {}).get("types"):
         #     # don't include ResourceTypes if we are including a types repository
