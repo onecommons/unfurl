@@ -70,7 +70,7 @@ def install():
     global installed
     if installed:
         return
-    sys.meta_path.insert(0, RepositoryFinder())
+    # sys.meta_path.insert(0, RepositoryFinder())
     # XXX needed? this breaks imports in local scope somehow:
     # sys.path_hooks.insert(0, FileFinder.path_hook(loader_details))
     installed = True

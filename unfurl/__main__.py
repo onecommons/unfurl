@@ -1159,7 +1159,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 def python_to_yaml(python_src: str, path=None) -> dict:
     from tosca.python2yaml import convert_to_tosca
     from unfurl.yamlloader import yaml
-
+    sys.path.append("")
     namespace: dict = {}
     tosca_tpl = convert_to_tosca(python_src, namespace)
     if path:
