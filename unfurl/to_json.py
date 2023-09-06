@@ -807,7 +807,9 @@ def _make_typedef(
     return typedef
 
 
-def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
+def _update_root_type(
+    jsontype: GraphqlObject, sub_map: SubstitutionMappings, topology: TopologySpec
+):
     "Modify a type representation so that it can be used with template with a nested topology."
 
     # don't display any properties set by the inner topology
@@ -822,12 +824,34 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
             jsontype["computedPropertiesSchema"]["properties"].pop(name, None)
 
     # make optional any requirements that were set in the inner topology
+    # or have a predefined match (since it would hidden be in the nested topology)
     names = sub_map.get_declared_requirement_names()
-    for req in jsontype.get("requirements", []):
-        if req["name"] in names:
+    for req in jsontype.setdefault("requirements", []):
+        if req["name"] in names or req["match"]:
             req["min"] = 0
+            req["match"] = None
     # templates created with this type need to have the substitute directive
     jsontype["directives"] = ["substitute"]
+    # find all the default nodes that are being referenced directly or indirectly
+    # this will find the required nodes
+    list(_get_templates_from_topology(topology, set(), None))
+    placeholders = [
+        node
+        for node in topology.node_templates.values()
+        if (
+            "default" in node.directives
+            or node.name in topology.spec.overridden_default_templates
+        )
+        and node.type != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
+        and node.required
+    ]
+    # add those as requirement on the root type
+    for node in placeholders:
+        # XXX copy node_filter and metadata from get_relationship_templates()
+        req = {node.name: dict(node=node.type)}
+        req_json = requirement_to_graphql(topology, req, True, include_matches=False)
+        if req_json:
+            jsontype["requirements"].append(req_json)
 
 
 def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByName:
@@ -845,7 +869,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
             typedef = sub_map.node_type
             if typedef:
                 jsontype = node_type_to_graphql(nested_topology, typedef, types)
-                _update_root_type(jsontype, sub_map)
+                _update_root_type(jsontype, sub_map, nested_topology)
 
     if include_all:
         for typename in custom_defs:
@@ -1197,39 +1221,17 @@ def _get_or_make_primary(
     if topology.substitution_mappings:
         root_type = topology.substitution_mappings.node_type
         root = topology.substitution_mappings._node_template
-
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
-        if True: # nested
-            # find all the default nodes that are being referenced by another template
+        if nested:
             assert spec.topology
-            # this will find the required nodes
-            list(_get_templates_from_topology(spec.topology, set(), None))
-            placeholders = [
-                node
-                for node in spec.topology.node_templates.values()
-                if (
-                    "default" in node.directives
-                    or node.name in spec.overridden_default_templates
-                )
-                and node.type
-                != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
-                and node.required
-            ]
             types = _get_types(db)
             jsontype = types.get(root_type.type)
             if not jsontype:
                 jsontype = node_type_to_graphql(spec.topology, root_type, types)
             assert jsontype
-            jsontype["directives"] = ["substitution"]
-            for node in placeholders:
-                # XXX copy node_filter and metadata from get_relationship_templates()
-                req = {node.name: dict(node=node.type)}
-                req_json = requirement_to_graphql(
-                    spec.topology, req, True, include_matches=False
-                )
-                if req_json:
-                    jsontype["requirements"].append(req_json)
+            assert topology.substitution_mappings
+            _update_root_type(jsontype, topology.substitution_mappings, spec.topology)
         # if no property mapping in use, generate a new root template if there are any missing inputs
         elif (
             not topology.substitution_mappings
@@ -1257,7 +1259,7 @@ def _get_or_make_primary(
     else:
         root = _generate_primary(spec, db)
 
-    assert root
+    assert root and root.type
     return root.name, root.type
 
 
@@ -1850,7 +1852,6 @@ def to_environments(
     db = _load_db(file)
     environments = {}
     all_connection_types = cast(ResourceTypesByName, {})
-    blueprintdb = None
     assert localEnv.project
     deployment_paths = get_deploymentpaths(localEnv.project)
     env_deployments = {}
@@ -1889,16 +1890,6 @@ def to_environments(
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
     db["DeploymentEnvironment"] = environments
-    if False: # blueprintdb:
-        # XXX re-enable this?
-        # if blueprintdb.get("repositories", {}).get("types"):
-        #     # don't include ResourceTypes if we are including a types repository
-        #     db["ResourceType"] = all_connection_types
-        #     return db
-
-        # add the rest of the types too
-        # XXX is it safe to only include types with "connect" implementations?
-        all_connection_types.update(_get_types(blueprintdb))
     db["ResourceType"] = cast(GraphqlObjectsByName, all_connection_types)
     db["DeploymentPath"] = deployment_paths
     return db

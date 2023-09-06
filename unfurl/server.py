@@ -1019,7 +1019,7 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                         typeinfo["description"] = notable["description"]
                     # XXX hack, always set for root type:
                     typeinfo["implementations"] = ["connect", "create"]
-                    typeinfo["directives"] = ["substitution"]
+                    typeinfo["directives"] = ["substitute"]
                     types[typeinfo["name"]] = typeinfo
     return err, types
 
