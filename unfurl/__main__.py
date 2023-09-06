@@ -1156,6 +1156,19 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         click.echo(statuses)
 
 
+def python_to_yaml(python_src: str, path=None) -> dict:
+    from tosca.python2yaml import convert_to_tosca
+    from unfurl.yamlloader import yaml
+
+    namespace: dict = {}
+    tosca_tpl = convert_to_tosca(python_src, namespace)
+    if path:
+        with open(path, "w") as yo:
+            yaml.dump(tosca_tpl, yo)
+    else:
+        yaml.dump(tosca_tpl, sys.stdout)
+    return tosca_tpl
+
 @cli.command()
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=False))
@@ -1176,11 +1189,17 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     default=None,
     help="Write json export to this file instead of the console.",
 )
-def export(ctx, project_or_ensemble_path, format, file, **options):
+def export(ctx, project_or_ensemble_path: str, format, file, **options):
     """Export ensemble in a simplified json format or as Python source."""
     from . import to_json
 
     options.update(ctx.obj)
+
+    if project_or_ensemble_path.endswith(".py"):
+        with open(project_or_ensemble_path) as f:
+            python_to_yaml(f.read(), file)
+        return
+
     localEnv = LocalEnv(
         project_or_ensemble_path,
         options.get("home"),
