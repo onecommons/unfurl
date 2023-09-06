@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from .builtin_types import policies
     from .builtin_types import groups
 
-
 def __getattr__(name):
     if name in _tosca_types_str:
         from . import builtin_types

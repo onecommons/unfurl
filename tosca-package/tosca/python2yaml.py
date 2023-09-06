@@ -13,24 +13,16 @@ from typing import (
 from pathlib import Path
 from toscaparser import topology_template
 from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
-from ast import NodeTransformer, Str, Constant, Name
+from ast import Str, Constant, Name
 import ast
-from ._tosca import _DataclassType
+from ._tosca import _DataclassType, ToscaType, global_state
 from RestrictedPython import compile_restricted_exec
 from RestrictedPython import RestrictingNodeTransformer
 from RestrictedPython import safe_builtins
+
 # see https://restrictedpython.readthedocs.io/en/latest/usage/basic_usage.html#necessary-setup
-
-# No restrictions.
-default_guarded_getattr = getattr
-
-def default_guarded_getitem(ob, index):
-    # No restrictions.
-    return ob[index]
-
-def default_guarded_getiter(ob):
-    # No restrictions.
-    return ob
+# https://github.com/zopefoundation/RestrictedPython
+# https://github.com/zopefoundation/zope.untrustedpython
 
 
 class PythonToYaml:
@@ -63,7 +55,12 @@ class PythonToYaml:
         return root_module, path.relative_to(repo_path)
 
     def module2yaml(self) -> dict:
-        self._namespace2yaml(self.globals)
+        mode = global_state.mode
+        try:
+            global_state.mode = "yaml"
+            self._namespace2yaml(self.globals)
+        finally:
+            global_state.mode = mode
         self.add_repositories_and_imports()
         return self.sections
 
@@ -82,8 +79,18 @@ class PythonToYaml:
         if imports:
             self.sections.setdefault("import", []).extend(imports)
 
+    def add_template(self, obj: ToscaType, name: str = "") -> str:
+        section = self.sections["topology_template"].setdefault(obj._template_section, self.yaml_cls())
+        name = obj._name or name
+        if name not in section:
+            section[name] = obj  # placeholder to prevent circular references
+            section[name] = obj.to_template_yaml(self)
+        return name
+  
     def _namespace2yaml(self, namespace):
-        current_module = self.globals.get("__name__", "builtins")  # exec() adds to builtins
+        current_module = self.globals.get(
+            "__name__", "builtins"
+        )  # exec() adds to builtins
         path = self.globals.get("__file__")
         topology_sections: Dict[str, Any] = self.sections["topology_template"]
 
@@ -112,21 +119,23 @@ class PythonToYaml:
                     continue
                 # this is a class not an instance
                 section = obj._type_section  # type: ignore
-                to_yaml = obj._cls_to_yaml  # type: ignore
                 obj._globals = self.globals  # type: ignore
-                obj._namespace = namespace  # type: ignore
                 _docstrings = self.docstrings.get(name)
                 if isinstance(_docstrings, dict):
                     obj._docstrings = _docstrings  # type: ignore
+                as_yaml = obj._cls_to_yaml(self) # type: ignore
+                self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
+            elif isinstance(obj, ToscaType):
+                self.add_template(obj, name)
             else:
                 section = getattr(obj, "_template_section", None)
                 to_yaml = getattr(obj, "to_yaml", None)
-            if section:
-                assert to_yaml
-                parent = self.sections
-                if section in topology_template.SECTIONS:
-                    parent = topology_sections
-                parent.setdefault(section, {}).update(to_yaml())
+                if section:
+                    assert to_yaml
+                    parent = self.sections
+                    if section in topology_template.SECTIONS:
+                        parent = topology_sections
+                    parent.setdefault(section, self.yaml_cls()).update(to_yaml(self.yaml_cls))
 
 
 def dump_yaml(namespace, out=sys.stdout):
@@ -147,25 +156,57 @@ def doc_str(node):
             return str(node.value.s)
     return None
 
+
 def get_descriptions(body):
     doc_strings = {}
     current_name = None
     for node in body:
-        if isinstance(node, AnnAssign)  and isinstance(node.target, Name):
+        if isinstance(node, AnnAssign) and isinstance(node.target, Name):
             current_name = node.target.id
             continue
         elif current_name and doc_str(node):
             doc_strings[current_name] = doc_str(node)
         current_name = None
-    return doc_strings   
+    return doc_strings
 
-class OwnRestrictingNodeTransformer(RestrictingNodeTransformer):
+
+default_guarded_getattr = getattr  # No restrictions.
+
+
+def default_guarded_getitem(ob, index):
+    # No restrictions.
+    return ob[index]
+
+
+def default_guarded_getiter(ob):
+    # No restrictions.
+    return ob
+
+def default_guarded_write(ob):
+    # No restrictions.
+    return ob
+
+# _inplacevar_
+# _iter_unpack_sequence_
+
+
+class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
         super().__init__(errors, warnings, used_names)
-        # self.used_names
+
+    def _name_ok(self, node, name):
+        return True  # XXX
+
+    def error(self, node, info):
+        # visit_Attribute() checks inline instead of calling check_name()
+        if 'invalid attribute name because it starts with "_"' in info:
+            if self._name_ok(node, node.attr):
+                return
+        super().error(node, info)
 
     def check_name(self, node, name, allow_magic_methods=False):
-        return
+        if not self._name_ok(node, name):
+            self.error(node, f'"{name}" is an invalid variable name"')
 
     def check_import_names(self, node):
         # XXX
@@ -179,6 +220,7 @@ class OwnRestrictingNodeTransformer(RestrictingNodeTransformer):
         self.used_names[node.name] = doc_strings
         return super().visit_ClassDef(node)
 
+
 def convert_to_tosca(
     python_src: str,
     namespace: Optional[Dict[str, Any]] = None,
@@ -188,17 +230,24 @@ def convert_to_tosca(
     if namespace is None:
         namespace = {}
     tosca_builtins = safe_builtins.copy()
-    tosca_builtins['__import__'] = __import__
+    tosca_builtins["__import__"] = __import__
     tosca_builtins["__metaclass__"] = type
-    namespace.update( {
-            '_getattr_': default_guarded_getattr,
-            '_getitem_': default_guarded_getitem,
-            '_getiter_': default_guarded_getiter,
-        } )
+    tosca_builtins["classmethod"] = classmethod
+    tosca_builtins["staticmethod"] = staticmethod
+    namespace.update(
+        {
+            "_getattr_": default_guarded_getattr,
+            "_getitem_": default_guarded_getitem,
+            "_getiter_": default_guarded_getiter,
+            "_write_": default_guarded_write,
+        }
+    )
 
-    namespace['__builtins__'] = tosca_builtins
-    namespace['__name__'] = "builtins"
-    result = compile_restricted_exec(python_src, policy=OwnRestrictingNodeTransformer)
+    namespace["__builtins__"] = tosca_builtins
+    namespace["__name__"] = "builtins"
+    if path:
+        namespace["__file__"] = path
+    result = compile_restricted_exec(python_src, policy=ToscaDslNodeTransformer)
     # doc strings are in here: result.used_names
     if result.errors:
         return {}

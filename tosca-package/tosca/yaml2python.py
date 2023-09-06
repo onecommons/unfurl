@@ -912,8 +912,11 @@ class Convert:
         return src
 
     def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
-        assert self.template.import_resolver
-        kw = self.template.import_resolver.find_implementation(op)
+        kw = (
+            self.template.import_resolver.find_implementation(op)
+            if self.template.import_resolver
+            else None
+        )
         cmd = ""
         if kw is None:
             if isinstance(op.implementation, dict):
@@ -1052,13 +1055,14 @@ class Convert:
             src += (
                 f"{field_name}={self._get_prop_value_repr(prop.schema, prop.value)},\n"
             )
-        # note: toscaparser doesn't support declared attributes currently
+        # note: the toscaparser doesn't support declared attributes currently
+        src += ")"  # close ctor
+        # add these as attribute statements
         # XXX capabilities
         # XXX requirements
-        src += ")"
-        # XXX interfaces, operations
+        # XXX operations: declare than assign
         if node_template.description and node_template.description.strip():
-            src += f"{indent}{name} = " + add_description(
+            src += f"{indent}{name}._description = " + add_description(
                 node_template.description, indent
             )
         return src
@@ -1097,7 +1101,9 @@ def generate_builtins(import_resolver, format=True) -> str:
     custom_defs = EntityType.TOSCA_DEF.copy()
     custom_defs["tosca.nodes.Root"] = custom_defs["tosca.nodes.Root"].copy()
     # remove the Install interface, we need to manually add it later
-    custom_defs["tosca.nodes.Root"]["interfaces"] = {'Standard': {'type': 'tosca.interfaces.node.lifecycle.Standard'}}
+    custom_defs["tosca.nodes.Root"]["interfaces"] = {
+        "Standard": {"type": "tosca.interfaces.node.lifecycle.Standard"}
+    }
 
     return convert_service_template(
         ToscaTemplate(

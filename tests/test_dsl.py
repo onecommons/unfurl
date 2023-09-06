@@ -188,7 +188,7 @@ def test_example_wordpress():
 
 def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
-        shellScript = tosca.artifacts.Root("example.sh")  # (file="example.sh")
+        shellScript: tosca.artifacts.Root = tosca.artifacts.Root("example.sh")  # (file="example.sh")
         prop1: Optional[str] = tosca.Ref()
         host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
@@ -229,6 +229,7 @@ def test_set_constraints() -> None:
                     },
                 }
             },
+            'artifacts': {'shellScript': {'type': 'tosca.artifacts.Root'}},
             "requirements": [
                 {
                     "host": {
