@@ -1,0 +1,19 @@
+apiVersion: unfurl/v1alpha1
+kind: Project
++?include-local: local/unfurl.yaml
+environments:
+  defaults:
+    instances:
+      dns-zone:
+        type: UnfurlUserDNSZone
+        metadata:
+          title: Unfurl Cloud DNS
+    secrets:
+      vault_secrets:
+        default: # leaving secret value blank, expecting a UNFURL_VAULT_DEFAULT_PASSWORD environment variable
+    repositories:
+      types:
+        url: https://unfurl.cloud/onecommons/unfurl-types.git
+
+ensembles:
+  - file: nestedcloud.yaml

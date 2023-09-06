@@ -1,0 +1,51 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
++include:
+  file: ensemble-template.yaml
+  repository: spec
+environment:
+  deployment_blueprint: nestedcloud-gcp-6
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        the_app:
+          type: Nestedcloud
+          directives: []
+          properties: {}
+          requirements:
+          - nested:
+              node: cachetapp
+              metadata:
+                visibility: visible
+        cachetapp:
+          type: CachetApp
+          metadata:
+            title: CachetApp
+          directives:
+          - substitute
+          properties:
+            cachet_version: 2.3.15
+            subdomain: cachet
+            database_name: cachet
+    repositories:
+    # Files that are shared across ensemble instances should be placed in this "spec" repository
+      spec:
+        # added v for `attempt to pull latest from https://unfurl.cloud/onecommons/blueprints/cachet.git v2023-09-06 into /home/amdrew/.unfurl_home/cachet/ failed:  fatal: couldn't find remote ref v2023-09-06`
+        url: https://gitlab.com/onecommons/testing/nestedcloud.git#v2023-09-06:.
+      cachet:
+        url: https://unfurl.cloud/onecommons/blueprints/cachet.git#v2023-09-06
+    imports:
+    - file: ensemble-template.yaml#spec/service_template
+      repository: cachet
+  deployment_blueprints:
+    nestedcloud-gcp-6:
+      title: Nestedcloud GCP 6
+      cloud: unfurl.relationships.ConnectsTo.GoogleCloudProject
+      description: Deploy using Google Compute Engine
+      primary: the_app
+      resource_templates: {}
+      projectPath: onecommons/blueprints/nestedcloud
+      source: gcp
+metadata:
+  uri: http://workhorse:8181/user-20230823T225516326Z/dashboard.git#:environments/gcp4/onecommons/blueprints/nestedcloud/nestedcloud-gcp-6/ensemble.yaml
