@@ -256,7 +256,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None
     ):
         self.manifest = manifest
-        self.readonly = bool(manifest and manifest.localEnv and manifest.localEnv.readonly)
+        self.readonly = bool(
+            manifest and manifest.localEnv and manifest.localEnv.readonly
+        )
         self.ignoreFileNotFound = ignoreFileNotFound
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
@@ -625,9 +627,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             is_file = True
         return self._really_load_yaml(path, is_file, fragment)
 
-    def _convert_to_yaml(self, contents, path, yaml_dict: type=dict):
+    def _convert_to_yaml(self, contents, path, yaml_dict: type = dict):
         if path.endswith(".py"):
             from tosca.python2yaml import convert_to_tosca
+
             self.expand = False
             namespace: Dict[str, Any] = {}
             yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict)
@@ -946,6 +949,9 @@ class YamlConfig:
         else:
             value = None
             key = templatePath
+
+        if not isinstance(key, str):
+            raise UnfurlError(f"Invalid include: {key}")
 
         if self.loadHook:
             # give loadHook change to transform key
