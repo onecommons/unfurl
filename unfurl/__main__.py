@@ -31,7 +31,7 @@ from .job import start_job, Job
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import filter_env, get_package_digest
+from .util import filter_env, get_base_dir, get_package_digest
 
 if TYPE_CHECKING:
     from repo import RepoView
@@ -1156,18 +1156,22 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         click.echo(statuses)
 
 
-def python_to_yaml(python_src: str, path=None) -> dict:
+def python_to_yaml(src_path: str, dest_path=None) -> dict:
     from tosca.python2yaml import convert_to_tosca
     from unfurl.yamlloader import yaml
-    sys.path.append("")
+
+    with open(src_path) as f:
+        python_src = f.read()
+    sys.path.insert(0, get_base_dir(src_path))
     namespace: dict = {}
     tosca_tpl = convert_to_tosca(python_src, namespace)
-    if path:
-        with open(path, "w") as yo:
+    if dest_path:
+        with open(dest_path, "w") as yo:
             yaml.dump(tosca_tpl, yo)
     else:
         yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
+
 
 @cli.command()
 @click.pass_context
@@ -1209,14 +1213,19 @@ def export(ctx, project_or_ensemble_path: str, format, file, **options):
     if format == "python":
         from tosca import yaml2python
 
-        manifest = localEnv.get_manifest(skip_validation=True,) # XXX safe_mode=True
+        manifest = localEnv.get_manifest(
+            skip_validation=True,
+        )  # XXX safe_mode=True
         assert manifest.tosca and manifest.tosca.template
-        python_path = Path(manifest.get_base_dir()) / (
-            re.sub(r"\W", "_", Path(localEnv.manifestPath).stem) + ".py"
+        if not file:
+            file = Path(manifest.get_base_dir()) / (
+                re.sub(r"\W", "_", Path(localEnv.manifestPath).stem) + ".py"
+            )
+        python_src = yaml2python.convert_service_template(
+            manifest.tosca.template, path=str(file)
         )
-        python_src = yaml2python.convert_service_template(manifest.tosca.template, path=python_path)
         logger = logging.getLogger("unfurl")
-        logger.info("Export to %s", python_path)
+        logger.info("Export to %s", file)
         return
 
     exporter = getattr(to_json, "to_" + format)
