@@ -1496,6 +1496,20 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
     return blueprint, template
 
 
+def _add_repositories(db: dict, tpl: dict):
+    imports_tpl = tpl.get("imports")
+    repositories = {}
+    repositories_tpl = tpl.get("repositories") or {}
+    types_repo = repositories_tpl.get("types")
+    if types_repo:  # only export types, avoid built-in repositories
+        repositories["types"] = types_repo
+    if imports_tpl and isinstance(imports_tpl, list):
+        for imp_def in imports_tpl:
+            if isinstance(imp_def, dict) and "repository" in imp_def:
+                repository = imp_def["repository"]
+                if repository in repositories_tpl and repository != "unfurl":
+                    repositories[repository] = repositories_tpl[repository]
+
 def _to_graphql(
     localEnv: LocalEnv,
     root_url: str = "",
@@ -1507,9 +1521,7 @@ def _to_graphql(
     assert spec
     tpl = spec.template.tpl
     assert spec.topology and tpl
-    types_repo = tpl.get("repositories").get("types")
-    if types_repo:  # only export types, avoid built-in repositories
-        db["repositories"] = {"types": types_repo}
+    _add_imports(db, tpl)
     types = to_graphql_nodetypes(spec, bool(root_url))
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
