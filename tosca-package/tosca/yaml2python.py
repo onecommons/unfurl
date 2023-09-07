@@ -305,12 +305,12 @@ class Convert:
 
     def convert_import(self, tpl) -> Tuple[str, str]:
         repository = tpl.get("repository")
-        in_package = False  # XXX
         import_path = os.path.dirname(self.template.path or "")
         if repository:
             module_name, import_path = self.find_repository(repository)
         else:
-            module_name = "." if in_package else ""
+            absolute = os.path.isabs(import_path)
+            module_name = "." if not absolute else ""
 
         dirname, filename = os.path.split(tpl.get("file"))
         # strip out file extension if present
@@ -333,8 +333,10 @@ class Convert:
         if module_name:
             if uri_prefix:
                 import_stmt = f"from {module_name} import {file_name} as {uri_prefix}"
-            else:
+            elif module_name != ".":
                 import_stmt = f"from {module_name}.{file_name} import *"
+            else:
+                import_stmt = f"from .{file_name} import *"
         else:
             if uri_prefix:
                 import_stmt = f"import {file_name} as {uri_prefix}"
