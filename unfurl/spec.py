@@ -15,7 +15,7 @@ from .util import (
     check_class_registry,
     env_var_value,
 )
-from .eval import Ref, RefContext, SafeRefContext, map_value
+from .eval import Ref, SafeRefContext, map_value, analyze_expr
 from .result import ExternalValue, ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
@@ -585,16 +585,30 @@ class ToscaSpec:
     def get_repository(self, name: str):
         return self.template and self.template.repositories.get(name)
 
-    def find_matching_node(self, relTpl, req_name, req_def):
+    def find_matching_node(self, relTpl, req_name, req_def: dict):
         if relTpl.target:
-            # found a match already
+            # found a match already (currently not set)
             # XXX validate that it matches any constraints
             return relTpl.target, relTpl.capability
-        source = relTpl.source
-        node = req_def.get('node')
-        node_filter = req_def.get('node_filter')
-        capability = req_def.get('capability')
-        return source._find_matching_node(relTpl, req_name, node, capability, node_filter)
+        node: Optional[str] = req_def.get("node")
+        capability = req_def.get("capability")
+
+        # evaluate constraints to find a match:
+        source = self.node_from_template(relTpl.source)
+        if not source:
+            return None, None
+        assert source, relTpl.source
+        matches = source._find_requirement_candidates(req_def, node)
+        if len(matches) == 1:
+            match = list(matches)[0]
+            capabilities = relTpl.get_matching_capabilities(
+                match.toscaEntityTemplate, capability
+            )
+            if capabilities:
+                return match.toscaEntityTemplate, capabilities[0]
+        # XXX if node_filter
+        return None, None
+
 
 def find_env_vars(props_iter):
     for propdef, value in props_iter:
@@ -722,13 +736,14 @@ class EntitySpec(ResourceRef):
         # If it's plain property, return self
         # if the property is computed, resolve the expression as a template expression to recursively find the EntitySpec it depends on.
         prop = self.propertyDefs[key]
-        if prop.default and is_function(prop.default):
+        value = prop.value or prop.default
+        if value and is_function(value):
             # treat default like a constraint
-            # evaluate expression as a template expression and if it resolves to 
-            result = cast(list, Ref(prop.default).resolve(SafeRefContext(self)))
+            # evaluate expression as a template expression and if it resolves to
+            result = cast(list, Ref(value).resolve(SafeRefContext(self)))
             if result and isinstance(result[0], EntitySpec):
                 return result[0]
-        return self 
+        return self
 
     def _resolve(self, key):
         """Expose attributes to eval expressions"""
@@ -737,6 +752,10 @@ class EntitySpec(ResourceRef):
         if key in self.propertyDefs:
             return self._resolve_prop(key)
         raise KeyError(key)
+
+    @property
+    def all(self):
+        return self.topology.all
 
     def get_interfaces(self) -> List[OperationDef]:
         return self.toscaEntityTemplate.interfaces
@@ -911,6 +930,18 @@ def _get_roots(node: EntitySpec, seen=None):
             yield from _get_roots(parent, seen)
 
 
+def extract_req(expr, var_list=()) -> str:
+    result = analyze_expr(expr, var_list)
+    if not result:
+        return ""
+    expr_list = result.get_keys()
+    try:
+        i = expr_list.index(".targets")
+        return expr_list[i + 1]
+    except:
+        return ""  # not found
+
+
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(
@@ -931,6 +962,7 @@ class NodeSpec(EntitySpec):
         self._relationships: List["RelationshipSpec"] = []
         self._artifacts = None
         self._substitution: Optional["TopologySpec"] = None
+        # self._requirement_constraints: Optional[Dict[str, List[str]]] = None
 
     @property
     def substitution(self) -> Optional["TopologySpec"]:
@@ -990,7 +1022,7 @@ class NodeSpec(EntitySpec):
             for n, r in self.requirements.items()
             if r.relationship and r.relationship.target
         }
-    
+
     @property
     def requirements(self) -> Dict[str, "RequirementSpec"]:
         if self._requirements is None:
@@ -1106,7 +1138,7 @@ class NodeSpec(EntitySpec):
                     relSpec._isReferencedBy.append(self)  # type: ignore
                 break
         else:
-            msg = f'relationship not found for requirement "{reqSpec.name}" on "{reqSpec.parentNode}" targeting "{self.name}"'
+            msg = f'Relationship not found for requirement "{reqSpec.name}" on "{reqSpec.parentNode}" targeting "{self.name}"'
             ExceptionCollector.appendException(UnfurlValidationError(msg))
 
     @property
@@ -1132,6 +1164,56 @@ class NodeSpec(EntitySpec):
             raise UnfurlValidationError(
                 f"Node template {self.name} is missing requirements: {','.join(missing)}"
             )
+
+    # XXX what are the semantics to determine which properties imply this relationship?
+    # @property
+    # def requirement_constraints(self) -> Dict[str, List[str]]:
+    #     if self._requirement_constraints is None:
+    #         # for properties that are computed with expressions that depend on a requirement
+    #         # build a map of "reverse" expressions from the requirement to the property
+    #         # so that if requirement is missing we can compute it from the property if the property was set via another constraint
+    #         self._requirement_constraints = {}
+    #         for prop in self.propertyDefs.values():
+    #             # only consider the default expression declared on the type
+    #             if not is_function(prop.default):
+    #                 continue
+    #             requirement = extract_req(prop.default)
+    #             if requirement:  # if the property depends
+    #                 self._requirement_constraints.setdefault(requirement, []).append(f".::{prop.name}")
+
+    #         for name, req in self.requirements.items():
+    #             for prop, value in req.get_nodefilter_properties():
+    #                 if isinstance(value, dict):
+    #                     expr = value.get("eval")
+    #                     # if expr then this is a constraint, see if it points at a requirement
+    #                     # e.g. $SOURCE::.targets::{requirement}
+    #                     requirement = extract_req(expr, ["SOURCE"]) if expr else ""
+    #                     if requirement:
+    #                         # the requirement will match the node that set this property
+    #                         self._requirement_constraints.setdefault(requirement, []).append(
+    #                             f".targets::{name}::{prop}"
+    #                         )
+    #     return self._requirement_constraints
+
+    def _find_requirement_candidates(
+        self, req_tpl: dict, nodetype: Optional[str]
+    ) -> Set["NodeSpec"]:
+        "Return a list of nodes that match this requirement's constraints"
+        matches: Set[NodeSpec] = set()
+        for c in get_nodefilter_matches(req_tpl):
+            if is_function(c):
+                results = cast(
+                    List[NodeSpec], Ref(c).resolve(SafeRefContext(self, trace=0))
+                )
+            else:
+                match = self.topology.get_node_template(c)
+                if not match:
+                    continue
+                results = [match]
+            if nodetype:
+                results = [r for r in results if r.is_compatible_type(nodetype)]
+            matches.update(results)
+        return matches
 
 
 class RelationshipSpec(EntitySpec):
@@ -1229,11 +1311,13 @@ class RequirementSpec:
     """
 
     # XXX need __eq__ since this doesn't derive from EntitySpec
-    def __init__(self, name: str, req: dict, parent: NodeSpec, type_tpl: dict):
+    def __init__(
+        self, name: str, req: Dict[str, Any], parent: NodeSpec, type_tpl: dict
+    ):
         self.source = self.parentNode = parent
         self.spec = parent.spec
         self.name: str = name
-        self.entity_tpl = req
+        self.entity_tpl: Dict[str, Any] = req
         self.relationship: Optional[RelationshipSpec] = None
         self.type_tpl = type_tpl
         # entity_tpl may specify:
@@ -1261,6 +1345,14 @@ class RequirementSpec:
     def get_nodefilter_requirements(self):
         # XXX should merge type_tpl with entity_tpl
         return get_nodefilters(self.type_tpl, "requirements")
+
+
+def get_nodefilter_matches(entity_tpl: dict):
+    nodefilter = entity_tpl.get("node_filter")
+    matches = nodefilter and nodefilter.get("match")
+    if matches:
+        for match in matches:
+            yield match
 
 
 def get_nodefilters(entity_tpl, key):

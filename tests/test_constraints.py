@@ -23,7 +23,7 @@ def test_constraints():
             },
             "container_service": {
                 "type": "ContainerService",
-                "properties": {"image": "myimage:latest", "url": "localhost:8000"},
+                "properties": {"image": "myimage:latest", "url": "http://localhost:8000"},
             },
             "myapp_proxy": {
                 "type": "ProxyContainerHost",
@@ -56,7 +56,7 @@ def test_constraints():
                 {
                     "hosting": {
                         "node": "ContainerService",
-                        "node_filter": {"match": [{"eval": ".targets::hosting::url"}]},
+                        "node_filter": {"match": [{"eval": "backend_url"}]},
                     }
                 }
             ],
@@ -91,9 +91,8 @@ def test_constraints():
     assert proxy and proxy.name == "myapp_proxy"
     container = root.get_relationship("container").target
     assert container
-    # assert proxy.properties["backend_url"] == container.properties["url"]
     # deduced container from backend_url
     hosting = proxy.get_relationship("hosting").target
     assert hosting == container, (hosting, container)
-    # deduced inverse
+    # XXX deduced inverse
     # assert container.get_relationship("host") == proxy

@@ -236,7 +236,7 @@ def test_set_constraints() -> None:
                         "node": "tosca.nodes.Compute",  # XXX should reference my_compute
                         "node_filter": {
                             "match": [{"eval": "prop1"}],
-                            "properties": [{"public_address": {"eval": "prop1"}}],
+                            "properties": [{"public_address": {"eval": "$SOURCE::prop1"}}],
                         },
                     }
                 }

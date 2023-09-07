@@ -27,7 +27,7 @@ class ProxyContainerHost(Proxy, ContainerHost):
 
 class App(tosca.nodes.Root):
     container: ContainerService = ContainerService(
-        "container_service", image="myimage:latest", url="localhost:8000"
+        "container_service", image="myimage:latest", url="http://localhost:8000"
     )
     proxy: Proxy
 
