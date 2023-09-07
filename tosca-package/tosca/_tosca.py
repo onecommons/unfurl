@@ -799,7 +799,12 @@ class _DataclassTypeProxy:
         self.cls = cls
 
     def __getattr__(self, name):
-        val = getattr(self.cls, name)
+        # we need to check the base class's __dataclass_fields__ first
+        fields = getattr(self.cls, "__dataclass_fields__", {})
+        val = fields.get(name)
+        if not val:
+            # but our __dataclass_fields__ isn't updated yet, do a regular getattr
+            val = getattr(self.cls, name)
         if isinstance(val, _Tosca_Field):
             return FieldProjection(val, None)
         return val
@@ -1163,7 +1168,7 @@ class ToscaType(_ToscaType):
             f"{requirement} isn't a TOSCA field -- this method should be called from _set_constraints()"
         )
 
-    def to_yaml(self, dict_cls=dict) -> str:
+    def to_yaml(self, dict_cls=dict):
         return self._name
 
     def to_template_yaml(self, converter: "PythonToYaml") -> Optional[dict]:
