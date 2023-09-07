@@ -1417,13 +1417,15 @@ def _make_requirement(dependency) -> dict:
 def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
     imports: List[dict] = []
     for key, value in patch.items():
-        if key in ["type", "directives", "imported", "metadata"]:
+        if key in ["type", "directives", "imported"]:
             tpl[key] = value
         elif key == "_sourceinfo":
             imports.append(value)
         elif key == "title":
             if value != patch["name"]:
                 tpl.setdefault("metadata", {})["title"] = value
+        elif key == "metadata":
+            tpl.setdefault("metadata", {}).update(value)
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
