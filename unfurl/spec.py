@@ -263,6 +263,9 @@ class ToscaSpec:
             additionalProperties = "additionalProperties" in mode
             ToscaTemplate.strict = "reqcheck" in mode
         EntityTemplate.additionalProperties = additionalProperties
+        if resolver:
+            # hack! set this now so the find_matching_node callback is invoked
+            resolver.manifest.tosca = self
         self.template = ToscaTemplate(
             path=path,
             parsed_params=inputs,
@@ -273,6 +276,8 @@ class ToscaSpec:
         )
         ExceptionCollector.collecting = True  # don't stop collecting validation errors
         ExceptionCollector.near = " while instantiating the spec"
+        self._topology_templates.clear()  # reset
+        assert self.template.topology_template
         self.topology = TopologySpec(
             self.template.topology_template, self, None, inputs
         )
@@ -286,6 +291,8 @@ class ToscaSpec:
             p.name: PolicySpec(p, self.topology)
             for p in self.template.topology_template.policies
         }
+        # this ToscaSpec is now ready, now we can call validate_relationships() which may invoke the find_matching_node callback
+        self.template.validate_relationships()
         ExceptionCollector.collecting = False
 
     def _patch(self, toscaDef, path, errorsSoFar):
@@ -332,6 +339,7 @@ class ToscaSpec:
 
         if isinstance(toscaDef, ToscaTemplate):
             self.template = toscaDef
+            assert self.template.topology_template
             self.topology = TopologySpec(
                 self.template.topology_template, self, None, inputs
             )
@@ -422,6 +430,7 @@ class ToscaSpec:
 
     def load_imported_default_templates(self) -> None:
         assert self.topology
+        self.nested_topologies = []  # reset
         for name, topology in self.template.nested_topologies.items():
             topology_spec = TopologySpec(topology, self, self.topology, path=name)
             self.nested_topologies.append(topology_spec)
