@@ -454,7 +454,9 @@ def requirement_to_graphql(
                             reqobj["match"] = relspec.target.name
                             nodetype = relspec.target.type
                         else:
-                            target_types = relspec.toscaEntityTemplate.type_definition.valid_target_types
+                            target_types = (
+                                relspec.toscaEntityTemplate.type_definition.valid_target_types
+                            )
                             if target_types:
                                 nodetype = target_types[0]
     if not nodetype:
@@ -1519,12 +1521,21 @@ def _add_repositories(db: dict, tpl: dict):
     types_repo = repositories_tpl.get("types")
     if types_repo:  # only export types, avoid built-in repositories
         repositories["types"] = types_repo
+        repositories["types"]["file"] = "dummy-ensemble.yaml"
     if imports_tpl and isinstance(imports_tpl, list):
         for imp_def in imports_tpl:
             if isinstance(imp_def, dict) and "repository" in imp_def:
                 repository = imp_def["repository"]
-                if repository in repositories_tpl and repository != "unfurl":
+                if (
+                    repository in repositories_tpl
+                    and repository != "unfurl"
+                    and repository not in repositories
+                ):
                     repositories[repository] = repositories_tpl[repository]
+                    repositories[repository]["file"] = imp_def["file"].partition("#")[0]
+    if repositories:
+        db["repositories"] = repositories
+
 
 def _to_graphql(
     localEnv: LocalEnv,
