@@ -986,7 +986,7 @@ def template_properties_to_json(nodetemplate: NodeTemplate, visitor):
         yield dict(name=p.name, value=value)
 
 
-def _get_requirement(
+def _get_requirement_for_template(
     req: dict, nodespec: EntitySpec, types: ResourceTypesByName
 ) -> Optional[GraphqlObject]:
     name, req_dict = _get_req(req)
@@ -1013,6 +1013,8 @@ def _get_requirement(
         for typeconstraint in typeobj["requirements"]:
             if name == typeconstraint["name"]:
                 reqconstraint["min"] = typeconstraint["min"]
+                if "visibility" in typeconstraint:
+                    reqconstraint["visibility"] = typeconstraint["visibility"]
 
     _annotate_requirement(
         reqconstraint, reqconstraint["resourceType"], nodespec.topology, types
@@ -1152,7 +1154,7 @@ def nodetemplate_to_json(
     has_visible_dependency = False
     ExceptionCollector.start()
     for req in nodetemplate.all_requirements:
-        reqjson = _get_requirement(req, node_spec, types)
+        reqjson = _get_requirement_for_template(req, node_spec, types)
         if reqjson is None:
             continue
         if reqjson["constraint"].get("visibility") != "hidden":
