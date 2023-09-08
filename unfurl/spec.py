@@ -4,6 +4,7 @@
 TOSCA implementation
 """
 import copy
+import sys
 
 from toscaparser.elements.interfaces import OperationDef
 
@@ -332,6 +333,7 @@ class ToscaSpec:
         self.nested_discovered: Dict[str, dict] = {}
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
+        self.overridden_default_templates: Set[str] = set()
         if spec:
             inputs = cast(Optional[Dict[str, Any]], spec.get("inputs"))
         else:
@@ -435,13 +437,13 @@ class ToscaSpec:
             topology_spec = TopologySpec(topology, self, self.topology, path=name)
             self.nested_topologies.append(topology_spec)
             for nodeTemplate in topology.nodetemplates:
-                if (
-                    "default" in nodeTemplate.directives
-                    and nodeTemplate.name not in self.topology.node_templates
-                ):
-                    # put in root topology
-                    nodeSpec = NodeSpec(nodeTemplate, self.topology)
-                    self.topology.node_templates[nodeSpec.name] = nodeSpec
+                if "default" in nodeTemplate.directives:
+                    if nodeTemplate.name in self.topology.node_templates:
+                        self.overridden_default_templates.add(nodeTemplate.name)
+                    else:
+                        # put in root topology
+                        nodeSpec = NodeSpec(nodeTemplate, self.topology)
+                        self.topology.node_templates[nodeSpec.name] = nodeSpec
 
     def load_workflows(self) -> None:
         # we want to let different types defining standard workflows like deploy

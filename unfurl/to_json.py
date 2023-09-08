@@ -17,7 +17,6 @@ import sys
 import itertools
 import json
 import datetime
-from time import perf_counter
 import traceback
 from typing import (
     Any,
@@ -27,9 +26,7 @@ from typing import (
     NewType,
     Optional,
     Tuple,
-    Union,
     cast,
-    TYPE_CHECKING,
 )
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
@@ -52,10 +49,10 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
+from .plan import _get_templates_from_topology
 from .repo import sanitize_url
 from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
-from .merge import merge_dicts, patch_dict
 from .logs import sensitive, is_sensitive, getLogger
 from .spec import (
     EntitySpec,
@@ -66,7 +63,7 @@ from .spec import (
     get_nodefilters,
 )
 from .util import to_enum, UnfurlError
-from .support import Status, is_template
+from .support import Status
 from .result import ChangeRecord
 from .localenv import LocalEnv, Project
 
@@ -399,7 +396,10 @@ def _make_req(
 
 
 def requirement_to_graphql(
-    topology: TopologySpec, req_dict: dict, include_omitted=False
+    topology: TopologySpec,
+    req_dict: dict,
+    include_omitted=False,
+    include_matches: bool = True,
 ) -> Optional[GraphqlObject]:
     """
     type RequirementConstraint {
@@ -437,10 +437,10 @@ def requirement_to_graphql(
     nodetype = req.get("node")
     if nodetype:
         # req['node'] can be a node_template instead of a type
-        entity_tpl = topology.get_node_src(nodetype)
-        if entity_tpl:
-            reqobj["match"] = nodetype
-            nodetype = entity_tpl["type"]
+        if nodetype in topology.node_templates:
+            if include_matches:
+                reqobj["match"] = nodetype
+            nodetype = topology.node_templates[nodetype].type
         nodetype = expand_prefix(nodetype)
     else:
         nodetype = req.get("capability")
@@ -664,6 +664,7 @@ def node_type_to_graphql(
     type_definition: StatefulEntityType,
     types: ResourceTypesByName,
     summary: bool = False,
+    include_matches: bool = True,
 ) -> ResourceType:
     """
     type ResourceType {
@@ -757,7 +758,7 @@ def node_type_to_graphql(
         custom_defs, (p[0] for p in propertydefs if not p[1]), None
     )
 
-    if not type_definition.is_derived_from("tosca.nodes.Root"):
+    if not isinstance(type_definition, NodeType):
         return jsontype
 
     # treat each capability as a complex property
@@ -780,7 +781,7 @@ def node_type_to_graphql(
         filter(
             None,
             [
-                requirement_to_graphql(topology, req)
+                requirement_to_graphql(topology, req, include_matches=include_matches)
                 for req in type_definition.get_all_requirements()
             ],
         )
@@ -796,6 +797,20 @@ def _make_typedef(
     test_typedef = StatefulEntityType(
         typename, StatefulEntityType.NODE_PREFIX, custom_defs
     )
+    if not test_typedef.defs:
+        logger.warning("Missing type definition for %s", typename)
+        return typedef
+    elif "derived_from" not in test_typedef.defs:
+        _source = test_typedef.defs.get("_source")
+        section = isinstance(_source, dict) and _source.get("section")
+        if _source and not section:
+            logger.warning(
+                'Unable to determine type of %s: missing "derived_from" key', typename
+            )
+        elif section == "node_types":
+            custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
+        elif section == "relationship_types":
+            custom_defs[typename]["derived_from"] = "tosca.relationships.Root"
     if test_typedef.is_derived_from("tosca.nodes.Root"):
         typedef = NodeType(typename, custom_defs)
     elif test_typedef.is_derived_from("tosca.relationships.Root"):
@@ -808,7 +823,9 @@ def _make_typedef(
     return typedef
 
 
-def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
+def _update_root_type(
+    jsontype: GraphqlObject, sub_map: SubstitutionMappings, topology: TopologySpec
+):
     "Modify a type representation so that it can be used with template with a nested topology."
 
     # don't display any properties set by the inner topology
@@ -823,12 +840,34 @@ def _update_root_type(jsontype: GraphqlObject, sub_map: SubstitutionMappings):
             jsontype["computedPropertiesSchema"]["properties"].pop(name, None)
 
     # make optional any requirements that were set in the inner topology
+    # or have a predefined match (since it would hidden be in the nested topology)
     names = sub_map.get_declared_requirement_names()
-    for req in jsontype.get("requirements", []):
-        if req["name"] in names:
+    for req in jsontype.setdefault("requirements", []):
+        if req["name"] in names or req["match"]:
             req["min"] = 0
+            req["match"] = None
     # templates created with this type need to have the substitute directive
     jsontype["directives"] = ["substitute"]
+    # find all the default nodes that are being referenced directly or indirectly
+    # this will find the required nodes
+    list(_get_templates_from_topology(topology, set(), None))
+    placeholders = [
+        node
+        for node in topology.node_templates.values()
+        if (
+            "default" in node.directives
+            or node.name in topology.spec.overridden_default_templates
+        )
+        and node.type != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
+        and node.required
+    ]
+    # add those as requirement on the root type
+    for node in placeholders:
+        # XXX copy node_filter and metadata from get_relationship_templates()
+        req = {node.name: dict(node=node.type)}
+        req_json = requirement_to_graphql(topology, req, True, include_matches=False)
+        if req_json:
+            jsontype["requirements"].append(req_json)
 
 
 def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByName:
@@ -846,7 +885,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
             typedef = sub_map.node_type
             if typedef:
                 jsontype = node_type_to_graphql(nested_topology, typedef, types)
-                _update_root_type(jsontype, sub_map)
+                _update_root_type(jsontype, sub_map, nested_topology)
 
     if include_all:
         for typename in custom_defs:
@@ -1092,7 +1131,7 @@ def nodetemplate_to_json(
         json["visibility"] = visibility
         logger.debug(f"setting visibility {visibility} on template {nodetemplate.name}")
 
-    if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
+    if not isinstance(nodetemplate.type_definition, NodeType):
         return json
 
     # treat each capability as a complex property
@@ -1137,7 +1176,9 @@ def nodetemplate_to_json(
 primary_name = "__primary"
 
 
-def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemplate:
+def _generate_primary(
+    spec: ToscaSpec, db: GraphqlDB, node_tpl=None, requirements=None
+) -> NodeTemplate:
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
@@ -1151,13 +1192,17 @@ def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemp
     )
     # set as requirements all the node templates that aren't the target of any other requirements
     assert spec.topology
-    roots = [
-        node.toscaEntityTemplate
-        for node in spec.topology.node_templates.values()
-        if not node.toscaEntityTemplate.get_relationship_templates()
-        and "default" not in node.directives
-    ]
-    nodetype_tpl["requirements"] = [{node.name: dict(node=node.type)} for node in roots]
+    if requirements is None:
+        roots = [
+            node.toscaEntityTemplate
+            for node in spec.topology.node_templates.values()
+            if not node.toscaEntityTemplate.get_relationship_templates()
+            and "default" not in node.directives
+        ]
+        requirements = [{node.name: dict(node=node.type)} for node in roots]
+    else:
+        roots = None
+    nodetype_tpl["requirements"] = requirements
 
     topology.custom_defs[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
@@ -1166,7 +1211,7 @@ def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemp
         {name: dict(get_input=name) for name in topology._tpl_inputs()}
     )
     # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
-    if not node_tpl:
+    if not node_tpl and roots:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
     node_spec = spec.topology.add_node_template(primary_name, tpl, False)
     node_template = cast(NodeTemplate, node_spec.toscaEntityTemplate)
@@ -1179,7 +1224,9 @@ def _generate_primary(spec: ToscaSpec, db: GraphqlDB, node_tpl=None) -> NodeTemp
 
 
 # if a node type or template is specified, use that, but it needs to be compatible with the generated type
-def _get_or_make_primary(spec: ToscaSpec, db: GraphqlDB) -> Tuple[str, str]:
+def _get_or_make_primary(
+    spec: ToscaSpec, db: GraphqlDB, nested: bool
+) -> Tuple[str, str]:
     ExceptionCollector.start()  # topology.add_template may generate validation exceptions
     assert spec.template
     topology = spec.template.topology_template
@@ -1190,11 +1237,19 @@ def _get_or_make_primary(spec: ToscaSpec, db: GraphqlDB) -> Tuple[str, str]:
     if topology.substitution_mappings:
         root_type = topology.substitution_mappings.node_type
         root = topology.substitution_mappings._node_template
-
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
+        if nested:
+            assert spec.topology
+            types = _get_types(db)
+            jsontype = types.get(root_type.type)
+            if not jsontype:
+                jsontype = node_type_to_graphql(spec.topology, root_type, types)
+            assert jsontype
+            assert topology.substitution_mappings
+            _update_root_type(jsontype, topology.substitution_mappings, spec.topology)
         # if no property mapping in use, generate a new root template if there are any missing inputs
-        if (
+        elif (
             not topology.substitution_mappings
             or not topology.substitution_mappings.has_property_mapping()
         ):
@@ -1220,7 +1275,7 @@ def _get_or_make_primary(spec: ToscaSpec, db: GraphqlDB) -> Tuple[str, str]:
     else:
         root = _generate_primary(spec, db)
 
-    assert root
+    assert root and root.type
     return root.name, root.type
 
 
@@ -1237,7 +1292,9 @@ def blueprint_metadata(spec: ToscaSpec, root_name: str) -> GraphqlObject:
     return blueprint
 
 
-def to_graphql_blueprint(spec: ToscaSpec, db: GraphqlDB) -> Tuple[GraphqlObject, str]:
+def to_graphql_blueprint(
+    spec: ToscaSpec, db: GraphqlDB, nested=False
+) -> Tuple[GraphqlObject, str]:
     """
     Returns json object as ApplicationBlueprint
 
@@ -1256,7 +1313,7 @@ def to_graphql_blueprint(spec: ToscaSpec, db: GraphqlDB) -> Tuple[GraphqlObject,
     }
     """
     # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
-    root_name, root_type = _get_or_make_primary(spec, db)
+    root_name, root_type = _get_or_make_primary(spec, db, nested)
     blueprint = blueprint_metadata(spec, root_name)
     blueprint["__typename"] = "ApplicationBlueprint"
     blueprint["primary"] = root_type
@@ -1455,6 +1512,20 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
     return blueprint, template
 
 
+def _add_repositories(db: dict, tpl: dict):
+    imports_tpl = tpl.get("imports")
+    repositories = {}
+    repositories_tpl = tpl.get("repositories") or {}
+    types_repo = repositories_tpl.get("types")
+    if types_repo:  # only export types, avoid built-in repositories
+        repositories["types"] = types_repo
+    if imports_tpl and isinstance(imports_tpl, list):
+        for imp_def in imports_tpl:
+            if isinstance(imp_def, dict) and "repository" in imp_def:
+                repository = imp_def["repository"]
+                if repository in repositories_tpl and repository != "unfurl":
+                    repositories[repository] = repositories_tpl[repository]
+
 def _to_graphql(
     localEnv: LocalEnv,
     root_url: str = "",
@@ -1466,9 +1537,7 @@ def _to_graphql(
     assert spec
     tpl = spec.template.tpl
     assert spec.topology and tpl
-    types_repo = tpl.get("repositories").get("types")
-    if types_repo:  # only export types, avoid built-in repositories
-        db["repositories"] = {"types": types_repo}
+    _add_repositories(db, tpl)
     types = to_graphql_nodetypes(spec, bool(root_url))
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
@@ -1642,10 +1711,12 @@ def add_graphql_deployment(
     return deployment
 
 
-def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None) -> GraphqlDB:
+def to_blueprint(
+    localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
+) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv, root_url or "")
     assert manifest.tosca
-    blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
+    blueprint, root_name = to_graphql_blueprint(manifest.tosca, db, bool(root_url))
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
     )
@@ -1656,7 +1727,9 @@ def to_blueprint(localEnv: LocalEnv, root_url: Optional[str] = None) -> GraphqlD
 
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
-def to_deployment(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+def to_deployment(
+    localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None
+) -> GraphqlDB:
     logger.debug("exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
@@ -1779,7 +1852,9 @@ def _set_shared_instances(instances):
     return env_instances
 
 
-def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> GraphqlDB:
+def to_environments(
+    localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None
+) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
     Each environment is be represented as:
@@ -1802,10 +1877,9 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
     """
 
     # XXX one manifest and blueprint per environment
-    db = _load_db(existing)
+    db = _load_db(file)
     environments = {}
     all_connection_types = cast(ResourceTypesByName, {})
-    blueprintdb = None
     assert localEnv.project
     deployment_paths = get_deploymentpaths(localEnv.project)
     env_deployments = {}
@@ -1844,16 +1918,6 @@ def to_environments(localEnv: LocalEnv, existing: Optional[str] = None) -> Graph
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
     db["DeploymentEnvironment"] = environments
-    if blueprintdb:
-        # XXX re-enable this?
-        # if blueprintdb.get("repositories", {}).get("types"):
-        #     # don't include ResourceTypes if we are including a types repository
-        #     db["ResourceType"] = all_connection_types
-        #     return db
-
-        # add the rest of the types too
-        # XXX is it safe to only include types with "connect" implementations?
-        all_connection_types.update(_get_types(blueprintdb))
     db["ResourceType"] = cast(GraphqlObjectsByName, all_connection_types)
     db["DeploymentPath"] = deployment_paths
     return db
@@ -1867,7 +1931,9 @@ class Deployments(DeploymentPaths):
     deployments: List[GraphqlDB]
 
 
-def to_deployments(localEnv: LocalEnv, existing: Optional[str] = None) -> Deployments:
+def to_deployments(
+    localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None
+) -> Deployments:
     assert localEnv.project
     db = cast(Deployments, set_deploymentpaths(localEnv.project))
     deployments: List[GraphqlDB] = []

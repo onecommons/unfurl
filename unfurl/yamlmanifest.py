@@ -287,6 +287,16 @@ def clone(localEnv: LocalEnv, destPath) -> ReadOnlyManifest:
     clone.manifest.path = destPath
     return clone
 
+def _match_deployment_blueprints(deployment_blueprints, context):
+    primary_provider_name = context.get("primary_provider", "primary_provider")
+    connections = context.get("connections") or {}
+    primary_provider = connections.get(primary_provider_name)
+    if not primary_provider or "type" not in primary_provider:
+        return None
+    for name, tpl in deployment_blueprints.items():
+        if tpl.get("cloud") == primary_provider["type"]:
+            return name
+    return None
 
 class YamlManifest(ReadOnlyManifest):
     _operationIndex: Optional[Dict[Tuple[str, str], str]] = None
@@ -315,15 +325,18 @@ class YamlManifest(ReadOnlyManifest):
         deployment_blueprints = (
             manifest.get("spec", {}).get("deployment_blueprints") or {}
         )
-        if deployment_blueprint:
-            if self._add_deployment_blueprint_template(
-                deployment_blueprints, deployment_blueprint, more_spec
-            ):
-                logger.info('Using deployment blueprint "%s"', deployment_blueprint)
-        elif deployment_blueprints:
-            logger.warning(
-                "This ensemble contains deployment blueprints but none were specified for use."
-            )
+        if deployment_blueprints:
+            if not deployment_blueprint and localEnv and localEnv.manifest_context_name != "defaults":
+                deployment_blueprint = _match_deployment_blueprints(deployment_blueprints, self.context)
+            if deployment_blueprint:
+                if self._add_deployment_blueprint_template(
+                    deployment_blueprints, deployment_blueprint, more_spec
+                ):
+                    logger.info('Using deployment blueprint "%s"', deployment_blueprint)
+            else:
+                logger.warning(
+                    "This ensemble contains deployment blueprints but none were specified for use."
+                )
         if self.context.get("instances"):
             # add context instances to spec instances but skip ones that are just in there because they were shared
             env_instances = {

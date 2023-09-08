@@ -21,6 +21,7 @@ The server manage local clones of remote git repositories and uses a in-memory o
 # But if access fails when attempting to clone the repository, the repository is accessed the using the standard project loader, which makes clone local to the project using the project repository's credentials (if on the same host) (see ``apply_url_credentials``), and the loaded files are not cached.
 
 from dataclasses import dataclass, field
+import json
 import os
 from pathlib import Path
 import time
@@ -122,6 +123,8 @@ if git_user_name:
     os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
     os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
     os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
+
+UNFURL_SERVER_DEBUG_PATCH = os.environ.get("UNFURL_TEST_SERVER_DEBUG_PATCH")
 
 def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend = cache.cache
@@ -1016,7 +1019,7 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                         typeinfo["description"] = notable["description"]
                     # XXX hack, always set for root type:
                     typeinfo["implementations"] = ["connect", "create"]
-                    typeinfo["directives"] = ["substitution"]
+                    typeinfo["directives"] = ["substitute"]
                     types[typeinfo["name"]] = typeinfo
     return err, types
 
@@ -1234,6 +1237,11 @@ def _do_export(
     assert local_env
     if args.get("environment"):
         local_env.manifest_context_name = args["environment"]
+    elif args.get("implementation_requirements"):
+        primary_provider = args["implementation_requirements"]
+        if local_env.project:
+            local_env.project.contexts["_export_types_placeholder"] = dict(connections=dict(primary_provider=dict(type=primary_provider)))
+            local_env.manifest_context_name = "_export_types_placeholder"
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     exporter = getattr(to_json, "to_" + requested_format)
@@ -1409,13 +1417,15 @@ def _make_requirement(dependency) -> dict:
 def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
     imports: List[dict] = []
     for key, value in patch.items():
-        if key in ["type", "directives", "imported", "metadata"]:
+        if key in ["type", "directives", "imported"]:
             tpl[key] = value
         elif key == "_sourceinfo":
             imports.append(value)
         elif key == "title":
             if value != patch["name"]:
                 tpl.setdefault("metadata", {})["title"] = value
+        elif key == "metadata":
+            tpl.setdefault("metadata", {}).update(value)
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
@@ -1568,7 +1578,7 @@ def _patch_environment(body: dict, project_id: str):
     localConfig.config.save()
     if not was_dirty:
         if repo.is_dirty():
-            commit_msg = body.get("commit_msg", "Update environment")
+            commit_msg = _get_commit_msg(body, "Update environment")
             err = _commit_and_push(
                 repo,
                 cast(str, localConfig.config.path),
@@ -1650,6 +1660,14 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
         manifest.get_tosca_file_path(),
     )
 
+def _get_commit_msg(body, default_msg):
+    msg = body.get("commit_msg", default_msg)
+    if UNFURL_SERVER_DEBUG_PATCH:
+        body.pop("username", None)
+        body.pop("private_token", None)
+        body.pop("password", None)
+        msg += '\n' + json.dumps(body, indent=2)
+    return msg 
 
 def _patch_ensemble(
     body: dict, create: bool, project_id: str, check_lastcommit=True
@@ -1733,7 +1751,7 @@ def _patch_ensemble(
             clone_location,
         )
     else:
-        commit_msg = body.get("commit_msg", "Update deployment")
+        commit_msg = _get_commit_msg(body, "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, True)
         if committed or create:

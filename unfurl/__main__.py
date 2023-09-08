@@ -1229,7 +1229,8 @@ def export(ctx, project_or_ensemble_path: str, format, file, **options):
         return
 
     exporter = getattr(to_json, "to_" + format)
-    jsonSummary = exporter(localEnv, file)
+    # $UNFURL_EXPORT_ARG for internal testing
+    jsonSummary = exporter(localEnv, os.getenv("UNFURL_EXPORT_ARG"), file=file)
     output = json.dumps(jsonSummary, indent=2)
     if file:
         with open(file, "w") as f:
