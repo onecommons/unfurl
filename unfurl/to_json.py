@@ -1521,7 +1521,7 @@ def _to_graphql(
     assert spec
     tpl = spec.template.tpl
     assert spec.topology and tpl
-    _add_imports(db, tpl)
+    _add_repositories(db, tpl)
     types = to_graphql_nodetypes(spec, bool(root_url))
     db["ResourceType"] = types
     db["ResourceTemplate"] = {}
