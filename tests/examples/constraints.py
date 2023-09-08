@@ -10,14 +10,14 @@ class ContainerHost(tosca.nodes.Root):
     hosting: ContainerService
 
 class Proxy(tosca.nodes.Root):
-    backend_url: str = tosca.Ref()
+    backend_url: str = tosca.Eval()
     "URL to proxy"
     endpoint: str = tosca.Attribute()
     "Public URL"
 
 class ProxyContainerHost(Proxy, ContainerHost):
     # container hosts that proxies the container service it hosts
-    hosting: ContainerService = tosca.Ref() # XXX Constraint
+    hosting: ContainerService = tosca.Eval() # XXX Constraint
 
     @classmethod
     def _set_constraints(cls) -> None:

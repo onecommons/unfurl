@@ -114,7 +114,7 @@ node_types:
 default_operations_python = """
 import unfurl
 import unfurl.configurators.terraform
-from tosca import operation, Property, Ref
+from tosca import operation, Property, Eval
 from typing import Union
 
 class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
@@ -124,7 +124,7 @@ class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
     @operation(apply_to=["Install.check", "Standard.delete"])
     def default(self):
         return unfurl.configurators.terraform.TerraformConfigurator(
-            main=Ref({"get_property": ["SELF", "main"]}),
+            main=Eval({"get_property": ["SELF", "main"]}),
         )
 foo = 1
 """
@@ -189,7 +189,7 @@ def test_example_wordpress():
 def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
         shellScript: tosca.artifacts.Root = tosca.artifacts.Root("example.sh")  # (file="example.sh")
-        prop1: Optional[str] = tosca.Ref()
+        prop1: Optional[str] = tosca.Eval()
         host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
         @classmethod

@@ -714,7 +714,7 @@ class _Ref:
         return False
 
 
-def Ref(expr=None) -> Any:
+def Eval(expr=None) -> Any:
     return _Ref(expr)
 
 
@@ -912,7 +912,6 @@ def field(
     return dataclasses.field(**kw)
 
 
-# Ref and RefList aren't actually field specifiers but they are listed here so static type checking works
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=(

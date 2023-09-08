@@ -16,7 +16,7 @@ from tosca import (
     Attribute,
     Requirement,
     Capability,
-    Ref,
+    Eval,
     InterfaceType,
     CapabilityType,
     NodeType,
@@ -130,29 +130,29 @@ class relationships(Namespace):
 
     class ConnectsToGoogleCloudProject(ConnectsToCloudAccount):
         _tosca_name = "unfurl.relationships.ConnectsTo.GoogleCloudProject"
-        CLOUDSDK_CORE_PROJECT: Union[str, None] = Ref(
+        CLOUDSDK_CORE_PROJECT: Union[str, None] = Eval(
             {"get_env": "CLOUDSDK_CORE_PROJECT"}
         )
         """id of the project"""
-        CLOUDSDK_COMPUTE_REGION: Union[str, None] = Ref(
+        CLOUDSDK_COMPUTE_REGION: Union[str, None] = Eval(
             {"get_env": "CLOUDSDK_COMPUTE_REGION"}
         )
         """default region to use"""
-        CLOUDSDK_COMPUTE_ZONE: Union[str, None] = Ref(
+        CLOUDSDK_COMPUTE_ZONE: Union[str, None] = Eval(
             {"get_env": "CLOUDSDK_COMPUTE_ZONE"}
         )
         """default zone to use"""
-        GOOGLE_APPLICATION_CREDENTIALS: Union[str, None] = Ref(
+        GOOGLE_APPLICATION_CREDENTIALS: Union[str, None] = Eval(
             {"get_env": "GOOGLE_APPLICATION_CREDENTIALS"}
         )
         """Path to file containing service account private keys in JSON format"""
-        GOOGLE_OAUTH_ACCESS_TOKEN: Union[str, None] = Ref(
+        GOOGLE_OAUTH_ACCESS_TOKEN: Union[str, None] = Eval(
             {"get_env": "GOOGLE_OAUTH_ACCESS_TOKEN"}
         )
         """A temporary OAuth 2.0 access token obtained from the Google Authorization server"""
         GCP_SERVICE_ACCOUNT_CONTENTS: Union[str, None] = Property(
             metadata={"sensitive": True},
-            default=Ref({"get_env": "GCP_SERVICE_ACCOUNT_CONTENTS"}),
+            default=Eval({"get_env": "GCP_SERVICE_ACCOUNT_CONTENTS"}),
         )
         """Content of file containing service account private keys"""
         GCP_AUTH_KIND: Union[
@@ -161,7 +161,7 @@ class relationships(Namespace):
                 (valid_values(["application", "machineaccount", "serviceaccount"]),),
             ],
             None,
-        ] = Ref({"get_env": ["GCP_AUTH_KIND", "serviceaccount"]})
+        ] = Eval({"get_env": ["GCP_AUTH_KIND", "serviceaccount"]})
         scopes: Union[List[str], None] = None
 
         def check(self):
@@ -171,39 +171,39 @@ class relationships(Namespace):
         _tosca_name = "unfurl.relationships.ConnectsTo.AWSAccount"
         endpoints: Union[Dict, None] = None
         """custom service endpoints"""
-        AWS_DEFAULT_REGION: Union[str, None] = Ref({"get_env": "AWS_DEFAULT_REGION"})
+        AWS_DEFAULT_REGION: Union[str, None] = Eval({"get_env": "AWS_DEFAULT_REGION"})
         """The default region to use, e.g. us-west-1, us-west-2, etc."""
-        AWS_ACCESS_KEY_ID: Union[str, None] = Ref({"get_env": "AWS_ACCESS_KEY_ID"})
+        AWS_ACCESS_KEY_ID: Union[str, None] = Eval({"get_env": "AWS_ACCESS_KEY_ID"})
         """The access key for your AWS account"""
         AWS_SECRET_ACCESS_KEY: Union[str, None] = Property(
             metadata={"sensitive": True},
-            default=Ref({"get_env": "AWS_SECRET_ACCESS_KEY"}),
+            default=Eval({"get_env": "AWS_SECRET_ACCESS_KEY"}),
         )
         """The secret key for your AWS account."""
         AWS_SESSION_TOKEN: Union[str, None] = Property(
-            metadata={"sensitive": True}, default=Ref({"get_env": "AWS_SESSION_TOKEN"})
+            metadata={"sensitive": True}, default=Eval({"get_env": "AWS_SESSION_TOKEN"})
         )
         """The session key for your AWS account."""
-        AWS_PROFILE: Union[str, None] = Ref({"get_env": "AWS_PROFILE"})
-        AWS_SHARED_CREDENTIALS_FILE: Union[str, None] = Ref(
+        AWS_PROFILE: Union[str, None] = Eval({"get_env": "AWS_PROFILE"})
+        AWS_SHARED_CREDENTIALS_FILE: Union[str, None] = Eval(
             {"get_env": "AWS_SHARED_CREDENTIALS_FILE"}
         )
-        AWS_CONFIG_FILE: Union[str, None] = Ref({"get_env": "AWS_CONFIG_FILE"})
+        AWS_CONFIG_FILE: Union[str, None] = Eval({"get_env": "AWS_CONFIG_FILE"})
 
     class ConnectsToDigitalOcean(ConnectsToCloudAccount):
         _tosca_name = "unfurl.relationships.ConnectsTo.DigitalOcean"
         DIGITALOCEAN_TOKEN: str = Property(
             metadata={"user_settable": True, "sensitive": True},
-            default=Ref({"get_env": "DIGITALOCEAN_TOKEN"}),
+            default=Eval({"get_env": "DIGITALOCEAN_TOKEN"}),
         )
         SPACES_ACCESS_KEY_ID: Union[str, None] = Property(
             metadata={"user_settable": True},
-            default=Ref({"get_env": "SPACES_ACCESS_KEY_ID"}),
+            default=Eval({"get_env": "SPACES_ACCESS_KEY_ID"}),
         )
         """The access key for Spaces object storage."""
         SPACES_SECRET_ACCESS_KEY: Union[str, None] = Property(
             metadata={"user_settable": True, "sensitive": True},
-            default=Ref({"get_env": "SPACES_SECRET_ACCESS_KEY"}),
+            default=Eval({"get_env": "SPACES_SECRET_ACCESS_KEY"}),
         )
         """The secret key for Spaces object storage."""
         default_region: str = Property(
@@ -219,7 +219,7 @@ class relationships(Namespace):
                 "title": "Client ID",
                 "user_settable": True,
             },
-            default=Ref({"get_env": ["ARM_CLIENT_ID", {"get_env": "AZURE_CLIENT_ID"}]}),
+            default=Eval({"get_env": ["ARM_CLIENT_ID", {"get_env": "AZURE_CLIENT_ID"}]}),
         )
         """
        Also known as an Application ID or `appId`. Can be created via [CLI](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_certificate) or through the [Azure portal](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal).
@@ -230,7 +230,7 @@ class relationships(Namespace):
                 "title": "Tenant",
                 "user_settable": True,
             },
-            default=Ref({"get_env": ["ARM_TENANT_ID", {"get_env": "AZURE_TENANT"}]}),
+            default=Eval({"get_env": ["ARM_TENANT_ID", {"get_env": "AZURE_TENANT"}]}),
         )
         """
        [Find your Azure active directory tenant](https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-ad-tenant)
@@ -241,7 +241,7 @@ class relationships(Namespace):
                 "title": "Azure Subscription",
                 "user_settable": True,
             },
-            default=Ref(
+            default=Eval(
                 {
                     "get_env": [
                         "ARM_SUBSCRIPTION_ID",
@@ -260,20 +260,20 @@ class relationships(Namespace):
                 "title": "Client Secret",
                 "user_settable": True,
             },
-            default=Ref(
+            default=Eval(
                 {"get_env": ["ARM_CLIENT_SECRET", {"get_env": "AZURE_SECRET"}]}
             ),
         )
         """
        For authentication with service principal. [(Portal link)](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal#option-2-create-a-new-application-secret)
        """
-        AZURE_AD_USER: Union[str, None] = Ref({"get_env": "AZURE_AD_USER"})
+        AZURE_AD_USER: Union[str, None] = Eval({"get_env": "AZURE_AD_USER"})
         """for authentication with Active Directory"""
         AZURE_PASSWORD: Union[str, None] = Property(
-            metadata={"sensitive": True}, default=Ref({"get_env": "AZURE_PASSWORD"})
+            metadata={"sensitive": True}, default=Eval({"get_env": "AZURE_PASSWORD"})
         )
         """for authentication with Active Directory"""
-        AZURE_ADFS_AUTHORITY_URL: Union[str, None] = Ref(
+        AZURE_ADFS_AUTHORITY_URL: Union[str, None] = Eval(
             {"get_env": "AZURE_ADFS_AUTHORITY_URL"}
         )
         """set if you have your own ADFS authority"""
@@ -283,7 +283,7 @@ class relationships(Namespace):
         project: str
         """UUID to packet project"""
         PACKET_API_TOKEN: str = Property(
-            metadata={"sensitive": True}, default=Ref({"get_env": "PACKET_API_TOKEN"})
+            metadata={"sensitive": True}, default=Eval({"get_env": "PACKET_API_TOKEN"})
         )
 
     class ConnectsToOpenStack(ConnectsToCloudAccount):
@@ -350,7 +350,7 @@ class nodes(Namespace):
         )
         def default(self):
             return unfurl.configurators.DelegateConfigurator(
-                target=Ref({"eval": ".artifacts::install"}),
+                target=Eval({"eval": ".artifacts::install"}),
                 inputs={},
             )
 

@@ -3,10 +3,15 @@ from unfurl.localenv import LocalEnv
 from tosca import python2yaml
 import os
 
+def _verify_mypy(path):
+    stdout, stderr, return_code = api.run([path])
+    assert "no issues found in 1 source file" in stdout
+    assert return_code == 0, stderr
 
 def test_constraints():
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
+    _verify_mypy(basepath + "constraints.py")
 
     # loads yaml with with a json include
     local = LocalEnv(basepath + "constraints-ensemble.yaml")

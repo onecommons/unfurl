@@ -120,7 +120,7 @@ def value2python_repr(value, quote=False) -> str:
         pprinted = pprint.pformat(value, compact=True, indent=value_indent)
     if not quote:
         if has_function(value):
-            return f"Ref({pprinted})"
+            return f"Eval({pprinted})"
     return pprinted
 
 
@@ -221,7 +221,7 @@ class Imports:
         Attribute,
         Requirement,
         Capability,
-        Ref,
+        Eval,
         InterfaceType,
         CapabilityType,
         NodeType,
@@ -885,7 +885,7 @@ class Convert:
             typedecl = types[0]
 
         if match:
-            # XXX because a node can't be created before its type definition, match needs to be a Ref()
+            # XXX because a node can't be created before its type definition, match needs to be a Eval()
             match = f'="{match}"'
         if "occurrences" in req:
             min, max = req["occurrences"]

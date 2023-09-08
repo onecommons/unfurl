@@ -13,7 +13,7 @@ from tosca import (
     Attribute,
     Requirement,
     Capability,
-    Ref,
+    Eval,
     InterfaceType,
     CapabilityType,
     NodeType,
