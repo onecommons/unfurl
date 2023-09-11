@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from functools import partial
 import io
 import os.path
 import sys
@@ -620,6 +621,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         fragment: Optional[str],
         ctx: ImportResolver_Context,
     ) -> Tuple[Any, bool]:
+        # Called by the ImportsLoader with the resolved path or url
         # ctx is set by self.resolve_url()
         is_file, repo_view, base, file_name = ctx
         if not is_file:
@@ -661,13 +663,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
                 doc = self._convert_to_yaml(contents, path, yaml_dict)
+                base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
                         # self.expand is true when doing a TOSCA import (see Manifest_load_spec())
                         doc = YamlConfig(
                             doc,
-                            get_base_dir(path),
-                            loadHook=self.manifest.load_yaml_include,
+                            base_dir,
+                            loadHook=partial(
+                                self.manifest.load_yaml_include,
+                                repository_root=base_dir,
+                            ),
                             readonly=self.readonly,
                         ).expanded
                     doc.path = path

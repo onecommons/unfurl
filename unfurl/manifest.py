@@ -672,6 +672,7 @@ class Manifest(AttributeManager):
         warnWhenNotFound=False,
         expanded=None,
         action=None,
+        repository_root=None,
     ):
         """
         This is called while the YAML config is being loaded.
@@ -717,10 +718,11 @@ class Manifest(AttributeManager):
         repositories = self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
-        if self.localEnv and self.localEnv.project:
-            repository_root = self.localEnv.project.projectRoot
-        else:
-            repository_root=self.get_base_dir()
+        if repository_root is None:
+            if self.localEnv and self.localEnv.project:
+                repository_root = self.localEnv.project.projectRoot
+            else:
+                repository_root=self.get_base_dir()
         loader = toscaparser.imports.ImportsLoader(
             None,
             get_base_dir(baseDir),
