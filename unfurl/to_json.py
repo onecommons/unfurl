@@ -1084,6 +1084,7 @@ def nodetemplate_to_json(
       visibility: String
       directives: [String!]
       imported: String
+      metadata: JSON
 
       description: string
 
@@ -1109,12 +1110,13 @@ def nodetemplate_to_json(
             nodetemplate.entity_tpl["properties"] = ogprops
         return nodetemplate.entity_tpl
 
+    metadata = nodetemplate.entity_tpl.get("metadata", {})
+    title = metadata.pop("title", None)
     json = GraphqlObject(
         dict(
             type=_find_typename(nodetemplate, types),
             name=nodetemplate.name,
-            title=nodetemplate.entity_tpl.get("metadata", {}).get("title")
-            or nodetemplate.name,
+            title=title or nodetemplate.name,
             description=nodetemplate.entity_tpl.get("description") or "",
             directives=nodetemplate.directives,
             # __typename="ResourceTemplate",  # XXX
@@ -1122,6 +1124,8 @@ def nodetemplate_to_json(
     )
     if "imported" in nodetemplate.entity_tpl:
         json["imported"] = nodetemplate.entity_tpl.get("imported")
+    if metadata:
+        json["metadata"] = metadata
 
     visitor = PropertyVisitor()
     json["properties"] = list(template_properties_to_json(nodetemplate, visitor))
