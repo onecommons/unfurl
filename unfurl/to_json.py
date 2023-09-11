@@ -989,11 +989,11 @@ def template_properties_to_json(nodetemplate: NodeTemplate, visitor):
 def _get_requirement_for_template(
     req: dict, nodespec: EntitySpec, types: ResourceTypesByName
 ) -> Optional[GraphqlObject]:
-    name, req_dict = _get_req(req)
+    name, template_req_dict = _get_req(req)
     # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
     # _get_explicit_relationship returns req_dict merged with its type definition
     req_dict, rel_template = nodespec.toscaEntityTemplate._get_explicit_relationship(
-        name, req_dict
+        name, template_req_dict
     )
     if nodespec.type not in types:
         typeobj = _node_typename_to_graphql(nodespec.type, nodespec.topology, types)
@@ -1012,6 +1012,9 @@ def _get_requirement_for_template(
         # and the tosca object won't know about that change so set it now
         for typeconstraint in typeobj["requirements"]:
             if name == typeconstraint["name"]:
+                if not template_req_dict.get("node"):
+                    reqconstraint["match"] = typeconstraint.get("match")
+                    match = None
                 reqconstraint["min"] = typeconstraint["min"]
                 if "visibility" in typeconstraint:
                     reqconstraint["visibility"] = typeconstraint["visibility"]
