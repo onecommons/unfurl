@@ -330,7 +330,7 @@ class Convert:
         # add path to file in repo to repo path
         import_path = import_path / dirname / filename
 
-        return import_stmt + "\n", import_path
+        return import_stmt + "\n", str(import_path)
 
 
     def convert_types(
