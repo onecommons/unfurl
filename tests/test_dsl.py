@@ -10,6 +10,7 @@ try:
 except ImportError:
     print(sys.path)
     raise
+
 from tosca.python2yaml import PythonToYaml, python_to_yaml, dump_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
@@ -256,6 +257,30 @@ def test_set_constraints() -> None:
             },
         }
     }
+
+
+from unittest.mock import MagicMock
+@pytest.mark.parametrize(
+    "test_input,expected",
+    [
+        (dict(file="foo.yaml"), "from .foo import *"),
+        (dict(file="../foo.yaml"), "from ..foo import *"),
+        (dict(file="../../foo.yaml"), "from ...foo import *"),
+        (dict(repository="unfurl", file="foo.yaml"), "from unfurl.foo import *"),
+        (dict(repository="repo", file="foo.yaml", namespace_prefix="tosca.ns", uri_prefix="tosca.ns"), "from repo import foo as tosca.ns"),
+        (dict(repository="repo", file="foo.yaml", namespace_prefix="ns", uri_prefix="ns"),             "from repo import foo as ns"),
+        (dict(repository="repo", file="foo.yaml", namespace_uri="ns", uri_prefix="ns"),                "from repo import foo as ns"),
+    ]
+)
+def test_convert_import(test_input, expected):
+    c = tosca.yaml2python.Convert(template=MagicMock(path=test_input['file']))
+
+    output = c.convert_import(test_input)
+
+    # generated import
+    assert output[0].strip() == expected
+    # import path
+    # assert output[1] == "/path/to/foo.yaml"
 
 
 if __name__ == "__main__":

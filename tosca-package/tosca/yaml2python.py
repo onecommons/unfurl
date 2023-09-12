@@ -281,46 +281,57 @@ class Convert:
             return name, url
         return name, name
 
-    def convert_import(self, tpl) -> Tuple[str, str]:
-        repository = tpl.get("repository")
-        import_path = os.path.dirname(self.template.path or "")
-        if repository:
-            module_name, import_path = self.find_repository(repository)
+
+
+    def convert_import(self, imp: dict[str, str]) -> Tuple[str, str]:
+        "converts tosca yaml import dict (as `imp`) to python import statement"
+        repo = imp.get("repository")
+        file = imp.get("file")
+        namespace = imp.get("namespace_prefix") or imp.get("namespace_uri") # _uri is deprecated
+
+
+        # figure out loading path
+        import_path = Path(self.template.path).parent
+        if repo:
+            # generate repo import if repository: key given
+            module_name, _import_path = self.find_repository(repo)
+            import_path = Path(_import_path)
         else:
-            absolute = os.path.isabs(import_path)
-            module_name = "." if not absolute else ""
+            # otherwise assume local path
+            # prefix module_name with . if relative path
+            module_name = "" if import_path.is_absolute() else "."
 
-        dirname, filename = os.path.split(tpl.get("file"))
-        # strip out file extension if present
-        before, sep, remainder = filename.rpartition(".")
-        file_name, tosca_name = self._get_name(before or remainder)
-        if dirname:
-            modpath = dirname.strip("/").replace("/", ".")
-            if module_name and module_name[-1] != ".":
-                module_name += "." + modpath
-            else:
-                module_name += modpath
+        filepath = Path(file)
+        dirname = filepath.parent   # dirname
+        filename, tosca_name = self._get_name(filepath.stem) # filename w/o ext
 
-        import_path = os.path.join(import_path, dirname, file_name)
 
-        uri_prefix = tpl.get("namespace_prefix")
-        if uri_prefix:
-            uri_prefix, tosca_name = self._get_name(uri_prefix)
-            tosca_prefix = tosca_name or uri_prefix
-            self.import_prefixes[tosca_prefix] = uri_prefix
-        if module_name:
-            if uri_prefix:
-                import_stmt = f"from {module_name} import {file_name} as {uri_prefix}"
-            elif module_name != ".":
-                import_stmt = f"from {module_name}.{file_name} import *"
-            else:
-                import_stmt = f"from .{file_name} import *"
+        # convert relative dir paths to python relative imports
+        # use split-based length instead of raw replacement
+        # this avoids mangling any ../ in paths
+        modpath = ".".join(['' if d == '..' else d for d in [*dirname.parts, '']])
+        module_name += modpath
+
+
+        # handle tosca namespace prefixes
+        if namespace:
+            namespace, ns_tosca_name = self._get_name(namespace)
+            self.import_prefixes[ns_tosca_name or namespace] = namespace
+
+
+        # generate import statement
+        if not namespace:
+            import_stmt = f"from {module_name}{'.' if module_name[-1] != '.' else ''}{filename} import *"
+
         else:
-            if uri_prefix:
-                import_stmt = f"import {file_name} as {uri_prefix}"
-            else:
-                import_stmt = f"from {file_name} import *"
+            import_stmt = f"from {module_name} import {filename} as {ns_tosca_name or namespace}"
+
+
+        # add path to file in repo to repo path
+        import_path = import_path / dirname / filename
+
         return import_stmt + "\n", import_path
+
 
     def convert_types(
         self, node_types: dict, section: str, namespace_prefix="", indent=""
@@ -1126,7 +1137,7 @@ def yaml_to_python(
 
     Returns:
         str: The converted Python source code.
-    """    
+    """
     return convert_service_template(
         ToscaTemplate(
             path=yaml_path, yaml_dict_tpl=tosca_dict, import_resolver=import_resolver
