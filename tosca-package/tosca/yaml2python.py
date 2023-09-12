@@ -289,6 +289,8 @@ class Convert:
         file = imp.get("file")
         namespace = imp.get("namespace_prefix") or imp.get("namespace_uri") # _uri is deprecated
 
+        # file is required by TOSCA spec, so crash and burn if we don't have it
+        assert file, "file is required for TOSCA imports"
 
         # figure out loading path
         import_path = Path(self.template.path).parent
