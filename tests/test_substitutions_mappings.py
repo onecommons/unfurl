@@ -55,6 +55,28 @@ spec:
             foo: baz
           requirements:
             - host: external
+
+"""
+
+ensemble_with_root = ensemble + """
+        the_app:
+          type: NestedApp
+          directives: []
+          properties: {}
+          requirements:
+          - nested:
+              node: nested1
+
+      root:
+        node: the_app
+
+    node_types:
+      NestedApp:
+        derived_from: tosca.nodes.Root
+        requirements:
+          - nested:
+              node: Nested
+
 """
 
 nested_import_types = """
@@ -436,3 +458,34 @@ def test_replace_placeholder():
         inner = manifest2.rootResource.find_instance("nested1:inner")
         assert inner
         assert inner.query(".targets::host::.name") == "replacement"
+
+def test_substitution_plan():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        init_project(
+            cli_runner,
+            args=["init", "--mono", "--skeleton=aws"],
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(ensemble_with_root)
+
+        with open("nested1.yaml", "w") as f:
+            f.write(nested_node_import)
+
+        manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
+        node1 = manifest.tosca.get_template("nested1")
+        assert node1 and node1.substitution and node1.topology is not node1.substitution
+        inner_nodespec = node1.substitution.get_node_template("inner")
+        assert inner_nodespec
+        result, job, summary = run_job_cmd(cli_runner, print_result=True)
+        assert job.json_summary()["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 3,
+            "ok": 3,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 3,
+        }

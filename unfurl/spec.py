@@ -910,6 +910,8 @@ class EntitySpec(ResourceRef):
             if self.topology.substitution_node:
                 if self.topology.substitution_node is root:
                     # require if a root of this template is the substitution_template
+                    if self.topology.substitute_of:
+                        return self.topology.substitute_of.required
                     return True
             elif "default" not in root.directives:
                 # otherwise require when there is a root that isn't a defaults template
@@ -1029,10 +1031,22 @@ class NodeSpec(EntitySpec):
     def requirements(self) -> Dict[str, "RequirementSpec"]:
         if self._requirements is None:
             self._requirements = {}
-            nodeTemplate = self.toscaEntityTemplate
+            nodeTemplate = cast(NodeTemplate, self.toscaEntityTemplate)
             assert self.topology
+            has_substitution = self.toscaEntityTemplate.substitution
             for relTpl, req, req_type_def in nodeTemplate.relationships:
                 name, values = next(iter(req.items()))
+                if has_substitution and relTpl.target:
+                    type_req = nodeTemplate.type_definition.get_requirement_definition(
+                        name
+                    )
+                    if type_req and type_req.get("node") == relTpl.target.name:
+                        # predefined templates declared on type definition
+                        # will be created in the nested topology, not the outer one
+                        logger.debug(
+                            f'Omitting requirement "{name}" on substituted template "{self.name}": the target node "{relTpl.target.name}" is only declared on the type.'
+                        )
+                        continue
                 reqSpec = RequirementSpec(name, req, self, req_type_def)
                 if relTpl.target:
                     nodeSpec = self.spec.node_from_template(relTpl.target)

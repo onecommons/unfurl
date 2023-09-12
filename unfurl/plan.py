@@ -503,7 +503,7 @@ class Plan:
                     yield taskRequest
         if not task_found:
             logger.verbose(
-                f'No operations for workflow "{workflow}" defined for instance "{resource.name}"'
+                f'No operations for workflow "{workflow}" defined for instance "{resource.nested_name}"'
             )
         if group:
             if custom_workflow:
@@ -1043,7 +1043,7 @@ def order_templates(
 def get_ancestor_templates(
     source: NodeSpec, templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
-    if not source.abstract:
+    if source.abstract != "select":
         for req in source.requirements.values():
             target = req.relationship and req.relationship.target
             if target and target is not source:

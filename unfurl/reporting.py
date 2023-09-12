@@ -330,7 +330,7 @@ class JobReporter:
                 task_success = "[white]skipped[/]"
             operation = task.configSpec.operation
             reason = task.reason or ""
-            resource = task.target.name
+            resource = task.target.nested_name
             if task.status is None:
                 status = ""
             else:
