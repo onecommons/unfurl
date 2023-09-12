@@ -365,7 +365,7 @@ node_types:
     derived_from: tosca:Root
     requirements:
     - placeholder:
-        node: placeholder_node
+        node: placeholder
     interfaces:
       Standard:
        operations:
@@ -380,7 +380,7 @@ topology_template:
     node_type: NestedWithPlaceHolder
 
   node_templates:
-    placeholder_node:
+    placeholder:
       type: nodes.Test
       directives:
       - default
@@ -388,7 +388,7 @@ topology_template:
     inner:
       type: nodes.Test
       requirements:
-        - host: placeholder_node
+        - host: placeholder
 """
 
 replaceholder_ensemble = """
@@ -438,11 +438,17 @@ def test_replace_placeholder():
             inner_nodespec.requirements["host"].relationship.target.name
             == "replacement"
         )
-
         # verify inner matches with external not placeholder
 
         result, job, summary = run_job_cmd(cli_runner, print_result=True)
-        assert job.json_summary()["job"] == {
+        inner = job.rootResource.find_instance("nested1:inner")
+        assert inner
+        assert inner.query(".targets::host::.name") == "replacement"
+        replacement = job.rootResource.find_instance("replacement")
+        assert replacement
+        assert replacement.query(".sources::host::.name") == "inner"
+
+        assert summary["job"] == {
             "id": "A01110000000",
             "status": "ok",
             "total": 2,
@@ -458,6 +464,10 @@ def test_replace_placeholder():
         inner = manifest2.rootResource.find_instance("nested1:inner")
         assert inner
         assert inner.query(".targets::host::.name") == "replacement"
+        replacement = manifest2.rootResource.find_instance("replacement")
+        assert replacement
+        assert replacement.query(".sources::host::.name") == "inner"
+
 
 def test_substitution_plan():
     cli_runner = CliRunner()
