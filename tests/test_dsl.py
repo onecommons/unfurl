@@ -259,28 +259,83 @@ def test_set_constraints() -> None:
     }
 
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+
 @pytest.mark.parametrize(
-    "test_input,expected",
+    "test_input,exp_import,exp_path",
     [
-        (dict(file="foo.yaml"), "from .foo import *"),
-        (dict(file="../foo.yaml"), "from ..foo import *"),
-        (dict(file="../../foo.yaml"), "from ...foo import *"),
-        (dict(repository="unfurl", file="foo.yaml"), "from unfurl.foo import *"),
-        (dict(repository="repo", file="foo.yaml", namespace_prefix="tosca.ns", uri_prefix="tosca.ns"), "from repo import foo as tosca.ns"),
-        (dict(repository="repo", file="foo.yaml", namespace_prefix="ns", uri_prefix="ns"),             "from repo import foo as ns"),
-        (dict(repository="repo", file="foo.yaml", namespace_uri="ns", uri_prefix="ns"),                "from repo import foo as ns"),
-    ]
+        (dict(file="foo.yaml"), "from .foo import *", "/path/to/foo"),
+        (dict(file="../foo.yaml"), "from ..foo import *", "/path/to/../foo"),
+        (
+            dict(file="../../foo.yaml"),
+            "from ...foo import *",
+            "/path/to/../../foo",
+        ),
+    ],
 )
-def test_convert_import(test_input, expected):
-    c = tosca.yaml2python.Convert(template=MagicMock(path=test_input['file']))
+# patch repo lookup so we don't need to write the whole template
+def test_convert_import(test_input, exp_import, exp_path):
+    c = tosca.yaml2python.Convert(MagicMock(path="/path/to/including_file.yaml"))
 
     output = c.convert_import(test_input)
 
     # generated import
-    assert output[0].strip() == expected
+    assert output[0].strip() == exp_import
     # import path
-    # assert output[1] == "/path/to/foo.yaml"
+    assert output[1] == exp_path
+
+
+@pytest.mark.parametrize(
+    "test_input,exp_import,exp_path",
+    [
+        (
+            dict(repository="repo", file="foo.yaml"),
+            "from tosca_repositories.repo.foo import *",
+            "tosca_repositories/repo/foo",
+        ),
+        (
+            dict(repository="repo", file="subdir/foo.yaml"),
+            "from tosca_repositories.repo.subdir.foo import *",
+            "tosca_repositories/repo/subdir/foo",
+        ),
+        (
+            dict(repository="repo", file="foo.yaml", namespace_prefix="tosca.ns"),
+            "from tosca_repositories.repo import foo as tosca.ns",
+            "tosca_repositories/repo/foo",
+        ),
+        (
+            dict(
+                repository="repo", file="subdir/foo.yaml", namespace_prefix="tosca.ns"
+            ),
+            "from tosca_repositories.repo.subdir import foo as tosca.ns",
+            "tosca_repositories/repo/subdir/foo",
+        ),
+        (
+            dict(repository="repo", file="foo.yaml", namespace_prefix="ns"),
+            "from tosca_repositories.repo import foo as ns",
+            "tosca_repositories/repo/foo",
+        ),
+    ],
+)
+# patch repo lookup so we don't need to write the whole template
+def test_convert_import_with_repo(test_input, exp_import, exp_path):
+    with patch.object(
+        tosca.yaml2python.Convert,
+        "find_repository",
+        return_value=(
+            f"tosca_repositories.{test_input.get('repository')}",
+            f"tosca_repositories/{test_input.get('repository')}",
+        ),
+    ):
+        c = tosca.yaml2python.Convert(MagicMock())
+
+        output = c.convert_import(test_input)
+
+        # generated import
+        assert output[0].strip() == exp_import
+        # import path
+        assert output[1] == exp_path
 
 
 if __name__ == "__main__":
