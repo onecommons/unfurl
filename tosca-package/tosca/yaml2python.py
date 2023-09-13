@@ -15,7 +15,7 @@ The yaml converted to python will be removed and replace with an import statemen
 from dataclasses import MISSING
 import logging
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import pprint
 import re
 import string
@@ -287,33 +287,55 @@ class Convert:
         "converts tosca yaml import dict (as `imp`) to python import statement"
         repo = imp.get("repository")
         file = imp.get("file")
-        namespace = imp.get("namespace_prefix") or imp.get("namespace_uri") # _uri is deprecated
+        namespace = imp.get("namespace_prefix")
+
+        # print(f"OCDEBUG: {repo=}")
+        # print(f"OCDEBUG: {file=}")
+        # print(f"OCDEBUG: {namespace=}")
 
         # file is required by TOSCA spec, so crash and burn if we don't have it
         assert file, "file is required for TOSCA imports"
 
         # figure out loading path
-        import_path = Path(self.template.path).parent
+        filepath = PurePath(file)
+        dirname = filepath.parent
+        filename, tosca_name = self._get_name(filepath.stem) # filename w/o ext
+
         if repo:
             # generate repo import if repository: key given
             module_name, _import_path = self.find_repository(repo)
-            import_path = Path(_import_path)
+            import_path = PurePath(_import_path)
+
+            # print(f"OCDEBUG: repo {module_name=}, {import_path=}")
+            # print(f"OCDEBUG: {import_path.parts=}, {dirname.parts=}")
+
+            # import should be path.to.repo.path.to.file
+            module_name = ".".join(
+                ['' if d == '..' else d for d in [
+                    *import_path.parts,
+                    *dirname.parts
+                ]]
+            )
+
         else:
             # otherwise assume local path
+            import_path = PurePath(self.template.path).parent
             # prefix module_name with . if relative path
-            module_name = "" if import_path.is_absolute() else "."
+            # module_name = "" if import_path.is_absolute() else "."
 
-        filepath = Path(file)
-        dirname = filepath.parent   # dirname
-        filename, tosca_name = self._get_name(filepath.stem) # filename w/o ext
+            # print(f"OCDEBUG: non-repo {module_name=}, {import_path=}")
+            print(f"OCDEBUG: {import_path.parts=}, {dirname.parts=}")
 
+            # import should be .path.to.file
+            module_name = ".".join(
+                ['' if d == '..' else d for d in [
+                    '', # for leading dot
+                    # *import_path.parts,
+                    *dirname.parts
+                ]]
+            )
 
-        # convert relative dir paths to python relative imports
-        # use split-based length instead of raw replacement
-        # this avoids mangling any ../ in paths
-        modpath = ".".join(['' if d == '..' else d for d in [*dirname.parts, '']])
-        module_name += modpath
-
+        # print(f"OCDEBUG: after translation {module_name=}")
 
         # handle tosca namespace prefixes
         if namespace:
@@ -323,7 +345,7 @@ class Convert:
 
         # generate import statement
         if not namespace:
-            import_stmt = f"from {module_name}{'.' if module_name[-1] != '.' else ''}{filename} import *"
+            import_stmt = f"from {module_name}.{filename} import *"
 
         else:
             import_stmt = f"from {module_name} import {filename} as {ns_tosca_name or namespace}"
