@@ -10,7 +10,7 @@ try:
 except ImportError:
     print(sys.path)
     raise
-from tosca.python2yaml import PythonToYaml, convert_to_tosca, dump_yaml
+from tosca.python2yaml import PythonToYaml, python_to_yaml, dump_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
@@ -25,16 +25,15 @@ def _to_python(yaml_str: str):
             node_templates={}, relationship_templates={}
         )
     import_resolver = ImportResolver(None)  # type: ignore
-    template = ToscaTemplate(
-        path=__file__, yaml_dict_tpl=tosca_yaml, import_resolver=import_resolver
+    src = yaml2python.yaml_to_python(
+        __file__, tosca_dict=tosca_yaml, import_resolver=import_resolver
     )
-    src = yaml2python.convert_service_template(template)
     return src, tosca_yaml
 
 
 def _to_yaml(python_src: str) -> dict:
     namespace: dict = {}
-    tosca_tpl = convert_to_tosca(python_src, namespace)
+    tosca_tpl = python_to_yaml(python_src, namespace)
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
@@ -188,7 +187,9 @@ def test_example_wordpress():
 
 def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
-        shellScript: tosca.artifacts.Root = tosca.artifacts.Root("example.sh")  # (file="example.sh")
+        shellScript: tosca.artifacts.Root = tosca.artifacts.Root(
+            "example.sh"
+        )  # (file="example.sh")
         prop1: Optional[str] = tosca.Eval()
         host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
@@ -229,14 +230,16 @@ def test_set_constraints() -> None:
                     },
                 }
             },
-            'artifacts': {'shellScript': {'type': 'tosca.artifacts.Root'}},
+            "artifacts": {"shellScript": {"type": "tosca.artifacts.Root"}},
             "requirements": [
                 {
                     "host": {
                         "node": "tosca.nodes.Compute",  # XXX should reference my_compute
                         "node_filter": {
                             "match": [{"eval": "prop1"}],
-                            "properties": [{"public_address": {"eval": "$SOURCE::prop1"}}],
+                            "properties": [
+                                {"public_address": {"eval": "$SOURCE::prop1"}}
+                            ],
                         },
                     }
                 }

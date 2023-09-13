@@ -6,8 +6,11 @@ from pathlib import Path
 from importlib.abc import Loader
 from importlib import invalidate_caches
 from importlib.machinery import FileFinder, ModuleSpec, PathFinder
-from importlib.util import spec_from_file_location, spec_from_loader
-from .yaml2python import convert_service_template
+from importlib.util import spec_from_file_location, spec_from_loader, module_from_spec
+from typing import Optional
+import importlib._bootstrap
+from .python2yaml import restricted_exec
+from .yaml2python import convert_service_template, yaml_to_python
 
 
 class RepositoryFinder(PathFinder):
@@ -50,20 +53,53 @@ class ToscaYamlLoader(Loader):
         return None  # use default module creation semantics
 
     def exec_module(self, module):
-        python_filepath = Path(self.filepath).stem
-        # XXX!
         # parse to TOSCA template and convert to python
-        # tosca_tpl = resolver.load_yaml(self.filepath, "", ctx)
-        # src = convert_service_template(tosca_tpl)
-        # with open(python_filepath, "w") as f:
-        #     f.write(src)
-        # globals = vars(module)  # module.__dict__x
-        # exec(src, globals)
+        path = Path(self.filepath)
+        if path.suffix in loader_details[1]:
+            python_filepath = str(path.parent / (path.stem + ".py"))
+            src = yaml_to_python(self.filepath, python_filepath)
+        else:
+            with open(path) as f:
+                src = f.read()
+            python_filepath = self.filepath
+        package = self.full_name.rpartition('.')[0]
+        restricted_exec(src, vars(module), python_filepath, package)
 
+def load_private_module(origin_path: str, name: str, package: Optional[str] = None, level=0):
+    importlib._bootstrap._sanity_check(name, package, level)
+    if level > 0:
+        name = importlib._bootstrap._resolve_name(name, package, level)    
+    loader = ToscaYamlLoader(name, origin_path)
+    spec = spec_from_loader(name, loader, origin=origin_path)
+    assert spec and spec.loader
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+whitelist = ["tosca_repositories", "tosca", "unfurl", "typing", "typing_extensions"]
+
+def __safe_import__(path, package, name, globals=None, locals=None, fromlist=(), level=0):
+    parts = name.split(".")
+    if level == 0:
+        if parts[0] not in whitelist:
+            raise ModuleNotFoundError("Import of " + name + " is restricted", name=name)
+        else:
+            first = importlib.import_module(parts[0])
+            last = importlib.import_module(name)
+            # we don't need to worry about _handle_fromlist here because we don't allow import submodules
+            return last if fromlist else first
+    # load user code in our restricted environment
+    module = load_private_module(path, name, package, level)
+    if not module:
+         raise ModuleNotFoundError("No module named " + name, name=name)
+    # https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207  
+    return importlib._bootstrap._handle_fromlist(module, fromlist, lambda name: load_private_module(path, name))
+
+
+    
 
 loader_details = ToscaYamlLoader, [".yaml", ".yml"]
 installed = False
-
 
 def install():
     # insert the path hook ahead of other path hooks

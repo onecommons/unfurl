@@ -325,7 +325,7 @@ class Convert:
 
         import_path = os.path.join(import_path, dirname, file_name)
 
-        uri_prefix = tpl.get("uri_prefix")
+        uri_prefix = tpl.get("namespace_prefix")
         if uri_prefix:
             uri_prefix, tosca_name = self._get_name(uri_prefix)
             tosca_prefix = tosca_name or uri_prefix
@@ -1128,6 +1128,32 @@ def generate_builtin_extensions(import_resolver) -> str:
         f"unfurl.",
         True,
         EntityType.TOSCA_DEF,
+    )
+
+
+def yaml_to_python(
+    yaml_path: str,
+    python_path: str = "",
+    tosca_dict: Optional[dict] = None,
+    import_resolver=None,
+) -> str:
+    """
+    Converts the given YAML service template to Python source code as a string and saves it to a file if ``python_path`` is provided.
+
+    Args:
+        yaml_path (str): Path to a YAML TOSCA service template
+        python_path (str, optional): Location to save the converted Python source code. Defaults to "".
+        tosca_dict (Optional[dict], optional): TOSCA service template as a ``dict``. Overrides ``yaml_path``. Defaults to None.
+        import_resolver (_type_, optional): Import resolver to use. Defaults to None.
+
+    Returns:
+        str: The converted Python source code.
+    """    
+    return convert_service_template(
+        ToscaTemplate(
+            path=yaml_path, yaml_dict_tpl=tosca_dict, import_resolver=import_resolver
+        ),
+        path=python_path,
     )
 
 

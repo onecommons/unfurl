@@ -250,8 +250,7 @@ ImportResolver_Context = Tuple[bool, Optional[RepoView], str, str]
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    # get_repository() is called by the tosca template
-    # load_yaml() called by the ImportsLoader with the resolved path or url returned by resolve_file_reference()
+    safe_mode: bool = False
 
     def __init__(
         self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None
@@ -295,6 +294,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
+        # this is also called by ToscaTemplate
         if not unique and name in self.manifest.repositories:
             # don't create another Repository instance
             return self.manifest.repositories[name].repository
@@ -633,11 +633,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _convert_to_yaml(self, contents, path, yaml_dict: type = dict):
         if path.endswith(".py"):
-            from tosca.python2yaml import convert_to_tosca
+            from tosca.python2yaml import python_to_yaml
 
             self.expand = False
             namespace: Dict[str, Any] = {}
-            yaml_src = convert_to_tosca(contents, namespace, path, yaml_dict)
+            yaml_src = python_to_yaml(
+                contents, namespace, path, yaml_cls=yaml_dict, safe_mode=self.safe_mode
+            )
             # XXX save module namespace:
             # self.manifest.modules[path] = namespace
             return yaml_src

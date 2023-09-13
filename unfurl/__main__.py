@@ -1157,14 +1157,14 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 
 
 def python_to_yaml(src_path: str, dest_path=None) -> dict:
-    from tosca.python2yaml import convert_to_tosca
+    from tosca.python2yaml import python_to_yaml
     from unfurl.yamlloader import yaml
 
     with open(src_path) as f:
         python_src = f.read()
     sys.path.insert(0, get_base_dir(src_path))
     namespace: dict = {}
-    tosca_tpl = convert_to_tosca(python_src, namespace)
+    tosca_tpl = python_to_yaml(python_src, namespace)
     if dest_path:
         with open(dest_path, "w") as yo:
             yaml.dump(tosca_tpl, yo)
@@ -1200,8 +1200,7 @@ def export(ctx, project_or_ensemble_path: str, format, file, **options):
     options.update(ctx.obj)
 
     if project_or_ensemble_path.endswith(".py"):
-        with open(project_or_ensemble_path) as f:
-            python_to_yaml(f.read(), file)
+        python_to_yaml(project_or_ensemble_path, file)
         return
 
     localEnv = LocalEnv(

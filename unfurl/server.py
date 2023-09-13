@@ -1996,6 +1996,7 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
 
 
 class ServerCacheResolver(SimpleCacheResolver):
+    safe_mode: bool = True
     root_cache_request: Optional[CacheEntry] = None
     args: Optional[dict] = None
 

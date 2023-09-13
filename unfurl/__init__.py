@@ -3,7 +3,7 @@
 import logging
 import os
 import sys
-from typing import Dict, Union
+from typing import Dict, Union, TYPE_CHECKING
 
 import pbr.version
 
@@ -37,10 +37,18 @@ sys.path.insert(0, vendor_dir)
 vendor_dir2 = os.path.join(vendor_dir, "tosca", "vendor")
 sys.path.insert(0, vendor_dir2)
 
+if TYPE_CHECKING:
+    from .tosca_plugins.tosca_ext import nodes
+    from .tosca_plugins.tosca_ext import interfaces
+    from .tosca_plugins.tosca_ext import relationships
+    from .tosca_plugins.tosca_ext import capabilities
+    from .tosca_plugins.tosca_ext import datatypes
+    from .tosca_plugins.tosca_ext import artifacts
+    from .tosca_plugins.tosca_ext import groups
+
+
 def __getattr__(name):
-    _tosca_types_str = (
-        "nodes capabilities relationships interfaces datatypes artifacts policies groups"
-    )
+    _tosca_types_str = "nodes capabilities relationships interfaces datatypes artifacts policies groups"
 
     if name in _tosca_types_str:
         from .tosca_plugins import tosca_ext

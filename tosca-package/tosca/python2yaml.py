@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
+import importlib, importlib.util, importlib._bootstrap
 import sys
 import os.path
 from typing import (
@@ -16,7 +17,7 @@ from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
 from ast import Str, Constant, Name
 import ast
 from ._tosca import _DataclassType, ToscaType, global_state
-from RestrictedPython import compile_restricted_exec
+from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
 from RestrictedPython import safe_builtins
 
@@ -169,25 +170,39 @@ def get_descriptions(body):
         current_name = None
     return doc_strings
 
+# SAFETY:
+# We only allow access (via import) to tosca and the user's code (XXX How?)
+# each user gets their own instance of the tosca module so any modifications to that module doesn't affect other users
+# and we proxy the tosca module to control access to its contents (functions and classes and scalars)
+# what about unfurl? white list imports
+from types import ModuleType
+class ImmutableModule(ModuleType):
+    def __init__(self, name='__builtins__', **kw):
+        ModuleType.__init__(self, name)
+        self.__dict__.update(kw)
+
+    def __setattr__(self, name, v):
+        raise AttributeError(name)
+
+    def __delattr__(self, name):
+        raise AttributeError(name)
 
 default_guarded_getattr = getattr  # No restrictions.
-
 
 def default_guarded_getitem(ob, index):
     # No restrictions.
     return ob[index]
-
 
 def default_guarded_getiter(ob):
     # No restrictions.
     return ob
 
 def default_guarded_write(ob):
-    # No restrictions.
     return ob
 
 # _inplacevar_
 # _iter_unpack_sequence_
+# _unpack_sequence_
 
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
@@ -198,7 +213,8 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
         return True  # XXX
 
     def error(self, node, info):
-        # visit_Attribute() checks inline instead of calling check_name()
+        # visit_Attribute() checks names inline instead of calling check_name()
+        # so we have to do the name check this way:
         if 'invalid attribute name because it starts with "_"' in info:
             if self._name_ok(node, node.attr):
                 return
@@ -209,28 +225,47 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
             self.error(node, f'"{name}" is an invalid variable name"')
 
     def check_import_names(self, node):
-        # XXX
+        # XXX if isinstance(node, ast.ImportFrom) and node.module == "tosca" and node.level == 0:
+        #         return self.node_contents_visit(node)
+        #  else: super().check_import_names(node)
         return self.node_contents_visit(node)
 
     def visit_AnnAssign(self, node: AnnAssign) -> Any:
+        # missing in RestrictingNodeTransformer
         return self.node_contents_visit(node)
 
     def visit_ClassDef(self, node: ClassDef) -> Any:
+        # find attribute docs in this class definition
         doc_strings = get_descriptions(node.body)
         self.used_names[node.name] = doc_strings
         return super().visit_ClassDef(node)
 
-
-def convert_to_tosca(
+def python_to_yaml(
     python_src: str,
     namespace: Optional[Dict[str, Any]] = None,
     path: str = "",
+    package: str = "",
     yaml_cls=dict,
+    safe_mode: bool=False
 ) -> dict:
+    result = restricted_exec(python_src, namespace, path, package)
+    doc_strings = result.used_names
+    converter = PythonToYaml(namespace, yaml_cls, doc_strings)
+    yaml_dict = converter.module2yaml()
+    # XXX
+    # if path:
+    #     with open(path, "w") as yo:
+    #         yaml.dump(yaml_dict, yo)
+    return yaml_dict
+
+def restricted_exec(python_src, namespace, path, package) -> CompileResult:
+    from .loader import __safe_import__
+
     if namespace is None:
         namespace = {}
     tosca_builtins = safe_builtins.copy()
-    tosca_builtins["__import__"] = __import__
+    # https://docs.python.org/3/library/functions.html?highlight=__import__#import__
+    tosca_builtins["__import__"] = lambda *args: __safe_import__(path, package, *args)
     tosca_builtins["__metaclass__"] = type
     tosca_builtins["classmethod"] = classmethod
     tosca_builtins["staticmethod"] = staticmethod
@@ -247,15 +282,10 @@ def convert_to_tosca(
     namespace["__name__"] = "builtins"
     if path:
         namespace["__file__"] = path
+    if package:
+        namespace["__package__"] = package
     result = compile_restricted_exec(python_src, policy=ToscaDslNodeTransformer)
-    # doc strings are in here: result.used_names
     if result.errors:
-        return {}
+        raise SyntaxError(result.errors.join("\n"))
     exec(result.code, namespace)
-    converter = PythonToYaml(namespace, yaml_cls, result.used_names)
-    yaml_dict = converter.module2yaml()
-    # XXX
-    # if path:
-    #     with open(path, "w") as yo:
-    #         yaml.dump(yaml_dict, yo)
-    return yaml_dict
+    return result
