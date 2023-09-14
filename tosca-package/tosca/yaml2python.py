@@ -283,7 +283,7 @@ class Convert:
 
 
 
-    def convert_import(self, imp: dict[str, str]) -> Tuple[str, str]:
+    def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str]:
         "converts tosca yaml import dict (as `imp`) to python import statement"
         repo = imp.get("repository")
         file = imp.get("file")
