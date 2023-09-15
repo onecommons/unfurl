@@ -289,14 +289,8 @@ class Convert:
         file = imp.get("file")
         namespace = imp.get("namespace_prefix")
 
-        # print(f"OCDEBUG: {repo=}")
-        # print(f"OCDEBUG: {file=}")
-        # print(f"OCDEBUG: {namespace=}")
-
         # file is required by TOSCA spec, so crash and burn if we don't have it
         assert file, "file is required for TOSCA imports"
-
-        # print(f"OCDEBUG:: ---")
 
         # figure out loading path
         filepath = PurePath(file)
@@ -308,37 +302,11 @@ class Convert:
             module_name, _import_path = self.find_repository(repo)
             import_path = PurePath(_import_path)
 
-            # print(f"OCDEBUG::   is repo")
-            # print(f"OCDEBUG::     {module_name=}, {import_path=}")
-            # print(f"OCDEBUG::     {import_path.parts=}, {dirname.parts=}")
-
-            # # import should be path.to.repo.path.to.file
-            # module_name = ".".join(
-            #     ['' if d == '..' else d for d in [
-            #         # *import_path.parts,
-            #         module_name,
-            #         *dirname.parts
-            #     ]]
-            # )
-
         else:
             # otherwise assume local path
             import_path = PurePath(self.template.path).parent
-            # prefix module_name with . if relative path
+            # prefix module_name with . for relative path
             module_name = ""
-
-            # print(f"OCDEBUG::   non-repo")
-            # print(f"OCDEBUG::     {module_name=}, {import_path=}")
-            # print(f"OCDEBUG::     {import_path.parts=}, {dirname.parts=}")
-
-            # # import should be .path.to.file
-            # module_name = ".".join(
-            #     ['' if d == '..' else d for d in [
-            #         '', # for leading dot
-            #         # *import_path.parts,
-            #         *dirname.parts
-            #     ]]
-            # )
 
         # import should be .path.to.file
         module_name = ".".join(
@@ -348,21 +316,16 @@ class Convert:
             ]]
         )
 
-        # print(f"OCDEBUG:: after translation {module_name=}")
-
         # handle tosca namespace prefixes
         if namespace:
             namespace, ns_tosca_name = self._get_name(namespace)
             self.import_prefixes[ns_tosca_name or namespace] = namespace
 
-
         # generate import statement
         if not namespace:
             import_stmt = f"from {module_name}.{filename} import *"
-
         else:
             import_stmt = f"from {module_name} import {filename} as {ns_tosca_name or namespace}"
-
 
         # add path to file in repo to repo path
         import_path = import_path / dirname / filename
