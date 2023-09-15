@@ -1386,18 +1386,27 @@ class LocalEnv:
             base_path = get_base_dir(base_path)
         else:
             base_path = os.getcwd()
+
         assert name.isidentifier(), name
         repo = self.find_git_repo(url, revision)
         assert repo, url
-        repo_root = Path(base_path) / "tosca_repositories"
-        if not repo_root.exists():
-            os.mkdir(repo_root)
-            with open(repo_root / ".gitignore", "w") as gi:
+
+        tosca_repos_root = Path(base_path) / "tosca_repositories"
+        # ensure t_r and its gitignore exist
+        if not tosca_repos_root.exists():
+            os.mkdir(tosca_repos_root)
+            with open(tosca_repos_root / ".gitignore", "w") as gi:
                 gi.write("*")
-        target = repo_root / name
-        if os.path.exists(target):
-            os.unlink(target)
-        os.symlink(repo.working_dir, repo_root / name, True)
+
+        target = tosca_repos_root / name
+        # remove/recreate to ensure symlink is correct
+        if target.exists():
+            target.unlink()
+
+        # use os.path.relpath as Path.relative_to only accepts strict subpaths
+        rel_repo_path = os.path.relpath(repo.working_dir, tosca_repos_root)
+        target.symlink_to(rel_repo_path)
+
         return repo.working_dir
 
     def map_value(self, val: Any, env_rules: Optional[dict]) -> Any:
