@@ -15,7 +15,7 @@ def test_constraints():
 
     # loads yaml with with a json include
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
-    manifest = local.get_manifest(skip_validation=True)
+    manifest = local.get_manifest(skip_validation=True, safe_mode=True)
     service_template = manifest.manifest.expanded["spec"]["service_template"]
     assert service_template["topology_template"] == {
         "node_templates": {

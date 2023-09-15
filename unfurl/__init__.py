@@ -46,11 +46,21 @@ if TYPE_CHECKING:
     from .tosca_plugins.tosca_ext import artifacts
     from .tosca_plugins.tosca_ext import groups
 
+_tosca_types = [
+    "nodes",
+    "capabilities",
+    "relationships",
+    "interfaces",
+    "datatypes",
+    "artifacts",
+    "policies",
+    "groups",
+]
+__safe__ = _tosca_types
+
 
 def __getattr__(name):
-    _tosca_types_str = "nodes capabilities relationships interfaces datatypes artifacts policies groups"
-
-    if name in _tosca_types_str:
+    if name in _tosca_types:
         from .tosca_plugins import tosca_ext
 
         return getattr(tosca_ext, name)

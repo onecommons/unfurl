@@ -1114,9 +1114,11 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                     item = {field.tosca_name: field._to_attribute_yaml()}
                     body.setdefault("attributes", {}).update(item)
 
-        interfaces = cls._interfaces_yaml()
-        if interfaces:
-            body["interfaces"] = interfaces
+        if not converter or not converter.safe_mode:
+            # safe mode skips adding interfaces because it executes operations to generate the yaml
+            interfaces = cls._interfaces_yaml()
+            if interfaces:
+                body["interfaces"] = interfaces
 
         # XXX interfaces, operations
         if not body:  # skip this

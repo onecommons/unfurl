@@ -2,15 +2,19 @@
 # SPDX-License-Identifier: MIT
 import sys
 import os.path
+import logging
 from pathlib import Path
 from importlib.abc import Loader
 from importlib import invalidate_caches
-from importlib.machinery import FileFinder, ModuleSpec, PathFinder
+from importlib.machinery import FileFinder, ModuleSpec, PathFinder, SourceFileLoader
 from importlib.util import spec_from_file_location, spec_from_loader, module_from_spec
-from typing import Optional
+from typing import Any, Dict, Optional
+from types import ModuleType
 import importlib._bootstrap
-from .python2yaml import restricted_exec
-from .yaml2python import convert_service_template, yaml_to_python
+from .python2yaml import restricted_exec, ALLOWED_MODULES
+from .yaml2python import yaml_to_python
+
+logger = logging.getLogger("tosca")
 
 
 class RepositoryFinder(PathFinder):
@@ -32,7 +36,7 @@ class RepositoryFinder(PathFinder):
         if tail == "tosca_repositories":
             return ModuleSpec(fullname, None, is_package=True)
         elif tail == "service_template":
-            # "tosca_repositories" or "unfurl" in names 
+            # "tosca_repositories" or "unfurl" in names
             filepath = os.path.join(dir_path, "service_template.yaml")
             # XXX look for service-template.yaml or ensemble-template.yaml files
             loader = ToscaYamlLoader(fullname, filepath)
@@ -43,14 +47,15 @@ class RepositoryFinder(PathFinder):
 
 
 class ToscaYamlLoader(Loader):
-    """Loads a Yaml service template and converts it to Python
-    """
-    def __init__(self, full_name, filepath):
+    """Loads a Yaml service template and converts it to Python"""
+
+    def __init__(self, full_name, filepath, modules=None):
         self.full_name = full_name
         self.filepath = filepath
+        self.modules = modules
 
     def create_module(self, spec):
-        return None  # use default module creation semantics
+        return None
 
     def exec_module(self, module):
         # parse to TOSCA template and convert to python
@@ -61,45 +66,100 @@ class ToscaYamlLoader(Loader):
         else:
             with open(path) as f:
                 src = f.read()
-            python_filepath = self.filepath
-        package = self.full_name.rpartition('.')[0]
-        restricted_exec(src, vars(module), python_filepath, package)
+        restricted_exec(
+            src, vars(module), path.parent, self.full_name, self.modules, True
+        )
 
-def load_private_module(origin_path: str, name: str, package: Optional[str] = None, level=0):
-    importlib._bootstrap._sanity_check(name, package, level)
-    if level > 0:
-        name = importlib._bootstrap._resolve_name(name, package, level)    
-    loader = ToscaYamlLoader(name, origin_path)
+
+class ImmutableModule(ModuleType):
+    def __init__(self, name="__builtins__", **kw):
+        ModuleType.__init__(self, name)
+        super().__getattribute__("__dict__").update(kw)
+
+    def __getattribute__(self, __name: str) -> Any:
+        attrs = super().__getattribute__("__dict__")
+        if __name not in attrs.get("__safe__", attrs.get("__all__", ())):
+            # only allow access to public attributes
+            raise AttributeError(__name)
+        return super().__getattribute__(__name)
+
+    def __setattr__(self, name, v):
+        raise AttributeError(name)
+
+    def __delattr__(self, name):
+        raise AttributeError(name)
+
+
+def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
+    parent = name.rpartition(".")[0]
+    if parent:
+        if parent not in modules:
+            load_private_module(base_dir, modules, parent)
+    if name in modules:
+        return modules[name]  # cf. "Crazy side-effects!" in _bootstrap.py
+
+    origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
+    if not os.path.isfile(origin_path):
+        raise ModuleNotFoundError("No module named " + name, name=name)
+    loader = ToscaYamlLoader(name, origin_path, modules)
     spec = spec_from_loader(name, loader, origin=origin_path)
     assert spec and spec.loader
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
+    modules[name] = module
+    if parent:
+        # Set the module as an attribute on its parent.
+        parent_module = modules[parent]
+        child = name.rpartition(".")[2]
+        try:
+            setattr(parent_module, child, module)
+        except AttributeError:
+            msg = f"Cannot set an attribute on {parent!r} for child module {child!r}"
+            logger.warning(msg)
     return module
 
-whitelist = ["tosca_repositories", "tosca", "unfurl", "typing", "typing_extensions"]
 
-def __safe_import__(path, package, name, globals=None, locals=None, fromlist=(), level=0):
+def __safe_import__(
+    base_dir: str,
+    package: Optional[str],
+    modules,
+    name: str,
+    globals=None,
+    locals=None,
+    fromlist=(),
+    level=0,
+):
     parts = name.split(".")
     if level == 0:
-        if parts[0] not in whitelist:
-            raise ModuleNotFoundError("Import of " + name + " is restricted", name=name)
-        else:
+        if name in modules:
+            return modules[name] if fromlist else modules[parts[0]]
+        if parts[0] in ALLOWED_MODULES:
             first = importlib.import_module(parts[0])
+            first = ImmutableModule(parts[0], **vars(first))
             last = importlib.import_module(name)
-            # we don't need to worry about _handle_fromlist here because we don't allow import submodules
+            last = ImmutableModule(name, **vars(last))
+            # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
             return last if fromlist else first
+        elif parts[0] != "tosca_repositories":
+            raise ModuleNotFoundError(
+                "Import of " + name + " is not permitted", name=name
+            )
+    else:
+        importlib._bootstrap._sanity_check(name, package, level)
+        name = importlib._bootstrap._resolve_name(name, package, level)
+
+    module = load_private_module(base_dir, modules, name)
     # load user code in our restricted environment
-    module = load_private_module(path, name, package, level)
-    if not module:
-         raise ModuleNotFoundError("No module named " + name, name=name)
-    # https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207  
-    return importlib._bootstrap._handle_fromlist(module, fromlist, lambda name: load_private_module(path, name))
+    # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
+    importlib._bootstrap._handle_fromlist(
+        module, fromlist, lambda name: load_private_module(base_dir, modules, name)
+    )
+    return module
 
-
-    
 
 loader_details = ToscaYamlLoader, [".yaml", ".yml"]
 installed = False
+
 
 def install():
     # insert the path hook ahead of other path hooks

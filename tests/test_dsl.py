@@ -31,9 +31,9 @@ def _to_python(yaml_str: str):
     return src, tosca_yaml
 
 
-def _to_yaml(python_src: str) -> dict:
+def _to_yaml(python_src: str, safe_mode) -> dict:
     namespace: dict = {}
-    tosca_tpl = python_to_yaml(python_src, namespace)
+    tosca_tpl = python_to_yaml(python_src, namespace, safe_mode=safe_mode)
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
@@ -131,10 +131,10 @@ foo = 1
 
 def test_default_operations():
     src, src_tpl = _to_python(default_operations_yaml)
-    tosca_tpl = _to_yaml(src)
+    tosca_tpl = _to_yaml(src, False)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
-    tosca_tpl2 = _to_yaml(default_operations_python)
+    tosca_tpl2 = _to_yaml(default_operations_python, False)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
 
 
@@ -178,10 +178,10 @@ class WordPress(tosca.nodes.WebApplication):
 
 def test_example_wordpress():
     src, src_tpl = _to_python(example_wordpress_yaml)
-    tosca_tpl = _to_yaml(src)
+    tosca_tpl = _to_yaml(src, True)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
-    tosca_tpl2 = _to_yaml(example_wordpress_python)
+    tosca_tpl2 = _to_yaml(example_wordpress_python, True)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
 
 

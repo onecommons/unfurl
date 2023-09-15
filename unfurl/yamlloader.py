@@ -3,6 +3,8 @@
 from functools import partial
 import io
 import os.path
+from pathlib import Path
+import re
 import sys
 import codecs
 import json
@@ -263,10 +265,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+        self.modules: Optional[Dict] = None
 
     def __getstate__(self):
         state = self.__dict__.copy()
         state["yamlloader"] = None
+        state["modules"] = None
         return state
 
     def load_imports(
@@ -629,19 +633,35 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             assert repo_view  # urls must have a repo_view
             path = self._resolve_repo_to_path(repo_view, base, file_name)
             is_file = True
-        return self._really_load_yaml(path, is_file, fragment)
+        return self._really_load_yaml(path, is_file, fragment, repo_view)
 
-    def _convert_to_yaml(self, contents, path, yaml_dict: type = dict):
+    def _convert_to_yaml(self, contents: str, path: str, repo_view: Optional[RepoView], yaml_dict: type = dict):
         if path.endswith(".py"):
             from tosca.python2yaml import python_to_yaml
 
             self.expand = False
             namespace: Dict[str, Any] = {}
+            base_dir = self.manifest.get_base_dir()
+            if repo_view and repo_view.repository:
+                package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
+                name = re.sub(r"\W", "_", repo_view.repository.name)
+                relpath = str(package_path).strip("/").replace("/", ".")
+                # make sure tosca_repository symlink exists:
+                assert self.manifest.localEnv
+                self.manifest.localEnv.link_repo(base_dir, name, repo_view.url, repo_view.revision)
+                package = "tosca_repository." + name
+            else:
+                package_path = Path(get_base_dir(path)).relative_to(base_dir)
+                relpath = str(package_path).strip("/").replace("/", ".")
+                package = "service_template"
+            if relpath:
+                package += "." + relpath
+            if self.modules is None:
+                self.modules = {}
+            safe_mode = (self.manifest and self.manifest.safe_mode) or self.safe_mode
             yaml_src = python_to_yaml(
-                contents, namespace, path, yaml_cls=yaml_dict, safe_mode=self.safe_mode
+                contents, namespace, base_dir, package + "." + Path(path).stem, yaml_dict, safe_mode, self.modules
             )
-            # XXX save module namespace:
-            # self.manifest.modules[path] = namespace
             return yaml_src
         else:
             return load_yaml(yaml, contents, path, self.readonly)
@@ -651,6 +671,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         path: str,
         isFile: bool,
         fragment: Optional[str],
+        repo_view: Optional[RepoView],
     ) -> Tuple[Any, bool]:
         originalPath = path
         try:
@@ -664,7 +685,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
-                doc = self._convert_to_yaml(contents, path, yaml_dict)
+                doc = self._convert_to_yaml(contents, path, repo_view, yaml_dict)
                 base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
@@ -715,7 +736,7 @@ class SimpleCacheResolver(ImportResolver):
             path = self._resolve_repo_to_path(repo_view, base, file_name)
         doc = self.get_cache((path, fragment))
         if doc is None:
-            doc, cacheable = self._really_load_yaml(path, True, fragment)
+            doc, cacheable = self._really_load_yaml(path, True, fragment, repo_view)
             if cacheable:
                 self.set_cache((path, fragment), doc)
         else:

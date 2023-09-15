@@ -202,36 +202,14 @@ class Imports:
             pass
 
     def prelude(self) -> str:
+        import tosca
         return (
             textwrap.dedent(
-                """
+                f"""
         import unfurl
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
-        from tosca import (
-        Size,
-        Time,
-        Frequency,
-        Bitrate,
-        Namespace,
-        tosca_version,
-        tosca_timestamp,
-        operation,
-        Property,
-        Attribute,
-        Requirement,
-        Capability,
-        Eval,
-        InterfaceType,
-        CapabilityType,
-        NodeType,
-        RelationshipType,
-        DataType,
-        ArtifactType,
-        GroupType,
-        PolicyType,
-        )
-        from tosca import *
+        from tosca import ({", ".join(tosca.__all__)})
         import tosca
         """
             )
