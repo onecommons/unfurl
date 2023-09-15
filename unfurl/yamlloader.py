@@ -444,6 +444,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = add_user_to_url(url, candidate_parts.username, password)
         return memoized_remote_tags(url, pattern="*")
 
+    def _find_repository_root(self, base):
+        for repo_view in self.manifest.repositories.values():
+            if Path(base).is_relative_to(repo_view.working_dir):
+                return repo_view.working_dir
+        return base
+
     def resolve_url(
         self,
         importsLoader: toscaparser.imports.ImportsLoader,
@@ -470,8 +476,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:
                     if toscaparser.imports.is_url(importsLoader.repository_root):
-                        # just make sure we didn't break out of the base
-                        repository_root = base
+                        # at least make sure we didn't break out of the base
+                        repository_root = self._find_repository_root(base)
                     else:
                         repository_root = importsLoader.repository_root
                 if self._has_path_escaped(url, base=repository_root):
