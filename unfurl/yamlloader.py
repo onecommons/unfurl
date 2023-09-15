@@ -446,7 +446,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _find_repository_root(self, base):
         for repo_view in self.manifest.repositories.values():
-            if Path(base).is_relative_to(repo_view.working_dir):
+            if Path(base).is_relative_to(repo_view.working_dir):  # type: ignore
                 return repo_view.working_dir
         return base
 
