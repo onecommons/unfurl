@@ -58,6 +58,7 @@ _tosca_types = [
 ]
 __safe__ = _tosca_types
 
+__all__ = []
 
 def __getattr__(name):
     if name in _tosca_types:

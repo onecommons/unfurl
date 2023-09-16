@@ -16,15 +16,23 @@ from toscaparser import topology_template
 from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
 from ast import Str, Constant, Name
 import ast
-from ._tosca import _DataclassType, ToscaType, global_state, _DataclassTypeProxy, FieldProjection
+import builtins
+from ._tosca import (
+    _DataclassType,
+    ToscaType,
+    global_state,
+    _DataclassTypeProxy,
+    FieldProjection,
+)
 from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
-from RestrictedPython import safe_builtins
+from RestrictedPython import safe_builtins, PrintCollector
 from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAMES
 
 # see https://restrictedpython.readthedocs.io/en/latest/usage/basic_usage.html#necessary-setup
 # https://github.com/zopefoundation/RestrictedPython
 # https://github.com/zopefoundation/zope.untrustedpython
+# https://github.com/zopefoundation/AccessControl/blob/master/src/AccessControl/ZopeGuards.py
 
 
 class PythonToYaml:
@@ -177,13 +185,17 @@ def get_descriptions(body):
     return doc_strings
 
 
-# SAFETY:
-# We only allow access (via import) to tosca and the user's code (XXX How?)
-# each user gets their own instance of the tosca module so any modifications to that module doesn't affect other users
-# and we proxy the tosca module to control access to its contents (functions and classes and scalars)
-# what about unfurl? white list imports
-
-ALLOWED_MODULES = ("typing", "typing_extensions", "tosca", "unfurl")
+# python standard library modules matches those added to utility_builtins
+ALLOWED_MODULES = (
+    "typing",
+    "typing_extensions",
+    "tosca",
+    "unfurl",
+    "random",
+    "math",
+    "string",
+    "DateTime",
+)
 
 
 def default_guarded_getattr(ob, name):
@@ -194,13 +206,20 @@ def default_guarded_getitem(ob, index):
     # No restrictions.
     return ob[index]
 
+
 def default_guarded_getiter(ob):
     # No restrictions.
     return ob
 
+
 def default_guarded_write(ob):
     # No restrictions.
     return ob
+
+
+def default_guarded_apply(func, args=(), kws={}):
+    return func(*args, **kws)
+
 
 def safe_guarded_write(ob):
     # don't allow objects in the allowlist of modules to be modified
@@ -210,9 +229,13 @@ def safe_guarded_write(ob):
         if isinstance(ob, _DataclassTypeProxy):
             if ob.cls.__module__.partition(".")[0] not in ALLOWED_MODULES:
                 return ob
-        raise TypeError(f"Modifying objects in {ob.__module__} is not permitted: {ob}, {type(ob)}")
+        raise TypeError(
+            f"Modifying objects in {ob.__module__} is not permitted: {ob}, {type(ob)}"
+        )
     return ob
 
+
+# XXX
 # _inplacevar_
 # _iter_unpack_sequence_
 # _unpack_sequence_
@@ -250,28 +273,38 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
         self.used_names[node.name] = doc_strings
         return super().visit_ClassDef(node)
 
-ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(["__name__"])
-class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
 
+ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(["__name__"])
+# from foo import *" uses __all__ not __safe__ so allow separately from ALLOWED_MODULES
+ALLOWED_IMPORT_STAR_MODULES = ("typing", "typing_extensions", "tosca", "math")
+
+
+class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
     def _name_ok(self, node, name: str):
         if name in FORBIDDEN_FUNC_NAMES:
             return False
         # don't allow dundernames
-        if name.startswith("__") and name.endswith("__") and name not in ALLOWED_FUNC_NAMES:
+        if (
+            name.startswith("__")
+            and name.endswith("__")
+            and name not in ALLOWED_FUNC_NAMES
+        ):
             return False
         return True
 
     def check_import_names(self, node):
-        return RestrictingNodeTransformer.check_import_names(self, node)
-        # XXX
-        # if (
-        #     isinstance(node, ast.ImportFrom)
-        #     and node.module in ALLOWED_MODULES
-        #     and node.level == 0
-        # ):
-        #     return self.node_contents_visit(node)
-        # else:
-        #     return RestrictingNodeTransformer.check_import_names(self, node)
+        # import * is not allowed (to avoid rebinding attacks)
+        # unless whitelisted by ALLOWED_IMPORT_STAR_MODULES
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module in ALLOWED_IMPORT_STAR_MODULES
+            and node.level == 0
+            and len(node.names) == 1
+            and node.names[0].name == "*"
+        ):
+            return self.node_contents_visit(node)
+        else:
+            return RestrictingNodeTransformer.check_import_names(self, node)
 
 
 def python_to_yaml(
@@ -294,6 +327,7 @@ def python_to_yaml(
     #     with open(path, "w") as yo:
     #         yaml.dump(yaml_dict, yo)
     return yaml_dict
+
 
 def restricted_exec(
     python_src,
@@ -319,18 +353,54 @@ def restricted_exec(
         base_dir, ALLOWED_MODULES, modules, *args
     )
     tosca_builtins["__import__"] = safe_import if safe_mode else __import__
-    tosca_builtins["__metaclass__"] = type
-    tosca_builtins["classmethod"] = classmethod
-    tosca_builtins["staticmethod"] = staticmethod
+    # we don't restrict read access so add back the safe builtins
+    # missing from safe_builtins, only exclude the following:
+    # "breakpoint", "compile", "delattr", "dir", "eval", exec, exit, quite, print
+    # "globals", "locals", "open", input, setattr, vars, license, copyright, help, credits
+    for name in [
+        "aiter",
+        "all",
+        "anext",
+        "any",
+        "ascii",
+        "bin",
+        "bytearray",
+        "classmethod",
+        "dict",
+        "enumerate",
+        "filter",
+        "format",
+        "frozenset",
+        "getattr",
+        "hasattr",
+        "iter",
+        "list",
+        "map",
+        "max",
+        "memoryview",
+        "min",
+        "next",
+        "object",
+        "property",
+        "reversed",
+        "set",
+        "staticmethod",
+        "sum",
+        "super",
+        "type",
+    ]:
+        tosca_builtins[name] = getattr(builtins, name)
     namespace.update(
         {
             "_getattr_": default_guarded_getattr,
             "_getitem_": default_guarded_getitem,
             "_getiter_": default_guarded_getiter,
+            "_apply_": default_guarded_apply,
             "_write_": safe_guarded_write if safe_mode else default_guarded_write,
+            "_print_": PrintCollector,
+            "__metaclass__": type,
         }
     )
-
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = name
     if base_dir:

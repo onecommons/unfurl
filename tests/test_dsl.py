@@ -163,6 +163,7 @@ node_types:
 
 example_wordpress_python = '''
 import tosca
+from tosca import *
 class WordPress(tosca.nodes.WebApplication):
     """
     Description of the Wordpress type
@@ -342,6 +343,7 @@ def test_sandbox():
     imports = [
         "import sys",
         "import tosca.python2yaml",
+        "from tosca import python2yaml",
         "from tosca.python2yaml import ALLOWED_MODULE",
         "import tosca_repositories",
     ]
@@ -358,9 +360,28 @@ tosca.pown = 1""",
         """import tosca
 tosca.Namepace.location = 'pown'""",
     ]
+    # deny unsafe builtins
     for src in denied:
         with pytest.raises(AttributeError):
             assert _to_yaml(src, True)
+
+    denied = [
+        """import tosca
+getattr(tosca, 'global_state')""",
+        """import tosca
+setattr(tosca, "pown", 1)""",
+    ]
+    for src in denied:
+        # misc errors: NameError, TypeError
+        with pytest.raises(Exception):
+            assert _to_yaml(src, True)
+
+    allowed = [
+        """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
+        """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
+    ]
+    for src in allowed:
+        assert _to_yaml(src, True)
 
 
 if __name__ == "__main__":

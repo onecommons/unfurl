@@ -72,13 +72,17 @@ class ToscaYamlLoader(Loader):
 
 
 class ImmutableModule(ModuleType):
+    __always_safe__ = ("__safe__", "__all__", "__name__", "__package__", "__file__")
+
     def __init__(self, name="__builtins__", **kw):
         ModuleType.__init__(self, name)
         super().__getattribute__("__dict__").update(kw)
 
     def __getattribute__(self, __name: str) -> Any:
         attrs = super().__getattribute__("__dict__")
-        if __name not in attrs.get("__safe__", attrs.get("__all__", ())):
+        if __name not in ImmutableModule.__always_safe__ and __name not in attrs.get(
+            "__safe__", attrs.get("__all__", ())
+        ):
             # only allow access to public attributes
             raise AttributeError(__name)
         return super().__getattribute__(__name)
@@ -124,6 +128,17 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     return module
 
 
+def _check_fromlist(module, fromlist):
+    if fromlist:
+        allowed = set(getattr(module, "__safe__", getattr(module, "__all__", ())))
+        for name in fromlist:
+            if name != "*" and name not in allowed:
+                raise ImportError(
+                    f"Import of {name} from {module.__name__} is not permitted",
+                    name=module.__name__,
+                )
+
+
 def __safe_import__(
     base_dir: str,
     ALLOWED_MODULES: Sequence[str],
@@ -137,26 +152,28 @@ def __safe_import__(
     parts = name.split(".")
     if level == 0:
         if name in modules:
-            return modules[name] if fromlist else modules[parts[0]]
+            module = modules[name]
+            _check_fromlist(module, fromlist)
+            return module if fromlist else modules[parts[0]]
         if name in ALLOWED_MODULES:
             if len(parts) > 1:
                 first = importlib.import_module(parts[0])
                 first = ImmutableModule(parts[0], **vars(first))
                 modules[parts[0]] = first
                 last = importlib.import_module(name)
+                _check_fromlist(last, fromlist)
                 last = ImmutableModule(name, **vars(last))
                 modules[name] = last
                 # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
                 return last if fromlist else first
             else:
                 module = importlib.import_module(name)
+                _check_fromlist(module, fromlist)
                 module = ImmutableModule(name, **vars(module))
                 modules[name] = module
                 return module
         elif parts[0] != "tosca_repositories":
-            raise ImportError(
-                "Import of " + name + " is not permitted", name=name
-            )
+            raise ImportError("Import of " + name + " is not permitted", name=name)
     else:
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
