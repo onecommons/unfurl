@@ -61,22 +61,24 @@ python_src = yaml_to_python("service_template.yaml", "service_template.py")
 ### Python to YAML
 
 ```python
-from tosca.python2yaml import convert_to_tosca
+from tosca.python2yaml import python_to_yaml
 import yaml
 import sys
 
 with open(src_path) as f:
     python_src = f.read()
-tosca_template = python_to_yaml(python_src)
+tosca_template = python_to_yaml(python_src, safe_mode=False)
 yaml.dump(tosca_template, sys.stdout)
 ```
 
 ## Safe mode
 
-To enable Python services templates to be safely parsed in the same contexts as TOSCA YAML files, the `python_to_yaml` function has a `safe_mode` flag that will execute the Python code in a sandboxed environment. The following rules apply to code running in the sandbox:
+To enable untrusted Python services templates to be safely parsed in the same contexts as TOSCA YAML files, the `python_to_yaml` function has a `safe_mode` flag that will execute the Python code in a sandboxed environment. The following rules apply to code running in the sandbox:
 
 * Only access a safe subset of Python built-ins functions and objects that do not perform IO or modify global state.
 * Imports are limited to relative imports, TOSCA repositories via the  `tosca_repository` package, or the modules named in the `tosca.python2yaml.ALLOWED_MODULES` list, which defaults to "tosca", "typing", "typing_extensions", "random", "math", "string", "DateTime", and "unfurl".
 * If a modules in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be access.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.
+* Disallowed imports will only raise `ImportError` when an imported attribute is accessed.
+* In safe mode, `python_to_yaml` will not invoke Python methods when convert operations to YAML. Since `ImportError`s are deferred until the imported module is accessed, this allows safe mode to parse Python code with unsafe imports in global scope if they aren't accessed while declaring types and templates.

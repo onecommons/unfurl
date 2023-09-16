@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 import importlib, importlib.util, importlib._bootstrap
+from types import ModuleType
 import sys
 import os.path
 from typing import (
@@ -114,6 +115,8 @@ class PythonToYaml:
             namespace = {name: getattr(namespace, name) for name in names}
 
         for name, obj in namespace.items():
+            if isinstance(obj, ModuleType):
+                continue
             if hasattr(obj, "get_defs"):  # class Namespace
                 self._namespace2yaml(obj.get_defs())
                 continue

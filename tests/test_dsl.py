@@ -87,7 +87,7 @@ def test_builtin_generation():
             assert section == "node_types" and len(diffs) == 5
 
 
-default_operations_yaml = """
+default_operations_types_yaml = """
 node_types:
   unfurl.nodes.Installer.Terraform:
     derived_from: unfurl.nodes.Installer
@@ -97,6 +97,10 @@ node_types:
         required: false
         metadata:
           user_settable: false
+"""
+default_operations_yaml = (
+    default_operations_types_yaml
+    + """
     interfaces:
       defaults:
         implementation:
@@ -110,6 +114,7 @@ node_types:
         operations:
           check:
   """
+)
 
 default_operations_python = """
 import unfurl
@@ -132,11 +137,19 @@ foo = 1
 
 def test_default_operations():
     src, src_tpl = _to_python(default_operations_yaml)
+    assert "def default(self):" in src
     tosca_tpl = _to_yaml(src, False)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
     tosca_tpl2 = _to_yaml(default_operations_python, False)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
+
+    # in safe_mode python parses ok but operations aren't executed and the yaml is missing interfaces
+    tosca_tpl3 = _to_yaml(default_operations_python, True)
+    assert (
+        load_yaml(yaml, default_operations_types_yaml)["node_types"]
+        == tosca_tpl3["node_types"]
+    )
 
 
 # from 9.3.4.2
@@ -340,16 +353,27 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
 
 
 def test_sandbox():
+    # disallowed imports parse but raise ImportError when accessed
     imports = [
         "import sys",
         "import tosca.python2yaml",
+        "from tosca.python2yaml import ALLOWED_MODULE, missing",
+    ]
+    for src in imports:
+        assert _to_yaml(src, True)
+
+    imports = [
+        "import sys; sys.version_info",
         "from tosca import python2yaml",
-        "from tosca.python2yaml import ALLOWED_MODULE",
         "import tosca_repositories",
+        """from tosca.python2yaml import ALLOWED_MODULE, missing
+str(ALLOWED_MODULE)
+    """,
     ]
     for src in imports:
         with pytest.raises(ImportError):
             assert _to_yaml(src, True)
+
     denied = [
         """import tosca
 tosca.python2yaml""",
@@ -359,6 +383,7 @@ tosca.global_state""",
 tosca.pown = 1""",
         """import tosca
 tosca.Namepace.location = 'pown'""",
+        "import tosca.python2yaml; tosca.python2yaml.ALLOWED_MODULE",
     ]
     # deny unsafe builtins
     for src in denied:
@@ -370,15 +395,18 @@ tosca.Namepace.location = 'pown'""",
 getattr(tosca, 'global_state')""",
         """import tosca
 setattr(tosca, "pown", 1)""",
+        """import math
+math.__loader__.create_module = 'pown'""",
     ]
     for src in denied:
-        # misc errors: NameError, TypeError
+        # misc errors: SyntaxError, NameError, TypeError
         with pytest.raises(Exception):
             assert _to_yaml(src, True)
 
     allowed = [
         """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
+        """import math; math.floor(1.0)""",
     ]
     for src in allowed:
         assert _to_yaml(src, True)

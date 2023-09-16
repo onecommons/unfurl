@@ -8,6 +8,7 @@ from importlib.abc import Loader
 from importlib import invalidate_caches
 from importlib.machinery import FileFinder, ModuleSpec, PathFinder, SourceFileLoader
 from importlib.util import spec_from_file_location, spec_from_loader, module_from_spec
+import traceback
 from typing import Any, Dict, Optional, Sequence
 from types import ModuleType
 import importlib._bootstrap
@@ -80,9 +81,12 @@ class ImmutableModule(ModuleType):
 
     def __getattribute__(self, __name: str) -> Any:
         attrs = super().__getattribute__("__dict__")
-        if __name not in ImmutableModule.__always_safe__ and __name not in attrs.get(
-            "__safe__", attrs.get("__all__", ())
+        if (
+            __name not in ImmutableModule.__always_safe__
+            and __name not in attrs.get("__safe__", attrs.get("__all__", ()))
+            and attrs.get("__name__") != "math"
         ):
+            # special case "math", it doesn't have __all__
             # only allow access to public attributes
             raise AttributeError(__name)
         return super().__getattribute__(__name)
@@ -92,6 +96,28 @@ class ImmutableModule(ModuleType):
 
     def __delattr__(self, name):
         raise AttributeError(name)
+
+
+class DeniedModule(ImmutableModule):
+    """
+    A dummy module that defers raising ImportError until the module is accessed.
+    This allows unsafe import statements in the global scope as long as access is never attempted during sandbox execution.
+    """
+
+    def __init__(self, name, fromlist, **kw):
+        super().__init__(name, **kw)
+        object.__getattribute__(self, "__dict__")["__fromlist__"] = fromlist
+
+    def __getattribute__(self, __name: str) -> Any:
+        name = object.__getattribute__(self, "__name__")
+        fromlist = object.__getattribute__(self, "__fromlist__")
+        if fromlist and __name in fromlist:
+            # the import machinery will try to access attributes on the fromlist
+            # pretend it is a DeniedModule to defer ImportErrors until access
+            return DeniedModule(__name, (), __package__=name)
+        traceback.print_stack()
+        print("raising", name, __name)
+        raise ImportError("Import of " + name + " is not permitted", name=name)
 
 
 def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
@@ -139,6 +165,18 @@ def _check_fromlist(module, fromlist):
                 )
 
 
+def _load_or_deny_module(name, ALLOWED_MODULES, modules):
+    if name in modules:
+        return modules[name]
+    if name in ALLOWED_MODULES:
+        module = importlib.import_module(name)
+        module = ImmutableModule(name, **vars(module))
+        modules[name] = module
+        return module
+    else:
+        return DeniedModule(name, ())
+
+
 def __safe_import__(
     base_dir: str,
     ALLOWED_MODULES: Sequence[str],
@@ -173,7 +211,10 @@ def __safe_import__(
                 modules[name] = module
                 return module
         elif parts[0] != "tosca_repositories":
-            raise ImportError("Import of " + name + " is not permitted", name=name)
+            if fromlist:
+                return DeniedModule(name, fromlist)
+            else:
+                return _load_or_deny_module(parts[0], ALLOWED_MODULES, modules)
     else:
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
