@@ -358,12 +358,10 @@ def restricted_exec(
     tosca_builtins["__import__"] = safe_import if safe_mode else __import__
     # we don't restrict read access so add back the safe builtins
     # missing from safe_builtins, only exclude the following:
-    # "breakpoint", "compile", "delattr", "dir", "eval", exec, exit, quite, print
+    # "aiter", "anext", "breakpoint", "compile", "delattr", "dir", "eval", exec, exit, quite, print
     # "globals", "locals", "open", input, setattr, vars, license, copyright, help, credits
     for name in [
-        "aiter",
         "all",
-        "anext",
         "any",
         "ascii",
         "bin",
