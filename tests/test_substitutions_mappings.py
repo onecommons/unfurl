@@ -58,7 +58,9 @@ spec:
 
 """
 
-ensemble_with_root = ensemble + """
+ensemble_with_root = (
+    ensemble
+    + """
         the_app:
           type: NestedApp
           directives: []
@@ -78,6 +80,7 @@ ensemble_with_root = ensemble + """
               node: Nested
 
 """
+)
 
 nested_import_types = """
 node_types:
@@ -498,4 +501,151 @@ def test_substitution_plan():
             "unknown": 0,
             "skipped": 0,
             "changed": 3,
+        }
+
+
+ensemble = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - file: ./nested1.yaml
+
+    topology_template:
+      node_templates:
+        nested1:
+          type: NestedApp
+          directives:
+          - substitute
+          requirements:
+            - db: external
+            # replace dockerhost in nested topology:
+            - dockerhost: containerhost
+
+        containerhost:
+          type: ComputeContainerHost
+
+        external:
+          type: DBHost
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation: Template
+                  inputs:
+                    resultTemplate:
+                      attributes:
+                        ip_address: 10.10.10.1
+                    done:
+                      status: ok
+      outputs:
+        db_host:
+          value:
+            eval: ::containerhost::user_data::DB_HOST
+"""
+
+nested_node_import = """
+node_types:
+  DBHost:
+    derived_from: tosca.nodes.Root
+    attributes:
+      ip_address:
+        type: string
+
+  ContainerHost:
+    derived_from: tosca.nodes.Root
+
+  Container:
+    derived_from: tosca.nodes.Root
+    properties:
+      env:
+        type: map
+    requirements:
+    - host:
+        relationship: unfurl.relationships.ConfiguringHostedOn
+        node: ContainerHost
+
+  ComputeContainerHost:
+    derived_from: ContainerHost
+    attributes:
+      container_env:
+        type: map
+        required: false
+        default:
+          eval: .sources::host::env
+    interfaces:
+      Standard:
+        operations:
+          create:
+            implementation: Template
+            inputs:
+              done:
+                status: ok
+              resultTemplate:
+                attributes:
+                  user_data: "{{ SELF.container_env }}"
+
+  NestedApp:
+    derived_from: tosca.nodes.Root
+    requirements:
+      - db:
+          relationship: unfurl.relationships.Configures
+          node: DBHost 
+      - container: 
+          relationship: unfurl.relationships.Configures
+          node: container
+
+topology_template:
+  node_templates:
+    nested:
+      type: NestedApp
+
+    dockerhost:
+      type: ContainerHost
+
+    container:
+      type: Container
+      properties:
+        env:
+          eval:
+            to_env:
+              DB_HOST:
+                eval:
+                  .configured_by::.targets::db::ip_address
+      requirements:
+        - host:
+            node: dockerhost
+
+  substitution_mappings:
+    node: nested
+"""
+
+
+def test_attribute_access():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        init_project(
+            cli_runner,
+            args=["init", "--mono", "--skeleton=aws"],
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(ensemble)
+
+        with open("nested1.yaml", "w") as f:
+            f.write(nested_node_import)
+
+        manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
+        result, job, summary = run_job_cmd(cli_runner, print_result=True)
+        assert job.get_outputs() == {"db_host": "10.10.10.1"}
+        assert job.json_summary()["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 2,
+            "ok": 2,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 2,
         }

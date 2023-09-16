@@ -778,6 +778,9 @@ class FieldProjection(_Ref):
                     f'{ti.types} Can not set "{name}" on {self}: "{name}" is a {field.tosca_field_type.name}, not a TOSCA property'
                 )
 
+    def __delattr__(self, name):
+        raise AttributeError(name)
+
 
 def get_annotations(o):
     # return __annotations__ (but not on base classes)

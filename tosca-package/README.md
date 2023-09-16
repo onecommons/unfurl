@@ -71,3 +71,5 @@ tosca_template = python_to_yaml(python_src)
 yaml.dump(tosca_template, sys.stdout)
 ```
 
+## Safe mode
+
