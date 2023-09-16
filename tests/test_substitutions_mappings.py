@@ -504,7 +504,7 @@ def test_substitution_plan():
         }
 
 
-ensemble = """
+attribute_access_ensemble = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
@@ -545,7 +545,7 @@ spec:
             eval: ::containerhost::user_data::DB_HOST
 """
 
-nested_node_import = """
+attribute_access_import = """
 node_types:
   DBHost:
     derived_from: tosca.nodes.Root
@@ -631,10 +631,10 @@ def test_attribute_access():
             env=dict(UNFURL_HOME=""),
         )
         with open("ensemble-template.yaml", "w") as f:
-            f.write(ensemble)
+            f.write(attribute_access_ensemble)
 
         with open("nested1.yaml", "w") as f:
-            f.write(nested_node_import)
+            f.write(attribute_access_import)
 
         manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
         result, job, summary = run_job_cmd(cli_runner, print_result=True)
