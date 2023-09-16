@@ -8,10 +8,10 @@ from importlib.abc import Loader
 from importlib import invalidate_caches
 from importlib.machinery import FileFinder, ModuleSpec, PathFinder, SourceFileLoader
 from importlib.util import spec_from_file_location, spec_from_loader, module_from_spec
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 from types import ModuleType
 import importlib._bootstrap
-from .python2yaml import restricted_exec, ALLOWED_MODULES
+from .python2yaml import restricted_exec
 from .yaml2python import yaml_to_python
 
 logger = logging.getLogger("tosca")
@@ -96,7 +96,8 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
         if parent not in modules:
             load_private_module(base_dir, modules, parent)
     if name in modules:
-        return modules[name]  # cf. "Crazy side-effects!" in _bootstrap.py
+        # cf. "Crazy side-effects!" in _bootstrap.py (e.g. parent could have imported child)
+        return modules[name]
 
     origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
     if not os.path.isfile(origin_path):
@@ -105,8 +106,12 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     spec = spec_from_loader(name, loader, origin=origin_path)
     assert spec and spec.loader
     module = module_from_spec(spec)
-    spec.loader.exec_module(module)
     modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except:
+        del modules[name]
+        raise
     if parent:
         # Set the module as an attribute on its parent.
         parent_module = modules[parent]
@@ -121,7 +126,7 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
 
 def __safe_import__(
     base_dir: str,
-    package: Optional[str],
+    ALLOWED_MODULES: Sequence[str],
     modules,
     name: str,
     globals=None,
@@ -133,18 +138,27 @@ def __safe_import__(
     if level == 0:
         if name in modules:
             return modules[name] if fromlist else modules[parts[0]]
-        if parts[0] in ALLOWED_MODULES:
-            first = importlib.import_module(parts[0])
-            first = ImmutableModule(parts[0], **vars(first))
-            last = importlib.import_module(name)
-            last = ImmutableModule(name, **vars(last))
-            # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
-            return last if fromlist else first
+        if name in ALLOWED_MODULES:
+            if len(parts) > 1:
+                first = importlib.import_module(parts[0])
+                first = ImmutableModule(parts[0], **vars(first))
+                modules[parts[0]] = first
+                last = importlib.import_module(name)
+                last = ImmutableModule(name, **vars(last))
+                modules[name] = last
+                # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
+                return last if fromlist else first
+            else:
+                module = importlib.import_module(name)
+                module = ImmutableModule(name, **vars(module))
+                modules[name] = module
+                return module
         elif parts[0] != "tosca_repositories":
-            raise ModuleNotFoundError(
+            raise ImportError(
                 "Import of " + name + " is not permitted", name=name
             )
     else:
+        package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
 

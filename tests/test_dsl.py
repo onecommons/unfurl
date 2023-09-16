@@ -338,6 +338,31 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
         assert output[1] == exp_path
 
 
+def test_sandbox():
+    imports = [
+        "import sys",
+        "import tosca.python2yaml",
+        "from tosca.python2yaml import ALLOWED_MODULE",
+        "import tosca_repositories",
+    ]
+    for src in imports:
+        with pytest.raises(ImportError):
+            assert _to_yaml(src, True)
+    denied = [
+        """import tosca
+tosca.python2yaml""",
+        """import tosca
+tosca.global_state""",
+        """import tosca
+tosca.pown = 1""",
+        """import tosca
+tosca.Namepace.location = 'pown'""",
+    ]
+    for src in denied:
+        with pytest.raises(AttributeError):
+            assert _to_yaml(src, True)
+
+
 if __name__ == "__main__":
     dump = True
     test_builtin_generation()

@@ -316,7 +316,7 @@ def restricted_exec(
     tosca_builtins = safe_builtins.copy()
     # https://docs.python.org/3/library/functions.html?highlight=__import__#import__
     safe_import = lambda *args: __safe_import__(
-        base_dir, package, modules, *args
+        base_dir, ALLOWED_MODULES, modules, *args
     )
     tosca_builtins["__import__"] = safe_import if safe_mode else __import__
     tosca_builtins["__metaclass__"] = type
