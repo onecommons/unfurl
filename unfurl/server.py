@@ -886,9 +886,13 @@ def format_from_path(path):
 def _export_cache_work(
     cache_entry: CacheEntry, latest_commit: Optional[str]
 ) -> Tuple[Any, Any, bool]:
+    if cache_entry.key.endswith("+types"):
+        format = cache_entry.key[:-6]
+    else:
+        format = cache_entry.key
     err, val = _do_export(
         cache_entry.project_id,
-        cache_entry.key,
+        format,
         cache_entry.file_path,
         cache_entry,
         latest_commit,
@@ -947,7 +951,7 @@ def _export(
     args["include_all"] = get_canonical_url(project_id) if include_all else ""
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
-        project_id, branch, file_path, requested_format, repo, args=args
+        project_id, branch, file_path, requested_format+("+types" if include_all else ""), repo, args=args
     )
     err, json_summary = cache_entry.get_or_set(
         cache,
