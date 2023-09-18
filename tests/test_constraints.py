@@ -1,3 +1,4 @@
+import unittest
 from mypy import api
 from unfurl.localenv import LocalEnv
 from tosca import python2yaml
@@ -8,11 +9,9 @@ def _verify_mypy(path):
     assert "no issues found in 1 source file" in stdout
     assert return_code == 0, stderr
 
-def test_constraints():
-    # assert mypy ok
-    basepath = os.path.join(os.path.dirname(__file__), "examples/")
-    _verify_mypy(basepath + "constraints.py")
 
+def test_constraints():
+    basepath = os.path.join(os.path.dirname(__file__), "examples/")
     # loads yaml with with a json include
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
     manifest = local.get_manifest(skip_validation=True, safe_mode=True)
@@ -101,3 +100,9 @@ def test_constraints():
     assert hosting == container, (hosting, container)
     # XXX deduced inverse
     # assert container.get_relationship("host") == proxy
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_mypy():
+    # assert mypy ok
+    basepath = os.path.join(os.path.dirname(__file__), "examples/")
+    _verify_mypy(basepath + "constraints.py")
