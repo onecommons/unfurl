@@ -68,7 +68,7 @@ def test_constraints():
         "App": {
             "derived_from": "tosca.nodes.Root",
             "requirements": [
-                {"container": {"node": "ContainerService"}},
+                {"container": {"node": "container_service"}},
                 {
                     "proxy": {
                         "node": "Proxy",

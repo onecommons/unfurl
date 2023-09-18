@@ -5,30 +5,68 @@ A Python representation of TOSCA 1.3. This package converts TOSCA YAML to Python
 ## Why?
 
 IDE integration
+Avoid "YAML hell"
 Expressiveness
 Reduced learning curve
 
 ### Why Python?
 
-Python is a simple language that is widely 
-Gradual typing
+Python is a simple language that is widely used
 Ease of integration, for example, Pydantic
+Gradual typing
 
 ## Examples
 
-Python representation of the example in section 9.3.4.2 of the TOSCA 1.3 Specification
+Let's start with the “hello world” template in the TOSCA 1.3 Specificatin (Section 2.1, Example 1):
 
-```python
-import tosca
-class WordPress(tosca.nodes.WebApplication):
-    admin_user: str
-    admin_password: str
-    db_host: str
-
-    database_endpoint: "tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"
+```yaml
+description: Template for deploying a single server with predefined properties.
+topology_template:
+  node_templates:
+    db_server:
+      type: tosca.nodes.Compute
+      capabilities:
+        # Host container properties
+        host:
+         properties:
+           num_cpus: 1
+           disk_size: 10 GB
+           mem_size: 4096 MB
+        # Guest Operating System properties
+        os:
+          properties:
+            # host Operating System image properties
+            architecture: x86_64
+            type: linux
+            distribution: rhel
+            version: "6.5"
 ```
 
-This will be converted to:
+Here's the same template translated to Python:
+
+```python
+"""Template for deploying a single server with predefined properties."""
+import tosca
+from tosca import *  # imports GB, MB scalars
+db_server = tosca.nodes.Compute(
+    host=tosca.capabilities.Compute(
+        num_cpus=1,
+        disk_size=10 * GB,
+        mem_size=4096 * MB,
+    ),
+    os=tosca.capabilities.OperatingSystem(
+        architecture="x86_64",
+        type="linux",
+        distribution="rhel",
+        version="6.5",
+    ),
+)
+```
+
+It is very similar, except explicit types are required for assigning the capabilities and unit scalars.
+
+Things are a little more interesting when defining TOSCA node types in Python.
+Consider this example of a node type from the TOSCA 1.3 Specification (in section 9.3.4.2 ):
 
 ```yaml
 node_types:
@@ -47,6 +85,59 @@ node_types:
           node: tosca.nodes.Database
           relationship: tosca.relationships.ConnectsTo
 ```
+
+Its Python representation looks like:
+
+```python
+import tosca
+class WordPress(tosca.nodes.WebApplication):
+    admin_user: str
+    admin_password: str
+    db_host: str
+
+    database_endpoint: tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase
+```
+
+Here type declaration can infer whether a field is a TOSCA property or requirement based on the field's type -- only requirements can be assigned a relationship, so `database_endpoint` must be a TOSCA requirement, and data types like strings default as TOSCA properties.
+
+If you need to specify TOSCA specific information about the field or need to resolve ambiguity about the fields type, you use can field specifiers. For example, consider the Python representation of the `tosca.nodes.Compute` node type defined in the TOSCA 1.3 spec: 
+
+```python
+class Compute(AbstractCompute):
+    _tosca_name = "tosca.nodes.Compute"
+    private_address: str = Attribute()
+    public_address: str = Attribute()
+    networks: Dict[str, "datatypes.NetworkNetworkInfo"] = Attribute()
+    ports: Dict[str, "datatypes.NetworkPortInfo"] = Attribute()
+
+    host: "capabilities.Compute" = Capability(
+        factory=capabilities.Compute,
+        valid_source_types=["tosca.nodes.SoftwareComponent"],
+    )
+
+    binding: "capabilities.NetworkBindable" = Capability(
+        factory=capabilities.NetworkBindable
+    )
+
+    os: "capabilities.OperatingSystem" = Capability(
+        factory=capabilities.OperatingSystem
+    )
+
+    scalable: "capabilities.Scalable" = Capability(factory=capabilities.Scalable)
+
+    endpoint: "capabilities.EndpointAdmin" = Capability(
+        factory=capabilities.EndpointAdmin
+    )
+
+    local_storage: Sequence[
+            "relationships.AttachesTo" |
+            "nodes.StorageBlockStorage" |
+            "capabilities.Attachment" |
+        ] = Requirement(default=())
+```
+
+Here we see the `Attribute()` field specifier being used to indicate a field is an TOSCA attribute not a property and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences = [0, UNBOUNDED]` because the type is a sequence and its default value is empty list.
+
 
 ## Usage
 ### YAML to Python
@@ -71,13 +162,13 @@ tosca_template = python_to_yaml(python_src, safe_mode=False)
 yaml.dump(tosca_template, sys.stdout)
 ```
 
-## Safe mode
+## Safe Mode
 
 To enable untrusted Python services templates to be safely parsed in the same contexts as TOSCA YAML files, the `python_to_yaml` function has a `safe_mode` flag that will execute the Python code in a sandboxed environment. The following rules apply to code running in the sandbox:
 
-* Only access a safe subset of Python built-ins functions and objects that do not perform IO or modify global state.
+* The sandbox only a provides a subset of Python's built-ins functions and objects -- ones that do not perform IO or modify global state.
 * Imports are limited to relative imports, TOSCA repositories via the  `tosca_repository` package, or the modules named in the `tosca.python2yaml.ALLOWED_MODULES` list, which defaults to "tosca", "typing", "typing_extensions", "random", "math", "string", "DateTime", and "unfurl".
-* If a modules in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be access.
+* If a modules in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.
 * Disallowed imports will only raise `ImportError` when an imported attribute is accessed.

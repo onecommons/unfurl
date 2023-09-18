@@ -1,6 +1,6 @@
 import inspect
 from typing import Optional
-
+from unittest.mock import MagicMock, patch
 import pytest
 from unfurl.merge import diff_dicts
 import sys
@@ -152,7 +152,7 @@ def test_default_operations():
     )
 
 
-# from 9.3.4.2
+# from 9.3.4.2 of the TOSCA 1.3 spec
 example_wordpress_yaml = """
 node_types:
   WordPress:
@@ -200,11 +200,100 @@ def test_example_wordpress():
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
 
 
+# section 2.1 "Hello world"
+example_helloworld_yaml = """
+description: Template for deploying a single server with predefined properties.
+topology_template:
+  node_templates:
+    db_server:
+      type: tosca.nodes.Compute
+      capabilities:
+        # Host container properties
+        host:
+         properties:
+           num_cpus: 1
+           disk_size: 10 GB
+           mem_size: 4096 MB
+        # Guest Operating System properties
+        os:
+          properties:
+            # host Operating System image properties
+            architecture: x86_64
+            type: linux
+            distribution: rhel
+            version: "6.5"
+"""
+
+example_helloworld_python = '''
+"""Template for deploying a single server with predefined properties."""
+import tosca
+from tosca import *  # imports GB, MB scalars
+db_server = tosca.nodes.Compute(
+    "db_server",
+    host=tosca.capabilities.Compute(
+        num_cpus=1,
+        disk_size=10 * GB,
+        mem_size=4096 * MB,
+    ),
+    os=tosca.capabilities.OperatingSystem(
+        architecture="x86_64",
+        type="linux",
+        distribution="rhel",
+        version="6.5",
+    ),
+)
+'''
+
+def test_example_helloworld():
+    src, src_tpl = _to_python(example_helloworld_yaml)
+    tosca_tpl = _to_yaml(src, True)
+    assert src_tpl == tosca_tpl
+    tosca_tpl2 = _to_yaml(example_helloworld_python, True)
+    assert src_tpl == tosca_tpl2
+
+# section 2.5 example 5, page 20
+example_operation_on_template_yaml = """
+topology_template:
+  inputs:
+    wordpress_db_name:
+      type: string
+    wordpress_db_user:
+      type: string
+    wordpress_db_password:
+      type: string
+  node_templates:
+    wordpress_db:
+      type: tosca.nodes.Database
+      properties:
+        name: { get_input: wordpress_db_name }
+        user: { get_input: wordpress_db_user }
+        password: { get_input: wordpress_db_password }
+      artifacts:
+        db_content:
+          file: files/wordpress_db_content.txt
+          type: tosca.artifacts.File
+      # requirements:
+      #   - host: mysql
+      interfaces:
+        Standard:
+          create:
+            implementation: db_create.sh
+            inputs:
+              db_data: { get_artifact: [ SELF, db_content ] }
+"""
+def test_example_operation():
+    src, src_tpl = _to_python(example_operation_on_template_yaml)
+    # XXX
+    # print(src)
+    # tosca_tpl = _to_yaml(src, True)
+    # print(tosca_tpl)
+    # assert src_tpl == tosca_tpl
+    # tosca_tpl2 = _to_yaml(example_operation_on_template_python, True)
+    # assert src_tpl == tosca_tpl2
+
 def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
-        shellScript: tosca.artifacts.Root = tosca.artifacts.Root(
-            "example.sh"
-        )  # (file="example.sh")
+        shellScript: tosca.artifacts.Root = tosca.artifacts.Root(file="example.sh")
         prop1: Optional[str] = tosca.Eval()
         host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
@@ -245,11 +334,11 @@ def test_set_constraints() -> None:
                     },
                 }
             },
-            "artifacts": {"shellScript": {"type": "tosca.artifacts.Root"}},
+            "artifacts": {"shellScript": {'file': 'example.sh', "type": "tosca.artifacts.Root"}},
             "requirements": [
                 {
                     "host": {
-                        "node": "tosca.nodes.Compute",  # XXX should reference my_compute
+                        "node": "my_compute",
                         "node_filter": {
                             "match": [{"eval": "prop1"}],
                             "properties": [
@@ -271,10 +360,6 @@ def test_set_constraints() -> None:
             },
         }
     }
-
-
-from unittest.mock import MagicMock, patch
-
 
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",

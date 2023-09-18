@@ -24,6 +24,9 @@ import builtins
 from ._tosca import (
     _DataclassType,
     ToscaType,
+    RelationshipType,
+    NodeType,
+    CapabilityType,
     global_state,
 )
 from RestrictedPython import compile_restricted_exec, CompileResult
@@ -116,6 +119,34 @@ class PythonToYaml:
             section[name] = obj.to_template_yaml(self)
         return name
 
+    def set_requirement_value(self, req: dict, value, default_node_name: str):
+        node = None
+        if isinstance(value, NodeType):
+            node = value
+        elif isinstance(value, CapabilityType):
+            if value._local_name:
+                node = value._node
+                req["capability"] = value._local_name
+            else:
+                req["capability"] = value.tosca_type_name()
+        elif isinstance(value, RelationshipType):
+            if value._name:  # named, not inline
+                rel: Union[str, dict] = self.add_template(value)
+            else:  # inline
+                rel = value.to_template_yaml(self)
+            req = self.yaml_cls(relationship=rel)
+            if isinstance(value._target, NodeType):
+                node = value._target
+            elif isinstance(value._target, CapabilityType):
+                node = value._target._node
+                req["capability"] = value._target._local_name
+        if node:
+            node_name = self.add_template(node, default_node_name)
+            req["node"] = node_name
+            if len(req) == 1:
+                return node_name
+        return None
+
     def _imported_module2yaml(self, module) -> Path:
         from unfurl.yamlloader import yaml  # XXX
 
@@ -140,6 +171,10 @@ class PythonToYaml:
             "__name__", "builtins"
         )  # exec() adds to builtins
         path = self.globals.get("__file__")
+        description = self.globals.get("__doc__")
+        self.sections["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
+        if description and description.strip():
+            self.sections["description"] = description.strip()
         topology_sections: Dict[str, Any] = self.sections["topology_template"]
 
         if not isinstance(namespace, dict):
