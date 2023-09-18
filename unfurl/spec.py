@@ -335,7 +335,7 @@ class ToscaSpec:
         self._topology_templates: Dict[int, "TopologySpec"] = {}
         self.overridden_default_templates: Set[str] = set()
         if spec:
-            inputs = cast(Optional[Dict[str, Any]], spec.get("inputs"))
+            inputs = cast(Dict[str, Any], spec.get("inputs") or {})
         else:
             inputs = None
 
