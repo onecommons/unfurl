@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 import importlib, importlib.util, importlib._bootstrap
+import inspect
 from types import ModuleType
 import sys
 import os.path
@@ -115,6 +116,25 @@ class PythonToYaml:
             section[name] = obj.to_template_yaml(self)
         return name
 
+    def _imported_module2yaml(self, module) -> Path:
+        from unfurl.yamlloader import yaml  # XXX
+
+        path = Path(module.__file__)
+        base_dir = "/".join(path.parts[1 : -len(module.__name__.split("."))])
+        yaml_dict = python_to_yaml(
+            inspect.getsource(module),
+            None,
+            base_dir,
+            module.__name__,
+            self.yaml_cls,
+            self.safe_mode,
+            self.modules,
+        )
+        yaml_path = path.parent / (path.stem + ".yaml")
+        with open(yaml_path, "w") as yo:
+            yaml.dump(yaml_dict, yo)
+        return yaml_path
+
     def _namespace2yaml(self, namespace):
         current_module = self.globals.get(
             "__name__", "builtins"
@@ -134,19 +154,24 @@ class PythonToYaml:
             if hasattr(obj, "get_defs"):  # class Namespace
                 self._namespace2yaml(obj.get_defs())
                 continue
+            module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType):
-                if obj.__module__ != current_module:
-                    if not obj.__module__.startswith("tosca."):
-                        p = self.find_yaml_import(obj.__module__)
-                        if p:
+                if module_name and module_name != current_module:
+                    if not module_name.startswith("tosca."):
+                        # this type was imported from another module
+                        # instead of converting the type, add an import if missing
+                        p = self.find_yaml_import(module_name)
+                        if not p:
+                            #  its a TOSCA object but no yaml file found, convert to yaml now
+                            p = self._imported_module2yaml(self.modules[module_name])
+                        if p and path:
                             try:
                                 self.imports.add(("", p.relative_to(path)))
                             except ValueError:
                                 # not a subpath of the current module, add a repository
-                                self.imports.add(self.find_repo(obj.__module__, p))
-                        # else: # XXX
-                        #     no yaml file found, convert to yaml now
+                                self.imports.add(self.find_repo(module_name, p))
                     continue
+
                 # this is a class not an instance
                 section = obj._type_section  # type: ignore
                 obj._globals = self.globals  # type: ignore
