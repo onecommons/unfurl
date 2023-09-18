@@ -11,8 +11,10 @@ from typing import (
     List,
     Optional,
     Tuple,
+    Union,
 )
 from pathlib import Path
+from tosca import Namespace
 from toscaparser import topology_template
 from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
 from ast import Str, Constant, Name
@@ -22,8 +24,6 @@ from ._tosca import (
     _DataclassType,
     ToscaType,
     global_state,
-    _DataclassTypeProxy,
-    FieldProjection,
 )
 from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
@@ -37,7 +37,14 @@ from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAME
 
 
 class PythonToYaml:
-    def __init__(self, namespace, yaml_cls=dict, docstrings=None, safe_mode=False):
+    def __init__(
+        self,
+        namespace: dict,
+        yaml_cls=dict,
+        docstrings=None,
+        safe_mode=False,
+        modules=None,
+    ):
         self.globals = namespace
         self.imports: Set[Tuple[str, Path]] = set()
         self.repos: Dict[str, Path] = {}
@@ -45,9 +52,16 @@ class PythonToYaml:
         self.sections: Dict[str, Any] = yaml_cls(topology_template=yaml_cls())
         self.docstrings = docstrings or {}
         self.safe_mode = safe_mode
+        if modules is None:
+            self.modules = {} if safe_mode else sys.modules
+        else:
+            self.modules = modules
 
-    def find_yaml_import(self, module: str) -> Optional[Path]:
-        path = sys.modules[module].__file__
+    def find_yaml_import(self, module_name: str) -> Optional[Path]:
+        module = self.modules.get(module_name)
+        if not module:
+            return None
+        path = module.__file__
         assert path
         dirname, filename = os.path.split(path)
         before, sep, remainder = filename.rpartition(".")
@@ -60,7 +74,7 @@ class PythonToYaml:
     def find_repo(self, module: str, path: Path):
         parts = module.split(".")
         root_module = parts[0]
-        root_path = sys.modules[root_module].__file__
+        root_path = self.modules[root_module].__file__
         assert root_path
         repo_path = Path(root_path).parent
         self.repos[root_module] = repo_path
@@ -142,6 +156,7 @@ class PythonToYaml:
                 as_yaml = obj._cls_to_yaml(self)  # type: ignore
                 self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
             elif isinstance(obj, ToscaType):
+                # XXX this will render any templates that were imported into this namespace from another module
                 self.add_template(obj, name)
             else:
                 section = getattr(obj, "_template_section", None)
@@ -227,11 +242,9 @@ def default_guarded_apply(func, args=(), kws={}):
 def safe_guarded_write(ob):
     # don't allow objects in the allowlist of modules to be modified
     if getattr(ob, "__module__", "").partition(".")[0] in ALLOWED_MODULES:
-        if isinstance(ob, FieldProjection):
+        # classes, functions, and methods are all callable
+        if not callable(ob) and not isinstance(ob, Namespace):
             return ob
-        if isinstance(ob, _DataclassTypeProxy):
-            if ob.cls.__module__.partition(".")[0] not in ALLOWED_MODULES:
-                return ob
         raise TypeError(
             f"Modifying objects in {ob.__module__} is not permitted: {ob}, {type(ob)}"
         )
@@ -314,21 +327,21 @@ def python_to_yaml(
     python_src: str,
     namespace: Optional[Dict[str, Any]] = None,
     base_dir: str = "",
-    full_name: str = "",
+    full_name: str = "service_template",
     yaml_cls=dict,
     safe_mode: bool = False,
     modules=None,
 ) -> dict:
+    if modules is None:
+        modules = {}
+    if namespace is None:
+        namespace = {}
     result = restricted_exec(
         python_src, namespace, base_dir, full_name, modules, safe_mode
     )
     doc_strings = result.used_names
-    converter = PythonToYaml(namespace, yaml_cls, doc_strings, safe_mode)
+    converter = PythonToYaml(namespace, yaml_cls, doc_strings, safe_mode, modules)
     yaml_dict = converter.module2yaml()
-    # XXX
-    # if path:
-    #     with open(path, "w") as yo:
-    #         yaml.dump(yaml_dict, yo)
     return yaml_dict
 
 
@@ -344,9 +357,9 @@ def restricted_exec(
 
     # package is the full name of module
     # path is base_dir to the root of the package
-    package, sep, name = full_name.rpartition(".")
+    package, sep, module_name = full_name.rpartition(".")
     if modules is None:
-        modules = {}
+        modules = {} if safe_mode else sys.modules
 
     if namespace is None:
         namespace = {}
@@ -403,7 +416,7 @@ def restricted_exec(
         }
     )
     namespace["__builtins__"] = tosca_builtins
-    namespace["__name__"] = name
+    namespace["__name__"] = full_name
     if base_dir:
         namespace["__file__"] = (
             os.path.join(base_dir, full_name.replace(".", "/")) + ".py"

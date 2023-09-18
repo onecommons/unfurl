@@ -397,6 +397,10 @@ getattr(tosca, 'global_state')""",
 setattr(tosca, "pown", 1)""",
         """import math
 math.__loader__.create_module = 'pown'""",
+        """import tosca
+tosca.nodes.Root = 1""",
+        """import tosca
+tosca.nodes.Root._tosca_name = 'pown'""",
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
@@ -407,6 +411,10 @@ math.__loader__.create_module = 'pown'""",
         """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
         """import math; math.floor(1.0)""",
+        """import tosca
+node = tosca.nodes.Root()
+node._name = "test"
+        """,
     ]
     for src in allowed:
         assert _to_yaml(src, True)

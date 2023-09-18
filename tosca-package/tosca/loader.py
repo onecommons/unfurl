@@ -115,8 +115,6 @@ class DeniedModule(ImmutableModule):
             # the import machinery will try to access attributes on the fromlist
             # pretend it is a DeniedModule to defer ImportErrors until access
             return DeniedModule(__name, (), __package__=name)
-        traceback.print_stack()
-        print("raising", name, __name)
         raise ImportError("Import of " + name + " is not permitted", name=name)
 
 
