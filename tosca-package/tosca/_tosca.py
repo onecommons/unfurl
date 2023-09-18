@@ -913,6 +913,9 @@ def field(
     kw: Dict[str, Any] = dict(default=default, default_factory=default_factory)
     if sys.version_info.minor > 9:
         kw["kw_only"] = kw_only
+        if default is REQUIRED:
+            # we don't need this default placeholder set if Python supports kw_only fields
+            kw["default"] = dataclasses.MISSING
     return dataclasses.field(**kw)
 
 
@@ -1352,7 +1355,7 @@ class ArtifactType(_OwnedToscaType):
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
-    file: str = field()
+    file: str = field(default=REQUIRED)
     repository: Optional[str] = field(default=None)
     # XXX
     # deploy_path
