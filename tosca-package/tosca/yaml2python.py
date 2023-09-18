@@ -40,6 +40,7 @@ from toscaparser.elements.relationshiptype import RelationshipType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.entity_template import EntityTemplate
+from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.interfaces import OperationDef, _create_operations
 from toscaparser.tosca_template import ToscaTemplate
@@ -50,7 +51,7 @@ from toscaparser.elements.constraints import constraint_mapping, Schema
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from keyword import iskeyword
 import collections.abc
-from . import _tosca
+from . import _tosca, ToscaFieldType
 import black
 import black.mode
 import black.report
@@ -191,6 +192,16 @@ class Imports:
             elif issubclass(ref, _tosca.ToscaType):
                 self._imports[ref.tosca_type_name()] = (qname, ref)
 
+    def _set_builtin_imports(self):
+        # unfurl's builtin types' import specifier matches tosca name
+        # so add those as imports here so we don't try convert the full tosca name to python identifiers
+        try:
+            from . import builtin_types
+
+            self._add_imports("tosca", builtin_types.__dict__)
+        except ImportError:
+            pass
+
     def _set_ext_imports(self):
         # unfurl's builtin types' import specifier matches tosca name
         # so add those as imports here so we don't try convert the full tosca name to python identifiers
@@ -203,6 +214,7 @@ class Imports:
 
     def prelude(self) -> str:
         import tosca
+
         return (
             textwrap.dedent(
                 f"""
@@ -281,8 +293,6 @@ class Convert:
             return name, url
         return name, name
 
-
-
     def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str]:
         "converts tosca yaml import dict (as `imp`) to python import statement"
         repo = imp.get("repository")
@@ -295,7 +305,7 @@ class Convert:
         # figure out loading path
         filepath = PurePath(file)
         dirname = filepath.parent
-        filename, tosca_name = self._get_name(filepath.stem) # filename w/o ext
+        filename, tosca_name = self._get_name(filepath.stem)  # filename w/o ext
 
         if repo:
             # generate repo import if repository: key given
@@ -310,10 +320,7 @@ class Convert:
 
         # import should be .path.to.file
         module_name = ".".join(
-            ['' if d == '..' else d for d in [
-                module_name,
-                *dirname.parts
-            ]]
+            ["" if d == ".." else d for d in [module_name, *dirname.parts]]
         )
 
         # handle tosca namespace prefixes
@@ -325,13 +332,14 @@ class Convert:
         if not namespace:
             import_stmt = f"from {module_name}.{filename} import *"
         else:
-            import_stmt = f"from {module_name} import {filename} as {ns_tosca_name or namespace}"
+            import_stmt = (
+                f"from {module_name} import {filename} as {ns_tosca_name or namespace}"
+            )
 
         # add path to file in repo to repo path
         import_path = import_path / dirname / filename
 
         return import_stmt + "\n", str(import_path)
-
 
     def convert_types(
         self, node_types: dict, section: str, namespace_prefix="", indent=""
@@ -990,6 +998,35 @@ class Convert:
             src += ")\n"
         return src
 
+    def _get_prop_init_list(
+        self, props, prop_defs, cls: Optional[Type[_tosca.ToscaType]], indent=""
+    ):
+        src = ""
+        if not props:
+            return src
+        for key, val in props.items():
+            prop = prop_defs.get(key)
+            if prop:
+                if not isinstance(prop.schema, Schema):
+                    schema = Schema(key, prop.schema)
+                else:
+                    schema = prop.schema
+                prop_repr = self._get_prop_value_repr(schema, val)
+            else:
+                prop_repr = value2python_repr(val)
+            if cls:
+                field = cls.get_field_from_tosca_name(key, ToscaFieldType.property)
+                if field:
+                    field_name = field.name
+                else:
+                    # XXX add _extra field to type and add field_name to _extra
+                    # field_name, tosca_name = self._get_name(key)
+                    continue
+            else:
+                field_name, tosca_name = self._get_name(key)
+            src += f"{indent}{field_name}={prop_repr},\n"
+        return src
+
     def convert_datatype_value(
         self,
         classname: str,
@@ -1001,26 +1038,24 @@ class Convert:
         # convert dict to the datatype
         src = f"{indent}{classname}("
         props = dt.get_properties_def()
-        for key, val in value.items():
-            prop = props.get(key)
-            if prop:
-                if not isinstance(prop.schema, Schema):
-                    schema = Schema(key, prop.schema)
-                else:
-                    schema = prop.schema
-                prop_repr = self._get_prop_value_repr(schema, val)
-            else:
-                prop_repr = value2python_repr(val)
-            field_name = cls and cls.tosca_names.get(key) or ""
-            if not field_name:
-                # XXX names should be from the type namespace
-                # XXX add _extra field and set that
-                field_name, tosca_name = self._set_name(key, "extra")
-            src += f"{field_name}={prop_repr},\n"
+        src += self._get_prop_init_list(value, props, cls, indent)
         src += ")"
         return src
 
-    def node_template2obj(self, node_template, indent="") -> str:
+    def _get_capability(
+        self,
+        capability_type,
+        values: Dict[str, Any],
+        indent="",
+    ) -> str:
+        typename, cls = self.imports.get_type_ref(capability_type.type)
+        src = f"{indent}{typename}("
+        prop_defs = capability_type.get_properties_def()
+        src += self._get_prop_init_list(values, prop_defs, cls, indent)
+        src += ")"
+        return src
+
+    def node_template2obj(self, node_template: NodeTemplate, indent="") -> str:
         self.init_names({})
         cls_name, cls = self.imports.get_type_ref(node_template.type)
         assert cls
@@ -1028,34 +1063,42 @@ class Convert:
         name, toscaname = self._set_name(node_template.name, "template")
         src = f"{indent}{name} = {cls_name}("
         # always add name because we might not have access to the name reference
-        src += f'_name="{toscaname or name}", '
-        if node_template.metadata:
-            src += f"_metadata={metadata_repr(node_template.metadata)},\n"
+        src += f'"{toscaname or name}", '
+        metadata = node_template.entity_tpl.get("metadata")
+        if metadata:
+            src += f"_metadata={metadata_repr(metadata)},\n"
         # XXX version
         if node_template.directives:
             src += f'_directives=[{", ".join(repr(node_template.directives))}],\n'
-
-        for prop in node_template.get_property_objects():
-            field = cls.tosca_names.get(prop.name)
-            if field:
-                field_name = field.name
-            else:
-                # XXX names should be from the type namespace
-                # XXX add _extra field and add this to that
-                field_name, tosca_name = self._set_name(prop.name, "extra")
-            src += (
-                f"{field_name}={self._get_prop_value_repr(prop.schema, prop.value)},\n"
-            )
+        assert node_template.type_definition
+        properties = node_template.entity_tpl.get("properties")
+        if properties:
+            prop_defs = node_template.type_definition.get_properties_def()
+            src += self._get_prop_init_list(properties, prop_defs, cls, indent)
         # note: the toscaparser doesn't support declared attributes currently
-        src += ")"  # close ctor
-        # add these as attribute statements
-        # XXX capabilities
+        capabilities = node_template.entity_tpl.get("capabilities")
+        if capabilities:
+            # only get explicitly declared capability properties
+            capabilitydefs = node_template.type_definition.get_capabilities_def()
+            for name, capability in capabilities.items():
+                cap_props = capability.get("properties")
+                field = cls.get_field_from_tosca_name(name, ToscaFieldType.capability)
+                if field:
+                    field_name = field.name
+                else:
+                    field_name, tosca_name = self._set_name(name, "capability")
+                src += f"{field_name}={self._get_capability(capabilitydefs[name], cap_props, indent)},\n"
         # XXX requirements
-        # XXX operations: declare than assign
-        if node_template.description and node_template.description.strip():
+        src += ")"  # close ctor
+        description = node_template.entity_tpl.get("description")
+        if description and description.strip():
             src += f"{indent}{name}._description = " + add_description(
-                node_template.description, indent
+                description, indent
             )
+        # add these as attribute statements:
+        # XXX template-only requirements
+        # XXX operations: declare than assign
+        # f"{indent}{name}.{opname} = {opname}
         return src
 
     def follow_import(self, import_def, import_path, format):
@@ -1125,6 +1168,7 @@ def yaml_to_python(
     python_path: str = "",
     tosca_dict: Optional[dict] = None,
     import_resolver=None,
+    python_target_version=None,
 ) -> str:
     """
     Converts the given YAML service template to Python source code as a string and saves it to a file if ``python_path`` is provided.
@@ -1133,7 +1177,8 @@ def yaml_to_python(
         yaml_path (str): Path to a YAML TOSCA service template
         python_path (str, optional): Location to save the converted Python source code. Defaults to "".
         tosca_dict (Optional[dict], optional): TOSCA service template as a ``dict``. Overrides ``yaml_path``. Defaults to None.
-        import_resolver (_type_, optional): Import resolver to use. Defaults to None.
+        import_resolver (optional): Import resolver to use. Defaults to None.
+        python_target_version (int, optional): Minor version of Python 3 to target for code generation (Default: current version)
 
     Returns:
         str: The converted Python source code.
@@ -1142,6 +1187,7 @@ def yaml_to_python(
         ToscaTemplate(
             path=yaml_path, yaml_dict_tpl=tosca_dict, import_resolver=import_resolver
         ),
+        python_target_version,
         path=python_path,
     )
 
@@ -1157,6 +1203,7 @@ def convert_service_template(
     src = ""
     imports = Imports()
     if not builtin_prefix:
+        imports._set_builtin_imports()
         imports._set_ext_imports()
     tpl = cast(Dict[str, Any], template.tpl)
     converter = Convert(
@@ -1205,8 +1252,13 @@ def convert_service_template(
                     src += f"class {tosca_type}(Namespace):\n" + class_src
                 else:
                     src += class_src + "\n"
+    topology = template.topology_template
+    if topology:
+        for node_template in topology.nodetemplates:
+            src += converter.node_template2obj(node_template) + "\n"
+
     prologue = f"# Generated by tosca.yaml2python from {os.path.relpath(template.path)} at {datetime.datetime.now()}\n"
-    src = prologue + imports.prelude() + src
+    src = prologue + add_description(tpl, "") + imports.prelude() + src
     src += '\nif __name__ == "__main__":\n    tosca.dump_yaml(globals())'
 
     if format:
