@@ -14,6 +14,9 @@ Usage:
 '1.0 MB'
 """
 
+import math
+
+
 class _Scalar(float):
     scale = 1.0
 
@@ -23,8 +26,12 @@ class _Scalar(float):
 
     def to_yaml(self, dict_cls=dict) -> str:
         "return this value and this type's TOSCA unit suffix, eg. 10 kB"
+        val = self.as_unit
+        as_int = math.floor(val)
+        if val == as_int:
+            val = as_int  # whole number, treat as int
         # strip "_Scalar" suffix
-        return f"{self.as_unit or '0'} {self.__class__.__name__[:-7]}"
+        return f"{val} {self.__class__.__name__[:-7]}"
 
     # def __str__(self) -> str:
     #     return str(float(self))
