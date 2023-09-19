@@ -363,7 +363,12 @@ class Ref:
                 self.vars.update(exp.get("vars", {}))
                 self.foreach = exp.get("foreach")
                 self.select = exp.get("select")
-                self.trace = exp.get("trace", trace)
+                _trace = exp.get("trace", trace)
+                if _trace == "break":
+                    self.trace = trace
+                    breakpoint()
+                else:
+                    self.trace = _trace
                 self.strict = exp.get("strict")
                 exp = exp.get("eval", exp.get("ref", exp))
 

@@ -815,7 +815,8 @@ class Job(ConfigChange):
                             )
                             return None
                 self._run(ready, notReady, errors)
-                manifest.commit_job(self)
+                if not os.getenv("UNFURL_SKIP_SAVE"):
+                    manifest.commit_job(self)
             finally:
                 self.timeElapsed = perf_counter() - startTime
                 manifest.unlock()
