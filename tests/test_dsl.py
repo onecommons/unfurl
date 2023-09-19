@@ -50,23 +50,25 @@ def test_builtin_name():
     assert name == "tosca.nodes.AbstractCompute", name
 
 
-dump = False
-
-
-def test_builtin_generation():
+def _generate_builtin(generate, builtin_name=None):
     import_resolver = ImportResolver(None)  # type: ignore
-    python_src = yaml2python.generate_builtins(import_resolver, True)
-    if dump:
-        with open("builtin_ext.py", "w") as po:
+    python_src = generate(import_resolver, True)
+    if builtin_name:
+        with open(builtin_name +".py", "w") as po:
             print(python_src, file=po)
     namespace: dict = {}
     exec(python_src, namespace)
     yo = None
-    if dump:
-        yo = open("builtin_ext.yaml", "w")
+    if builtin_name:
+        yo = open(builtin_name + ".yaml", "w")
     yaml_src = dump_yaml(namespace, yo)  # type: ignore
     if yo:
         yo.close()
+    return yaml_src
+
+
+def test_builtin_generation():
+    yaml_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS
     for section in EntityType.TOSCA_DEF_SECTIONS:
         print(section)
@@ -79,13 +81,15 @@ def test_builtin_generation():
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
         # print(yaml2python.value2python_repr(diffs))
+        diffs.pop(
+            "unfurl.interfaces.Install", None
+        )
         if diffs:
             # these diffs exist because requirements include inherited types
-            diffs.pop(
-                "tosca.nodes.Root", None
-            )  # this one might exist depending on test execution order
             assert section == "node_types" and len(diffs) == 5
 
+def test_builtin_ext_generation():
+    assert _generate_builtin(yaml2python.generate_builtin_extensions)
 
 default_operations_types_yaml = """
 node_types:
@@ -506,5 +510,5 @@ node._name = "test"
 
 
 if __name__ == "__main__":
-    dump = True
-    test_builtin_generation()
+    _generate_builtin(yaml2python.generate_builtins, "builtin_types")
+    _generate_builtin(yaml2python.generate_builtin_extensions, "tosca_ext")
