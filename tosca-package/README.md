@@ -15,6 +15,13 @@ Python is a simple language that is widely used
 Ease of integration, for example, Pydantic
 Gradual typing
 
+## Install
+
+Python versions 3.7 and later are supported.
+
+## Status
+
+
 ## Examples
 
 Let's start with the “hello world” template in the TOSCA 1.3 Specificatin (Section 2.1, Example 1):
@@ -104,7 +111,7 @@ If you need to specify TOSCA specific information about the field or need to res
 
 ```python
 class Compute(AbstractCompute):
-    _tosca_name = "tosca.nodes.Compute"
+    _type_name = "tosca.nodes.Compute"
     private_address: str = Attribute()
     public_address: str = Attribute()
     networks: Dict[str, "datatypes.NetworkNetworkInfo"] = Attribute()
@@ -136,8 +143,11 @@ class Compute(AbstractCompute):
         ] = Requirement(default=())
 ```
 
-Here we see the `Attribute()` field specifier being used to indicate a field is an TOSCA attribute not a property and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences = [0, UNBOUNDED]` because the type is a sequence and its default value is empty list.
+Here we see the `Attribute()` field specifier being used to indicate a field is an TOSCA attribute not a property and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences = [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence.
 
+Also note `_type_name`, which can be used when a YAML TOSCA identifier doesn't conform to a valid Python identifier.
+
+You can see all of TOSCA 1.3 built in types as automatically converted to Python [here](https://github.com/onecommons/unfurl/blob/dsl/tosca-package/tosca/builtin_types.py).
 
 ## Usage
 ### YAML to Python

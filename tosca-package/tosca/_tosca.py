@@ -63,7 +63,7 @@ class ToscaObject:
 
     @classmethod
     def tosca_type_name(cls) -> str:
-        _tosca_name = cls.__dict__.get("_tosca_name")
+        _tosca_name = cls.__dict__.get("_type_name")
         return _tosca_name if _tosca_name else cls.__name__
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
@@ -935,6 +935,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     explicit_tosca_fields = _Tosca_Fields_Getter()  # list of _ToscaFields
     set_config_spec_args = _Set_ConfigSpec_Method()
+    _type_name: str = ""
 
     @classmethod
     def get_field_from_tosca_name(

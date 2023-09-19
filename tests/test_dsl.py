@@ -127,7 +127,7 @@ from tosca import operation, Property, Eval
 from typing import Union
 
 class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
-    _tosca_name = "unfurl.nodes.Installer.Terraform"
+    _type_name = "unfurl.nodes.Installer.Terraform"
     main: Union[str , None] = Property(metadata={"user_settable": False}, default=None)
 
     @operation(apply_to=["Install.check", "Standard.delete"])
@@ -489,7 +489,7 @@ math.__loader__.create_module = 'pown'""",
         """import tosca
 tosca.nodes.Root = 1""",
         """import tosca
-tosca.nodes.Root._tosca_name = 'pown'""",
+tosca.nodes.Root._type_name = 'pown'""",
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError

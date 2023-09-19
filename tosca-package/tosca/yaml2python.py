@@ -672,7 +672,7 @@ class Convert:
         assert nodetype.defs
         src += add_description(nodetype.defs, indent)
         if toscaname != cls_name:
-            src += f'{indent}_tosca_name = "{toscaname}"\n'
+            src += f'{indent}_type_name = "{toscaname}"\n'
         metadata = nodetype.defs.get("metadata")
         if metadata:
             formatted = textwrap.indent(
