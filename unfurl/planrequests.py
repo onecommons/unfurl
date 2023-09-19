@@ -1114,6 +1114,7 @@ def create_task_request(
             if iDef:
                 cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
                 inputs = cls(iDef.inputs, **inputs)
+                iDef.invoker = action  # type: ignore
 
     kw: Optional[ConfigurationSpecKeywords] = None
     if iDef:
@@ -1276,7 +1277,7 @@ def _get_config_spec_args_from_implementation(
     implementation = iDef.implementation
     assert iDef.name
     kw: ConfigurationSpecKeywords = {
-        "operation": iDef.name,
+        "operation": getattr(iDef, "invoker", iDef.name),
         "inputs": inputs,
         "outputs": iDef.outputs,
         "operation_host": operation_host,
