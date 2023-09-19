@@ -540,7 +540,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     @property
     def attributes(self) -> ResultsMap:
         """attributes are live values but _attributes will be the serialized value"""
-        if not self.root.attributeManager:
+        if not self.apex.attributeManager:
             if not self.attributeManager:
                 # inefficient but create a local one for now
                 self.attributeManager = AttributeManager()
@@ -548,7 +548,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         # returned registered attribute or create a new one
         # attribute class getter resolves references
-        return self.root.attributeManager.get_attributes(self)
+        return self.apex.attributeManager.get_attributes(self)
 
     @property
     def names(self):
@@ -574,6 +574,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
         if self.template.topology.substitute_of:
             return self.template.topology.substitute_of.nested_name + ":" + self.name
         return self.name
+
+    @property
+    def nested_key(self) -> str:
+        if self.template.topology.substitute_of:
+            return self.template.topology.substitute_of.nested_name + ":" + self.key
+        return self.key
 
     @property
     def readonly(self) -> bool:

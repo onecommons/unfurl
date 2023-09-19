@@ -1720,7 +1720,7 @@ class AttributeManager:
         return ctor(resource, self._context_vars, task=self.task, strict=self.strict)
 
     def get_attributes(self, resource: "EntityInstance") -> ResultsMap:
-        if resource.key not in self.attributes:
+        if resource.nested_key not in self.attributes:
             if resource.shadow:
                 return resource.shadow.attributes
 
@@ -1739,10 +1739,10 @@ class AttributeManager:
             if mode is not None and "nopropcheck" in mode:
                 self.validate = False
             attributes = ResultsMap(_attributes, ctx, validate=self.validate)
-            self.attributes[resource.key] = (resource, attributes)
+            self.attributes[resource.nested_key] = (resource, attributes)
             return attributes
         else:
-            attributes = self.attributes[resource.key][1]
+            attributes = self.attributes[resource.nested_key][1]
             return attributes
 
     # def revertChanges(self):
