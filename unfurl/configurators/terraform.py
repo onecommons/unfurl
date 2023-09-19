@@ -164,12 +164,15 @@ class TerraformConfigurator(ShellConfigurator):
     @classmethod
     def set_config_spec_args(cls, kw: dict, template):
         if not which("terraform"):
-            artifact = template.find_or_create_artifact(
-                "terraform", predefined=True
-            )
+            artifact = template.find_or_create_artifact("terraform", predefined=True)
             if artifact:
                 kw["dependencies"].append(artifact)
         return kw
+
+    @classmethod
+    def get_dry_run(cls, inputs, template) -> bool:
+        # default: defer to mock implementation if present otherwise defer to runtime check (can_dry_run())
+        return bool(inputs.get("dryrun_outputs"))
 
     def can_dry_run(self, task):
         return True
@@ -355,6 +358,10 @@ class TerraformConfigurator(ShellConfigurator):
 
     def render(self, task):
         workdir = task.inputs.get("workdir") or Folders.tasks
+        if task.dry_run:
+            dryrun_mode = task.inputs.get("dryrun_mode", "plan")
+            if dryrun_mode == "real":
+                task.dry_run = False
         cwd = task.set_work_folder(workdir, preserve=True)
 
         _, terraformcmd = self._cmd(
@@ -476,39 +483,22 @@ class TerraformConfigurator(ShellConfigurator):
             or "Destroying..." in result.stdout
         )
 
-        if not task.dry_run and task.configSpec.operation != "check":
-            outputs = {}
-            current_path = cwd.cwd
-            if statePath and os.path.isfile(os.path.join(current_path, statePath)):
-                # read state file
-                statePath = os.path.join(current_path, statePath)
-                with open(statePath) as sf:
-                    state = json.load(sf)
-                state = mark_sensitive(
-                    providerSchema, state, task, self.sensitive_names
-                )
-                # save state file in home as yaml, encrypting sensitive values
-                folderName = self._get_workfolder_name(task)
-                # set always_apply because we want to commit the terraform state file
-                # even if the terraform command failed (as it might have updated some resources)
-                task.set_work_folder(folderName, always_apply=True).write_file(
-                    state, "terraform.tfstate.yaml"
-                )
-                outputs = {
-                    name: wrap_var(attrs["value"])
-                    for name, attrs in state["outputs"].items()
-                }
-                state.update(result.__dict__)
-                state["outputs"] = outputs  # replace outputs
-                state["success"] = success
-                state["modified"] = modified
-                errors, new_status = self.process_result_template(task, state)
-                if success:
-                    success = not errors
+        if task.dry_run:
+            outputs = task.inputs.get("dryrun_outputs")
+            if outputs is not None:
+                mock_state = dict(outputs=outputs, success=success, modified=modified)
+                errors, new_status = self.process_result_template(task, mock_state)
+                success = True
                 if new_status is not None:
                     status = new_status
-            else:
-                state = {}
+        elif task.configSpec.operation != "check":
+            outputs, errors, new_status = self._apply_state(
+                task, statePath, cwd, providerSchema, result, success, modified
+            )
+            if success and errors is not None:
+                success = not errors
+            if new_status is not None:
+                status = new_status
         else:
             outputs = None
 
@@ -520,6 +510,36 @@ class TerraformConfigurator(ShellConfigurator):
             result=result.__dict__,
             outputs=outputs,
         )
+
+    def _apply_state(
+        self, task, statePath, cwd, providerSchema, result, success, modified
+    ):
+        # read state file
+        current_path = cwd.cwd
+        if statePath and os.path.isfile(os.path.join(current_path, statePath)):
+            statePath = os.path.join(current_path, statePath)
+            with open(statePath) as sf:
+                state = json.load(sf)
+            state = mark_sensitive(providerSchema, state, task, self.sensitive_names)
+            # save state file in home as yaml, encrypting sensitive values
+            folderName = self._get_workfolder_name(task)
+            # set always_apply because we want to commit the terraform state file
+            # even if the terraform command failed (as it might have updated some resources)
+            task.set_work_folder(folderName, always_apply=True).write_file(
+                state, "terraform.tfstate.yaml"
+            )
+            outputs = {
+                name: wrap_var(attrs["value"])
+                for name, attrs in state["outputs"].items()
+            }
+            state.update(result.__dict__)
+            state["outputs"] = outputs  # replace outputs
+            state["success"] = success
+            state["modified"] = modified
+            errors, new_status = self.process_result_template(task, state)
+            return outputs, errors, new_status
+        else:
+            return {}, None, None
 
 
 # XXX implement discover:
