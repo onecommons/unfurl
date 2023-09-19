@@ -72,7 +72,7 @@ logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))
 
 class ConfiguratorResult:
     """
-    Represents the result of a task that ran. 
+    Represents the result of a task that ran.
 
     See :py:meth:`TaskView.done` for more documentation.
     """
@@ -133,7 +133,7 @@ class AutoRegisterClass(type):
 @six.add_metaclass(AutoRegisterClass)
 class Configurator:
     """
-    Base class for implementing `Configurators`. 
+    Base class for implementing `Configurators`.
     Subclasses should at least implement a :py:meth:`~Configurator.run`, for example:
 
     .. code-block:: python
@@ -141,7 +141,7 @@ class Configurator:
         class MinimalConfigurator(Configurator):
             def run(self, task):
                 assert self.can_run(task)
-                return Status.ok    
+                return Status.ok
 
     """
 
@@ -159,6 +159,11 @@ class Configurator:
     @classmethod
     def set_config_spec_args(cls, kw: dict, template: EntitySpec) -> dict:
         return kw
+
+    @classmethod
+    def get_dry_run(cls, inputs, template: EntitySpec) -> bool:
+        # default: defer to mock implementation if present otherwise defer to runtime check (can_dry_run())
+        return False
 
     def __init__(self, **kw) -> None:
         self.inputs = kw
@@ -199,7 +204,9 @@ class Configurator:
         return None
 
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
-    def run(self, task: "TaskView") -> Union[Generator, ConfiguratorResult, Status, bool]:
+    def run(
+        self, task: "TaskView"
+    ) -> Union[Generator, ConfiguratorResult, Status, bool]:
         """
         Subclasses of Configurator need to implement this method.
         It should perform the operation specified in the :class:`ConfigurationSpec`
@@ -229,7 +236,7 @@ class Configurator:
         Returns:
             bool
         """
-        return False
+        return self.get_dry_run(task.inputs, task.target.template)
 
     def can_run(self, task: "TaskView") -> Union[bool, str]:
         """

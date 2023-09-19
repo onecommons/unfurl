@@ -48,6 +48,7 @@ logger = getLogger("unfurl")
 
 
 class ConfigurationSpecKeywords(TypedDict, total=False):
+    operation: str
     className: Optional[str]
     preConditions: Optional[dict]
     primary: Optional["ArtifactSpec"]
@@ -1118,7 +1119,7 @@ def create_task_request(
     if iDef:
         assert inputs is not None
         kw = _get_config_spec_args_from_implementation(
-            iDef, inputs, resource.template, operation_host
+            iDef, inputs, resource.template, operation_host, jobOptions.dryrun
         )
     if kw:
         kw["interface"] = interface
@@ -1129,7 +1130,7 @@ def create_task_request(
                 kw["workflow"] = reason
         else:
             name = f"{interface}.{action}"
-        configSpec = ConfigurationSpec(name, action, **kw)
+        configSpec = ConfigurationSpec(name, **kw)
         logger.debug(
             "creating configuration %s with %s for %s: %s",
             configSpec.name,
@@ -1198,7 +1199,11 @@ def set_default_command(
 
 
 def _set_config_spec_args(
-    kw: ConfigurationSpecKeywords, guessing: str, template: Optional[EntitySpec], base_dir
+    kw: ConfigurationSpecKeywords,
+    guessing: str,
+    template: Optional[EntitySpec],
+    base_dir,
+    dry_run,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if no artifact or className, an error
     artifact = kw.get("primary")
@@ -1236,6 +1241,17 @@ def _set_config_spec_args(
     if klass:
         kw["className"] = f"{klass.__module__}.{klass.__name__}"
         if template:
+            if dry_run and not klass.get_dry_run(kw.get("inputs", {}), template):  # type: ignore
+                mock_op = _find_implementation(
+                    "Mock", kw.get("operation") or "", template
+                )
+                if mock_op:
+                    return _get_config_spec_args_from_implementation(
+                        mock_op,
+                        mock_op.inputs or {},
+                        template,
+                        kw.get("operation_host"),
+                    )
             return klass.set_config_spec_args(kw, template)  # type: ignore
         else:
             return kw
@@ -1250,11 +1266,17 @@ def _set_config_spec_args(
 
 
 def _get_config_spec_args_from_implementation(
-    iDef: OperationDef, inputs: Mapping[str, Any], template: Optional[EntitySpec], operation_host
+    iDef: OperationDef,
+    inputs: Mapping[str, Any],
+    template: Optional[EntitySpec],
+    operation_host,
+    dry_run=False,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
+    assert iDef.name
     kw: ConfigurationSpecKeywords = {
+        "operation": iDef.name,
         "inputs": inputs,
         "outputs": iDef.outputs,
         "operation_host": operation_host,
@@ -1314,4 +1336,4 @@ def _get_config_spec_args_from_implementation(
     else:
         kw["dependencies"] = []
 
-    return _set_config_spec_args(kw, guessing, template, base_dir)
+    return _set_config_spec_args(kw, guessing, template, base_dir, dry_run)

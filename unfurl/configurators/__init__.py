@@ -101,7 +101,7 @@ class TemplateConfigurator(Configurator):
         return errors, new_status
 
     def can_dry_run(self, task):
-        return not not task.inputs.get("dryrun")
+        return bool(task.inputs.get("dryrun"))
 
     def render(self, task):
         if task.dry_run:
