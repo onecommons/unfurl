@@ -437,7 +437,7 @@ def resolve_package(
             raise UnfurlError(
                 f'Could not find a repository that matched package "{package.package_id}"'
             )
-        if not package.revision:
+        if not package.revision and get_remote_tags:
             # no version specified, use the latest version tagged in the repository
             package.set_version_from_repo(get_remote_tags)
         if not changed and not package.revision:

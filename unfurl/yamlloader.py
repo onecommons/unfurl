@@ -425,8 +425,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def get_remote_tags(self, url, pattern="*") -> List[str]:
         # apply credentials to url like find_repo_from_git_url() does
-        if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
-            return []
         if self.manifest.repo:
             candidate_parts = urlsplit(self.manifest.repo.url)
             password = candidate_parts.password
@@ -492,11 +490,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             # if repoview.repository references a package, set the repository's url
             # and register this reference with the package
             # might raise error if version conflict
+            if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
+                remote_tags_check = None
+            else:
+                remote_tags_check = self.get_remote_tags
             resolve_package(
                 repo_view,
                 self.manifest.packages,
                 self.manifest.package_specs,
-                self.get_remote_tags,
+                remote_tags_check,
             )
         repo_view.add_file_ref(file_name)
         path = toscaparser.imports.normalize_path(repo_view.url)
