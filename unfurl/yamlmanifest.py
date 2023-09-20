@@ -452,10 +452,16 @@ class YamlManifest(ReadOnlyManifest):
         root = self.rootResource
         assert root
         rules = self.context.get("variables") or CommentedMap()
-        for rel in root.requirements:
-            rules.update(rel.merge_props(find_env_vars, True))
-        rules = serialize_value(map_value(rules, root), resolveExternal=True)
-        root._environ = filter_env(rules, os.environ)
+        _previous_validate = self.validate
+        # values maybe wrong before we set up the env vars so disable validation to suppress validation exceptions
+        self.validate = False
+        try:
+            for rel in root.requirements:
+                rules.update(rel.merge_props(find_env_vars, True))
+            rules = serialize_value(map_value(rules, root), resolveExternal=True)
+            root._environ = filter_env(rules, os.environ)
+        finally:
+            self.validate = _previous_validate
         paths = self.localEnv and self.localEnv.get_paths()
         if paths:
             path = os.pathsep.join(paths)
