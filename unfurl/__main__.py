@@ -92,6 +92,13 @@ def option_group(*options):
     is_flag=True,
     help="Skip the Unfurl version check when invoking the runtime.",
 )
+@click.option(
+    "--skip-upstream-check",
+    default=False,
+    is_flag=True,
+    envvar="UNFURL_SKIP_UPSTREAM_CHECK",
+    help="Skip pulling latest upstream changes from existing repositories.",
+)
 def cli(
     ctx,
     verbose=0,
@@ -99,6 +106,7 @@ def cli(
     loglevel=None,
     tmp=None,
     version_check=None,
+    skip_upstream_check=False,
     home=None,
     **kw,
 ):
@@ -112,6 +120,8 @@ def cli(
         os.environ["UNFURL_TMPDIR"] = tmp
     if home is not None:
         os.environ["UNFURL_HOME"] = home
+    if skip_upstream_check:
+        os.environ["UNFURL_SKIP_UPSTREAM_CHECK"] = "1"
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
     logs.add_log_file(kw["logfile"], effective_log_level)
@@ -1182,6 +1192,7 @@ def _python_to_yaml(src_path: str, dest_path=None) -> dict:
     type=click.Choice(
         ["python", "blueprint", "environments", "deployment", "deployments"]
     ),
+    help="Default: deployment",
 )
 @click.option(
     "--use-environment",
