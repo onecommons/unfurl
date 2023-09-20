@@ -54,7 +54,7 @@ def _generate_builtin(generate, builtin_name=None):
     import_resolver = ImportResolver(None)  # type: ignore
     python_src = generate(import_resolver, True)
     if builtin_name:
-        with open(builtin_name +".py", "w") as po:
+        with open(builtin_name + ".py", "w") as po:
             print(python_src, file=po)
     namespace: dict = {}
     exec(python_src, namespace)
@@ -81,15 +81,15 @@ def test_builtin_generation():
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
         # print(yaml2python.value2python_repr(diffs))
-        diffs.pop(
-            "unfurl.interfaces.Install", None
-        )
+        diffs.pop("unfurl.interfaces.Install", None)
         if diffs:
             # these diffs exist because requirements include inherited types
             assert section == "node_types" and len(diffs) == 5
 
+
 def test_builtin_ext_generation():
     assert _generate_builtin(yaml2python.generate_builtin_extensions)
+
 
 default_operations_types_yaml = """
 node_types:
@@ -248,12 +248,14 @@ db_server = tosca.nodes.Compute(
 )
 '''
 
+
 def test_example_helloworld():
     src, src_tpl = _to_python(example_helloworld_yaml)
     tosca_tpl = _to_yaml(src, True)
     assert src_tpl == tosca_tpl
     tosca_tpl2 = _to_yaml(example_helloworld_python, True)
     assert src_tpl == tosca_tpl2
+
 
 # section 2.5 example 5, page 20
 example_operation_on_template_yaml = """
@@ -285,6 +287,8 @@ topology_template:
             inputs:
               db_data: { get_artifact: [ SELF, db_content ] }
 """
+
+
 def test_example_operation():
     src, src_tpl = _to_python(example_operation_on_template_yaml)
     # XXX
@@ -294,6 +298,7 @@ def test_example_operation():
     # assert src_tpl == tosca_tpl
     # tosca_tpl2 = _to_yaml(example_operation_on_template_python, True)
     # assert src_tpl == tosca_tpl2
+
 
 def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
@@ -309,7 +314,6 @@ def test_set_constraints() -> None:
                 cls.host.host = cls.host.host
             assert '"host" is a capability, not a TOSCA property' in str(e_info1)
 
-            # XXX need to add anonymous templates created and assigned here to yaml
             cls.host = tosca.nodes.Compute("my_compute")
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
@@ -326,6 +330,7 @@ def test_set_constraints() -> None:
     __name__ = "tests.test_dsl"
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
+    # yaml.dump(yaml_dict, sys.stdout)
     assert yaml_dict["node_types"] == {
         "Example": {
             "derived_from": "tosca.nodes.Root",
@@ -338,7 +343,9 @@ def test_set_constraints() -> None:
                     },
                 }
             },
-            "artifacts": {"shellScript": {'file': 'example.sh', "type": "tosca.artifacts.Root"}},
+            "artifacts": {
+                "shellScript": {"file": "example.sh", "type": "tosca.artifacts.Root"}
+            },
             "requirements": [
                 {
                     "host": {
@@ -365,6 +372,7 @@ def test_set_constraints() -> None:
         }
     }
 
+
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",
     [
@@ -379,7 +387,9 @@ def test_set_constraints() -> None:
 )
 # patch repo lookup so we don't need to write the whole template
 def test_convert_import(test_input, exp_import, exp_path):
-    c = tosca.yaml2python.Convert(MagicMock(path="/path/to/including_file.yaml"))
+    c = tosca.yaml2python.Convert(
+        MagicMock(path="/path/to/including_file.yaml")
+    )
 
     output = c.convert_import(test_input)
 
@@ -403,15 +413,15 @@ def test_convert_import(test_input, exp_import, exp_path):
             "tosca_repositories/repo/subdir/foo",
         ),
         (
-            dict(repository="repo", file="foo.yaml", namespace_prefix="tosca.ns"),
-            "from tosca_repositories.repo import foo as tosca.ns",
+            dict(repository="repo", file="foo.yaml", namespace_prefix="dotted.ns"),
+            "from tosca_repositories.repo import foo as dotted_ns",
             "tosca_repositories/repo/foo",
         ),
         (
             dict(
-                repository="repo", file="subdir/foo.yaml", namespace_prefix="tosca.ns"
+                repository="repo", file="subdir/foo.yaml", namespace_prefix="dotted.ns"
             ),
-            "from tosca_repositories.repo.subdir import foo as tosca.ns",
+            "from tosca_repositories.repo.subdir import foo as dotted_ns",
             "tosca_repositories/repo/subdir/foo",
         ),
         (
@@ -432,7 +442,6 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
         ),
     ):
         c = tosca.yaml2python.Convert(MagicMock())
-
         output = c.convert_import(test_input)
 
         # generated import

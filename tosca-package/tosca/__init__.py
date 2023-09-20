@@ -168,6 +168,7 @@ __all__ = [
     "ns",
     "ns_Scalar",
     "operation",
+    "pattern",
     "s",
     "s_Scalar",
     "tb",

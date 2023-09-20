@@ -1182,6 +1182,32 @@ def _python_to_yaml(src_path: str, dest_path=None) -> dict:
         yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
+def _yaml_to_python(project_or_ensemble_path, file, local_env):
+    from tosca import yaml2python
+
+    if local_env:
+        try:
+            manifest = local_env.get_manifest(
+                    skip_validation=True,
+                )  # XXX safe_mode=True
+        except:
+            manifest = None
+    if local_env and manifest:
+        assert manifest.tosca and manifest.tosca.template
+        if not file:
+            file = Path(manifest.get_base_dir()) / (
+                    re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py"
+                )
+        python_src = yaml2python.convert_service_template(
+                 manifest.tosca.template, path=str(file)
+            )
+    else:
+        if not file:
+            yaml_path = Path(project_or_ensemble_path)
+            file = str(yaml_path.parent / (yaml_path.stem + ".py"))
+        python_src = yaml2python.yaml_to_python(project_or_ensemble_path, file)
+    return file
+
 
 @cli.command()
 @click.pass_context
@@ -1214,33 +1240,27 @@ def export(ctx, project_or_ensemble_path: str, format, file, **options):
         _python_to_yaml(project_or_ensemble_path, file)
         return
 
-    localEnv = LocalEnv(
-        project_or_ensemble_path,
-        options.get("home"),
-        override_context=options.get("use_environment") or "",
-        readonly=True,
-    )
-    if format == "python":
-        from tosca import yaml2python
-
-        manifest = localEnv.get_manifest(
-            skip_validation=True,
-        )  # XXX safe_mode=True
-        assert manifest.tosca and manifest.tosca.template
-        if not file:
-            file = Path(manifest.get_base_dir()) / (
-                re.sub(r"\W", "_", Path(localEnv.manifestPath).stem) + ".py"
-            )
-        python_src = yaml2python.convert_service_template(
-            manifest.tosca.template, path=str(file)
+    try:
+        local_env = LocalEnv(
+            project_or_ensemble_path,
+            options.get("home"),
+            override_context=options.get("use_environment") or "",
+            readonly=True,
         )
+    except Exception:
+        if format != "python":
+            raise
+        local_env = None
+
+    if format == "python":
+        file = _yaml_to_python(project_or_ensemble_path, file, local_env)
         logger = logging.getLogger("unfurl")
         logger.info("Export to %s", file)
         return
 
     exporter = getattr(to_json, "to_" + format)
     # $UNFURL_EXPORT_ARG for internal testing
-    jsonSummary = exporter(localEnv, os.getenv("UNFURL_EXPORT_ARG"), file=file)
+    jsonSummary = exporter(local_env, os.getenv("UNFURL_EXPORT_ARG"), file=file)
     output = json.dumps(jsonSummary, indent=2)
     if file:
         with open(file, "w") as f:

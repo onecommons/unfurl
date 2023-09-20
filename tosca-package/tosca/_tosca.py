@@ -935,7 +935,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     explicit_tosca_fields = _Tosca_Fields_Getter()  # list of _ToscaFields
     set_config_spec_args = _Set_ConfigSpec_Method()
-    _type_name: str = ""
 
     @classmethod
     def get_field_from_tosca_name(
@@ -1091,6 +1090,10 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     @classmethod
     def _operation2yaml(cls, operation):
+        # XXX
+        # signature = inspect.signature(operation)
+        # for name, param in signature.parameters.items():
+        #     inputs[name] = parameter_to_tosca(param)
         result = operation(_ToscaTypeProxy(cls))
         if result is None:
             return result
@@ -1155,7 +1158,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 class ToscaType(_ToscaType):
     # _name needs to come first for python < 3.10
     _name: str = field(default="", kw_only=False)
-
+    _type_name: ClassVar[str] = ""
     _type_section: ClassVar[str] = ""
     _template_section: ClassVar[str] = ""
 

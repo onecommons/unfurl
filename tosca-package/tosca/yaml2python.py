@@ -13,6 +13,7 @@ unfurl export --format python ensemble-template.yaml
 The yaml converted to python will be removed and replace with an import statement that imports the python file.
 """
 from dataclasses import MISSING
+import importlib
 import logging
 import os
 from pathlib import Path, PurePath
@@ -175,9 +176,13 @@ def section2typename(section: str) -> str:
 
 class Imports:
     def __init__(self, imports=None):
-        self._imports: Dict[str, Tuple[str, Type[_tosca.ToscaType]]] = {}
+        self._imports: Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]] = {}
         self._add_imports("", imports or {})
         self._import_statements = set()
+
+    def add_declaration(self, tosca_name: str, localname: str):
+        # new obj is being declared in the current module in the global scope
+        self._imports[tosca_name] = (localname, None)
 
     def _add_imports(self, basename: str, namespace: Dict[str, Any]):
         for name, ref in namespace.items():
@@ -186,6 +191,7 @@ class Imports:
             else:
                 qname = name
             if not isinstance(ref, type):
+                # XXX handle importing templates
                 continue
             elif issubclass(ref, _tosca.Namespace):
                 self._add_imports(qname, ref.get_defs())
@@ -237,8 +243,10 @@ class Imports:
     ) -> Tuple[str, Optional[Type[_tosca.ToscaType]]]:
         qname, ref = self._imports.get(tosca_type_name, ("", None))
         if ref:
-            # just support one level of import for now
-            self._import_statements.add(qname.split(".")[0])
+            parts = qname.split(".")
+            if len(parts) > 1:
+                # just support one level of import for now
+                self._import_statements.add(parts[0])
         return qname, ref
 
 
@@ -293,11 +301,11 @@ class Convert:
             return name, url
         return name, name
 
-    def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str]:
+    def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str, Tuple[str, str]]:
         "converts tosca yaml import dict (as `imp`) to python import statement"
         repo = imp.get("repository")
         file = imp.get("file")
-        namespace = imp.get("namespace_prefix")
+        namespace_prefix = imp.get("namespace_prefix")
 
         # file is required by TOSCA spec, so crash and burn if we don't have it
         assert file, "file is required for TOSCA imports"
@@ -314,6 +322,7 @@ class Convert:
 
         else:
             # otherwise assume local path
+            assert self.template.path
             import_path = PurePath(self.template.path).parent
             # prefix module_name with . for relative path
             module_name = ""
@@ -323,23 +332,24 @@ class Convert:
             ["" if d == ".." else d for d in [module_name, *dirname.parts]]
         )
 
-        # handle tosca namespace prefixes
-        if namespace:
-            namespace, ns_tosca_name = self._get_name(namespace)
-            self.import_prefixes[ns_tosca_name or namespace] = namespace
-
         # generate import statement
-        if not namespace:
-            import_stmt = f"from {module_name}.{filename} import *"
-        else:
+        if namespace_prefix:
+            # handle tosca namespace prefixes
+            python_prefix, tosca_name = self._get_name(namespace_prefix)
+            self.import_prefixes[namespace_prefix] = python_prefix
+
             import_stmt = (
-                f"from {module_name} import {filename} as {ns_tosca_name or namespace}"
+                f"from {module_name} import {filename} as {python_prefix}"
             )
+        else:
+            import_stmt = f"from {module_name}.{filename} import *"
+            python_prefix = ""
 
         # add path to file in repo to repo path
         import_path = import_path / dirname / filename
 
-        return import_stmt + "\n", str(import_path)
+        full_name = f"{module_name}.{filename}"
+        return import_stmt + "\n", str(import_path), (full_name, python_prefix)
 
     def convert_types(
         self, tosca_types: dict, section: str, namespace_prefix="", indent=""
@@ -359,7 +369,7 @@ class Convert:
                 if toscatype:
                     baseclass_name = section2typename(section)
                     src += (
-                        self.nodetype2class(toscatype, baseclass_name, indent) + "\n\n"
+                        self.toscatype2class(toscatype, baseclass_name, indent) + "\n\n"
                     )
                 else:
                     logging.info("couldn't create type %s", name)
@@ -388,6 +398,7 @@ class Convert:
         elif (
             fullname == "unfurl.interfaces.Install" and self._builtin_prefix == "tosca."
         ):
+            # special case when generating builtin tosca types, include this type too
             if minimize and self.namespace_prefix == "tosca.interfaces.":
                 return "Install", fullname
             else:
@@ -655,7 +666,7 @@ class Convert:
                 names.setdefault(name, (name, []))[1].append("operation")
         return names
 
-    def nodetype2class(
+    def toscatype2class(
         self, nodetype: StatefulEntityType, baseclass_name: str, initial_indent=""
     ) -> str:
         indent = "    "
@@ -663,6 +674,8 @@ class Convert:
         # XXX list of imports
         toscaname = nodetype.type
         cls_name = self.python_name_from_type(toscaname, True)
+        if not self._builtin_prefix:
+            self.imports.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(nodetype, baseclass_name)
 
         class_decl = f"{initial_indent}class {cls_name}({base_names}):\n"
@@ -1068,8 +1081,15 @@ class Convert:
 
     def node_template2obj(self, node_template: NodeTemplate, indent="") -> str:
         self.init_names({})
+        assert node_template.type
         cls_name, cls = self.imports.get_type_ref(node_template.type)
-        assert cls
+        if not cls_name:
+            logging.error(f"could not convert node template {node_template.name}: {node_template.type} wasn't imported")
+            return ""
+        elif not cls:
+            logging.error(f"could not convert node template {node_template.name}: defined in current file so the compiled class isn't available")
+            # XXX compile and exec the source code generated so far
+            return ""
         # XXX names should be from parent namespace (module or Namespace)
         name, toscaname = self._set_name(node_template.name, "template")
         src = f"{indent}{name} = {cls_name}("
@@ -1080,7 +1100,7 @@ class Convert:
             src += f"_metadata={metadata_repr(metadata)},\n"
         # XXX version
         if node_template.directives:
-            src += f'_directives=[{", ".join(repr(node_template.directives))}],\n'
+            src += f'_directives={repr(node_template.directives)},\n'
         assert node_template.type_definition
         properties = node_template.entity_tpl.get("properties")
         if properties:
@@ -1225,8 +1245,11 @@ def convert_service_template(
         for imp_def in imports_tpl:
             if isinstance(imp_def, str):
                 imp_def = dict(file=imp_def)
-            import_src, import_path = converter.convert_import(imp_def)
+            import_src, import_path, (module_name, ns) = converter.convert_import(imp_def)
             converter.follow_import(imp_def, import_path + ".py", format)
+            # XXX handle relative imports using using private loader
+            module = importlib.import_module(module_name)
+            imports._add_imports(ns, module.__dict__)
             src += import_src
 
     # interface_types needs to go first because they will be base classes for types that implement them
