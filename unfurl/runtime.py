@@ -630,7 +630,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return state
 
     def __repr__(self):
-        return f"{self.__class__}('{self.name}')"
+        return f"{self.__class__}('{self.nested_name}')"
 
 
 class HasInstancesInstance(EntityInstance):
@@ -845,7 +845,7 @@ class RelationshipInstance(EntityInstance):
         return env
 
     def __repr__(self):
-        return f"RelationshipInstance('{self.name}')"
+        return f"RelationshipInstance('{self.nested_name}')"
 
 
 class ArtifactInstance(EntityInstance):
@@ -880,7 +880,7 @@ class ArtifactInstance(EntityInstance):
             yield d
 
     def __repr__(self):
-        return f"ArtifactInstance('{self.name}')"
+        return f"ArtifactInstance('{self.nested_name}')"
 
 
 class NodeInstance(HasInstancesInstance):
@@ -1061,6 +1061,20 @@ class NodeInstance(HasInstancesInstance):
     def configured_by(self):
         return list(self._configured_by())
 
+
+    def _hosted_on(self):
+        for rel in self.requirements:
+            if rel.target:
+                if rel.template.is_compatible_type(
+                    "tosca.relationships.HostedOn"
+                ):
+                    yield rel.target
+                yield from rel.target._hosted_on()
+
+    @property
+    def hosted_on(self):
+        return list(self._hosted_on())
+
     @property
     def targets(self) -> Dict[str, Union["NodeInstance", List["NodeInstance"]]]:
         dep: Dict[str, Union[NodeInstance, List[NodeInstance]]] = {}
@@ -1150,7 +1164,7 @@ class NodeInstance(HasInstancesInstance):
         return None
 
     def __repr__(self):
-        return f"NodeInstance('{self.name}')"
+        return f"NodeInstance('{self.nested_name}')"
 
 
 class TopologyInstance(HasInstancesInstance):

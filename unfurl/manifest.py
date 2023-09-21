@@ -173,7 +173,6 @@ class Manifest(AttributeManager):
 
         # make sure this is present
         toscaDef["tosca_definitions_version"] = TOSCA_VERSION
-
         if more_spec:
             # don't merge individual templates
             toscaDef = merge_dicts(
@@ -531,6 +530,8 @@ class Manifest(AttributeManager):
                 for rel in instance.requirements:
                     if rel.local_status is not None:
                         summary(rel, indent)
+                if getattr(instance.template, "substitution", None) and instance.shadow:
+                    summary(instance.shadow.root, indent)
                 for child in instance.instances:
                     summary(child, indent)
 
