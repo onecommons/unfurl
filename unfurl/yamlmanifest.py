@@ -164,14 +164,17 @@ def save_task(task, skip_result=False):
     dependencies = [save_dependency(val) for val in task.dependencies]
     if dependencies:
         output["dependencies"] = dependencies
-    if task.result:
-        if task.result.outputs:
-            output["outputs"] = save_result(task.result.outputs)
-        if task.result.result and not skip_result:
-            output["result"] = save_result(task.result.result)
-    else:
-        output["result"] = "skipped"
-    output.update(task.configurator.save_digest(task))
+    try:
+        if task.result:
+            if task.result.outputs:
+                output["outputs"] = save_result(task.result.outputs)
+            if task.result.result and not skip_result:
+                output["result"] = save_result(task.result.result)
+        else:
+            output["result"] = "skipped"
+        output.update(task.configurator.save_digest(task))
+    except Exception:
+        logger.error("Error while saving task %s", task, exc_info=True)
     output["summary"] = task.summary()
     return output
 

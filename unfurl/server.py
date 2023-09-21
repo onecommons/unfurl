@@ -49,6 +49,7 @@ from flask_cors import CORS
 
 import git
 from git.objects import Commit
+
 from .manifest import relabel_dict
 from .packages import Package, get_package_from_url, is_semver
 
@@ -72,6 +73,7 @@ from . import __version__, DefaultNames
 from . import to_json
 from . import init
 from .cloudmap import Repository, RepositoryDict
+from toscaparser.common.exception import FatalToscaImportError
 
 
 __logfile = os.getenv("UNFURL_LOGFILE")
@@ -994,7 +996,11 @@ def _export(
             response.headers["Etag"] = _make_etag(latest_commit)
         return response
     else:
-        if isinstance(err, Exception):
+        if isinstance(err, FatalToscaImportError):
+            return create_error_response(
+                "BAD_REPOSITORY", "Aborting loading the {requested_format} because an import failed.", err
+            )
+        elif isinstance(err, Exception):
             return create_error_response(
                 "INTERNAL_ERROR", "An internal error occurred", err
             )
@@ -1161,7 +1167,7 @@ def _localenv_from_cache(
         clone_location = _fetch_working_dir(cache_entry.project_id, branch, args, False)
         if clone_location is None:
             return (
-                create_error_response("INTERNAL_ERROR", "Could not find repository"),
+                create_error_response("BAD_REPOSITORY", "Could not find repository"),
                 None,
                 False,
             )
@@ -1894,7 +1900,7 @@ def create_error_response(code: str, message: str, err: Optional[Exception] = No
         http_code = 400
     elif code == "UNAUTHORIZED":
         http_code = 401
-    elif code == "INTERNAL_ERROR":
+    elif code in ["INTERNAL_ERROR", "BAD_REPOSITORY"]:
         http_code = 500
     elif code == "CONFLICT":
         http_code = 409
