@@ -611,7 +611,7 @@ class Results(ABC):
     def _getitem(self, key):
         return self._getresult(key).resolved
 
-    def _getresult(self, key: Any) -> Result:
+    def _getresult(self, key: Any, validate: Optional[bool] = None) -> Result:
         from .eval import map_value, Ref
 
         val = self._attributes[key]
@@ -651,7 +651,7 @@ class Results(ABC):
                 if isinstance(resolved, MutableSequence) and resolved:
                     assert not isinstance(resolved[0], Result), resolved[0]
 
-                if self.validate:
+                if self.validate if validate is None else validate:
                     self._validate(key, resolved, val)
                 if self.defs and is_sensitive_schema(self.defs, key):
                     result.resolved = wrap_sensitive_value(resolved)
@@ -726,7 +726,7 @@ class Results(ABC):
                 "Attempting to set {key} on a readonly instance {self.context.currentResource}"
             )
         if self._haskey(key):
-            resolved = self[key]
+            resolved = self._getresult(key, False).resolved
             if resolved != value:  # the existing value changed
                 if self.validate:
                     self._validate(key, value)
