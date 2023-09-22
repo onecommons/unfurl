@@ -546,6 +546,7 @@ It will invoke the appropriate terraform command (e.g “apply” or “destroy�
 <p>Unless you set the <code class="docutils literal notranslate"><span class="pre">stateLocation</span></code> input parameter to “remote”, the Terraform configurator manages the Terraform state file itself
 and commits it to the ensemble’s repository so you don’t use Terraform’s remote state – it will be self-contained and sharable like the rest of the Ensemble.
 Any sensitive state will be encrypted using Ansible Vault.</p>
+<p>During a <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> job the configurator will validate and generate the Terraform plan but not execute it. You can override this behavior with the <code class="docutils literal notranslate"><span class="pre">dryrun_mode</span></code> input parameter and you can specify dummy outputs to use with the <code class="docutils literal notranslate"><span class="pre">dryrun_outputs</span></code> input parameter.</p>
 <p>You can use the <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.Installer.Terraform</span></code> node type with your node template to the avoid boilerplate and set the needed inputs.</p>
 <section id="id8">
 <h3>Example<a class="headerlink" href="#id8" title="Permalink to this headline"></a></h3>
@@ -595,6 +596,12 @@ If set to “remote”, Unfurl will not manage the Terraform state at all.</p>
 </dd>
 <dt class="field-even">command</dt>
 <dd class="field-even"><p>Path to the <code class="docutils literal notranslate"><span class="pre">terraform</span></code> executable. Default: “terraform”</p>
+</dd>
+<dt class="field-odd">dryrun_mode</dt>
+<dd class="field-odd"><p>How to run during a dry run job. If set to “plan” just generate the Terraform plan. If set to “real”, run the task without any dry run logic. Default: “plan”</p>
+</dd>
+<dt class="field-even">dryrun_outputs</dt>
+<dd class="field-even"><p>During a dry run job, this map of outputs will be used simulate the task’s outputs (otherwise outputs will be empty).</p>
 </dd>
 <dt class="field-odd">resultTemplate</dt>
 <dd class="field-odd"><p>A Jinja2 template that is processed with the Terraform state JSON file as its variables.

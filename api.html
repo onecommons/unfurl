@@ -124,7 +124,7 @@
 <span id="api-for-writing-configurators"></span><h2><a class="toc-backref" href="#id2">API for writing configurators</a><a class="headerlink" href="#module-unfurl.configurator" title="Permalink to this headline"></a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">Configurator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurationSpec</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">Configurator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kw</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator" title="Permalink to this definition"></a></dt>
 <dd><p>Base class for implementing <a class="reference internal" href="glossary.html#configurators"><span class="std std-ref">Configurators</span></a>.
 Subclasses should at least implement a <a class="reference internal" href="#unfurl.configurator.Configurator.run" title="unfurl.configurator.Configurator.run"><code class="xref py py-meth docutils literal notranslate"><span class="pre">run()</span></code></a>, for example:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MinimalConfigurator</span><span class="p">(</span><span class="n">Configurator</span><span class="p">):</span>
@@ -134,11 +134,8 @@ Subclasses should at least implement a <a class="reference internal" href="#unfu
 </pre></div>
 </div>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>configurationSpec</strong> (<em>unfurl.planrequests.ConfigurationSpec</em>) – </p>
-</dd>
-<dt class="field-even">Return type</dt>
-<dd class="field-even"><p>None</p>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>None</p>
 </dd>
 </dl>
 <dl class="py attribute">
@@ -210,6 +207,19 @@ were accessed in the previous run.</p>
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator.exclude_from_digest">
 <span class="sig-name descname"><span class="pre">exclude_from_digest</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">()</span></em><a class="headerlink" href="#unfurl.configurator.Configurator.exclude_from_digest" title="Permalink to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.get_dry_run">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_dry_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inputs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">template</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.get_dry_run" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>template</strong> (<em>unfurl.spec.EntitySpec</em>) – </p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator.get_generator">
@@ -291,12 +301,12 @@ the input parameters listed in <a class="reference internal" href="#unfurl.confi
 
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator.set_config_spec_args">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set_config_spec_args</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kw</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.set_config_spec_args" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set_config_spec_args</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kw</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">template</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.set_config_spec_args" title="Permalink to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>kw</strong> (<em>dict</em>) – </p></li>
-<li><p><strong>target</strong> (<em>unfurl.runtime.EntityInstance</em>) – </p></li>
+<li><p><strong>template</strong> (<em>unfurl.spec.EntitySpec</em>) – </p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
@@ -1436,6 +1446,20 @@ found in the current project and the home project.</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p><em>Optional</em>[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.link_repo">
+<span class="sig-name descname"><span class="pre">link_repo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.link_repo" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_path</strong> (<em>str</em>) – </p></li>
+<li><p><strong>name</strong> (<em>str</em>) – </p></li>
+<li><p><strong>url</strong> (<em>str</em>) – </p></li>
+</ul>
 </dd>
 </dl>
 </dd></dl>

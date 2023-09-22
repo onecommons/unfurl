@@ -514,8 +514,6 @@
         <li><a href="cli.html#cmdoption-unfurl-serve-port">unfurl-serve command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --project
 
@@ -523,6 +521,8 @@
         <li><a href="cli.html#cmdoption-unfurl-cloudmap-project">unfurl-cloudmap command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --prune
 
@@ -669,6 +669,13 @@
         <li><a href="cli.html#cmdoption-unfurl-deploy-skip-new">unfurl-deploy command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-plan-skip-new">unfurl-plan command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --skip-upstream-check
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-skip-upstream-check">unfurl command line option</a>
 </li>
       </ul></li>
       <li>
@@ -1154,6 +1161,8 @@
 </li>
       <li><a href="api.html#unfurl.localenv.Project.get_default_project_path">get_default_project_path() (unfurl.localenv.Project method)</a>
 </li>
+      <li><a href="api.html#unfurl.configurator.Configurator.get_dry_run">get_dry_run() (unfurl.configurator.Configurator class method)</a>
+</li>
       <li><a href="api.html#unfurl.configurator.TaskView.get_environment">get_environment() (unfurl.configurator.TaskView method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.get_external_manifest">get_external_manifest() (unfurl.localenv.LocalEnv method)</a>
@@ -1174,6 +1183,8 @@
 </li>
       <li><a href="api.html#unfurl.configurator.TaskRequest.get_operation_artifacts">get_operation_artifacts() (unfurl.configurator.TaskRequest method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.job.ConfigChange.get_operational_dependencies">get_operational_dependencies() (unfurl.job.ConfigChange method)</a>
 
       <ul>
@@ -1184,8 +1195,6 @@
         <li><a href="api.html#unfurl.runtime.OperationalInstance.get_operational_dependencies">(unfurl.runtime.OperationalInstance method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.LocalEnv.get_paths">get_paths() (unfurl.localenv.LocalEnv method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.get_project">get_project() (unfurl.localenv.LocalEnv method)</a>
@@ -1261,12 +1270,14 @@
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api.html#unfurl.localenv.Project.load_yaml_include">load_yaml_include() (unfurl.localenv.Project method)</a>
+      <li><a href="api.html#unfurl.localenv.LocalEnv.link_repo">link_repo() (unfurl.localenv.LocalEnv method)</a>
 </li>
-      <li><a href="api.html#unfurl.runtime.OperationalInstance.local_status">local_status (unfurl.runtime.OperationalInstance property)</a>
+      <li><a href="api.html#unfurl.localenv.Project.load_yaml_include">load_yaml_include() (unfurl.localenv.Project method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#unfurl.runtime.OperationalInstance.local_status">local_status (unfurl.runtime.OperationalInstance property)</a>
+</li>
       <li><a href="api.html#unfurl.localenv.LocalEnv">LocalEnv (class in unfurl.localenv)</a>
 </li>
       <li><a href="api.html#unfurl.result.ChangeRecord.log">log() (unfurl.result.ChangeRecord method)</a>
@@ -1551,6 +1562,8 @@
         <li><a href="cli.html#cmdoption-unfurl-q">--quiet</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-runtime">--runtime</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-skip-upstream-check">--skip-upstream-check</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-tmp">--tmp</a>
 </li>

@@ -909,7 +909,7 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 <td><p>root ancestor</p></td>
 </tr>
 <tr class="row-even"><td><p>.instances</p></td>
-<td><p>child instances (via the <code class="docutils literal notranslate"><span class="pre">hostedOn</span></code> relationship)</p></td>
+<td><p>child instances (via the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship)</p></td>
 </tr>
 <tr class="row-odd"><td><p>.capabilities</p></td>
 <td><p>list of capabilities</p></td>
@@ -926,13 +926,16 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 <tr class="row-odd"><td><p>.sources</p></td>
 <td><p>map with requirement names as keys and source instances as values</p></td>
 </tr>
-<tr class="row-even"><td><p>.configured_by</p></td>
-<td><p>Filter .sources by the <code class="docutils literal notranslate"><span class="pre">Configures</span></code> relationship</p></td>
+<tr class="row-even"><td><p>.hosted_on</p></td>
+<td><p>Follow .targets, filtering by the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship</p></td>
 </tr>
-<tr class="row-odd"><td><p>.descendants</p></td>
+<tr class="row-odd"><td><p>.configured_by</p></td>
+<td><p>Follow .sources, filtering by the <code class="docutils literal notranslate"><span class="pre">Configures</span></code> relationship</p></td>
+</tr>
+<tr class="row-even"><td><p>.descendants</p></td>
 <td><p>(including self)</p></td>
 </tr>
-<tr class="row-even"><td><p>.all</p></td>
+<tr class="row-odd"><td><p>.all</p></td>
 <td><p>dictionary of child resources with their names as keys</p></td>
 </tr>
 </tbody>

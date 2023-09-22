@@ -521,13 +521,14 @@ Built-in keys start with a leading **.**:
 .parents       list of parents
 .ancestors     self and parents
 .root          root ancestor
-.instances     child instances (via the ``hostedOn`` relationship)
+.instances     child instances (via the ``HostedOn`` relationship)
 .capabilities  list of capabilities
 .requirements  list of requirements
 .relationships relationships that target this capability
 .targets       map with requirement names as keys and target instances as values
 .sources       map with requirement names as keys and source instances as values
-.configured_by Filter .sources by the ``Configures`` relationship
+.hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
+.configured_by Follow .sources, filtering by the ``Configures`` relationship
 .descendants   (including self)
 .all           dictionary of child resources with their names as keys
 ============== ========================================================

@@ -290,6 +290,8 @@ Unless you set the ``stateLocation`` input parameter to "remote", the Terraform 
 and commits it to the ensemble's repository so you don't use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
 Any sensitive state will be encrypted using Ansible Vault.
 
+During a ``--dryrun`` job the configurator will validate and generate the Terraform plan but not execute it. You can override this behavior with the ``dryrun_mode`` input parameter and you can specify dummy outputs to use with the ``dryrun_outputs`` input parameter.
+
 You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node template to the avoid boilerplate and set the needed inputs.
 
 Example
@@ -333,6 +335,8 @@ Inputs
                   If set to "artifacts", it will be saved in the instance's "artifacts" folder with only sensitive values encrypted inline.
                   If set to "remote", Unfurl will not manage the Terraform state at all.
   :command: Path to the ``terraform`` executable. Default: "terraform"
+  :dryrun_mode: How to run during a dry run job. If set to "plan" just generate the Terraform plan. If set to "real", run the task without any dry run logic. Default: "plan"
+  :dryrun_outputs: During a dry run job, this map of outputs will be used simulate the task's outputs (otherwise outputs will be empty).
   :resultTemplate: A Jinja2 template that is processed with the Terraform state JSON file as its variables.
      See the Terraform providers' schema documentation for details but top-level keys will include "resources" and "outputs".
 

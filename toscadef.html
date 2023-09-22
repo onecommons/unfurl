@@ -340,6 +340,7 @@ node_types:
     derived_from: tosca.nodes.Storage.BlockStorage
     properties:
       name:
+        type: string
         default: &quot;&quot;
 
   tosca.nodes.Storage.ObjectStorage:
@@ -571,7 +572,7 @@ node_types:
     derived_from: tosca.nodes.Root
     requirements:
       - host:
-          capability: tosca.capabilities.Compute
+          capability: tosca.capabilities.Container
           node: tosca.nodes.Container.Runtime
           relationship: tosca.relationships.HostedOn
       - storage:
@@ -583,7 +584,7 @@ node_types:
     derived_from: tosca.nodes.SoftwareComponent
     capabilities:
       host:
-        type: tosca.capabilities.Compute
+        type: tosca.capabilities.Container
         valid_source_types: [tosca.nodes.Container.Application]
       scalable:
         type: tosca.capabilities.Scalable
@@ -626,14 +627,14 @@ relationship_types:
 
   tosca.relationships.HostedOn:
     derived_from: tosca.relationships.Root
-    valid_target_types: [tosca.capabilities.Container]
 
   tosca.relationships.ConnectsTo:
     derived_from: tosca.relationships.Root
     valid_target_types: [tosca.capabilities.Endpoint]
-    credential:
-      type: tosca.datatypes.Credential
-      required: false
+    properties:
+      credential:
+        type: tosca.datatypes.Credential
+        required: false
 
   tosca.relationships.AttachesTo:
     derived_from: tosca.relationships.Root
@@ -1210,6 +1211,8 @@ node_types:
     interfaces:
       Install: # all nodes can implement this interface
         type: unfurl.interfaces.Install
+      Standard:
+        type: tosca.interfaces.node.lifecycle.Standard
 
   unfurl.nodes.Repository:
     derived_from: tosca.nodes.Root
