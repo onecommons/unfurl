@@ -716,7 +716,7 @@ class _Ref:
         if isinstance(__value, type(self.expr)):
             return self.expr == __value
         elif isinstance(__value, _Ref):
-            return self.expr == self.expr
+            return self.expr == __value.expr
         return False
 
 
@@ -1027,8 +1027,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 if c._type_section == (section or cls._type_section) and c.__module__ != __name__:  # type: ignore
                     yield c.tosca_type_name()
 
-    @classmethod
-    def _interfaces_yaml(cls) -> Dict[str, dict]:
+    @staticmethod
+    def _interfaces_yaml(cls_or_self, cls) -> Dict[str, dict]:
         # interfaces are inherited
         interfaces = {}
         interface_ops = {}
@@ -1043,11 +1043,11 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 "Standard",
                 "Configure",
                 "Install",
-            ] or cls.tosca_type_name().startswith("tosca."):
+            ] or cls_or_self.tosca_type_name().startswith("tosca."):
                 # built-in interfaces don't need their type declared
                 i_def["type"] = name
-            if cls._interface_requirements:
-                i_def["requirements"] = cls._interface_requirements
+            if cls_or_self._interface_requirements:
+                i_def["requirements"] = cls_or_self._interface_requirements
             interfaces[shortname] = i_def
             if c in cls.__bases__:
                 direct_bases.append(shortname)
@@ -1056,7 +1056,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                     continue
                 interface_ops[methodname] = i_def
                 interface_ops[shortname + "." + methodname] = i_def
-        cls._find_operations(interface_ops, interfaces)
+        cls_or_self._find_operations(cls_or_self, interface_ops, interfaces)
         # filter out interfaces with no operations declared unless inheriting the interface directly
         return {
             k: v
@@ -1064,9 +1064,9 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             if k == "defaults" or k in direct_bases or v.get("operations")
         }
 
-    @classmethod
-    def _find_operations(cls, interface_ops, interfaces) -> None:
-        for methodname, operation in cls.__dict__.items():
+    @staticmethod
+    def _find_operations(cls_or_self, interface_ops, interfaces) -> None:
+        for methodname, operation in cls_or_self.__dict__.items():
             if methodname[0] == "_":
                 continue
             if callable(operation):
@@ -1079,22 +1079,24 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                             interface.setdefault("operations", {})[
                                 name.split(".")[-1]
                             ] = None
-                    interfaces["defaults"] = cls._operation2yaml(operation)
+                    interfaces["defaults"] = cls_or_self._operation2yaml(
+                        cls_or_self, operation
+                    )
                 else:
                     name = getattr(operation, "operation_name", methodname)
                     interface = interface_ops.get(name)
                     if interface is not None:
                         interface.setdefault("operations", {})[
                             name
-                        ] = cls._operation2yaml(operation)
+                        ] = cls_or_self._operation2yaml(cls_or_self, operation)
 
-    @classmethod
-    def _operation2yaml(cls, operation):
+    @staticmethod
+    def _operation2yaml(cls_or_self, operation):
         # XXX
         # signature = inspect.signature(operation)
         # for name, param in signature.parameters.items():
         #     inputs[name] = parameter_to_tosca(param)
-        result = operation(_ToscaTypeProxy(cls))
+        result = operation(_ToscaTypeProxy(cls_or_self))
         if result is None:
             return result
         if isinstance(result, _ArtifactProxy):
@@ -1145,7 +1147,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
         if not converter or not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
-            interfaces = cls._interfaces_yaml()
+            interfaces = cls._interfaces_yaml(cls, cls)
             if interfaces:
                 body["interfaces"] = interfaces
 
@@ -1209,6 +1211,25 @@ class ToscaType(_ToscaType):
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for name, value in self.__dict__.items():
             field = fields.get(name)
+            if isinstance(value, _Tosca_Field):
+                # field assigned directly to the object
+                field = value
+                if field.default_factory is not dataclasses.MISSING:
+                    value = field.default_factory()
+                elif field.default is not dataclasses.MISSING:
+                    value = field.default
+                else:
+                    continue
+            elif not field and name[0] != "_" and not callable(value):
+                # XXX if value is callable, check if it's an operation
+                # attribute is not part of class definition, try to deduce from the value's type
+                field = _Tosca_Field(None, owner=self.__class__)
+                field.name = name
+                field.type = type(value)
+                if field.guess_field_type() == ToscaFieldType.property:
+                    # the value was a data value or unrecognized, nothing to convert
+                    continue
+
             if field and isinstance(field, _Tosca_Field):
                 if field.section == "requirements":
                     # XXX node_filter if value is ref
@@ -1246,6 +1267,14 @@ class ToscaType(_ToscaType):
                     body.setdefault(field.section, {})[
                         field.tosca_name
                     ] = to_tosca_value(value)
+
+        if not converter.safe_mode:
+            # safe mode skips adding interfaces because it executes operations to generate the yaml
+            # this only adds interfaces defined directly on this object
+            interfaces = self._interfaces_yaml(self, self.__class__)
+            if interfaces:
+                body["interfaces"] = interfaces
+
         return body
 
     def load_class(self, module_path: str, class_name: str):
@@ -1441,6 +1470,9 @@ class _ArtifactProxy:
     def execute(self, **kw):
         self.inputs = kw
         return self
+
+    def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
+        return dict_cls(get_artifact=["SELF", self.name_or_tpl])
 
 
 class _ToscaTypeProxy:

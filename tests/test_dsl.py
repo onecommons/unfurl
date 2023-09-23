@@ -298,6 +298,18 @@ wordpress_db = tosca.nodes.Database(
 )
 """
 
+# test adding artifacts and operations that weren't declared by the type
+example_operation_on_template_python = (
+    example_template_python
+    + """
+wordpress_db.db_content = tosca.artifacts.File(file="files/wordpress_db_content.txt")
+def create(self):
+    return self.find_artifact("db_create.sh").execute(db_data=self.db_content)
+wordpress_db.create = create
+"""
+)
+
+
 def test_example_template():
     src, src_tpl = _to_python(example_template_yaml)
     tosca_tpl = _to_yaml(src, True)
@@ -305,6 +317,25 @@ def test_example_template():
     assert src_tpl == tosca_tpl
     tosca_tpl2 = _to_yaml(example_template_python, True)
     assert src_tpl == tosca_tpl2
+    tosca_tpl3 = _to_yaml(example_operation_on_template_python, False)
+    wordpress_db = tosca_tpl3["topology_template"]["node_templates"]["wordpress_db"]
+    wordpress_db["artifacts"] = {
+        "db_content": {
+            "type": "tosca.artifacts.File",
+            "file": "files/wordpress_db_content.txt",
+        }
+    }
+    wordpress_db["interfaces"] = {
+        "Standard": {
+            "type": "tosca.interfaces.node.lifecycle.Standard",
+            "operations": {
+                "create": {
+                    "implementation": {"primary": "db_create.sh"},
+                    "inputs": {"db_data": {"get_artifact": ["SELF", "db_content"]}},
+                }
+            },
+        }
+    }
 
 
 def test_set_constraints() -> None:
