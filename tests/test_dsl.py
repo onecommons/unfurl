@@ -258,7 +258,7 @@ def test_example_helloworld():
 
 
 # section 2.5 example 5, page 20
-example_operation_on_template_yaml = """
+example_template_yaml = """
 topology_template:
   inputs:
     wordpress_db_name:
@@ -274,30 +274,37 @@ topology_template:
         name: { get_input: wordpress_db_name }
         user: { get_input: wordpress_db_user }
         password: { get_input: wordpress_db_password }
-      artifacts:
-        db_content:
-          file: files/wordpress_db_content.txt
-          type: tosca.artifacts.File
-      # requirements:
-      #   - host: mysql
-      interfaces:
-        Standard:
-          create:
-            implementation: db_create.sh
-            inputs:
-              db_data: { get_artifact: [ SELF, db_content ] }
+      requirements:
+        # test forward reference to template (python needs to reorder)
+         - host: mysql
+
+    mysql:
+      type: tosca.nodes.DBMS
 """
 
+example_template_python = """
+import tosca
+from tosca import Eval
 
-def test_example_operation():
-    src, src_tpl = _to_python(example_operation_on_template_yaml)
-    # XXX
-    # print(src)
-    # tosca_tpl = _to_yaml(src, True)
-    # print(tosca_tpl)
-    # assert src_tpl == tosca_tpl
-    # tosca_tpl2 = _to_yaml(example_operation_on_template_python, True)
-    # assert src_tpl == tosca_tpl2
+mysql = tosca.nodes.DBMS(
+    "mysql",
+)
+wordpress_db = tosca.nodes.Database(
+    "wordpress_db",
+    name=Eval({"get_input": "wordpress_db_name"}),
+    user=Eval({"get_input": "wordpress_db_user"}),
+    password=Eval({"get_input": "wordpress_db_password"}),
+    host=mysql,
+)
+"""
+
+def test_example_template():
+    src, src_tpl = _to_python(example_template_yaml)
+    tosca_tpl = _to_yaml(src, True)
+    del src_tpl["topology_template"]["inputs"]
+    assert src_tpl == tosca_tpl
+    tosca_tpl2 = _to_yaml(example_template_python, True)
+    assert src_tpl == tosca_tpl2
 
 
 def test_set_constraints() -> None:
@@ -387,9 +394,7 @@ def test_set_constraints() -> None:
 )
 # patch repo lookup so we don't need to write the whole template
 def test_convert_import(test_input, exp_import, exp_path):
-    c = tosca.yaml2python.Convert(
-        MagicMock(path="/path/to/including_file.yaml")
-    )
+    c = tosca.yaml2python.Convert(MagicMock(path="/path/to/including_file.yaml"))
 
     output = c.convert_import(test_input)
 

@@ -111,6 +111,8 @@ node_types:
     requirements:
       - host:
           relationship: tosca.relationships.HostedOn
+          node: unfurl.nodes.K8sNamespace
+          occurrences: [0, 1]
           # XXX support this grammar:
           # valid_target_types: [ unfurl.nodes.K8sNamespace, unfurl.nodes.K8sCluster]
       - repository:

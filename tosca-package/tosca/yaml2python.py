@@ -182,6 +182,7 @@ class Imports:
 
     def add_declaration(self, tosca_name: str, localname: str):
         # new obj is being declared in the current module in the global scope
+        assert tosca_name not in self._imports, tosca_name
         self._imports[tosca_name] = (localname, None)
 
     def _add_imports(self, basename: str, namespace: Dict[str, Any]):
@@ -238,13 +239,18 @@ class Imports:
     def add_import(self, module: str):
         self._import_statements.add(module)
 
+    def get_local_ref(self, tosca_name) -> str:
+        qname, ref = self._imports.get(tosca_name, ("", None))
+        return qname
+
     def get_type_ref(
         self, tosca_type_name: str
     ) -> Tuple[str, Optional[Type[_tosca.ToscaType]]]:
         qname, ref = self._imports.get(tosca_type_name, ("", None))
         if ref:
             parts = qname.split(".")
-            if len(parts) > 1:
+            # qname in namespace, import it
+            if len(parts) > 1 and parts[0] not in ["tosca", "unfurl"]:  # in prelude
                 # just support one level of import for now
                 self._import_statements.add(parts[0])
         return qname, ref
@@ -262,7 +268,9 @@ class Convert:
         path: Optional[str] = None,
     ):
         self.template = template
-        self.names: Dict[str, Any] = {}
+        self.global_names: Dict[str, str] = {}
+        self.local_names: Dict[str, List[str]] = {}
+        self._pending_defs: List[str] = []
         self.topology = template.tpl.get("topology_template") or dict(
             node_templates={}, relationship_templates={}
         )
@@ -278,8 +286,8 @@ class Convert:
         self.repository_paths: Dict[str, str] = {}
         self.path = path
 
-    def init_names(self, names):
-        self.names = names or {}
+    def init_names(self, names: Dict[str, List[str]]):
+        self.local_names = names or {}
 
     def find_repository(self, name) -> Tuple[str, str]:
         if name in ["self"]:
@@ -338,9 +346,7 @@ class Convert:
             python_prefix, tosca_name = self._get_name(namespace_prefix)
             self.import_prefixes[namespace_prefix] = python_prefix
 
-            import_stmt = (
-                f"from {module_name} import {filename} as {python_prefix}"
-            )
+            import_stmt = f"from {module_name} import {filename} as {python_prefix}"
         else:
             import_stmt = f"from {module_name}.{filename} import *"
             python_prefix = ""
@@ -368,9 +374,9 @@ class Convert:
                 toscatype = _make_typedef(name, self.custom_defs, True)
                 if toscatype:
                     baseclass_name = section2typename(section)
-                    src += (
-                        self.toscatype2class(toscatype, baseclass_name, indent) + "\n\n"
-                    )
+                    type_src = self.toscatype2class(toscatype, baseclass_name, indent)
+                    src += self.flush_pending_defs()
+                    src += type_src + "\n\n"
                 else:
                     logging.info("couldn't create type %s", name)
             except Exception:
@@ -425,20 +431,41 @@ class Convert:
             name += "_"
         return name, toscaname
 
-    def _set_name(self, fullname: str, fieldtype: str) -> Tuple[str, str]:
-        name, toscaname = self._get_name(fullname)
-        if name in self.names:
+    def add_declaration(self, tosca_name: str, localname: Optional[str]):
+        # new obj is being declared in the current module in the global scope
+        if not localname:
+            localname, _ = self._get_name(tosca_name)
+        # handle conflicts theoretically has different namespaces between templates types
+        counter = 1
+        basename = localname
+        while localname in self.global_names:
+            localname = basename + str(counter)
+            counter += 1
+        self.global_names[localname] = tosca_name
+        self.imports.add_declaration(tosca_name, localname)
+        return localname
+
+    def _set_name(self, yaml_name: str, fieldtype: str) -> Tuple[str, str]:
+        name, toscaname = self._get_name(yaml_name)
+        if name in self.local_names:
             # if there already is a name clash or if there is about to be one
-            if len(self.names[name][1]) > 1 or fieldtype not in self.names[name][1]:
-                toscaname = fullname
-                # rename on conflict:
-                name = name + "_" + fieldtype
-        self.names[name] = (fullname, [fieldtype])
+            if (
+                len(self.local_names[name]) > 1
+                or fieldtype not in self.local_names[name]
+            ):
+                # conflict: name is used in another namespace
+                toscaname = yaml_name  # set toscaname (which might be emtpy) because name is changing
+                name = name + "_" + fieldtype  # rename to avoid conflict
+            else:
+                # already in names in the same namespace
+                # (ok, this idempotent)
+                return name, toscaname
+        self.local_names[name] = [fieldtype]
         return name, toscaname
 
     def python_name_from_type(self, tosca_type: str, minimize=False) -> str:
         # we assume the tosca_type has already been imported or is declared in this file
-        qname, cls = self.imports.get_type_ref(tosca_type)
+        qname = self.imports.get_local_ref(tosca_type)
         if qname:
             return qname
         if "." in tosca_type:
@@ -638,32 +665,31 @@ class Convert:
                     base_names += ", " + self.python_name_from_type(itype, True)
         return base_names
 
-    def _get_type_names(
-        self, current_type: StatefulEntityType
-    ) -> Dict[str, Tuple[str, List[str]]]:
-        # keys: requirement, capability, operation, property (includes attributes)
-        names: Dict[str, Tuple[str, List[str]]] = {}
+    def _get_type_names(self, current_type: StatefulEntityType) -> Dict[str, List[str]]:
+        # find all the identifiers declared on this type with the namespaces they appear in
+        # namespace keys: requirement, capability, operation, property (includes attributes)
+        names: Dict[str, List[str]] = {}
         entity_type = current_type.parent_type
         if not entity_type:
             return names
         props = entity_type.get_definition("properties") or {}
         for name in props:
-            names[name] = (name, ["property"])
+            names[name] = ["property"]
         attrs = entity_type.get_definition("attributes") or {}
         for name in attrs:
-            names[name] = (name, ["property"])
+            names[name] = ["property"]
         if isinstance(entity_type, NodeType):
             reqs = entity_type.requirements or []
             for req in reqs:
                 name = list(req)[0]
-                names.setdefault(name, (name, []))[1].append("requirement")
+                names.setdefault(name, []).append("requirement")
             capabilities = entity_type.get_capabilities_def()
             for name in capabilities:
-                names.setdefault(name, (name, []))[1].append("capability")
+                names.setdefault(name, []).append("capability")
         for iname, idef in entity_type.interfaces.items():
             ops = idef.get("operations") or {}
             for name in ops:
-                names.setdefault(name, (name, []))[1].append("operation")
+                names.setdefault(name, []).append("operation")
         return names
 
     def toscatype2class(
@@ -675,7 +701,7 @@ class Convert:
         toscaname = nodetype.type
         cls_name = self.python_name_from_type(toscaname, True)
         if not self._builtin_prefix:
-            self.imports.add_declaration(toscaname, cls_name)
+            cls_name = self.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(nodetype, baseclass_name)
 
         class_decl = f"{initial_indent}class {cls_name}({base_names}):\n"
@@ -1079,28 +1105,64 @@ class Convert:
         src += ")"
         return src
 
-    def node_template2obj(self, node_template: NodeTemplate, indent="") -> str:
+    def flush_pending_defs(self) -> str:
+        if self._pending_defs:
+            src = "\n".join(self._pending_defs) + "\n"
+            self._pending_defs = []
+            return src
+        return ""
+
+    def template_reference(self, tosca_name: str, type: str, indent="") -> str:
+        localname = self.imports.get_local_ref(tosca_name)
+        if not localname:
+            if type == "node":
+                template = self.template.topology_template.node_templates.get(
+                    tosca_name
+                )
+                assert template
+                localname, src = self.node_template2obj(template, indent="")
+            elif type == "relationship":
+                template = self.template.topology_template.relationship_templates.get(
+                    tosca_name
+                )
+                assert template
+                assert False  # XXX
+                # name, src = self.relationship_template2obj(template, indent="")
+            else:
+                assert False, type
+
+            # we need insert the code declaring this template before its name is referenced
+            self._pending_defs.append(src)
+        return localname
+
+    def node_template2obj(
+        self, node_template: NodeTemplate, indent=""
+    ) -> Tuple[str, str]:
         self.init_names({})
         assert node_template.type
         cls_name, cls = self.imports.get_type_ref(node_template.type)
         if not cls_name:
-            logging.error(f"could not convert node template {node_template.name}: {node_template.type} wasn't imported")
-            return ""
+            logging.error(
+                f"could not convert node template {node_template.name}: {node_template.type} wasn't imported"
+            )
+            return "", ""
         elif not cls:
-            logging.error(f"could not convert node template {node_template.name}: defined in current file so the compiled class isn't available")
+            logging.error(
+                f"could not convert node template {node_template.name}: defined in current file so the compiled class isn't available"
+            )
             # XXX compile and exec the source code generated so far
-            return ""
+            return "", ""
         # XXX names should be from parent namespace (module or Namespace)
-        name, toscaname = self._set_name(node_template.name, "template")
+        name = self.add_declaration(node_template.name, None)
         src = f"{indent}{name} = {cls_name}("
         # always add name because we might not have access to the name reference
-        src += f'"{toscaname or name}", '
+        src += f'"{node_template.name}", '
         metadata = node_template.entity_tpl.get("metadata")
         if metadata:
             src += f"_metadata={metadata_repr(metadata)},\n"
         # XXX version
         if node_template.directives:
-            src += f'_directives={repr(node_template.directives)},\n'
+            src += f"_directives={repr(node_template.directives)},\n"
         assert node_template.type_definition
         properties = node_template.entity_tpl.get("properties")
         if properties:
@@ -1119,7 +1181,56 @@ class Convert:
                 else:
                     field_name, tosca_name = self._set_name(name, "capability")
                 src += f"{field_name}={self._get_capability(capabilitydefs[name], cap_props, indent)},\n"
-        # XXX requirements
+
+        template_reqs = []  # requirements not declared by the type
+        requirements: Dict[_tosca._Tosca_Field, List[str]] = {}
+        for reqitem in node_template.requirements:
+            req_name, req = list(reqitem.items())[0]
+            field = cls.get_field_from_tosca_name(req_name, ToscaFieldType.requirement)
+            if field:
+                node = None
+                req_assignment = None
+                if isinstance(req, str):
+                    node = req
+                    capability = None
+                    relationship = None
+                else:
+                    # XXX handle node_filter
+                    # XXX check if values that are typenames (treat like node filter)
+                    node = req.get("node")
+                    capability = req.get("capability")
+                    relationship = req.get("relationship")
+                if node:
+                    # XXX make sure template is already declared
+                    req_assignment = self.template_reference(node, "node")
+                    if capability:
+                        # XXX get target template object and look up python attribute name for capability
+                        req_assignment += f".{capability}"
+                if relationship:
+                    if isinstance(relationship, str):
+                        rel_assignment = self.template_reference(
+                            relationship, "relationship"
+                        )
+                    else:
+                        rel_assignment = (
+                            None  # XXX support inline relationship templates
+                        )
+                    if rel_assignment:
+                        if req_assignment:
+                            req_assignment = f"{rel_assignment}[{req_assignment}]"
+                        else:
+                            req_assignment = rel_assignment
+                if req_assignment:
+                    requirements.setdefault(field, []).append(req_assignment)
+            else:
+                template_reqs.append((req_name, req))
+        for field, assignments in requirements.items():
+            typeinfo = field.get_type_info()
+            if len(assignments) == 1 and not typeinfo.collection:
+                src += f"{field.name}={assignments[0]},\n"
+            else:
+                src += f"{field.name}=[{', '.join(assignments)}],\n"
+        # XXX artifacts
         src += ")"  # close ctor
         description = node_template.entity_tpl.get("description")
         if description and description.strip():
@@ -1127,10 +1238,10 @@ class Convert:
                 description, indent
             )
         # add these as attribute statements:
-        # XXX template-only requirements
+        # XXX template-only requirements, artifacts
         # XXX operations: declare than assign
         # f"{indent}{name}.{opname} = {opname}
-        return src
+        return name, src
 
     def follow_import(self, import_def, import_path, format):
         # we've already imported this, get its contents
@@ -1245,7 +1356,9 @@ def convert_service_template(
         for imp_def in imports_tpl:
             if isinstance(imp_def, str):
                 imp_def = dict(file=imp_def)
-            import_src, import_path, (module_name, ns) = converter.convert_import(imp_def)
+            import_src, import_path, (module_name, ns) = converter.convert_import(
+                imp_def
+            )
             converter.follow_import(imp_def, import_path + ".py", format)
             # XXX handle relative imports using using private loader
             module = importlib.import_module(module_name)
@@ -1289,7 +1402,12 @@ def convert_service_template(
     topology = template.topology_template
     if topology:
         for node_template in topology.nodetemplates:
-            src += converter.node_template2obj(node_template) + "\n"
+            localname = converter.imports.get_local_ref(node_template.name)
+            if not localname:
+                template_name, template_src = converter.node_template2obj(node_template)
+                src += converter.flush_pending_defs()
+                if template_src:
+                    src += template_src + "\n"
 
     prologue = f"# Generated by tosca.yaml2python from {os.path.relpath(template.path)} at {datetime.datetime.now()}\n"
     src = prologue + add_description(tpl, "") + imports.prelude() + src
@@ -1309,5 +1427,6 @@ def convert_service_template(
             logging.error("failed to format %s: %s", path, e)
     if path:
         with open(path, "w") as po:
+            logging.info("writing to %s", path)
             print(src, file=po)
     return src
