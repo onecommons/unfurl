@@ -30,8 +30,36 @@ spec:
             configure:
             delete:
 
+      TerraformWithResultTemplate:
+        derived_from: unfurl.nodes.Installer.Terraform
+        properties:
+          test:
+            type: string
+            default:
+              eval: ::missing
+        interfaces:
+          defaults:
+            inputs:
+              main: { get_env: terraform_dir }
+              tfvars:
+                tag: "result template test"
+          Standard:
+            operations:
+              delete:
+              configure:
+                inputs:
+                  # test that properties are treated like attributes after they are modified
+                  resultTemplate:
+                    attributes:
+                      test: "{{ outputs.test_output }}"
+                outputs:
+                  test_output:
+
     topology_template:
       node_templates:
+        result-template-test:
+          type: TerraformWithResultTemplate
+
         terraform-node:
           type: GenericTerraformManagedResource
           properties:

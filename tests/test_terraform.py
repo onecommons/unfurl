@@ -49,6 +49,9 @@ class TerraformTest(unittest.TestCase):
             assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             example = job.rootResource.find_resource("example")
             self.assertEqual(example.attributes["tag"], "Hello, test!")
+            rtt = job.rootResource.find_resource("result-template-test")
+            self.assertEqual(rtt.attributes["test"], "outputting result template test!")
+
             summary = job.json_summary()
             task_outputs = set(
                 [
@@ -58,12 +61,15 @@ class TerraformTest(unittest.TestCase):
                 ]
             )
             assert task_outputs == {
+                "outputting result template test!",
                 "outputting test3!",
                 "outputting test2!",
                 "Hello, test!",
             }
             terraform_node = job.rootResource.find_resource("terraform-node")
-            self.assertEqual(terraform_node.attributes["test_output"], 'outputting test2!')
+            self.assertEqual(
+                terraform_node.attributes["test_output"], "outputting test2!"
+            )
 
             # print(job.summary())
             # print(job._planSummary())
@@ -73,15 +79,41 @@ class TerraformTest(unittest.TestCase):
                     "job": {
                         "id": "A01110000000",
                         "status": "ok",
-                        "total": 6,
-                        "ok": 6,
+                        "total": 8,
+                        "ok": 8,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 6,
+                        "changed": 8,
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "result-template-test",
+                            "operation": "check",
+                            "template": "result-template-test",
+                            "type": "TerraformWithResultTemplate",
+                            "targetStatus": "absent",
+                            "targetState": "initial",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
+                        {
+                            "status": "ok",
+                            "target": "result-template-test",
+                            "operation": "configure",
+                            "template": "result-template-test",
+                            "type": "TerraformWithResultTemplate",
+                            "targetStatus": "ok",
+                            "targetState": "configured",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "add",
+                        },
                         {
                             "status": "ok",
                             "target": "terraform-node",
@@ -176,15 +208,28 @@ class TerraformTest(unittest.TestCase):
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 3,
-                        "ok": 3,
+                        "total": 4,
+                        "ok": 4,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 3,
+                        "changed": 4,
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "result-template-test",
+                            "operation": "delete",
+                            "template": "result-template-test",
+                            "type": "TerraformWithResultTemplate",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "undeploy",
+                        },
                         {
                             "status": "ok",
                             "target": "terraform-node",
@@ -240,8 +285,8 @@ class TerraformTest(unittest.TestCase):
                     "job": {
                         "id": "A01120GC0000",
                         "status": "ok",
-                        "total": 3,
-                        "ok": 3,
+                        "total": 4,
+                        "ok": 4,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
@@ -249,6 +294,19 @@ class TerraformTest(unittest.TestCase):
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "result-template-test",
+                            "operation": "check",
+                            "template": "result-template-test",
+                            "type": "TerraformWithResultTemplate",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": False,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
                         {
                             "status": "ok",
                             "target": "terraform-node",
@@ -296,24 +354,31 @@ class TerraformTest(unittest.TestCase):
                 job._json_plan_summary(include_rendered=False),
                 [
                     {
-                        "instance": "terraform-node",
-                        "status": "Status.absent",
-                        "state": "NodeState.deleted",
+                        "instance": "result-template-test",
                         "managed": "A01110000002",
                         "plan": [{"operation": "check", "reason": "check"}],
+                        "state": "NodeState.deleted",
+                        "status": "Status.absent",
                     },
                     {
-                        "instance": "terraform-node-json",
+                        "instance": "terraform-node",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
                         "managed": "A01110000004",
                         "plan": [{"operation": "check", "reason": "check"}],
                     },
                     {
-                        "instance": "example",
+                        "instance": "terraform-node-json",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
                         "managed": "A01110000006",
+                        "plan": [{"operation": "check", "reason": "check"}],
+                    },
+                    {
+                        "instance": "example",
+                        "status": "Status.absent",
+                        "state": "NodeState.deleted",
+                        "managed": "A01110000008",
                         "plan": [{"operation": "check", "reason": "check"}],
                     },
                 ],

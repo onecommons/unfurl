@@ -106,10 +106,10 @@ class UnfurlError(Exception):
     ) -> None:
         stackInfo = None
         if saveStack:
-            (etype, value, traceback) = sys.exc_info()
-            if value:
-                message = str(message) + ": " + str(value)
-                stackInfo = (etype, value, traceback)
+            (e_type, e, traceback) = sys.exc_info()
+            if e:
+                message = str(message) + ": " + str(e)
+                stackInfo = (e_type, e, traceback)
         super().__init__(message)
         self.stackInfo = stackInfo
         if log:

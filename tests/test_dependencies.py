@@ -15,12 +15,20 @@ kind: Ensemble
 spec:
   service_template:
     types:
-      nodes.Test:
+      # declare the attribute as a property in a base type to test that
+      # a property can be "promoted" to an attribute in a derived class
+      nodes.Base:
         derived_from: tosca.nodes.Root
-        attributes:
+        properties:
           attr:
             type: string
             default: Default
+
+      nodes.Test:
+        derived_from: nodes.Base
+        attributes:
+          attr:
+            type: string
         interfaces:
          Standard:
           operations:
