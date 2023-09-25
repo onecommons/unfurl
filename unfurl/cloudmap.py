@@ -823,7 +823,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
 
 
 class GitlabManager(RepositoryHost):
-    def __init__(self, name: str, config: Dict[str, str], namespace: str = ""):
+    def __init__(self, name: str, config: Dict[str, str], namespace: str = "") -> None:
         self.name = name
         self.visibility = config.get("visibility", "any")
         url = config["url"]
@@ -831,6 +831,8 @@ class GitlabManager(RepositoryHost):
         user, sep, host = parts.netloc.rpartition("@")
         if sep and ":" in user:
             user, colon, token = user.partition(":")
+        else:
+            token = None
         self.user = config.get("user") or user
         self.token = config.get("password") or token
         self.path = namespace or parts.path.strip("/")
