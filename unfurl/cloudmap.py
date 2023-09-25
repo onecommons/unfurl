@@ -844,7 +844,15 @@ class GitlabManager(RepositoryHost):
         url = parts._replace(netloc=host, path="").geturl()
         self.gitlab = gitlab.Gitlab(url, private_token=self.token)
         logger.info(f"connecting to {self.gitlab.url} namespace {self.path}")
-        self.gitlab.auth()
+        if self.token:
+            self.gitlab.auth()
+
+    def _get_project_visibility(self, project: Project):
+        if self.token:
+            return project.visibility
+        else:
+            # public api calls will not have this attribute but we can assume it is public in that case
+            return "public"
 
     def has_repository(self, repo_info: Repository) -> bool:
         if repo_info.git.startswith(self.hostname) and repo_info.match_path(self.path):
@@ -879,7 +887,10 @@ class GitlabManager(RepositoryHost):
         repositories = directory.repositories
         for p in projects:
             dest_proj: Project = self.gitlab.projects.get(p.id)
-            if self.visibility == "public" and dest_proj.visibility != "public":
+            if (
+                self.visibility == "public"
+                and self._get_project_visibility(dest_proj) != "public"
+            ):
                 continue
             try:
                 dest_proj.default_branch
@@ -1151,7 +1162,7 @@ class GitlabManager(RepositoryHost):
             # internal_id=str(project.get_id()),
             project_url=self.canonize(project.web_url),
             metadata=metadata,
-            private=project.visibility != "public",
+            private=self._get_project_visibility(project) != "public",
             branches={
                 b.name: b.commit["id"] for b in project.branches.list(iterator=True)
             },
