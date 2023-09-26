@@ -1484,10 +1484,10 @@ def cloudmap(
     if not host_name:
         print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
         return
+    host = CloudMap.get_host(localEnv, host_name, namespace or "", clone_root or "", visibility)
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root or "", host_name, namespace or "", skip_analysis
+        localEnv, cloudmap, clone_root or "", host.name, namespace or "", skip_analysis
     )
-    host = cloud_map.get_host(localEnv, host_name, namespace or "", visibility)
     host.dryrun = dryrun
     if options.get("import") or sync:
         changed = cloud_map.from_host(host)

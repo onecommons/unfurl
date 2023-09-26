@@ -61,7 +61,7 @@ from .repo import (
     sanitize_url,
     split_git_url,
 )
-from .util import UnfurlError
+from .util import UnfurlError, unique_name
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
 from .logs import getLogger
@@ -124,6 +124,7 @@ def match_namespace(path: str, namespace: str) -> bool:
         return False
     # don't match on partial segments
     return path.startswith(os.path.join(namespace, ""))
+
 
 @dataclass
 class Repository:
@@ -652,9 +653,12 @@ class Directory(_LocalGitRepos):
         self, repo_info: Repository, repo: GitRepo, previous_notables: dict
     ) -> Optional[List[Notable]]:
         if self.do_analysis:
-            return self.analyze(repo_info, repo)
-        else:  # preserve previous analysis
-            repo_info.notable = previous_notables
+            try:
+                return self.analyze(repo_info, repo)
+            except Exception:
+                pass
+        # no analysis happened, preserve previous analysis
+        repo_info.notable = previous_notables
         return None
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
@@ -742,8 +746,12 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
     Locally manage git repositories from any origin using the git protocol.
     """
-    def __init__(self, local_repo_root: str = "", namespace: str = "") -> None:
+
+    def __init__(
+        self, name: str, local_repo_root: str = "", namespace: str = ""
+    ) -> None:
         _LocalGitRepos.__init__(self, local_repo_root)
+        self.name = name
         self.path = namespace
 
     def has_repository(self, repo_info: Repository) -> bool:
@@ -1239,26 +1247,36 @@ class CloudMap:
             raise UnfurlError(f"couldn't clone {url}")
         return CloudMap(repo, branch, localrepo_root, path, skip_analysis)
 
+    @classmethod
     def get_host(
-        self,
+        cls,
         local_env: "LocalEnv",
         name: str,
         namespace: str,
+        repos_root: str,
         visibility: Optional[str] = None,
     ) -> RepositoryHost:
         environment = local_env.get_context().get("cloudmaps", {})
-        host_config: Optional[dict] = environment.get("hosts", {}).get(name)
-        clone_root = self.directory.repos_root
+        hosts = environment.get("hosts", {})
+        host_config: Optional[dict] = hosts.get(name)
+        clone_root = repos_root
         if host_config is None:
             if name == "local":
                 host_config = dict(type="local", clone_root=clone_root)
             elif ":" in name:
                 # assume it's an url pointing to gitlab or unfurl cloud instance
+                hostname = urlparse(name).hostname
+                if not hostname:
+                    raise UnfurlError(f"invalid url for host: {name}")
                 host_config = dict(type="gitlab", url=name)
+                # name has to be useable as part of a branch name so just use the hostname
+                name = unique_name(hostname, list(hosts))
             else:
                 raise UnfurlError(f"no repository host named {name} found")
         if host_config["type"] == "local":
-            return LocalRepositoryHost(host_config.get("clone_root", clone_root), namespace)
+            return LocalRepositoryHost(
+                name, host_config.get("clone_root", clone_root), namespace
+            )
 
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]
         config = local_env.map_value(host_config, environment.get("variables"))

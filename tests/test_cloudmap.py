@@ -14,6 +14,7 @@ if not os.getenv("UNFURL_TEST_CLOUDMAP_URL"):
     )
 
 # XXX more tests:
+# add readonly public test of --import (doesn't need UNFURL_TEST_CLOUDMAP_URL)
 # add local test: unfurl cloudmap --sync local --clone-root local-repos
 # add commit in local repo and add a project to upstream cloudmap
 # verify that sync updates testProvider properly (and delete the created project)
@@ -84,7 +85,7 @@ repositories:
     branches:
       main: 1dd9512edccaec2049a001fedf47195ab6ea298f
     notable:
-      ensemble/ensemble.yaml:
+      ensemble/ensemble.yaml#spec/service_template:
         artifact_type: artifact.tosca.UnfurlEnsemble
         name: Generic cloud provider implementations
         version: 2.0.0
@@ -125,7 +126,7 @@ def test_sync(runner, caplog):
         "found git repo unfurl.cloud/feb20a/dashboard.git",
         "nothing to commit for: Update hosts/testProvider with latest from testProvider/feb20a",
         "syncing to feb20a",
-        "skipping push: no change detected on branch testProvider/main for https://XXXXX:XXXXX@app.dev.unfurl.cloud/feb20a/dashboard.git",
+        "skipping push: no change detected on branch testProvider/main for https://XXXXX:XXXXX@staging.unfurl.cloud/feb20a/dashboard.git",
         "nothing to commit for: synced testProvider",
     ]:
         assert msg in caplog.text
