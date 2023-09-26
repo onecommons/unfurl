@@ -395,7 +395,7 @@ class Project:
                     # if the manifest lives in an external projects repo,
                     # _get_external_localenv() above will have set that project
                     # as the parent project and register our project with it
-                    return self, externalLocalEnv.manifestPath, contextName
+                    return self, externalLocalEnv.manifestPath or "", contextName
                 else:
                     raise UnfurlError(
                         'Could not find external project "%s" referenced by ensemble "%s"'
@@ -890,10 +890,12 @@ class LocalEnv:
         else:
             # manifestPath not specified so search current directory and parents for either a manifest or a project
             # raises if not found
-            foundManifestPath, project = self._search_for_manifest_or_project(".")
+            foundManifestPath, project = self._search_for_manifest_or_project(
+                ".", can_be_empty
+            )
 
+        self.manifestPath = foundManifestPath
         if foundManifestPath:
-            self.manifestPath = foundManifestPath
             if not project:
                 # set this because the yaml loader needs access to this while the project is being instantiated
                 self.overrides["manifest_path"] = foundManifestPath
@@ -901,8 +903,7 @@ class LocalEnv:
         elif project:
             # the manifestPath was pointing to a project, not a manifest
             manifestPath = ""
-        else:
-            assert manifestPath
+        elif manifestPath:
             # set this because the yaml loader needs access to this while the project is being instantiated
             self.overrides["manifest_alias"] = manifestPath
             # if manifestPath doesn't point to a project or ensemble,
@@ -935,7 +936,7 @@ class LocalEnv:
 
     def __init__(
         self,
-        manifestPath: str = None,
+        manifestPath: Optional[str] = None,
         homePath: Optional[str] = None,
         parent: Optional["LocalEnv"] = None,
         project: Optional[Project] = None,
@@ -982,7 +983,7 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
             self.make_resolver = None
 
-        self._resolve_path_and_project(manifestPath, can_be_empty)  # type: ignore
+        self._resolve_path_and_project(manifestPath or "", can_be_empty)
         if override_context:
             # set after _resolve_path_and_project() is called
             self.manifest_context_name = override_context
@@ -1003,6 +1004,15 @@ class LocalEnv:
             and self.homeProject.localConfig
             or LocalConfig()
         )
+        if not self.manifestPath and not self.project and not manifestPath:
+            if self.homeProject:
+                self.project = self.homeProject
+            else:
+                # this can happen when can_be_empty is True
+                raise UnfurlError(
+                    "Can't find an Unfurl ensemble or project or home project."
+                )
+
         if override_context and override_context != "defaults":
             assert (
                 override_context == self.manifest_context_name
@@ -1069,7 +1079,7 @@ class LocalEnv:
             localEnv = LocalEnv(path, parent=self, readonly=self.readonly)
             return localEnv.get_manifest()
         else:
-            assert self.manifestPath
+            assert self.manifestPath, "check manifestPath before calling get_manifest"
             manifest = self._manifests.get(self.manifestPath)
             if not manifest:
                 # should load vault ids from context
@@ -1198,7 +1208,9 @@ class LocalEnv:
             return repos
 
     def _search_for_manifest_or_project(
-        self, dir: str
+        self,
+        dir: str,
+        can_be_empty: bool,
     ) -> Tuple[str, Optional[Project]]:
         current = os.path.abspath(dir)
         while current and current != os.sep:
@@ -1215,6 +1227,9 @@ class LocalEnv:
                 return "", self.get_project(test, self.homeProject)
 
             current = os.path.dirname(current)
+
+        if can_be_empty:
+            return "", None
 
         message = "Can't find an Unfurl ensemble or project in the current directory (or any of the parent directories)"
         raise UnfurlError(message)

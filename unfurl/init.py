@@ -569,6 +569,7 @@ def _get_ensemble_paths(sourcePath, sourceProject, want_init, use_environment):
             localEnv = LocalEnv(
                 relPath, project=sourceProject, override_context=use_environment
             )
+            assert localEnv.manifestPath
             sourceDir = sourceProject.get_relative_path(
                 os.path.dirname(localEnv.manifestPath)
             )
