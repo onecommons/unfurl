@@ -2,22 +2,47 @@
 # SPDX-License-Identifier: MIT
 """
 A cloud map is document containing metadata on collections of repositories include the artifacts and blueprints they contain.
-You can use a cloud map to discover blueprints to deploy.
 
 You can use a cloud map to manage servers that host git repositories and synchronize mirrors of git repositories.
-Three types of repository hosts are currently supported: local, gitlab, and unfurl.cloud
-For example, the following commands can be used push projects on a staging instance to production:
+Three types of repository hosts are currently supported: local, gitlab, and unfurl.cloud.
+
+You can use the cloud map to maintain mirrors of git repositories or use it to synchronize multiple instances of the same repository host by setting the "canonical_url" key in the repository host configuration.
+
+For example, given this configuration snippet:
+
+```yaml
+environments:
+  defaults:
+    cloudmaps:
+      hosts:
+        staging:
+            type: unfurl.cloud
+            url: https://staging.unfurl.cloud/onecommons/
+            canonical_url: https://unfurl.cloud
+        production:
+            type: unfurl.cloud
+            url: https://unfurl.cloud/onecommons/
+            visibility: public
+```
+
+then projects found on staging.unfurl.cloud will be saved in the cloudmap as belonging to unfurl.cloud.
+So following commands will push all the projects in "onecommons/blueprints" namespace from the staging instance to the production instance at unfurl.cloud:
 
 ```bash
-# sync latest in staging with the cloudmap
+# first sync latest on staging with the cloudmap
 unfurl cloudmap --sync staging --namespace onecommons/blueprints
 
 # now sync the cloudmap with production
 unfurl cloudmap --sync production --namespace onecommons/blueprints
-
-# only push the main branch to the public repo
-git --push origin main
 ```
+
+These commands commit any changes to cloudmap.yaml to its local clone of the cloudmap git repository.
+It will also create branches for each repository to host record their last known state and the 
+"main" branch serves as the "source of truth" for the cloud map.
+
+Currently you need manually push updates to cloudmap to the upstream cloudmap repository, for example:
+
+`cd cloudmap; git --push origin main`
 """
 
 import collections
@@ -69,6 +94,7 @@ from . import DefaultNames
 
 logger = getLogger("unfurl")
 
+DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
 
 # Data classes
 @dataclass
@@ -1218,8 +1244,11 @@ class CloudMap:
             cloudmap_url = repository["url"]
             localrepo_root = repository.get("clone_root", clone_root)
         else:
-            # assume name is an url or local path
-            cloudmap_url = name
+            if name == "cloudmap":
+                cloudmap_url = DEFAULT_CLOUDMAP_REPO
+            else:
+                # assume name is an url or local path
+                cloudmap_url = name
             localrepo_root = clone_root
         url, path, revision = split_git_url(cloudmap_url)
         url = normalize_git_url(url)
@@ -1234,7 +1263,10 @@ class CloudMap:
             if local_repo and branch in local_repo.repo.branches:  # type: ignore
                 branch_exists = True
             else:
-                branch_exists = bool(git.cmd.Git().ls_remote(url, branch, heads=True))
+                try:
+                    branch_exists = bool(git.cmd.Git().ls_remote(url, branch, heads=True))
+                except Exception:
+                    raise UnfurlError(f'Error trying to access cloudmap git repository at "{url}"', saveStack=True)
         if branch_exists:  # branch exists
             # clone or checkout branch
             repo, _, _ = local_env.find_or_create_working_dir(url, branch)

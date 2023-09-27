@@ -1436,7 +1436,6 @@ def serve(
 @click.option(
     "--project",
     type=click.Path(exists=True),
-    default=".",
     help='Unfurl project to use. (Default: ".")',
 )
 @click.option(
@@ -1461,7 +1460,7 @@ def cloudmap(
     ctx,
     cloudmap: str,
     sync: str,
-    project: str,
+    project: Optional[str],
     namespace: Optional[str] = None,
     clone_root: Optional[str] = None,
     visibility: Optional[str] = None,
