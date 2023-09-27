@@ -1,3 +1,4 @@
+import dataclasses
 import inspect
 from typing import Optional
 from unittest.mock import MagicMock, patch
@@ -11,7 +12,7 @@ except ImportError:
     print(sys.path)
     raise
 
-from tosca.python2yaml import PythonToYaml, python_to_yaml, dump_yaml
+from tosca.python2yaml import PythonToYaml, python_to_yaml
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
@@ -48,6 +49,16 @@ def test_builtin_name():
         template, builtin_prefix=f"tosca.nodes.", custom_defs=EntityType.TOSCA_DEF
     )._get_name("tosca.nodes.Abstract.Compute", "typename")[0]
     assert name == "tosca.nodes.AbstractCompute", name
+
+
+def dump_yaml(namespace, out=sys.stdout):
+    from unfurl.yamlloader import yaml
+
+    converter = PythonToYaml(namespace)
+    doc = converter.module2yaml()
+    if out:
+        yaml.dump(doc, out)
+    return doc
 
 
 def _generate_builtin(generate, builtin_name=None):
@@ -338,6 +349,72 @@ def test_example_template():
     }
 
 
+custom_interface_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    properties:
+      prop1:
+        type: string
+    artifacts:
+      shellScript:
+        type: tosca.artifacts.Implementation.Bash
+        file: example.sh
+    requirements:
+    - host:
+        node: tosca.nodes.Compute
+    interfaces:
+      MyCustomInterface:
+        type: MyCustomInterface
+        operations:
+          my_operation:
+            implementation:
+              primary: shellScript
+            inputs:
+              location:
+                eval: prop1
+              version: 0
+              host:
+                eval: .targets::host::public_address
+interface_types:
+  MyCustomInterface:
+    derived_from: tosca.interfaces.Root
+    my_operation:
+      description: description of my_operation
+topology_template: {}
+"""
+
+
+def test_custom_interface():
+    class MyCustomInterface(tosca.interfaces.Root):
+        class Inputs(tosca.ToscaInputs):
+            location: str
+            version: int = 0
+
+        def my_operation(self):
+            "description of my_operation"
+            ...  # an abstract operation, subclass needs to implement
+
+    class Example(tosca.nodes.Root, MyCustomInterface):
+        shellScript = tosca.artifacts.ImplementationBash(file="example.sh")
+        prop1: str
+        host: tosca.nodes.Compute
+
+        def my_operation(self):
+            return self.shellScript.execute(
+                MyCustomInterface.Inputs(location=self.prop1),
+                host=self.host.public_address,
+            )
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    # yaml.dump(yaml_dict, sys.stdout)
+    tosca_yaml = load_yaml(yaml, custom_interface_yaml)
+    assert yaml_dict == tosca_yaml
+
+
 def test_set_constraints() -> None:
     class Example(tosca.nodes.Root):
         shellScript: tosca.artifacts.Root = tosca.artifacts.Root(file="example.sh")
@@ -402,7 +479,7 @@ def test_set_constraints() -> None:
                     "operations": {
                         "create": {
                             "implementation": {"primary": "shellScript"},
-                            "inputs": {"input1": {"eval": ".::prop1"}},
+                            "inputs": {"input1": {"eval": "prop1"}},
                         }
                     }
                 }

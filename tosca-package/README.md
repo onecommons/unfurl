@@ -1,30 +1,42 @@
-# TOSCA Python DSL
+# A TOSCA Python-based DSL
 
-A Python representation of TOSCA 1.3. This package converts TOSCA YAML to Python and vice versa. It can be used as a library.
+This package implements a Python representation of TOSCA 1.3. It converts TOSCA YAML to Python and vice versa. It can be used as a library by TOSCA processor or as a stand-alone conversion tool.
 
-## Why?
+## Why a DSL (Domain Specic Language)?
 
-IDE integration
-Avoid "YAML hell"
-Expressiveness
-Reduced learning curve
+Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or internal) DSL](https://en.wikipedia.org/wiki/Domain-specific_language#External_and_Embedded_Domain_Specific_Languages) -- a DSL that is a subset of existing programming language?
+
+* Avoid what is affectionately known as "YAML hell". YAML's syntax is limited to expressing basic data types and has various quirks that makes it hard to manage at scale. But TOSCA is a fairly strongly typed language, so expressing it in a syntax that can reflect that makes for a much more powerful solution with regard to developer usability and tooling.
+
+* Expressiveness. With a full-fledged programming language as the host language (ie. Python), you have all its facilities for writing good code.
+
+* Reduced learning curve. By mapping to TOSCA syntax to existing language constructs like classes and methods and by rely on type inference we can present a simpler and more intuitive mental model to developers. For example, TOSCA's notion of requirements, properties, and artifacts are all represented the same way as regular Python attributes assigned to a Python class.
+
+* IDE and tooling integration. You can take of all of the existing IDE and tooling integrations for the host language.
+
+![VS Code displaying tooltip](vs-tosca-python-error-tooltip.png)
+
+Using our TOSCA DSL, VS-Code will detect missing or invalid node template properties and requirements out of the box.
 
 ### Why Python?
 
-Python is a simple language that is widely used
-Ease of integration, for example, Pydantic
-Gradual typing
+* Accessability. Python is an easy-to-use language usable by all skill levels of developers and the second mostly widely known programming language (after Javascript).
+* Ease of integration. There is a huge ecosystem of Python tools and library in the cloud computing and DevOps space and using a Python DSL makes it easy to integrate them. For example, we plan to integrate [Pydantic](https://pydantic.dev/) for data validation of properties and attributes.
+* Gradual typing. Type annotations are optional in Python allowing for rapid prototyping and making it easy to apply TOSCA to wide range of use cases. You can quickly build loosely defined models for on-off sys admin tasks or complex models with statically enforced constraints using Python's meta-programming facilities.
 
-## Install
+## Installation
 
-Python versions 3.7 and later are supported.
+If you want to use this as a Python library, `pip install tosca`. For a command line tool that converts between YAML and Python, or for a TOSCA orchestrator with native support, install [unfurl](https://github.com/onecommons/unfurl), which integrates this library.
+
+Requirements: Python versions 3.7 or later.
 
 ## Status
 
+Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since you always stick with YAML for the less common elements. Also, YAML to Python completeness is less of a priority than Python to YAML since the former is a just a convenience, while the latter is required for the DSL to be used.
 
 ## Examples
 
-Let's start with the “hello world” template in the TOSCA 1.3 Specificatin (Section 2.1, Example 1):
+Let's start with the “hello world” template in the TOSCA 1.3 Specification (Section 2.1, Example 1):
 
 ```yaml
 description: Template for deploying a single server with predefined properties.
@@ -54,7 +66,7 @@ Here's the same template translated to Python:
 ```python
 """Template for deploying a single server with predefined properties."""
 import tosca
-from tosca import *  # imports GB, MB scalars
+from tosca import *  # imports GB and MB scalars
 db_server = tosca.nodes.Compute(
     host=tosca.capabilities.Compute(
         num_cpus=1,
@@ -70,10 +82,10 @@ db_server = tosca.nodes.Compute(
 )
 ```
 
-It is very similar, except explicit types are required for assigning the capabilities and unit scalars.
+It looks very similar, except explicit types are required when assigning the `host` and `os` capabilities and properties that have unit values (`disk_size` and `mem_size`).
 
-Things are a little more interesting when defining TOSCA node types in Python.
-Consider this example of a node type from the TOSCA 1.3 Specification (in section 9.3.4.2 ):
+Things are a little more interesting when defining a TOSCA node type in Python.
+Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2 ):
 
 ```yaml
 node_types:
@@ -105,9 +117,9 @@ class WordPress(tosca.nodes.WebApplication):
     database_endpoint: tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase
 ```
 
-Here type declaration can infer whether a field is a TOSCA property or requirement based on the field's type -- only requirements can be assigned a relationship, so `database_endpoint` must be a TOSCA requirement, and data types like strings default as TOSCA properties.
+Here we see how our DSL can infer whether a field is a TOSCA property or TOSCA requirement based on the field's type -- for example, only requirements can be assigned a relationship, so `database_endpoint` must be a TOSCA requirement, and data types like strings default to TOSCA properties.
 
-If you need to specify TOSCA specific information about the field or need to resolve ambiguity about the fields type, you use can field specifiers. For example, consider the Python representation of the `tosca.nodes.Compute` node type defined in the TOSCA 1.3 spec: 
+If you need to specify TOSCA specific information about the field or need to resolve ambiguity about the fields type, you use can field specifiers. For example, consider this Python representation of the `tosca.nodes.Compute` node type defined in the TOSCA 1.3 spec:
 
 ```python
 class Compute(AbstractCompute):
@@ -143,14 +155,86 @@ class Compute(AbstractCompute):
         ] = Requirement(default=())
 ```
 
-Here we see the `Attribute()` field specifier being used to indicate a field is an TOSCA attribute not a property and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences = [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence.
+Here the `Attribute()` field specifier is used to indicate a field is an TOSCA attribute, not a property, and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences: [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence.
 
-Also note `_type_name`, which can be used when a YAML TOSCA identifier doesn't conform to a valid Python identifier.
+Also note `_type_name`, which can be used to name the type when the YAML identifier doesn't conform to Python's identifier syntax.
 
-You can see all of TOSCA 1.3 built in types as automatically converted to Python [here](https://github.com/onecommons/unfurl/blob/dsl/tosca-package/tosca/builtin_types.py).
+You can see all of TOSCA 1.3's pre-defined types as automatically converted from YAML to Python [here](https://github.com/onecommons/unfurl/blob/dsl/tosca-package/tosca/builtin_types.py).
+
+### Interfaces and Operations
+
+By mapping TOSCA's interfaces and operations to Python's classes and methods we can create a TOSCA syntax that is concise, intuitive, and easily statically validated. Consider this definition of a custom interface and its implementation by a node type:
+
+```python
+  class MyCustomInterface(tosca.interfaces.Root):
+      class Inputs(ToscaInputs):
+          location: str
+          version: int = 0
+
+      def my_operation(self):
+          "description of my_operation"
+          ...  # an abstract operation, subclass needs to implement 
+
+  class Example(tosca.nodes.Root, MyCustomInterface):
+      shellScript = tosca.artifacts.ImplementationBash(file="example.sh")
+      location: str
+      host: tosca.nodes.Compute
+
+      def my_operation(self):
+          return self.shellScript.execute(
+                      MyCustomInterface.Inputs(location=self.location),
+                      host_address=self.host.public_address)
+```
+
+This will be translated to YAML as:
+
+```yaml
+interface_types:
+  MyCustomInterface:
+    derived_from: tosca.interfaces.Root
+    inputs:
+      location:
+        type: string
+      version:
+        type: integer
+        default: 0
+    operations:
+        my_operation:
+          description: description of my_operation
+
+node_types:
+    Example:
+        derived_from: tosca.nodes.Root
+        artifacts:
+          shellScript:
+            type: tosca.artifacts.ImplementationBash
+            file: example.sh
+        properties:
+          location:
+            type: string
+        requirements:
+        - host:
+            node: tosca.nodes.Compute
+        interfaces:
+          MyCustomInterface:
+            operations:
+              my_operation:
+                implementation:
+                  primary: shellScript
+                inputs:
+                  location:
+                    {get_property: [SELF, location]}
+                  host_address:
+                    {get_property: [SELF, host, public_address]}
+```
+
+It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA. Another illustration of the benefits building a DSL on a widely supported language.
 
 ## Usage
+
 ### YAML to Python
+
+This example converts the "service_template.yaml" to Python and save the result at "service_template.py":
 
 ```python
 from tosca.yaml2python import yaml_to_python
@@ -159,18 +243,28 @@ from tosca.yaml2python import yaml_to_python
 python_src = yaml_to_python("service_template.yaml", "service_template.py")
 ```
 
+If you are using unfurl, you can accomplish the same thing from the command line using:
+
+`unfurl export --format python service_template.yaml`
+
 ### Python to YAML
+
+This example does the reverse, saving the Python file as YAML:
 
 ```python
 from tosca.python2yaml import python_to_yaml
 import yaml
-import sys
 
-with open(src_path) as f:
+with open("service_template.py") as f_in:
     python_src = f.read()
 tosca_template = python_to_yaml(python_src, safe_mode=False)
-yaml.dump(tosca_template, sys.stdout)
+with open("service_template.yaml", "w") as f_out:
+    yaml.dump(tosca_template, f_out)
 ```
+
+With unfurl, the command line equivalent is:
+
+`unfurl export service_template.py`
 
 ## Safe Mode
 
@@ -181,5 +275,5 @@ To enable untrusted Python services templates to be safely parsed in the same co
 * If a modules in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.
-* Disallowed imports will only raise `ImportError` when an imported attribute is accessed.
-* In safe mode, `python_to_yaml` will not invoke Python methods when convert operations to YAML. Since `ImportError`s are deferred until the imported module is accessed, this allows safe mode to parse Python code with unsafe imports in global scope if they aren't accessed while declaring types and templates.
+* Disallowed imports will only raise `ImportError` when an imported module's attribute is accessed.
+* In safe mode, `python_to_yaml` will not invoke Python methods when convert operations to YAML. Since `ImportError`s are deferred until the imported module's attributes are accessed, this allows safe mode to parse Python code with unsafe imports in global scope as long as they aren't accessed while declaring types and templates in global scope.

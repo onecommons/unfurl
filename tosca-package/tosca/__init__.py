@@ -121,6 +121,8 @@ __all__ = [
     "Tibps_Scalar",
     "Time",
     "ToscaDataType",
+    "ToscaInputs",
+    "ToscaOutputs",
     "US",
     "b",
     "bps",

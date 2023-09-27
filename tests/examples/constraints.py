@@ -17,7 +17,7 @@ class Proxy(tosca.nodes.Root):
 
 class ProxyContainerHost(Proxy, ContainerHost):
     # container hosts that proxies the container service it hosts
-    hosting: ContainerService = tosca.Eval() # XXX Constraint
+    hosting: ContainerService = tosca.Eval() # XXX Constrained
 
     @classmethod
     def _set_constraints(cls) -> None:

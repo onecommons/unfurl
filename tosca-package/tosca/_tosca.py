@@ -611,6 +611,15 @@ class _Tosca_Field(dataclasses.Field):
             prop_def["status"] = self.status
         return prop_def
 
+    @staticmethod
+    def infer_field(owner_class, name, value):
+        field = _Tosca_Field(None, owner=owner_class, default=value)
+        field.name = name
+        field.type = type(value)
+        if field.tosca_field_type != ToscaFieldType.property:
+            return field
+        return None
+
 
 def Property(
     *,
@@ -849,13 +858,13 @@ def _make_dataclass(cls):
     # we need _Tosca_Fields not dataclasses.Fields
     # so for any declarations of tosca fields (properties, requirements, etc)
     # missing a _Tosca_Fields, set one before calling _process_class()
-    for name, type in cls.__dict__.get("__annotations__", {}).items():
+    annotations = cls.__dict__.get("__annotations__", {})
+    for name, type in annotations.items():
         if name[0] != "_":
             field = None
-            default = getattr(cls, name, dataclasses.MISSING)
-            if not isinstance(
-                default, dataclasses.Field
-            ):  # XXX or not InitVar or ClassVar
+            default = getattr(cls, name, REQUIRED)
+            if not isinstance(default, dataclasses.Field):
+                # XXX or not InitVar or ClassVar
                 field = _Tosca_Field(None, default, owner=cls)
                 setattr(cls, name, field)
             elif isinstance(default, _Tosca_Field):
@@ -864,6 +873,14 @@ def _make_dataclass(cls):
             if field:
                 field.name = name
                 field.type = type
+    if cls.__module__ != __name__:
+        for name, value in cls.__dict__.items():
+            if name[0] != "_" and name not in annotations and not callable(value):
+                # for unannotated class attributes try to infer if they are TOSCA fields
+                field = _Tosca_Field.infer_field(cls, name, value)
+                if field:
+                    annotations[name] = field.type
+                    setattr(cls, name, field)
     _set_constraints = cls.__dict__.get("_set_constraints")
     if _set_constraints:
         _set_constraints.__get__(None, _DataclassTypeProxy(cls))()
@@ -977,9 +994,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     _namespace: ClassVar[Optional[Dict[str, Any]]] = None
     _globals: ClassVar[Optional[Dict[str, Any]]] = None
-    _interface_requirements: Optional[List[str]] = dataclasses.field(
-        default=None, init=False, repr=False
-    )
     _docstrings: Optional[Dict[str, str]] = dataclasses.field(
         default=None, init=False, repr=False
     )
@@ -1027,6 +1041,60 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 if c._type_section == (section or cls._type_section) and c.__module__ != __name__:  # type: ignore
                     yield c.tosca_type_name()
 
+
+class ToscaInputs(_ToscaType):
+    pass
+
+
+class ToscaOutputs(_ToscaType):
+    pass
+
+
+class ToscaType(_ToscaType):
+    # _name needs to come first for python < 3.10
+    _name: str = field(default="", kw_only=False)
+    _type_name: ClassVar[str] = ""
+    _type_section: ClassVar[str] = ""
+    _template_section: ClassVar[str] = ""
+
+    _type_metadata: ClassVar[Optional[Dict[str, str]]] = None
+    _metadata: Dict[str, str] = dataclasses.field(default_factory=dict)
+    _interface_requirements: Optional[List[str]] = dataclasses.field(
+        default=None, init=False, repr=False
+    )
+
+    # XXX version (type and template?)
+
+    def __set_name__(self, owner, name):
+        # called when a template is declared as a default value (owner will be class)
+        if not self._name:
+            self._name = owner.__name__ + "_" + name
+
+    @classmethod
+    def set_source(cls, requirement: Any, reference: Any) -> None:
+        """
+        Create a constraint that sets a requirement to the source of the property reference.
+
+        Should be called from ``_set_constraints(cls)``. For example,
+
+        ``cls._set_source(cls.requirement, cls.property)``
+
+        is equivalent to:
+
+        ``cls.requirement = cls.property``
+
+        But this method can be used to avoid static type checker complaints with that assignment.
+        """
+        if isinstance(requirement, FieldProjection):
+            requirement = requirement.field
+        if isinstance(requirement, _Tosca_Field):
+            if requirement.owner != cls:
+                raise ValueError(f"Field {requirement} isn't owned by {cls}")
+            return requirement.set_constraint(reference)
+        raise TypeError(
+            f"{requirement} isn't a TOSCA field -- this method should be called from _set_constraints()"
+        )
+
     @staticmethod
     def _interfaces_yaml(cls_or_self, cls) -> Dict[str, dict]:
         # interfaces are inherited
@@ -1065,11 +1133,16 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         }
 
     @staticmethod
+    def is_operation(operation) -> bool:
+        # exclude Input and Output classes
+        return callable(operation) and not isinstance(operation, _DataclassType)
+
+    @staticmethod
     def _find_operations(cls_or_self, interface_ops, interfaces) -> None:
         for methodname, operation in cls_or_self.__dict__.items():
             if methodname[0] == "_":
                 continue
-            if callable(operation):
+            if cls_or_self.is_operation(operation):
                 if hasattr(operation, "apply_to"):
                     apply_to = operation.apply_to
                     for name in apply_to:
@@ -1156,49 +1229,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         tpl = {tosca_name: body}
         return tpl
 
-
-class ToscaType(_ToscaType):
-    # _name needs to come first for python < 3.10
-    _name: str = field(default="", kw_only=False)
-    _type_name: ClassVar[str] = ""
-    _type_section: ClassVar[str] = ""
-    _template_section: ClassVar[str] = ""
-
-    _type_metadata: ClassVar[Optional[Dict[str, str]]] = None
-    _metadata: Dict[str, str] = dataclasses.field(default_factory=dict)
-
-    # XXX version (type and template?)
-
-    def __set_name__(self, owner, name):
-        # called when a template is declared as a default value (owner will be class)
-        if not self._name:
-            self._name = owner.__name__ + "_" + name
-
-    @classmethod
-    def set_source(cls, requirement: Any, reference: Any) -> None:
-        """
-        Create a constraint that sets a requirement to the source of the property reference.
-
-        Should be called from ``_set_constraints(cls)``. For example,
-
-        ``cls._set_source(cls.requirement, cls.property)``
-
-        is equivalent to:
-
-        ``cls.requirement = cls.property``
-
-        But this method can be used to avoid static type checker complaints with that assignment.
-        """
-        if isinstance(requirement, FieldProjection):
-            requirement = requirement.field
-        if isinstance(requirement, _Tosca_Field):
-            if requirement.owner != cls:
-                raise ValueError(f"Field {requirement} isn't owned by {cls}")
-            return requirement.set_constraint(reference)
-        raise TypeError(
-            f"{requirement} isn't a TOSCA field -- this method should be called from _set_constraints()"
-        )
-
     def to_yaml(self, dict_cls=dict):
         return self._name
 
@@ -1221,12 +1251,9 @@ class ToscaType(_ToscaType):
                 else:
                     continue
             elif not field and name[0] != "_" and not callable(value):
-                # XXX if value is callable, check if it's an operation
                 # attribute is not part of class definition, try to deduce from the value's type
-                field = _Tosca_Field(None, owner=self.__class__)
-                field.name = name
-                field.type = type(value)
-                if field.guess_field_type() == ToscaFieldType.property:
+                field = _Tosca_Field.infer_field(self.__class__, name, value)
+                if not field:
                     # the value was a data value or unrecognized, nothing to convert
                     continue
 
@@ -1412,10 +1439,9 @@ class ArtifactType(_OwnedToscaType):
             tpl["repository"] = self.repository
         return tpl
 
-    def execute(self, **kw):
-        self.inputs = kw
+    def execute(self, *args: ToscaInputs, **kw):
+        self.inputs = _ArtifactProxy._get_inputs(*args, **kw)
         return self
-
 
 class InterfaceType(ToscaType):
     # "Note: Interface types are not derived from ToscaType"
@@ -1428,7 +1454,7 @@ class InterfaceType(ToscaType):
         body: Dict[str, Any] = {}
         tosca_name = cls.tosca_type_name()
         for name, obj in cls.__dict__.items():
-            if name[0] != "_" and callable(obj):
+            if name[0] != "_" and cls.is_operation(obj):
                 doc = obj.__doc__ and obj.__doc__.strip()
                 if doc:
                     body[obj.__name__] = converter.yaml_cls(description=doc)
@@ -1467,9 +1493,22 @@ class _ArtifactProxy:
     def __init__(self, name_or_tpl):
         self.name_or_tpl = name_or_tpl
 
-    def execute(self, **kw):
-        self.inputs = kw
+    def execute(self, *args: ToscaInputs, **kw):
+        self.inputs = self._get_inputs(*args, **kw)
         return self
+
+    @staticmethod
+    def _get_inputs(*args: ToscaInputs, **kw):
+        inputs = {}
+        for arg in args:
+            assert isinstance(arg, ToscaInputs), arg
+            for field in arg.__dataclass_fields__.values():
+                if isinstance(field, _Tosca_Field):
+                    val = getattr(arg, field.name, dataclasses.MISSING)
+                    if val != dataclasses.MISSING:
+                        inputs[field.tosca_name] = val
+        inputs.update(kw)
+        return inputs
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return dict_cls(get_artifact=["SELF", self.name_or_tpl])
@@ -1491,7 +1530,7 @@ class _ToscaTypeProxy:
             fields = self.proxy_cls.__dataclass_fields__
             field = fields.get(name)
             if field and isinstance(field, _Tosca_Field):
-                return _Ref(dict(eval=".::" + field.as_ref_expr()))
+                return FieldProjection(field)
             else:
                 return attr
 

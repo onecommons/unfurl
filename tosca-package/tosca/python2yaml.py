@@ -231,16 +231,6 @@ class PythonToYaml:
                     )
 
 
-def dump_yaml(namespace, out=sys.stdout):
-    from unfurl.yamlloader import yaml
-
-    converter = PythonToYaml(namespace)
-    doc = converter.module2yaml()
-    if out:
-        yaml.dump(doc, out)
-    return doc
-
-
 def doc_str(node):
     if isinstance(node, Expr):
         if isinstance(node.value, Constant) and isinstance(node.value.value, str):

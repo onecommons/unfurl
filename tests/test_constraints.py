@@ -77,6 +77,7 @@ def test_constraints():
                                 {
                                     "backend_url": {
                                         "eval": "$SOURCE::.targets::container::url",
+                                        # vars should be omitted, set at parse time per template
                                         "vars": {"SOURCE": {"eval": "::myapp"}},
                                     }
                                 }
