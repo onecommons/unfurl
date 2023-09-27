@@ -156,6 +156,12 @@ topology_template:
           properties:
             version: 398.0.0
 
+        kompose:
+          type: artifact.AsdfTool
+          file: kompose
+          properties:
+            version: v1.26.1
+
         google-auth:
           type: artifact.PythonPackage
           file: google-auth

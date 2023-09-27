@@ -37,7 +37,7 @@ from typing import cast
 from toscaparser.elements.portspectype import PortSpec
 from .shell import ShellConfigurator
 from .k8s import make_pull_secret, mark_sensitive
-from ..util import UnfurlTaskError
+from ..util import UnfurlTaskError, which
 from ..yamlloader import yaml
 from ..merge import merge_dicts
 from ..projectpaths import Folders
@@ -91,6 +91,14 @@ class KomposeConfigurator(ShellConfigurator):
     _default_cmd = "kompose"
     _default_dryrun_arg = "--dry-run='client'"
     _output_dir = "kompose"
+
+    @classmethod
+    def set_config_spec_args(cls, kw: dict, template):
+        if not which("kompose"):
+            artifact = template.find_or_create_artifact("kompose", predefined=True)
+            if artifact:
+                kw["dependencies"].append(artifact)
+        return kw
 
     def _validate(self, task, compose):
         services = isinstance(compose, dict) and compose.get("services")
