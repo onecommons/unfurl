@@ -5,6 +5,7 @@ import datetime
 import os.path
 import hashlib
 import json
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
 from ruamel.yaml.comments import CommentedMap
 
@@ -719,14 +720,21 @@ class Manifest(AttributeManager):
         repositories = self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
+        base_dir = get_base_dir(baseDir)
         if repository_root is None:
             if self.localEnv and self.localEnv.project:
                 repository_root = self.localEnv.project.projectRoot
             else:
                 repository_root=self.get_base_dir()
+            if not Path(baseDir).is_relative_to(repository_root):
+                # when including relative files inside a repository we don't know the repository we are in
+                # but we might already be out of the project root
+                # in that case, repository_root to the base_dir
+                # this prevents visiting a parent directory but it is safe if we have gotten this far already
+                repository_root = base_dir
         loader = toscaparser.imports.ImportsLoader(
             None,
-            get_base_dir(baseDir),
+            base_dir,
             repositories=repositories,
             resolver=resolver,
             repository_root=repository_root
