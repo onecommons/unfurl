@@ -1110,7 +1110,7 @@ def nodetemplate_to_json(
             nodetemplate.entity_tpl["properties"] = ogprops
         return nodetemplate.entity_tpl
 
-    metadata = nodetemplate.entity_tpl.get("metadata", {})
+    metadata = nodetemplate.entity_tpl.get("metadata", {}).copy()
     title = metadata.pop("title", None)
     json = GraphqlObject(
         dict(
