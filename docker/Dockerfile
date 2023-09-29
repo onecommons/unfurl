@@ -1,4 +1,4 @@
-FROM python:3.9.9-slim
+FROM python:3.11-slim
 
 RUN apt-get -qq update && \
     apt-get -qq install -y git curl unzip wget expect && \
@@ -42,7 +42,7 @@ RUN echo "Installing Terraform" && \
 COPY . /unfurl
 
 RUN pip install --no-cache-dir --upgrade pip pipenv && \
-    cd /unfurl/unfurl/templates/python3.9 && \
+    cd /unfurl/unfurl/templates/python3.11 && \
     pipenv install --system --deploy && \
     pip install --no-deps /unfurl && \
     ansible-galaxy collection install ansible.utils community.docker kubernetes.core && \
