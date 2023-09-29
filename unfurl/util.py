@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from pathlib import Path
 import sys
 from types import ModuleType
 from typing import (
@@ -638,6 +639,17 @@ def unique_name(name: str, existing: Sequence) -> str:
         name = basename + str(counter)
         counter += 1
     return name
+
+
+# python < 3.9 doesn't  support Path.is_relative_to
+def is_relative_to(p, *other) -> bool:
+    """Return True if the path is relative to another path or False.
+    """
+    try:
+        Path(p).relative_to(*other)
+        return True
+    except ValueError:
+        return False
 
 
 def substitute_env(contents, env=None, preserve_missing=False):

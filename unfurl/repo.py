@@ -14,7 +14,7 @@ from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse
-from .util import UnfurlError, save_to_file
+from .util import UnfurlError, is_relative_to, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
@@ -23,20 +23,6 @@ if TYPE_CHECKING:
     from .packages import Package
 
 logger = getLogger("unfurl")
-
-try:
-    Path.is_relative_to  # type: ignore
-except AttributeError:
-    # for python < 3.9
-    def is_relative_to(self, *other):
-        """Return True if the path is relative to another path or False.
-        """
-        try:
-            self.relative_to(*other)
-            return True
-        except ValueError:
-            return False
-    Path.is_relative_to = is_relative_to  # type: ignore
 
 
 def is_git_worktree(path, gitDir=".git"):
@@ -262,7 +248,7 @@ class Repo(abc.ABC):
             return None, None, None
         repoRoot = os.path.abspath(base)
         abspath = os.path.abspath(path).rstrip("/")
-        if Path(abspath).is_relative_to(repoRoot):  # type: ignore
+        if is_relative_to(abspath, repoRoot):
             # XXX find pinned
             # if importLoader:
             #   revision = importLoader.getRevision(self)

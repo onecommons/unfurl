@@ -29,7 +29,7 @@ from .runtime import (
     ArtifactInstance,
     TopologyInstance,
 )
-from .util import UnfurlError, to_enum, sensitive_str, get_base_dir, taketwo
+from .util import UnfurlError, is_relative_to, to_enum, sensitive_str, get_base_dir, taketwo
 from .repo import split_git_url, RepoView, GitRepo
 from .packages import Package, PackageSpec, PackagesType
 from .merge import merge_dicts
@@ -726,7 +726,7 @@ class Manifest(AttributeManager):
                 repository_root = self.localEnv.project.projectRoot
             else:
                 repository_root=self.get_base_dir()
-            if not Path(baseDir).is_relative_to(repository_root):
+            if not is_relative_to(baseDir, repository_root):
                 # when including relative files inside a repository we don't know the repository we are in
                 # but we might already be out of the project root
                 # in that case, repository_root to the base_dir

@@ -23,6 +23,7 @@ from ruamel.yaml.constructor import ConstructorError
 
 from .util import (
     filter_env,
+    is_relative_to,
     to_bytes,
     to_text,
     sensitive_str,
@@ -444,7 +445,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _find_repository_root(self, base):
         for repo_view in self.manifest.repositories.values():
-            if Path(base).is_relative_to(repo_view.working_dir):  # type: ignore
+            if is_relative_to(base, repo_view.working_dir):
                 return repo_view.working_dir
         return base
 
