@@ -34,6 +34,9 @@ from typing import (
     TypeVar,
     cast,
 )
+
+from toscaparser.artifacts import Artifact
+from .python2yaml import restricted_exec
 from toscaparser import functions
 from toscaparser.imports import is_url, normalize_path
 from toscaparser.elements.nodetype import NodeType
@@ -588,11 +591,12 @@ class Convert:
                 typename = repr(typename)
         if schema.entry_schema:
             item_type_name = self._prop_type(Schema(None, schema.entry_schema))
-            if typename == "Dict":
-                typename += f"[str, {item_type_name}]"
-            else:
-                assert typename == "List"
-                typename += f"[{item_type_name}]"
+        else:
+            item_type_name = "Any"
+        if typename == "Dict":
+            typename += f"[str, {item_type_name}]"
+        elif typename == "List":
+            typename += f"[{item_type_name}]"
 
         if schema.constraints:
             typename = (
@@ -1139,9 +1143,9 @@ class Convert:
             self._pending_defs.append(src)
         return localname
 
-    def node_template2obj(
-        self, node_template: NodeTemplate, indent=""
-    ) -> Tuple[str, str]:
+    def template2obj(
+        self, node_template: EntityTemplate, indent=""
+    ) -> Tuple[Optional[Type[_tosca.ToscaType]],str, str]:
         self.init_names({})
         assert node_template.type
         cls_name, cls = self.imports.get_type_ref(node_template.type)
@@ -1149,13 +1153,13 @@ class Convert:
             logger.error(
                 f"could not convert node template {node_template.name}: {node_template.type} wasn't imported"
             )
-            return "", ""
+            return None, "", ""
         elif not cls:
             logger.error(
                 f"could not convert node template {node_template.name}: defined in current file so the compiled class isn't available"
             )
             # XXX compile and exec the source code generated so far
-            return "", ""
+            return None, "", ""
         # XXX names should be from parent namespace (module or Namespace)
         name = self.add_declaration(node_template.name, None)
         logger.info("converting template %s to python", name)
@@ -1173,6 +1177,24 @@ class Convert:
         if properties:
             prop_defs = node_template.type_definition.get_properties_def()
             src += self._get_prop_init_list(properties, prop_defs, cls, indent)
+        return cls, name, src
+
+    def artifact2obj(
+        self, artifact: Artifact, indent=""
+    ) -> str:
+        cls, name, src = self.template2obj(artifact, indent)
+        if not cls:
+            return ""
+        src += "file=" + value2python_repr(artifact.file)  # type: ignore
+        src += ")"  # close ctor
+        return src
+
+    def node_template2obj(
+        self, node_template: NodeTemplate, indent=""
+    ) -> Tuple[str, str]:
+        cls, name, src = self.template2obj(node_template, indent)
+        if not cls:
+            return "", ""
         # note: the toscaparser doesn't support declared attributes currently
         capabilities = node_template.entity_tpl.get("capabilities")
         if capabilities:
@@ -1191,74 +1213,83 @@ class Convert:
         requirements: Dict[_tosca._Tosca_Field, List[str]] = {}
         for reqitem in node_template.requirements:
             req_name, req = list(reqitem.items())[0]
-            field = cls.get_field_from_tosca_name(req_name, ToscaFieldType.requirement)
-            if field:
-                node = None
-                req_assignment = None
-                if isinstance(req, str):
-                    node = req
-                    capability = None
-                    relationship = None
-                else:
-                    # XXX handle node_filter
-                    # XXX check if values that are typenames (treat like node filter)
-                    node = req.get("node")
-                    capability = req.get("capability")
-                    relationship = req.get("relationship")
-                if node:
-                    # XXX make sure template is already declared
-                    req_assignment = self.template_reference(node, "node")
-                    if capability:
-                        # XXX get target template object and look up python attribute name for capability
-                        req_assignment += f".{capability}"
-                if relationship:
-                    if isinstance(relationship, str):
-                        rel_assignment = self.template_reference(
-                            relationship, "relationship"
-                        )
-                    else:
-                        rel_assignment = (
-                            None  # XXX support inline relationship templates
-                        )
-                    if rel_assignment:
-                        if req_assignment:
-                            req_assignment = f"{rel_assignment}[{req_assignment}]"
-                        else:
-                            req_assignment = rel_assignment
-                if req_assignment:
+            req_assignment = self._get_req_assignment(req)
+            if req_assignment:
+                field = cls.get_field_from_tosca_name(req_name, ToscaFieldType.requirement)
+                if field:
                     requirements.setdefault(field, []).append(req_assignment)
-            else:
-                template_reqs.append((req_name, req))
+                else:
+                    template_reqs.append((encode_identifier(req_name), req_assignment))
         for field, assignments in requirements.items():
             typeinfo = field.get_type_info()
             if len(assignments) == 1 and not typeinfo.collection:
                 src += f"{field.name}={assignments[0]},\n"
             else:
                 src += f"{field.name}=[{', '.join(assignments)}],\n"
-        for name, artifact in node_template.artifacts.items():
-            field = cls.get_field_from_tosca_name(name, ToscaFieldType.artifact)
-            if field:
-                field_name = field.name
-            else:
-                field_name, tosca_name = self._set_name(name, "artifact")
-            artifact_src = self.node_template2obj(artifact)[0]
+        artifacts = []
+        for artifact_name, artifact in node_template.artifacts.items():
+            artifact_src = self.artifact2obj(artifact)
             if artifact_src:
-                src += f"{field_name}={artifact_src},\n"
+                field = cls.get_field_from_tosca_name(artifact_name, ToscaFieldType.artifact)
+                if field:
+                    src += f"{artifact_src},\n"
+                else:
+                    artifacts.append(artifact_src)
+        src += ")\n"  # close ctor
 
-        src += ")"  # close ctor
         description = node_template.entity_tpl.get("description")
         if description and description.strip():
             src += f"{indent}{name}._description = " + add_description(
                 description, indent
             )
+        for artifact_src in artifacts:
+            # artifact_src looks like "name = Artifact(...)"
+            src += f"{indent}{name}.{artifact_src}\n"
+        for req_name, req_assignment in template_reqs:
+            src += f"{indent}{name}.{req_name} = {req_assignment}\n"
         # add these as attribute statements:
-        # XXX template-only requirements
         # XXX operations: declare than assign
         # f"{indent}{name}.{opname} = {opname}
         return name, src
 
+    def _get_req_assignment(self, req):
+        node = None
+        req_assignment = None
+        if isinstance(req, str):
+            node = req
+            capability = None
+            relationship = None
+        else:
+                    # XXX handle node_filter
+                    # XXX check if values that are typenames (treat like node filter)
+            node = req.get("node")
+            capability = req.get("capability")
+            relationship = req.get("relationship")
+        if node:
+                    # XXX make sure template is already declared
+            req_assignment = self.template_reference(node, "node")
+            if capability:
+                        # XXX get target template object and look up python attribute name for capability
+                req_assignment += f".{capability}"
+        if relationship:
+            if isinstance(relationship, str):
+                rel_assignment = self.template_reference(
+                            relationship, "relationship"
+                        )
+            else:
+                rel_assignment = (
+                            None  # XXX support inline relationship templates
+                        )
+            if rel_assignment:
+                if req_assignment:
+                    req_assignment = f"{rel_assignment}[{req_assignment}]"
+                else:
+                    req_assignment = rel_assignment
+        return req_assignment
+
     def follow_import(self, import_def: dict, import_path: str, format: bool) -> None:
-        # we've already imported this, get its contents
+        # the ToscaTemplate has already imported everything, so here we just need to get the import's contents
+        # to convert it to Python
         file_path = str(Path(import_path).parent / Path(import_def["file"]).name)
         if file_path not in self.template.nested_tosca_tpls:
             logger.warning(
@@ -1268,6 +1299,7 @@ class Convert:
 
         assert self.template.tpl is not None
         tpl = self.template.nested_tosca_tpls[file_path]
+        # make sure the content of the import has the tosca version header and all repositories
         tpl["tosca_definitions_version"] = self.template.tpl[
             "tosca_definitions_version"
         ]
