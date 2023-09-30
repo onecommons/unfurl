@@ -1,5 +1,7 @@
 import dataclasses
 import inspect
+import os
+import time
 from typing import Optional
 from unittest.mock import MagicMock, patch
 import pytest
@@ -12,7 +14,7 @@ except ImportError:
     print(sys.path)
     raise
 
-from tosca.python2yaml import PythonToYaml, python_to_yaml
+from tosca.python2yaml import PythonToYaml, python_src_to_yaml_obj
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
@@ -35,7 +37,7 @@ def _to_python(yaml_str: str):
 
 def _to_yaml(python_src: str, safe_mode) -> dict:
     namespace: dict = {}
-    tosca_tpl = python_to_yaml(python_src, namespace, safe_mode=safe_mode)
+    tosca_tpl = python_src_to_yaml_obj(python_src, namespace, safe_mode=safe_mode)
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
@@ -61,17 +63,20 @@ def dump_yaml(namespace, out=sys.stdout):
     return doc
 
 
-def _generate_builtin(generate, builtin_name=None):
+def _generate_builtin(generate, builtin_path=None):
     import_resolver = ImportResolver(None)  # type: ignore
     python_src = generate(import_resolver, True)
-    if builtin_name:
-        with open(builtin_name + ".py", "w") as po:
+    if builtin_path:
+        path = os.path.abspath(builtin_path + ".py")
+        print("*** writing source to", path)
+        with open(path, "w") as po:
             print(python_src, file=po)
     namespace: dict = {}
     exec(python_src, namespace)
     yo = None
-    if builtin_name:
-        yo = open(builtin_name + ".yaml", "w")
+    # if builtin_name:
+    #     path = os.path.abspath(builtin_name + ".yaml")
+    #     yo = open(path, "w")
     yaml_src = dump_yaml(namespace, yo)  # type: ignore
     if yo:
         yo.close()
@@ -631,6 +636,29 @@ node._name = "test"
         assert _to_yaml(src, True)
 
 
+def test_write_policy():
+    test_path = os.path.join(os.getenv("UNFURL_TMPDIR"), "test_generated.txt")
+    with open(test_path, "w") as f:
+        f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file"))
+    try:
+        assert tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
+        os.utime(test_path, (time.time()+5, time.time()+5))
+        assert not tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
+    finally:
+        os.remove(test_path)
+
+from click.testing import CliRunner
+from unfurl.__main__ import cli
+
+def test_export():
+    runner = CliRunner()
+    path = os.path.join(os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml")
+    result = runner.invoke(cli, ["export", "--format", "python", "--python-target", "3.7", "--overwrite", "always", path])
+    assert result.exit_code == 0
+    print(result.stdout)
+
+
+
 if __name__ == "__main__":
-    _generate_builtin(yaml2python.generate_builtins, "builtin_types")
-    _generate_builtin(yaml2python.generate_builtin_extensions, "tosca_ext")
+    _generate_builtin(yaml2python.generate_builtins, "tosca-package/tosca/builtin_types")
+    _generate_builtin(yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext")

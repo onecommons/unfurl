@@ -202,7 +202,7 @@ capability_types:
         type: string
         default: local
       port:
-        type: tosca:PortDef
+        type: tosca.datatypes.network.PortDef
         description: sets "ansible_port"
         required: false
       host:

@@ -644,20 +644,30 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             is_file = True
         return self._really_load_yaml(path, is_file, fragment, repo_view)
 
-    def _convert_to_yaml(self, contents: str, path: str, repo_view: Optional[RepoView], yaml_dict: type = dict):
+    def _convert_to_yaml(
+        self,
+        contents: str,
+        path: str,
+        repo_view: Optional[RepoView],
+        yaml_dict: type = dict,
+    ):
         if path.endswith(".py"):
-            from tosca.python2yaml import python_to_yaml
+            from tosca.python2yaml import python_src_to_yaml_obj
 
             self.expand = False
             namespace: Dict[str, Any] = {}
             base_dir = self.manifest.get_base_dir()
             if repo_view and repo_view.repository:
-                package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
+                package_path = Path(get_base_dir(path)).relative_to(
+                    repo_view.working_dir
+                )
                 name = re.sub(r"\W", "_", repo_view.repository.name)
                 relpath = str(package_path).strip("/").replace("/", ".")
                 # make sure tosca_repository symlink exists:
                 assert self.manifest.localEnv
-                self.manifest.localEnv.link_repo(base_dir, name, repo_view.url, repo_view.revision)
+                self.manifest.localEnv.link_repo(
+                    base_dir, name, repo_view.url, repo_view.revision
+                )
                 package = "tosca_repository." + name
             else:
                 package_path = Path(get_base_dir(path)).relative_to(base_dir)
@@ -668,8 +678,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if self.modules is None:
                 self.modules = {}
             safe_mode = (self.manifest and self.manifest.safe_mode) or self.safe_mode
-            yaml_src = python_to_yaml(
-                contents, namespace, base_dir, package + "." + Path(path).stem, yaml_dict, safe_mode, self.modules
+            yaml_src = python_src_to_yaml_obj(
+                contents,
+                namespace,
+                base_dir,
+                package + "." + Path(path).stem,
+                yaml_dict,
+                safe_mode,
+                self.modules,
             )
             return yaml_src
         else:

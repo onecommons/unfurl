@@ -52,10 +52,12 @@ from toscaparser.elements.constraints import constraint_mapping, Schema
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from keyword import iskeyword
 import collections.abc
-from . import _tosca, ToscaFieldType
+from . import WritePolicy, _tosca, ToscaFieldType
 import black
 import black.mode
 import black.report
+
+logger = logging.getLogger("tosca")
 
 
 value_indent = 2
@@ -261,19 +263,20 @@ class Convert:
         self,
         template: ToscaTemplate,
         forward_refs=False,
-        python_compatible=None,
+        python_compatible: Optional[int] = None,
         builtin_prefix="",
         imports: Optional[Imports] = None,
         custom_defs: Optional[Dict[str, Any]] = None,
         path: Optional[str] = None,
+        write_policy: WritePolicy = WritePolicy.auto,
     ):
         self.template = template
         self.global_names: Dict[str, str] = {}
         self.local_names: Dict[str, List[str]] = {}
         self._pending_defs: List[str] = []
-        self.topology = template.tpl.get("topology_template") or dict(
-            node_templates={}, relationship_templates={}
-        )
+        self.topology = (
+            template.tpl and template.tpl.get("topology_template")
+        ) or dict(node_templates={}, relationship_templates={})
         self.forward_refs = forward_refs
         if python_compatible is None:
             python_compatible = sys.version_info[1]
@@ -285,6 +288,7 @@ class Convert:
         self.custom_defs = custom_defs or self.template.topology_template.custom_defs
         self.repository_paths: Dict[str, str] = {}
         self.path = path
+        self.write_policy = write_policy
 
     def init_names(self, names: Dict[str, List[str]]):
         self.local_names = names or {}
@@ -369,7 +373,7 @@ class Convert:
                     continue
             elif self._builtin_prefix and not name.startswith(self._builtin_prefix):
                 continue
-            logging.info("converting type %s to python", name)
+            logger.info("converting type %s to python", name)
             try:
                 toscatype = _make_typedef(name, self.custom_defs, True)
                 if toscatype:
@@ -378,9 +382,9 @@ class Convert:
                     src += self.flush_pending_defs()
                     src += type_src + "\n\n"
                 else:
-                    logging.info("couldn't create type %s", name)
+                    logger.info("couldn't create type %s", name)
             except Exception:
-                logging.error("error converting type %s to python", name, exc_info=True)
+                logger.error("error converting type %s to python", name, exc_info=True)
         return src
 
     def _builtin_name(self, fullname: str, prefix: str, minimize=False) -> str:
@@ -556,7 +560,7 @@ class Convert:
                     # its a simple value type
                     return value2python_repr(value)
                 if not isinstance(value, dict):
-                    logging.error(
+                    logger.error(
                         "expected a dict value for %s, got: %s", datatype, value
                     )
                     return str(value)
@@ -760,8 +764,7 @@ class Convert:
             return class_decl + f"{indent}pass"
 
     def _add_operations(self, nodetype: StatefulEntityType, indent: str) -> str:
-        # XXX
-        # XXX default_ops doesn't seem to be working (see artifacts.yaml.py)
+        # XXX add environment, etc. to decorator
         src = ""
         default_ops = []
         for iname, interface in nodetype.interfaces.items():
@@ -924,7 +927,7 @@ class Convert:
         types = self.import_types(types)
         if not types:
             # XXX need to merge with base requirements
-            logging.error("req missing types %s", req)
+            logger.error("req missing types %s", req)
             return ""
         if len(types) > 1:
             typedecl = self._make_union(*types)
@@ -961,6 +964,8 @@ class Convert:
         return src
 
     def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
+        if op.invoke:
+            return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs)
         kw = (
             self.template.import_resolver.find_implementation(op)
             if self.template.import_resolver
@@ -1008,7 +1013,6 @@ class Convert:
     def operation2func(
         self, op: OperationDef, indent: str, default_ops: List[Tuple[str, str]]
     ) -> str:
-        # XXX op.invoke
         # iDef.entry_state: add to decorator
         # note: defaults and base class inputs and implementations already merged in
         # artifact property reference or configurator class
@@ -1142,18 +1146,19 @@ class Convert:
         assert node_template.type
         cls_name, cls = self.imports.get_type_ref(node_template.type)
         if not cls_name:
-            logging.error(
+            logger.error(
                 f"could not convert node template {node_template.name}: {node_template.type} wasn't imported"
             )
             return "", ""
         elif not cls:
-            logging.error(
+            logger.error(
                 f"could not convert node template {node_template.name}: defined in current file so the compiled class isn't available"
             )
             # XXX compile and exec the source code generated so far
             return "", ""
         # XXX names should be from parent namespace (module or Namespace)
         name = self.add_declaration(node_template.name, None)
+        logger.info("converting template %s to python", name)
         src = f"{indent}{name} = {cls_name}("
         # always add name because we might not have access to the name reference
         src += f'"{node_template.name}", '
@@ -1230,7 +1235,16 @@ class Convert:
                 src += f"{field.name}={assignments[0]},\n"
             else:
                 src += f"{field.name}=[{', '.join(assignments)}],\n"
-        # XXX artifacts
+        for name, artifact in node_template.artifacts.items():
+            field = cls.get_field_from_tosca_name(name, ToscaFieldType.artifact)
+            if field:
+                field_name = field.name
+            else:
+                field_name, tosca_name = self._set_name(name, "artifact")
+            artifact_src = self.node_template2obj(artifact)[0]
+            if artifact_src:
+                src += f"{field_name}={artifact_src},\n"
+
         src += ")"  # close ctor
         description = node_template.entity_tpl.get("description")
         if description and description.strip():
@@ -1238,19 +1252,21 @@ class Convert:
                 description, indent
             )
         # add these as attribute statements:
-        # XXX template-only requirements, artifacts
+        # XXX template-only requirements
         # XXX operations: declare than assign
         # f"{indent}{name}.{opname} = {opname}
         return name, src
 
-    def follow_import(self, import_def, import_path, format):
+    def follow_import(self, import_def: dict, import_path: str, format: bool) -> None:
         # we've already imported this, get its contents
         file_path = str(Path(import_path).parent / Path(import_def["file"]).name)
         if file_path not in self.template.nested_tosca_tpls:
-            logging.warning(
+            logger.warning(
                 f"can't import: {file_path} not found in {list(self.template.nested_tosca_tpls)}"
             )
             return
+
+        assert self.template.tpl is not None
         tpl = self.template.nested_tosca_tpls[file_path]
         tpl["tosca_definitions_version"] = self.template.tpl[
             "tosca_definitions_version"
@@ -1270,6 +1286,7 @@ class Convert:
             format,
             custom_defs=self.custom_defs,
             path=import_path,
+            write_policy=self.write_policy,
         )
 
 
@@ -1311,6 +1328,7 @@ def yaml_to_python(
     tosca_dict: Optional[dict] = None,
     import_resolver=None,
     python_target_version=None,
+    write_policy: WritePolicy = WritePolicy.never,
 ) -> str:
     """
     Converts the given YAML service template to Python source code as a string and saves it to a file if ``python_path`` is provided.
@@ -1331,6 +1349,7 @@ def yaml_to_python(
         ),
         python_target_version,
         path=python_path,
+        write_policy=write_policy,
     )
 
 
@@ -1341,6 +1360,7 @@ def convert_service_template(
     format=True,
     custom_defs=None,
     path="",
+    write_policy: WritePolicy = WritePolicy.auto,
 ) -> str:
     src = ""
     imports = Imports()
@@ -1349,7 +1369,14 @@ def convert_service_template(
         imports._set_ext_imports()
     tpl = cast(Dict[str, Any], template.tpl)
     converter = Convert(
-        template, True, python_compatible, builtin_prefix, imports, custom_defs, path
+        template,
+        True,
+        python_compatible,
+        builtin_prefix,
+        imports,
+        custom_defs,
+        path,
+        write_policy,
     )
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):
@@ -1409,7 +1436,7 @@ def convert_service_template(
                 if template_src:
                     src += template_src + "\n"
 
-    prologue = f"# Generated by tosca.yaml2python from {os.path.relpath(template.path)} at {datetime.datetime.now()}\n"
+    prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
     if builtin_prefix == "unfurl.":
         src += """\nclass interfaces(Namespace):
@@ -1424,9 +1451,12 @@ def convert_service_template(
         except black.report.NothingChanged:
             pass
         except Exception as e:
-            logging.error("failed to format %s: %s", path, e)
+            logger.error("failed to format %s: %s", path, e)
     if path:
-        with open(path, "w") as po:
-            logging.info("writing to %s", path)
-            print(src, file=po)
+        if write_policy.can_overwrite(template.path, path):
+            with open(path, "w") as po:
+                logger.info("writing to %s", path)
+                print(src, file=po)
+        else:
+            logger.info("not writing to %s: %s", path, write_policy.deny_message())
     return src

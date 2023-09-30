@@ -247,19 +247,28 @@ If you are using unfurl, you can accomplish the same thing from the command line
 
 `unfurl export --format python service_template.yaml`
 
+The following options affect the output of the generated Python code:
+
+```
+  --python-target [3.7|3.8|3.9|3.10]
+                                  Python version to target (Default: current version)
+  --overwrite [older|never|always|auto]
+                                  Overwrite existing files (Default: auto)
+```
+
+The conversion process will follow TOSCA imports and generating equivalent Python import statements and write out Python files alongside the imported YAML files. The `--overwrite` controls what happens when a file with the same name already exists; its values can be:
+
+* `older` will only overwrite the output file if it is older than the source file.
+* `never` will never overwrite an existing file.
+* `always` will always write the file even if one currently exists.
+* `auto` (the default) will check if the existing file contains a generated comment at the beginning of the file. If The header comment is missing or the modified time included in the comment does not match the file's modified time, the file will be skipped. This way files with manually modifications won't be overwritten. To always allow a file to overwritten, edit the header to include the string "overwrite ok".
+
 ### Python to YAML
 
-This example does the reverse, saving the Python file as YAML:
+This example does the reverse, saving the Python file as a YAML file:
 
 ```python
-from tosca.python2yaml import python_to_yaml
-import yaml
-
-with open("service_template.py") as f_in:
-    python_src = f.read()
-tosca_template = python_to_yaml(python_src, safe_mode=False)
-with open("service_template.yaml", "w") as f_out:
-    yaml.dump(tosca_template, f_out)
+tosca_template = python_to_yaml("service_template.py", "service_template.yaml", safe_mode=False)
 ```
 
 With unfurl, the command line equivalent is:

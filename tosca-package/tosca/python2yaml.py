@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 import importlib, importlib.util, importlib._bootstrap
+import io
 import inspect
 from types import ModuleType
 import sys
@@ -14,6 +15,7 @@ from typing import (
     Tuple,
     Union,
 )
+import logging
 from pathlib import Path
 from tosca import Namespace
 from toscaparser import topology_template
@@ -28,6 +30,7 @@ from ._tosca import (
     NodeType,
     CapabilityType,
     global_state,
+    WritePolicy,
 )
 from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
@@ -48,6 +51,7 @@ class PythonToYaml:
         docstrings=None,
         safe_mode=False,
         modules=None,
+        write_policy=WritePolicy.never,
     ):
         self.globals = namespace
         self.imports: Set[Tuple[str, Path]] = set()
@@ -60,6 +64,7 @@ class PythonToYaml:
             self.modules = {} if safe_mode else sys.modules
         else:
             self.modules = modules
+        self.write_policy = write_policy
 
     def find_yaml_import(self, module_name: str) -> Optional[Path]:
         module = self.modules.get(module_name)
@@ -148,11 +153,19 @@ class PythonToYaml:
         return None
 
     def _imported_module2yaml(self, module) -> Path:
-        from unfurl.yamlloader import yaml  # XXX
+        try:
+            from unfurl.yamlloader import yaml
+        except ImportError:
+            import yaml
 
         path = Path(module.__file__)
+        yaml_path = path.parent / (path.stem + ".yaml")
+        if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
+            logging.info("skipping saving imported python module as YAML %s: %s", yaml_path, self.write_policy.deny_message())
+            return yaml_path
+
         base_dir = "/".join(path.parts[1 : -len(module.__name__.split("."))])
-        yaml_dict = python_to_yaml(
+        yaml_dict = python_src_to_yaml_obj(
             inspect.getsource(module),
             None,
             base_dir,
@@ -160,9 +173,10 @@ class PythonToYaml:
             self.yaml_cls,
             self.safe_mode,
             self.modules,
+            self.write_policy,
         )
-        yaml_path = path.parent / (path.stem + ".yaml")
         with open(yaml_path, "w") as yo:
+            logging.info("saving imported python module as YAML at %s", yaml_path)
             yaml.dump(yaml_dict, yo)
         return yaml_path
 
@@ -373,7 +387,7 @@ class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
             return RestrictingNodeTransformer.check_import_names(self, node)
 
 
-def python_to_yaml(
+def python_src_to_yaml_obj(
     python_src: str,
     namespace: Optional[Dict[str, Any]] = None,
     base_dir: str = "",
@@ -381,6 +395,7 @@ def python_to_yaml(
     yaml_cls=dict,
     safe_mode: bool = False,
     modules=None,
+    write_policy=WritePolicy.never,
 ) -> dict:
     if modules is None:
         modules = {}
@@ -390,9 +405,57 @@ def python_to_yaml(
         python_src, namespace, base_dir, full_name, modules, safe_mode
     )
     doc_strings = result.used_names
-    converter = PythonToYaml(namespace, yaml_cls, doc_strings, safe_mode, modules)
+    converter = PythonToYaml(
+        namespace, yaml_cls, doc_strings, safe_mode, modules, write_policy
+    )
     yaml_dict = converter.module2yaml()
     return yaml_dict
+
+
+def python_to_yaml(
+    src_path: str,
+    dest_path=None,
+    overwrite="auto",
+    safe_mode: bool = False,
+) -> Optional[dict]:
+    try:
+        from unfurl.yamlloader import yaml
+    except ImportError:
+        import yaml
+    write_policy = WritePolicy[overwrite]
+    if not write_policy.can_overwrite(src_path, dest_path):
+        logging.info("not saving YAML file at %s: %s", dest_path, write_policy.deny_message())
+        return None
+    with open(src_path) as f:
+        python_src = f.read()
+    base_dir = os.path.dirname(src_path)
+    # add to sys.path so relative imports work
+    sys.path.insert(0, base_dir)
+    try:
+        namespace: dict = {}
+        tosca_tpl = python_src_to_yaml_obj(
+            python_src,
+            namespace,
+            src_path,
+            write_policy=write_policy,
+            safe_mode=safe_mode,
+        )
+    finally:
+        try:
+            sys.path.pop(sys.path.index(base_dir))
+        except ValueError:
+            pass
+    prologue = write_policy.generate_comment("tosca.python2yaml", src_path)
+    if dest_path:
+        output = io.StringIO(prologue)
+        yaml.dump(tosca_tpl, output)
+        logging.info("converted Python to YAML at %s", dest_path)
+        with open(dest_path, "w") as f:
+            f.write(output.getvalue())
+    else:
+        print(prologue)
+        yaml.dump(tosca_tpl, sys.stdout)
+    return tosca_tpl
 
 
 def restricted_exec(
