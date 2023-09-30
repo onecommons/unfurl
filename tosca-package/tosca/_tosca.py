@@ -503,7 +503,7 @@ class _Tosca_Field(dataclasses.Field):
 
     def _add_occurrences(self, field_def: dict, info: TypeInfo) -> None:
         occurrences = [1, 1]
-        if info.optional or self.default == ():
+        if info.optional or (not self.default and self.default == ()):
             occurrences[0] = 0
         if info.collection is list:
             occurrences[1] = "UNBOUNDED"  # type: ignore
@@ -884,6 +884,7 @@ def _make_dataclass(cls):
     if not getattr(cls, "__doc__"):
         cls.__doc__ = " "  # suppress dataclass doc string generation
     # note: _process_class will replace each field with its default value (or delete the attribute)
+    # assert cls.__module__ in sys.modules, (cls.__module__ , __name__)
     return dataclasses._process_class(cls, **kw)  # type: ignore
 
 
@@ -998,12 +999,18 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     @classmethod
     def _resolve_class(cls, _type):
         origin = get_origin(_type)
-        if origin is Annotated:
+        if origin in [Annotated, list, collections.abc.Sequence]:
             _type = get_args(_type)[0]
         if isinstance(_type, str):
+            if "[" in _type:
+                match = re.search(r".+\[(\w+)\]", _type)
+                if match and match.group(1):
+                    _type = match.group(1)
+                else:
+                    raise NameError(f"invalid type annotation: {_type}")
             return cls._lookup_class(_type)
         elif isinstance(_type, ForwardRef):
-            return cls._lookup_class(_type.__forward_arg__)
+            return cls._resolve_class(_type.__forward_arg__)
         else:
             return _type
 

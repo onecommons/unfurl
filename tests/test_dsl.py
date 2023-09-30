@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from unfurl.merge import diff_dicts
 import sys
+from click.testing import CliRunner
+from unfurl.__main__ import cli
 
 try:
     from tosca import yaml2python
@@ -107,6 +109,64 @@ def test_builtin_ext_generation():
     assert _generate_builtin(yaml2python.generate_builtin_extensions)
 
 
+type_reference_python = '''
+import tosca
+from tosca import *
+from typing import Sequence
+
+class WordPress(tosca.nodes.WebApplication):
+    """
+    Description of the Wordpress type
+    """
+    admin_user: str
+    admin_password: str
+    db_host: str
+    "Description of the db_host property"
+
+    # test forward references in type defined later in the module
+    plugins: Sequence["WordPressPlugin"] = ()
+
+class WordPressPlugin(tosca.nodes.Root):
+    name: str
+'''
+
+type_reference_yaml = {
+    "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+    "node_types": {
+        "WordPress": {
+            "derived_from": "tosca.nodes.WebApplication",
+            "description": "Description of the Wordpress type",
+            "properties": {
+                "admin_password": {"type": "string"},
+                "admin_user": {"type": "string"},
+                "db_host": {
+                    "description": "Description of the db_host property",
+                    "type": "string",
+                },
+            },
+            "requirements": [
+                {
+                    "plugins": {
+                        "node": "WordPressPlugin",
+                        "occurrences": [0, "UNBOUNDED"],
+                    }
+                }
+            ],
+        },
+        "WordPressPlugin": {
+            "derived_from": "tosca.nodes.Root",
+            "properties": {"name": {"type": "string"}},
+        },
+    },
+    "topology_template": {},
+}
+
+
+def test_type_references():
+    tosca_tpl = _to_yaml(type_reference_python, True)
+    assert tosca_tpl == type_reference_yaml
+
+
 default_operations_types_yaml = """
 node_types:
   unfurl.nodes.Installer.Terraform:
@@ -157,7 +217,7 @@ foo = 1
 
 def test_default_operations():
     src, src_tpl = _to_python(default_operations_yaml)
-    assert "def default(self):" in src
+    assert "def default(self" in src
     tosca_tpl = _to_yaml(src, False)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
@@ -559,7 +619,7 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
             f"tosca_repositories/{test_input.get('repository')}",
         ),
     ):
-        c = tosca.yaml2python.Convert(MagicMock())
+        c = tosca.yaml2python.Convert(MagicMock(path="/path/to/including_file.yaml"))
         output = c.convert_import(test_input)
 
         # generated import
@@ -642,23 +702,40 @@ def test_write_policy():
         f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file"))
     try:
         assert tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
-        os.utime(test_path, (time.time()+5, time.time()+5))
+        os.utime(test_path, (time.time() + 5, time.time() + 5))
         assert not tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
     finally:
         os.remove(test_path)
 
-from click.testing import CliRunner
-from unfurl.__main__ import cli
 
 def test_export():
     runner = CliRunner()
-    path = os.path.join(os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml")
-    result = runner.invoke(cli, ["export", "--format", "python", "--python-target", "3.7", "--overwrite", "always", path])
+    path = os.path.join(
+        os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "export",
+            "--format",
+            "python",
+            "--python-target",
+            "3.7",
+            "--overwrite",
+            "always",
+            path,
+        ],
+    )
+    # print(result.stdout)
+    if result.exception:
+        raise result.exception
     assert result.exit_code == 0
-    print(result.stdout)
-
 
 
 if __name__ == "__main__":
-    _generate_builtin(yaml2python.generate_builtins, "tosca-package/tosca/builtin_types")
-    _generate_builtin(yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext")
+    _generate_builtin(
+        yaml2python.generate_builtins, "tosca-package/tosca/builtin_types"
+    )
+    _generate_builtin(
+        yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext"
+    )

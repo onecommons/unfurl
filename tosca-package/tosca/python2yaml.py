@@ -161,7 +161,11 @@ class PythonToYaml:
         path = Path(module.__file__)
         yaml_path = path.parent / (path.stem + ".yaml")
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
-            logging.info("skipping saving imported python module as YAML %s: %s", yaml_path, self.write_policy.deny_message())
+            logging.info(
+                "skipping saving imported python module as YAML %s: %s",
+                yaml_path,
+                self.write_policy.deny_message(),
+            )
             return yaml_path
 
         base_dir = "/".join(path.parts[1 : -len(module.__name__.split("."))])
@@ -207,6 +211,9 @@ class PythonToYaml:
             if isinstance(obj, _DataclassType):
                 if module_name and module_name != current_module:
                     if not module_name.startswith("tosca."):
+                        logging.debug(
+                            f"adding import statement for {obj} in {module_name}"
+                        )
                         # this type was imported from another module
                         # instead of converting the type, add an import if missing
                         p = self.find_yaml_import(module_name)
@@ -424,7 +431,9 @@ def python_to_yaml(
         import yaml
     write_policy = WritePolicy[overwrite]
     if not write_policy.can_overwrite(src_path, dest_path):
-        logging.info("not saving YAML file at %s: %s", dest_path, write_policy.deny_message())
+        logging.info(
+            "not saving YAML file at %s: %s", dest_path, write_policy.deny_message()
+        )
         return None
     with open(src_path) as f:
         python_src = f.read()
@@ -540,5 +549,19 @@ def restricted_exec(
     result = compile_restricted_exec(python_src, policy=policy)
     if result.errors:
         raise SyntaxError("\n".join(result.errors))
-    exec(result.code, namespace)
+    temp_module = None
+    if full_name not in sys.modules:
+        # dataclass._process_class() might assume the current module is in sys.modules
+        # so to make it happy add a dummy one if its missing
+        temp_module = ModuleType(full_name)
+        temp_module.__dict__.update(namespace)
+        sys.modules[full_name] = temp_module
+    if temp_module:
+        try:
+            exec(result.code, temp_module.__dict__)
+            namespace.update(temp_module.__dict__)
+        finally:
+            del sys.modules[full_name]
+    else:
+        exec(result.code, namespace)
     return result

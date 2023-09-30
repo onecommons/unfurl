@@ -272,6 +272,7 @@ class Convert:
         custom_defs: Optional[Dict[str, Any]] = None,
         path: Optional[str] = None,
         write_policy: WritePolicy = WritePolicy.auto,
+        base_dir: Optional[str] = None,
     ):
         self.template = template
         self.global_names: Dict[str, str] = {}
@@ -292,6 +293,8 @@ class Convert:
         self.repository_paths: Dict[str, str] = {}
         self.path = path
         self.write_policy = write_policy
+        assert self.template.path
+        self.base_dir = base_dir or os.path.dirname(self.template.path)
 
     def init_names(self, names: Dict[str, List[str]]):
         self.local_names = names or {}
@@ -1034,7 +1037,8 @@ class Convert:
 
         # XXX add arguments declared on the interface definition
         # XXX declare configurator/artifact as the return value
-        src += f"{indent}def {name}(self):\n"
+        args = "self, **kw"
+        src += f"{indent}def {name}({args}):\n"
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
@@ -1145,7 +1149,7 @@ class Convert:
 
     def template2obj(
         self, node_template: EntityTemplate, indent=""
-    ) -> Tuple[Optional[Type[_tosca.ToscaType]],str, str]:
+    ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str]:
         self.init_names({})
         assert node_template.type
         cls_name, cls = self.imports.get_type_ref(node_template.type)
@@ -1179,9 +1183,7 @@ class Convert:
             src += self._get_prop_init_list(properties, prop_defs, cls, indent)
         return cls, name, src
 
-    def artifact2obj(
-        self, artifact: Artifact, indent=""
-    ) -> str:
+    def artifact2obj(self, artifact: Artifact, indent="") -> str:
         cls, name, src = self.template2obj(artifact, indent)
         if not cls:
             return ""
@@ -1215,7 +1217,9 @@ class Convert:
             req_name, req = list(reqitem.items())[0]
             req_assignment = self._get_req_assignment(req)
             if req_assignment:
-                field = cls.get_field_from_tosca_name(req_name, ToscaFieldType.requirement)
+                field = cls.get_field_from_tosca_name(
+                    req_name, ToscaFieldType.requirement
+                )
                 if field:
                     requirements.setdefault(field, []).append(req_assignment)
                 else:
@@ -1230,7 +1234,9 @@ class Convert:
         for artifact_name, artifact in node_template.artifacts.items():
             artifact_src = self.artifact2obj(artifact)
             if artifact_src:
-                field = cls.get_field_from_tosca_name(artifact_name, ToscaFieldType.artifact)
+                field = cls.get_field_from_tosca_name(
+                    artifact_name, ToscaFieldType.artifact
+                )
                 if field:
                     src += f"{artifact_src},\n"
                 else:
@@ -1260,26 +1266,22 @@ class Convert:
             capability = None
             relationship = None
         else:
-                    # XXX handle node_filter
-                    # XXX check if values that are typenames (treat like node filter)
+            # XXX handle node_filter
+            # XXX check if values that are typenames (treat like node filter)
             node = req.get("node")
             capability = req.get("capability")
             relationship = req.get("relationship")
         if node:
-                    # XXX make sure template is already declared
+            # XXX make sure template is already declared
             req_assignment = self.template_reference(node, "node")
             if capability:
-                        # XXX get target template object and look up python attribute name for capability
+                # XXX get target template object and look up python attribute name for capability
                 req_assignment += f".{capability}"
         if relationship:
             if isinstance(relationship, str):
-                rel_assignment = self.template_reference(
-                            relationship, "relationship"
-                        )
+                rel_assignment = self.template_reference(relationship, "relationship")
             else:
-                rel_assignment = (
-                            None  # XXX support inline relationship templates
-                        )
+                rel_assignment = None  # XXX support inline relationship templates
             if rel_assignment:
                 if req_assignment:
                     req_assignment = f"{rel_assignment}[{req_assignment}]"
@@ -1319,7 +1321,26 @@ class Convert:
             custom_defs=self.custom_defs,
             path=import_path,
             write_policy=self.write_policy,
+            base_dir=self.base_dir,
         )
+
+    def execute_source(self, src: str):
+        namespace: Dict[str, Any] = {}
+        path = self.template.path
+        assert path
+        try:
+            package_path = Path(os.path.dirname(path)).relative_to(self.base_dir)
+            relpath = str(package_path).strip("/").replace("/", ".")
+            package = "service_template"
+            if relpath:
+                package += "." + relpath
+        except ValueError:
+            package = "tosca_repository." + os.path.basename(os.path.dirname(path))
+        full_name = package + "." + Path(path).stem
+        result = restricted_exec(
+            self.imports.prelude() + src, namespace, self.base_dir, full_name
+        )
+        self.imports._add_imports("", namespace)
 
 
 def generate_builtins(import_resolver, format=True) -> str:
@@ -1393,6 +1414,7 @@ def convert_service_template(
     custom_defs=None,
     path="",
     write_policy: WritePolicy = WritePolicy.auto,
+    base_dir=None,
 ) -> str:
     src = ""
     imports = Imports()
@@ -1409,6 +1431,7 @@ def convert_service_template(
         custom_defs,
         path,
         write_policy,
+        base_dir,
     )
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):
@@ -1458,6 +1481,7 @@ def convert_service_template(
                     src += f"class {tosca_type}(Namespace):\n" + class_src
                 else:
                     src += class_src + "\n"
+    converter.execute_source(src)
     topology = template.topology_template
     if topology:
         for node_template in topology.nodetemplates:
