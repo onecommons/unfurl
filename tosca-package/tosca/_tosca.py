@@ -51,6 +51,7 @@ if typing.TYPE_CHECKING:
 
 global_state = threading.local()
 global_state.mode = "spec"
+global_state._in_process_class = False
 
 yaml_cls = dict
 
@@ -610,9 +611,18 @@ class _Tosca_Field(dataclasses.Field):
 
     @staticmethod
     def infer_field(owner_class, name, value):
+        if isinstance(value, _Tosca_Field):
+            value.name = name
+            if not value.type and value.default is not dataclasses.MISSING and value.default is not REQUIRED:
+                value.type = type(value)
+            return value
         field = _Tosca_Field(None, owner=owner_class, default=value)
         field.name = name
-        field.type = type(value)
+        if isinstance(value, FieldProjection):
+            field.type = value.field.type
+            field._tosca_field_type = value.field._tosca_field_type
+        else:
+            field.type = type(value)
         if field.tosca_field_type != ToscaFieldType.property:
             return field
         return None
@@ -855,37 +865,51 @@ def _make_dataclass(cls):
     # we need _Tosca_Fields not dataclasses.Fields
     # so for any declarations of tosca fields (properties, requirements, etc)
     # missing a _Tosca_Fields, set one before calling _process_class()
-    annotations = cls.__dict__.get("__annotations__", {})
-    for name, type in annotations.items():
-        if name[0] != "_":
-            field = None
-            default = getattr(cls, name, REQUIRED)
-            if not isinstance(default, dataclasses.Field):
-                # XXX or not InitVar or ClassVar
-                field = _Tosca_Field(None, default, owner=cls)
-                setattr(cls, name, field)
-            elif isinstance(default, _Tosca_Field):
-                default.owner = cls
-                field = default
-            if field:
-                field.name = name
-                field.type = type
-    if cls.__module__ != __name__:
-        for name, value in cls.__dict__.items():
-            if name[0] != "_" and name not in annotations and not callable(value):
-                # for unannotated class attributes try to infer if they are TOSCA fields
-                field = _Tosca_Field.infer_field(cls, name, value)
-                if field:
-                    annotations[name] = field.type
+    global_state._in_process_class = True
+    try:
+        annotations = cls.__dict__.get("__annotations__", {})
+        for name, type in annotations.items():
+            if name[0] != "_":
+                field = None
+                default = getattr(cls, name, REQUIRED)
+                if not isinstance(default, dataclasses.Field):
+                    # XXX or not InitVar or ClassVar
+                    field = _Tosca_Field(None, default, owner=cls)
                     setattr(cls, name, field)
-    _set_constraints = cls.__dict__.get("_set_constraints")
-    if _set_constraints:
-        _set_constraints.__get__(None, _DataclassTypeProxy(cls))()
-    if not getattr(cls, "__doc__"):
-        cls.__doc__ = " "  # suppress dataclass doc string generation
-    # note: _process_class will replace each field with its default value (or delete the attribute)
-    # assert cls.__module__ in sys.modules, (cls.__module__ , __name__)
-    return dataclasses._process_class(cls, **kw)  # type: ignore
+                elif isinstance(default, _Tosca_Field):
+                    default.owner = cls
+                    field = default
+                if field:
+                    field.name = name
+                    field.type = type
+        if cls.__module__ != __name__:
+            for name, value in cls.__dict__.items():
+                if name[0] != "_" and name not in annotations and not callable(value):
+                    # for unannotated class attributes try to infer if they are TOSCA fields
+                    field = _Tosca_Field.infer_field(cls, name, value)
+                    if field:
+                        annotations[name] = field.type
+                        setattr(cls, name, field)
+        _set_constraints = cls.__dict__.get("_set_constraints")
+        if _set_constraints:
+            global_state._in_process_class = False
+            # _set_constraints should be a classmethod descriptor
+            _set_constraints.__get__(None, _DataclassTypeProxy(cls))()
+            global_state._in_process_class = True
+        if not getattr(cls, "__doc__"):
+            cls.__doc__ = " "  # suppress dataclass doc string generation
+        assert cls.__module__ in sys.modules  # _process_class checks this
+        cls = dataclasses._process_class(cls, **kw)  # type: ignore
+        # note: _process_class replaces each field with its default value (or delete the attribute)
+        # replace those with _FieldDescriptors to allow class level attribute access to be customized
+        for name in annotations:
+            if name[0] != "_":
+                field = cls.__dataclass_fields__.get(name)
+                if field and isinstance(field, _Tosca_Field):
+                    setattr(cls, name, _FieldDescriptor(field))
+    finally:
+        global_state._in_process_class = False
+    return cls
 
 
 class _DataclassType(type):
@@ -918,6 +942,15 @@ class _Set_ConfigSpec_Method:
         else:
             return objtype._class_set_config_spec
 
+class _FieldDescriptor:
+    def __init__(self, field):
+      self.field = field
+
+    def __get__(self, obj, obj_type):
+        if obj or global_state._in_process_class:
+            return self.field.default
+        else:  # attribute access on the class
+            return FieldProjection(self.field, None)
 
 def field(
     *,
@@ -1027,7 +1060,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         locals = cls._namespace or {}
         obj = locals.get(name, globals.get(name))
         if obj is None:
-            raise NameError(f"{qname} not found")
+            raise NameError(f"{qname} not found {cls}'s scope")
         while names:
             name = names.pop(0)
             ns = obj
@@ -1529,15 +1562,11 @@ class _ToscaTypeProxy:
 
     def __getattr__(self, name):
         attr = getattr(self.proxy_cls, name)
-        if isinstance(attr, ArtifactType):
-            return _ArtifactProxy(name)
-        else:
-            fields = self.proxy_cls.__dataclass_fields__
-            field = fields.get(name)
-            if field and isinstance(field, _Tosca_Field):
-                return FieldProjection(field)
-            else:
-                return attr
+        if isinstance(attr, FieldProjection):
+            # _FieldDescriptor.__get__ returns a FieldProjection
+            if isinstance(attr.field.default, ArtifactType):
+                return _ArtifactProxy(name)
+        return attr
 
     def find_artifact(self, name_or_tpl):
         return _ArtifactProxy(name_or_tpl)
