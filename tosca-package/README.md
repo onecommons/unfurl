@@ -1,6 +1,8 @@
 # A TOSCA Python-based DSL
 
-This package implements a Python representation of TOSCA 1.3. It converts TOSCA YAML to Python and vice versa. It can be used as a library by TOSCA processor or as a stand-alone conversion tool.
+This package implements a Python representation of [TOSCA 1.3](https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html). It converts TOSCA YAML to Python and vice versa. It can be used as a library by a TOSCA processor or as a stand-alone conversion tool.
+
+TOSCA (Topology and Orchestration Specification for Cloud Applications) is an [OASIS open standard](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) that provides language to describe a topology of cloud based web services, their components, relationships, and the processes that manage them. TOSCA provides mechanisms for abstraction and composition, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure.
 
 ## Why a DSL (Domain Specic Language)?
 
@@ -32,7 +34,7 @@ Requirements: Python versions 3.7 or later.
 
 ## Status
 
-Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since you always stick with YAML for the less common elements. Also, YAML to Python completeness is less of a priority than Python to YAML since the former is a just a convenience, while the latter is required for the DSL to be used.
+Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since you always stick with YAML for the less common elements. Also, YAML to Python completeness is less of a priority than Python to YAML since the former is a just a convenience, while the latter is required for the DSL to be useable.
 
 ## Examples
 
@@ -230,6 +232,40 @@ node_types:
 
 It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA. Another illustration of the benefits building a DSL on a widely supported language.
 
+### Imports and repositories
+
+We translate TOSCA imports statements as relative imports in Python or, if a repository was specified, as a Python import in a package named "tosca_repository.<repository_name>". For example:
+
+```yaml
+  imports:
+    - file: foo.yaml
+    - file: foo.yaml
+      namespace_prefix: ns
+    - file: foo.yaml
+      namespace_prefix: foo
+    - file: ../bar/foo.yaml
+    - file: foo.yaml
+      repository: my_repo
+    - file: bar/foo.yaml
+      repository: my_repo
+    - file: bar/foo.yaml
+      repository: my_repo
+      namespace_prefix: foo
+```
+
+will be translated to:
+
+```python
+from .foo import *
+from . import foo as ns
+from . import foo
+from ..bar.foo import *
+from tosca_repositories.my_repo.bar.foo import *
+from tosca_repositories.my_repo.bar import foo
+```
+
+`unfurl export` will resolve imports from repository by creating a`tosca_repository` directory with symlinks to the location of the repository. This enables compatibility with IDEs that rely simple file system path mapping to resolve Python imports.
+
 ## Usage
 
 ### YAML to Python
@@ -256,7 +292,7 @@ The following options affect the output of the generated Python code:
                                   Overwrite existing files (Default: auto)
 ```
 
-The conversion process will follow TOSCA imports and generating equivalent Python import statements and write out Python files alongside the imported YAML files. The `--overwrite` controls what happens when a file with the same name already exists; its values can be:
+The conversion process will follow TOSCA imports and generate Python files alongside the imported YAML files. The `--overwrite` controls what happens when a file with the same name already exists; its values can be:
 
 * `older` will only overwrite the output file if it is older than the source file.
 * `never` will never overwrite an existing file.
@@ -281,7 +317,7 @@ To enable untrusted Python service templates to be safely parsed in the same con
 
 * The sandbox only a provides a subset of Python's built-ins functions and objects -- ones that do not perform IO or modify global state.
 * Imports are limited to relative imports, TOSCA repositories via the  `tosca_repository` package, or the modules named in the `tosca.python2yaml.ALLOWED_MODULES` list, which defaults to "tosca", "typing", "typing_extensions", "random", "math", "string", "DateTime", and "unfurl".
-* If a modules in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
+* If a module in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.
 * Disallowed imports will only raise `ImportError` when an imported module's attribute is accessed.

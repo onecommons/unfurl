@@ -9,8 +9,6 @@ Imports to followed and converted in-place.
 Usage:
 
 unfurl export --format python ensemble-template.yaml
-
-The yaml converted to python will be removed and replace with an import statement that imports the python file.
 """
 from dataclasses import MISSING
 import importlib
@@ -356,8 +354,10 @@ class Convert:
             # handle tosca namespace prefixes
             python_prefix, tosca_name = self._get_name(namespace_prefix)
             self.import_prefixes[namespace_prefix] = python_prefix
-
-            import_stmt = f"from {module_name} import {filename} as {python_prefix}"
+            if python_prefix != filename:
+                import_stmt = f"from {module_name or '.'} import {filename} as {python_prefix}"
+            else:
+                import_stmt = f"from {module_name or '.'} import {filename}"
         else:
             import_stmt = f"from {module_name}.{filename} import *"
             python_prefix = ""

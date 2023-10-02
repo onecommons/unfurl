@@ -557,6 +557,8 @@ def test_set_constraints() -> None:
     "test_input,exp_import,exp_path",
     [
         (dict(file="foo.yaml"), "from .foo import *", "/path/to/foo"),
+        (dict(file="foo.yaml", namespace_prefix="ns"), "from . import foo as ns", "/path/to/foo"),
+        (dict(file="foo.yaml", namespace_prefix="foo"), "from . import foo", "/path/to/foo"),
         (dict(file="../foo.yaml"), "from ..foo import *", "/path/to/../foo"),
         (
             dict(file="../../foo.yaml"),
@@ -605,6 +607,11 @@ def test_convert_import(test_input, exp_import, exp_path):
         (
             dict(repository="repo", file="foo.yaml", namespace_prefix="ns"),
             "from tosca_repositories.repo import foo as ns",
+            "tosca_repositories/repo/foo",
+        ),
+        (
+            dict(repository="repo", file="foo.yaml", namespace_prefix="foo"),
+            "from tosca_repositories.repo import foo",
             "tosca_repositories/repo/foo",
         ),
     ],
