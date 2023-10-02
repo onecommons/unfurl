@@ -121,12 +121,15 @@ os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
 git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
 if git_user_name:
-    git_user_full_name = f"{git_user_name} unfurl-server-{__version__(True)}-{get_package_digest()}"
+    git_user_full_name = (
+        f"{git_user_name} unfurl-server-{__version__(True)}-{get_package_digest()}"
+    )
     os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
     os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
     os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
 
 UNFURL_SERVER_DEBUG_PATCH = os.environ.get("UNFURL_TEST_SERVER_DEBUG_PATCH")
+
 
 def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend = cache.cache
@@ -207,7 +210,10 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
     if not project_id:
         return clone_root
     current_git_url = app.config.get("UNFURL_CURRENT_GIT_URL")
-    if current_git_url and normalize_git_url_hard(get_project_url(project_id)) == current_git_url:
+    if (
+        current_git_url
+        and normalize_git_url_hard(get_project_url(project_id)) == current_git_url
+    ):
         return app.config["UNFURL_CURRENT_WORKING_DIR"]
     base = "public"
     if args:
@@ -418,7 +424,11 @@ class CacheEntry:
 
     def pull(self, cache: Cache, stale_ok_age: int = 0) -> GitRepo:
         branch = self.branch or DEFAULT_BRANCH
-        repo_key = self.project_id + ":pull:" + _get_project_repo_dir(self.project_id, branch, self.args)
+        repo_key = (
+            self.project_id
+            + ":pull:"
+            + _get_project_repo_dir(self.project_id, branch, self.args)
+        )
         # treat repo_key as a mutex to serialize write operations on the repo
         val = cache.get(repo_key)
         if val:
@@ -641,8 +651,11 @@ class CacheEntry:
             err, value, cacheable = work(self, latest_commit)
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
+            err = exc
+            value = None
+        if err:
             self.directives = CacheDirective(latest_commit=latest_commit, store=False)
-            return exc, None, self.directives
+            return err, value, self.directives
         if not self.repo or self.strict:
             # self.strict might re-clone the repo
             self._set_project_repo()
@@ -821,7 +834,7 @@ def get_canonical_url(project_id: str) -> str:
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
-    base_url = current_app.config.get("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud"
+    base_url = current_app.config.get("UNFURL_CLOUD_SERVER")
     assert base_url
     if username:
         url_parts = urlsplit(base_url)
@@ -846,24 +859,28 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[Git
             repo.pull(with_exceptions=True)
     else:
         # repo doesn't exists, clone it
-        repo = _clone_repo(project_id, branch, args)
+        try:
+            repo = _clone_repo(project_id, branch, args)
+        except UnfurlError:
+            return None
         working_dir = repo.working_dir
         ensure_local_config(working_dir)
         logger.info("clone success: %s to %s", repo.safe_url, repo.working_dir)
     return repo
 
+
 def ensure_local_config(working_dir):
     path = Path(working_dir)
     if (path / DefaultNames.LocalConfigTemplate).is_file() and not (
-            path / "local" / DefaultNames.LocalConfig
-        ).is_file():
+        path / "local" / DefaultNames.LocalConfig
+    ).is_file():
         # create local/unfurl.yaml in the new project
-        new_project = Project( str(path / DefaultNames.LocalConfig) )
+        new_project = Project(str(path / DefaultNames.LocalConfig))
         created_local = init._create_local_config(new_project, logger, {})
         if not created_local:
             logger.error(
-                    f"creating local/unfurl.yaml in {new_project.projectRoot} failed"
-                )
+                f"creating local/unfurl.yaml in {new_project.projectRoot} failed"
+            )
 
 
 def _get_filepath(format, deployment_path):
@@ -956,7 +973,12 @@ def _export(
     args["include_all"] = get_canonical_url(project_id) if include_all else ""
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
-        project_id, branch, file_path, requested_format+("+types" if include_all else ""), repo, args=args
+        project_id,
+        branch,
+        file_path,
+        requested_format + ("+types" if include_all else ""),
+        repo,
+        args=args,
     )
     err, json_summary = cache_entry.get_or_set(
         cache,
@@ -1001,7 +1023,9 @@ def _export(
     else:
         if isinstance(err, FatalToscaImportError):
             return create_error_response(
-                "BAD_REPOSITORY", "Aborting loading the {requested_format} because an import failed.", err
+                "BAD_REPOSITORY",
+                "Aborting loading the {requested_format} because an import failed.",
+                err,
             )
         elif isinstance(err, Exception):
             return create_error_response(
@@ -1131,6 +1155,7 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
             # XXX enable skipping when deps support private repositories
             UNFURL_SKIP_UPSTREAM_CHECK=False,
             apply_url_credentials=True,
+            UNFURL_SEARCH_ROOT=current_app.config.get("UNFURL_CLONE_ROOT", ".")
         )
         local_env = LocalEnv(
             clone_location,
@@ -1253,7 +1278,9 @@ def _do_export(
     elif args.get("implementation_requirements"):
         primary_provider = args["implementation_requirements"]
         if local_env.project:
-            local_env.project.contexts["_export_types_placeholder"] = dict(connections=dict(primary_provider=dict(type=primary_provider)))
+            local_env.project.contexts["_export_types_placeholder"] = dict(
+                connections=dict(primary_provider=dict(type=primary_provider))
+            )
             local_env.manifest_context_name = "_export_types_placeholder"
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
@@ -1673,14 +1700,16 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
         manifest.get_tosca_file_path(),
     )
 
+
 def _get_commit_msg(body, default_msg):
     msg = body.get("commit_msg", default_msg)
     if UNFURL_SERVER_DEBUG_PATCH:
         body.pop("username", None)
         body.pop("private_token", None)
         body.pop("password", None)
-        msg += '\n' + json.dumps(body, indent=2)
-    return msg 
+        msg += "\n" + json.dumps(body, indent=2)
+    return msg
+
 
 def _patch_ensemble(
     body: dict, create: bool, project_id: str, check_lastcommit=True
@@ -1938,7 +1967,7 @@ def serve(
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
-    app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER")
+    app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud"
     if os.getenv("UNFURL_SERVE_PATH") != project_path:
         # this happens in the unit tests
         os.environ["UNFURL_SERVE_PATH"] = project_path

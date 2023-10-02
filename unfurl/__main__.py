@@ -1390,10 +1390,10 @@ def help(ctx, cmd=""):
 )
 @click.option(
     "--clone-root",
-    default=".",
-    help="Where to clone all repositories",
+    default="./repos",
+    help="Where to clone repositories (default: ./repos)",
     envvar="UNFURL_CLONE_ROOT",
-    type=click.Path(exists=True),
+    type=click.Path(exists=False),
 )
 @click.option(
     "--cors",
