@@ -309,12 +309,13 @@ class Convert:
         tpl = self.template.tpl["repositories"][tosca_name or name]
         url = normalize_path(tpl["url"])
         if is_url(url):
-            if self.template.import_resolver and self.template.import_resolver.manifest:
-                local_path = self.template.import_resolver.manifest.localEnv.link_repo(
-                    self.template.path, name, url, tpl.get("revision")
+            if self.template.import_resolver:
+                local_path = self.template.import_resolver.path_to_repository(
+                    self.template.path, name, tpl
                 )
-                self.repository_paths[name] = local_path
-                return "tosca_repositories." + name, local_path
+                if local_path:
+                    self.repository_paths[name] = local_path
+                    return "tosca_repositories." + name, local_path
         else:
             return name, url
         return name, name

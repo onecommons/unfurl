@@ -298,6 +298,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         inputs = op.inputs if op.inputs is not None else {}
         return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
+    def path_to_repository(self, base_path: str, name: str, tpl: Dict[str, Any]):
+        if self.manifest and self.manifest.localEnv:
+            return self.manifest.localEnv.link_repo(base_path, name, tpl["url"], tpl.get("revision"))
+        return None
+
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
         # this is also called by ToscaTemplate
         if not unique and name in self.manifest.repositories:
