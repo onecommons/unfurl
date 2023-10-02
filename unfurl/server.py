@@ -206,6 +206,9 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
     if not project_id:
         return clone_root
+    current_git_url = app.config.get("UNFURL_CURRENT_GIT_URL")
+    if current_git_url and normalize_git_url_hard(get_project_url(project_id)) == current_git_url:
+        return app.config["UNFURL_CURRENT_WORKING_DIR"]
     base = "public"
     if args:
         if (
@@ -818,7 +821,7 @@ def get_canonical_url(project_id: str) -> str:
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
-    base_url = current_app.config.get("UNFURL_CLOUD_SERVER")
+    base_url = current_app.config.get("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud"
     assert base_url
     if username:
         url_parts = urlsplit(base_url)
