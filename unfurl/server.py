@@ -60,6 +60,7 @@ from .repo import (
     Repo,
     RepoView,
     add_user_to_url,
+    normalize_git_url,
     normalize_git_url_hard,
     sanitize_url,
     split_git_url,
@@ -186,7 +187,7 @@ def set_current_ensemble_git_url():
             app.config[
                 "UNFURL_CURRENT_WORKING_DIR"
             ] = local_env.project.project_repoview.repo.working_dir
-            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url_hard(
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(
                 local_env.project.project_repoview.url
             )
     except Exception:
@@ -205,15 +206,29 @@ def get_project_id(request):
     return ""
 
 
+def get_current_project_id() -> str:
+    current_git_url = app.config.get("UNFURL_CURRENT_GIT_URL")
+    if not current_git_url:
+        return ""
+    server_url = app.config.get("UNFURL_CLOUD_SERVER")
+    if server_url:
+        server_host = urlparse(server_url).hostname
+    else:
+        server_host = "unfurl.cloud"
+    parts = urlparse(current_git_url)
+    if parts.hostname != server_host:
+        return ""
+    project_id = parts.path.strip("/")
+    if project_id.endswith(".git"):
+        project_id = project_id[:-4]
+    return project_id
+
+
 def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) -> str:
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
     if not project_id:
         return clone_root
-    current_git_url = app.config.get("UNFURL_CURRENT_GIT_URL")
-    if (
-        current_git_url
-        and normalize_git_url_hard(get_project_url(project_id)) == current_git_url
-    ):
+    if get_current_project_id() == project_id:
         return app.config["UNFURL_CURRENT_WORKING_DIR"]
     base = "public"
     if args:
@@ -1155,7 +1170,7 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
             # XXX enable skipping when deps support private repositories
             UNFURL_SKIP_UPSTREAM_CHECK=False,
             apply_url_credentials=True,
-            UNFURL_SEARCH_ROOT=current_app.config.get("UNFURL_CLONE_ROOT", ".")
+            UNFURL_SEARCH_ROOT=current_app.config.get("UNFURL_CLONE_ROOT", "."),
         )
         local_env = LocalEnv(
             clone_location,
@@ -1906,10 +1921,7 @@ def _fetch_working_dir(
         clone_location = current_working_dir
     else:
         current_git_url = current_app.config.get("UNFURL_CURRENT_GIT_URL")
-        if (
-            current_git_url
-            and normalize_git_url_hard(get_project_url(project_path)) == current_git_url
-        ):
+        if current_git_url and get_current_project_id() == project_path:
             # developer mode: use the project we are serving from if the project_path matches
             logger.debug("exporting from local repo %s", current_git_url)
             clone_location = current_working_dir
@@ -1967,11 +1979,19 @@ def serve(
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
-    app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud"
+    app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER")
     if os.getenv("UNFURL_SERVE_PATH") != project_path:
         # this happens in the unit tests
         os.environ["UNFURL_SERVE_PATH"] = project_path
         set_current_ensemble_git_url()
+
+    current_project_id = get_current_project_id()
+    if current_project_id:
+        set_local_server_url = f'{urljoin(app.config.get("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud", current_project_id)}?unfurl-server=http://{host}:{port}'
+        logger.warning(
+            f"*** Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
+            extra=dict(rich=dict(markup=True)),
+        )
 
     # Start one WSGI server
     import uvicorn
