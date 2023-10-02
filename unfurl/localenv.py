@@ -881,7 +881,7 @@ class LocalEnv:
                 return project.get_managed_project(location, self), context_name
         return project, context_name
 
-    def _resolve_path_and_project(self, manifestPath: str, can_be_empty: bool) -> None:
+    def _resolve_path_and_project(self, manifestPath: str, can_be_empty: bool, stop_at: str = os.sep) -> None:
         if manifestPath:
             # raises if manifestPath is a directory without either a manifest or project
             foundManifestPath, project = self._find_given_manifest_or_project(
@@ -968,6 +968,8 @@ class LocalEnv:
             self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
         if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
+        if os.getenv("UNFURL_SEARCH_ROOT"):
+            self.overrides["UNFURL_SEARCH_ROOT"] = os.getenv("UNFURL_SEARCH_ROOT")
 
         if parent:
             self.parent = parent
@@ -983,7 +985,7 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
             self.make_resolver = None
 
-        self._resolve_path_and_project(manifestPath or "", can_be_empty)
+        self._resolve_path_and_project(manifestPath or "", can_be_empty, self.overrides.get("UNFURL_SEARCH_ROOT", os.sep))
         if override_context:
             # set after _resolve_path_and_project() is called
             self.manifest_context_name = override_context
@@ -1211,9 +1213,10 @@ class LocalEnv:
         self,
         dir: str,
         can_be_empty: bool,
+        stop_at = os.sep
     ) -> Tuple[str, Optional[Project]]:
         current = os.path.abspath(dir)
-        while current and current != os.sep:
+        while current and current != stop_at:
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return "", self.get_project(test, self.homeProject)
