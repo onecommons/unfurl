@@ -1396,12 +1396,17 @@ def help(ctx, cmd=""):
     type=click.Path(exists=False),
 )
 @click.option(
+    "--cloud-server",
+    envvar="UNFURL_CLOUD_SERVER",
+    help='Unfurl Cloud server URL to connect to.',
+)
+@click.option(
     "--cors",
     envvar="UNFURL_SERVE_CORS",
     help='enable CORS with origin (e.g. "*")',
 )
 def serve(
-    ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options
+    ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, cloud_server, **options
 ):
     """Run unfurl as a server."""
     options.update(ctx.obj)
@@ -1410,9 +1415,10 @@ def serve(
         os.environ["UNFURL_SERVE_CORS"] = cors
     os.environ["UNFURL_SERVE_PATH"] = project_or_ensemble_path
     os.environ["UNFURL_CLONE_ROOT"] = clone_root
+    os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
     from .server import serve as _serve
 
-    _serve(address, port, secret, clone_root, project_or_ensemble_path, options)
+    _serve(address, port, secret, clone_root, project_or_ensemble_path, options, cloud_server)
 
 
 @cli.command(short_help="Manage a cloud map")

@@ -116,6 +116,9 @@ app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
 )
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
+if not cors and app.config["UNFURL_CLOUD_SERVER"]:
+    ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
+    cors = f"{ucs_parts.scheme}://{ucs_parts.netloc}"
 if cors:
     CORS(app, origins=cors.split())
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
