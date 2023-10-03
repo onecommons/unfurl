@@ -157,7 +157,7 @@ class Compute(AbstractCompute):
         ] = Requirement(default=())
 ```
 
-Here the `Attribute()` field specifier is used to indicate a field is an TOSCA attribute, not a property, and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences: [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence.
+Here the `Attribute()` field specifier is used to indicate a field is an TOSCA attribute, not a property (the default for data types), and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences: [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence. See the [API documentation](https://docs.unfurl.run/api.html#tosca-field-specifiers) for the full list of field specifiers.
 
 Also note `_type_name`, which can be used to name the type when the YAML identifier doesn't conform to Python's identifier syntax.
 

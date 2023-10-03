@@ -638,7 +638,7 @@ class Convert:
         if default_value is not MISSING:
             value_repr = self._get_prop_value_repr(prop.schema, default_value)
             if value_repr[0] in ("{", "["):
-                fieldparams.append(f"default_factory=lambda:({value_repr})")
+                fieldparams.append(f"factory=lambda:({value_repr})")
             elif fieldparams:
                 fieldparams.append(f"default={value_repr}")
             else:
