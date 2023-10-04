@@ -881,7 +881,9 @@ class LocalEnv:
                 return project.get_managed_project(location, self), context_name
         return project, context_name
 
-    def _resolve_path_and_project(self, manifestPath: str, can_be_empty: bool, stop_at: str = os.sep) -> None:
+    def _resolve_path_and_project(
+        self, manifestPath: str, can_be_empty: bool, stop_at: str = os.sep
+    ) -> None:
         if manifestPath:
             # raises if manifestPath is a directory without either a manifest or project
             foundManifestPath, project = self._find_given_manifest_or_project(
@@ -985,7 +987,11 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
             self.make_resolver = None
 
-        self._resolve_path_and_project(manifestPath or "", can_be_empty, self.overrides.get("UNFURL_SEARCH_ROOT", os.sep))
+        self._resolve_path_and_project(
+            manifestPath or "",
+            can_be_empty,
+            self.overrides.get("UNFURL_SEARCH_ROOT", os.sep),
+        )
         if override_context:
             # set after _resolve_path_and_project() is called
             self.manifest_context_name = override_context
@@ -1210,10 +1216,7 @@ class LocalEnv:
             return repos
 
     def _search_for_manifest_or_project(
-        self,
-        dir: str,
-        can_be_empty: bool,
-        stop_at = os.sep
+        self, dir: str, can_be_empty: bool, stop_at=os.sep
     ) -> Tuple[str, Optional[Project]]:
         current = os.path.abspath(dir)
         while current and current != stop_at:
@@ -1399,33 +1402,17 @@ class LocalEnv:
                 return repo, filePath, revision, bare
         return None, None, None, None
 
-    def link_repo(self, base_path: str, name: str, url: str, revision):
+    def link_repo(
+        self, base_path: str, name: str, url: str, revision
+    ) -> Tuple[str, str]:
         if base_path:
             base_path = get_base_dir(base_path)
         else:
             base_path = os.getcwd()
 
-        assert name.isidentifier(), name
-        repo = self.find_git_repo(url, revision)
-        assert repo, url
-
-        tosca_repos_root = Path(base_path) / "tosca_repositories"
-        # ensure t_r and its gitignore exist
-        if not tosca_repos_root.exists():
-            os.mkdir(tosca_repos_root)
-            with open(tosca_repos_root / ".gitignore", "w") as gi:
-                gi.write("*")
-
-        target = tosca_repos_root / name
-        # remove/recreate to ensure symlink is correct
-        if target.exists():
-            target.unlink()
-
-        # use os.path.relpath as Path.relative_to only accepts strict subpaths
-        rel_repo_path = os.path.relpath(repo.working_dir, tosca_repos_root)
-        target.symlink_to(rel_repo_path)
-
-        return repo.working_dir
+        repo_view = self._find_git_repo(url, revision)
+        assert isinstance(repo_view, RepoView), url
+        return repo_view.get_link(base_path, name)
 
     def map_value(self, val: Any, env_rules: Optional[dict]) -> Any:
         """

@@ -298,9 +298,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         inputs = op.inputs if op.inputs is not None else {}
         return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
-    def path_to_repository(self, base_path: str, name: str, tpl: Dict[str, Any]):
+    def path_to_repository(self, base_path: str, name: str, tpl: Dict[str, Any]) -> Optional[str]:
         if self.manifest and self.manifest.localEnv:
-            return self.manifest.localEnv.link_repo(base_path, name, tpl["url"], tpl.get("revision"))
+            # XXX this will use the wrong RepoView if url has path fragment
+            return self.manifest.localEnv.link_repo(base_path, name, tpl["url"], tpl.get("revision"))[1]
         return None
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
@@ -471,7 +472,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repository = self.get_repository(
                     repository_name, importsLoader.repositories[repository_name]
                 )
-                repo_view = self.manifest.add_repository(None, repository, "")
+                repo_view = self.manifest.add_repository(repository, "")
         else:
             # if file_name is relative, base will be set (to the importsLoader's path)
             url = os.path.join(base, file_name)
@@ -666,13 +667,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 package_path = Path(get_base_dir(path)).relative_to(
                     repo_view.working_dir
                 )
-                name = re.sub(r"\W", "_", repo_view.repository.name)
                 relpath = str(package_path).strip("/").replace("/", ".")
-                # make sure tosca_repository symlink exists:
-                assert self.manifest.localEnv
-                self.manifest.localEnv.link_repo(
-                    base_dir, name, repo_view.url, repo_view.revision
-                )
+                # make sure tosca_repository symlink exists
+                name = repo_view.get_link(base_dir)[0]
                 package = "tosca_repository." + name
             else:
                 package_path = Path(get_base_dir(path)).relative_to(base_dir)
