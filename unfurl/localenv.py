@@ -345,7 +345,7 @@ class Project:
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()
         return repo
 
-    def find_git_repo_from_repository(self, repoSpec: Repository) -> Optional[Repo]:
+    def find_git_repo_from_repository(self, repoSpec: Repository) -> Optional[GitRepo]:
         repoUrl = repoSpec.url
         return self.find_git_repo(split_git_url(repoUrl)[0])
 

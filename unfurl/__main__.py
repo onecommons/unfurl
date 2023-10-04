@@ -939,6 +939,9 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 @click.option(
+    "--design", default=False, is_flag=True, help="Set up project for blueprint development."
+)
+@click.option(
     "--use-environment",
     default=None,
     help="Associate the given environment with the ensemble.",

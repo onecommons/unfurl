@@ -9,7 +9,7 @@ import os.path
 import shutil
 import sys
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 import uuid
 import logging
 from jinja2.loaders import FileSystemLoader
@@ -504,7 +504,7 @@ def create_project(
     return newHome, projectConfigPath, repo
 
 
-def clone_local_repos(manifest, sourceProject, targetProject):
+def clone_local_repos(manifest, sourceProject: Project, targetProject: Project):
     # We need to clone repositories that are local to the source project
     # otherwise we won't be able to find them
     for repoView in manifest.repositories.values():
@@ -965,6 +965,29 @@ class EnsembleBuilder:
             clone_local_repos(self.manifest, existingSourceProject, self.source_project)
         return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
+    def load_ensemble_template(self):
+        if not self.templateVars or not self.templateVars.get("ensembleTemplate"):
+            raise UnfurlError(
+                f"Clone with --design not supported: no ensemble template found."
+            )
+        assert isinstance(self.templateVars["sourceDir"], str)
+        assert self.source_project
+        sourceDir = os.path.normpath(
+            os.path.join(
+                self.source_project.projectRoot, self.templateVars["sourceDir"]
+            )
+        )
+        # assert ensemble_template_path in dest_project
+        assert self.dest_project and Path(sourceDir).relative_to(
+            self.dest_project.projectRoot
+        )
+        ensemble_template_path = os.path.join(
+            sourceDir, cast(str, self.templateVars["ensembleTemplate"])
+        )
+        # load the template, cloning referenced repositories as needed
+        LocalEnv(ensemble_template_path).get_manifest()
+        return "Cloned blueprint to " + ensemble_template_path
+
 
 def clone(
     source: str,
@@ -1033,14 +1056,19 @@ def clone(
 
     assert builder.source_project
 
-    ##### step 2: create destination project if neccessary
+    ##### step 2: create destination project if necessary
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
     if options.get("empty"):
         # don't create an ensemble
-        return "Cloned empty project to " + builder.dest_project.projectRoot
+        return "Cloned project to " + builder.dest_project.projectRoot
 
     ##### step 3: examine source for template details and determine shared project
     builder.configure()
+
+    if options.get("design"):
+        # don't create an ensemble but fully instantiate the ensemble-template
+        # to prepare the project for development
+        return builder.load_ensemble_template()
 
     ##### step 4 create ensemble in destination project if needed
     return builder.set_ensemble(isRemote, sourceProject, currentProject)
@@ -1214,11 +1242,14 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         os.chdir(projectDir)
         # need to set env vars and change current dir before importing pipenv
         from pipenv import environments
+
         try:
             from pipenv.routines.install import do_install
+
             kw: Dict = dict(categories=[], extra_pip_args=[])
         except ImportError:
             from pipenv.core import do_install
+
             kw = dict(extra_index_url=[])
 
         from pipenv.project import Project as PipEnvProject

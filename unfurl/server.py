@@ -1991,8 +1991,8 @@ def serve(
     current_project_id = get_current_project_id()
     if current_project_id:
         set_local_server_url = f'{urljoin(app.config.get("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud", current_project_id)}?unfurl-server=http://{host}:{port}'
-        logger.warning(
-            f"*** Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
+        logger.info(
+            f"***Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
             extra=dict(rich=dict(markup=True)),
         )
 
