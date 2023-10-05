@@ -66,10 +66,10 @@ class PythonToYaml:
             self.modules = modules
         self.write_policy = write_policy
 
-    def find_yaml_import(self, module_name: str) -> Optional[Path]:
-        module = self.modules.get(module_name)
+    def find_yaml_import(self, module_name: str) -> Tuple[Optional[ModuleType], Optional[Path]]:
+        module = self.modules.get(module_name) or sys.modules.get(module_name)
         if not module:
-            return None
+            return None, None
         path = module.__file__
         assert path
         dirname, filename = os.path.split(path)
@@ -77,17 +77,23 @@ class PythonToYaml:
         glob = before.replace("_", "?") + ".*"
         for p in Path(dirname).glob(glob):
             if p.suffix in [".yaml", ".yml"]:
-                return p
-        return None
+                return module, p
+        return module, None
 
-    def find_repo(self, module: str, path: Path):
+    def _set_repository_for_module(self, module: str, path: Path) -> Tuple[str, Optional[Path]]:
         parts = module.split(".")
-        root_module = parts[0]
-        root_path = self.modules[root_module].__file__
+        if parts[0] == "tosca_repository":
+            root_package = parts[0]+"."+parts[1]
+        else:
+            root_package = parts[0]
+        root_module = self.modules.get(root_package, sys.modules.get(root_package))
+        if not root_module:
+            return "", None
+        root_path = root_module.__file__ or (root_module.__spec__ and root_module.__spec__.origin)
         assert root_path
         repo_path = Path(root_path).parent
-        self.repos[root_module] = repo_path
-        return root_module, path.relative_to(repo_path)
+        self.repos[root_package] = repo_path
+        return root_package, path.relative_to(repo_path)
 
     def module2yaml(self) -> dict:
         mode = global_state.mode
@@ -112,7 +118,7 @@ class PythonToYaml:
         if repositories:
             self.sections.setdefault("repositories", {}).update(repositories)
         if imports:
-            self.sections.setdefault("import", []).extend(imports)
+            self.sections.setdefault("imports", []).extend(imports)
 
     def add_template(self, obj: ToscaType, name: str = "") -> str:
         section = self.sections["topology_template"].setdefault(
@@ -212,20 +218,24 @@ class PythonToYaml:
                 if module_name and module_name != current_module:
                     if not module_name.startswith("tosca."):
                         logging.debug(
-                            f"adding import statement for {obj} in {module_name}"
+                            f"adding import statement to {current_module} for {obj} in {module_name}"
                         )
                         # this type was imported from another module
                         # instead of converting the type, add an import if missing
-                        p = self.find_yaml_import(module_name)
-                        if not p:
+                        module, p = self.find_yaml_import(module_name)
+                        if not p and module:
                             #  its a TOSCA object but no yaml file found, convert to yaml now
-                            p = self._imported_module2yaml(self.modules[module_name])
+                            p = self._imported_module2yaml(module)
                         if p and path:
                             try:
                                 self.imports.add(("", p.relative_to(path)))
                             except ValueError:
                                 # not a subpath of the current module, add a repository
-                                self.imports.add(self.find_repo(module_name, p))
+                                ns, path = self._set_repository_for_module(module_name, p)
+                                if path:
+                                    self.imports.add((ns, path))
+                                else:
+                                    logging.warning(f"import look up in {current_module} failed, can find {module_name}")
                     continue
 
                 # this is a class not an instance

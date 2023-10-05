@@ -30,14 +30,30 @@ class RepositoryFinder(PathFinder):
             if len(names) == 1:
                 return ModuleSpec(fullname, None, is_package=True)
             if import_resolver:
+                # this may clone a repository
                 repo_path = import_resolver.find_repository_path(names[1])
                 if repo_path:
                     if len(names) == 2:
-                        return ModuleSpec(fullname, None, origin=repo_path, is_package=True)
+                        return ModuleSpec(
+                            fullname, None, origin=repo_path, is_package=True
+                        )
                     else:
                         return PathFinder.find_spec(fullname, [repo_path], target)
         # XXX special case service-template.yaml as service_template ?
-        # elif tail == "service_template":
+        elif names[0] == "service_template":
+            if path:
+                try:
+                    dir_path = path[0]
+                except TypeError:
+                    # _NamespacePath missing __getitem__ on older Pythons
+                    dir_path = path._path[0]  # type: ignore
+            else:
+                dir_path = os.getcwd()
+            if len(names) == 1:
+                return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
+            else:
+                return PathFinder.find_spec(fullname, [dir_path], target)
+
         #     filepath = os.path.join(dir_path, "service_template.yaml")
         #     # XXX look for service-template.yaml or ensemble-template.yaml files
         #     loader = ToscaYamlLoader(fullname, filepath)
@@ -225,10 +241,10 @@ def __safe_import__(
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
 
-    module = load_private_module(base_dir, modules, name)
     # load user code in our restricted environment
-    # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
+    module = load_private_module(base_dir, modules, name)
     if fromlist:
+        # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
         importlib._bootstrap._handle_fromlist(
             module, fromlist, lambda name: load_private_module(base_dir, modules, name)
         )

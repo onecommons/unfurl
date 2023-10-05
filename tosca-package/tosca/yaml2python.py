@@ -53,7 +53,7 @@ from toscaparser.elements.constraints import constraint_mapping, Schema
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from keyword import iskeyword
 import collections.abc
-from . import WritePolicy, _tosca, ToscaFieldType
+from . import WritePolicy, _tosca, ToscaFieldType, loader
 import black
 import black.mode
 import black.report
@@ -1247,7 +1247,7 @@ class Convert:
         description = node_template.entity_tpl.get("description")
         if description and description.strip():
             src += f"{indent}{name}._description = " + add_description(
-                description, indent
+                node_template.entity_tpl, indent
             )
         for artifact_src in artifacts:
             # artifact_src looks like "name = Artifact(...)"
@@ -1315,6 +1315,7 @@ class Convert:
                 yaml_dict_tpl=tpl,
                 import_resolver=self.template.import_resolver,
                 verify=False,
+                base_dir=self.base_dir
             ),
             self.python_compatible,
             self._builtin_prefix,
@@ -1325,23 +1326,31 @@ class Convert:
             base_dir=self.base_dir,
         )
 
-    def execute_source(self, src: str):
-        namespace: Dict[str, Any] = {}
+    def get_package_name(self) -> str:
         path = self.template.path
         assert path
         try:
-            package_path = Path(os.path.dirname(path)).relative_to(self.base_dir)
-            relpath = str(package_path).strip("/").replace("/", ".")
+            package_path = Path(path).parent.relative_to(self.base_dir)
+            relpath = str(package_path).strip("/").replace("/", ".").strip(".")
             package = "service_template"
             if relpath:
                 package += "." + relpath
         except ValueError:
             package = "tosca_repository." + os.path.basename(os.path.dirname(path))
-        full_name = package + "." + Path(path).stem
-        result = restricted_exec(
-            self.imports.prelude() + src, namespace, self.base_dir, full_name
-        )
-        self.imports._add_imports("", namespace)
+        return package
+
+    def execute_source(self, src: str):
+        namespace: Dict[str, Any] = {}
+        package = self.get_package_name()
+        assert self.template.path
+        full_name = package + "." + Path(self.template.path).stem
+        try:
+            result = restricted_exec(
+                self.imports.prelude() + src, namespace, self.base_dir, full_name
+            )
+            self.imports._add_imports("", namespace)
+        except:
+            logger.error(f"error executing generated source for {full_name}", exc_info=True)
 
 
 def generate_builtins(import_resolver, format=True) -> str:
@@ -1442,10 +1451,17 @@ def convert_service_template(
             import_src, import_path, (module_name, ns) = converter.convert_import(
                 imp_def
             )
+            loader.install(template.import_resolver)
             converter.follow_import(imp_def, import_path + ".py", format)
-            # XXX handle relative imports using using private loader
-            module = importlib.import_module(module_name)
-            imports._add_imports(ns, module.__dict__)
+            package = converter.get_package_name()
+            try:
+                module = importlib.import_module(module_name, package)
+                imports._add_imports(ns, module.__dict__)
+            except:
+                if module_name[0] == ".":
+                    logger.error(f"error importing {module_name} in {package}", exc_info=True)
+                else:
+                    logger.error(f"error importing {module_name}", exc_info=True)
             src += import_src
 
     # interface_types needs to go first because they will be base classes for types that implement them

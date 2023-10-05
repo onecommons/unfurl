@@ -687,7 +687,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 package = "tosca_repository." + name
             else:
                 package_path = Path(get_base_dir(path)).relative_to(base_dir)
-                relpath = str(package_path).strip("/").replace("/", ".")
+                relpath = str(package_path).replace("/", ".").strip(".")
                 package = "service_template"
             if relpath:
                 package += "." + relpath
