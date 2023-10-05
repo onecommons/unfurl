@@ -648,7 +648,7 @@ def test_sandbox():
     imports = [
         "import sys; sys.version_info",
         "from tosca import python2yaml",
-        "import tosca_repositories",
+        "import tosca_repositories.missing_repository",
         """from tosca.python2yaml import ALLOWED_MODULE, missing
 str(ALLOWED_MODULE)
     """,

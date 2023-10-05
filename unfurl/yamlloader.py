@@ -298,10 +298,24 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         inputs = op.inputs if op.inputs is not None else {}
         return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
-    def path_to_repository(self, base_path: str, name: str, tpl: Dict[str, Any]) -> Optional[str]:
+    def find_repository_path(self, name: str, tpl: Optional[Dict[str, Any]]=None, base_path: Optional[str]=None) -> Optional[str]:
         if self.manifest and self.manifest.localEnv:
+            if tpl:
+                url = tpl["url"]
+                revision = tpl.get("revision")
+            else:
+                for repo_name, repo_view in self.manifest.repositories.items():
+                    if repo_name == name or repo_view.python_name == name:
+                        break
+                else:
+                    return None
+                repo_view.python_name
+                url = repo_view.url
+                revision = repo_view.revision
             # XXX this will use the wrong RepoView if url has path fragment
-            return self.manifest.localEnv.link_repo(base_path, name, tpl["url"], tpl.get("revision"))[1]
+            if not base_path:
+                base_path = self.manifest.localEnv.project.projectRoot if self.manifest.localEnv.project else self.manifest.get_base_dir()
+            return self.manifest.localEnv.link_repo(base_path, name, url, revision)[1]
         return None
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:

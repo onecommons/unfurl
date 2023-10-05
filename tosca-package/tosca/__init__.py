@@ -11,9 +11,6 @@ except ImportError:
     sys.path.insert(0, vendor_dir)
     import toscaparser
 from ._tosca import *
-from . import loader
-
-loader.install()
 
 if TYPE_CHECKING:
     from .builtin_types import nodes

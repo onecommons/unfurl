@@ -308,8 +308,8 @@ class Convert:
         url = normalize_path(tpl["url"])
         if is_url(url):
             if self.template.import_resolver:
-                local_path = self.template.import_resolver.path_to_repository(
-                    self.template.path, name, tpl
+                local_path = self.template.import_resolver.find_repository_path(
+                    name, tpl, self.template.path
                 )
                 if local_path:
                     self.repository_paths[name] = local_path

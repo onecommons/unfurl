@@ -45,6 +45,7 @@ from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolve
 from .logs import getLogger
 import toscaparser.imports
 from toscaparser.repositories import Repository
+from tosca.loader import install
 
 if TYPE_CHECKING:
     from .localenv import LocalEnv
@@ -744,21 +745,25 @@ class Manifest(AttributeManager):
                 # in that case, repository_root to the base_dir
                 # this prevents visiting a parent directory but it is safe if we have gotten this far already
                 repository_root = base_dir
-        loader = toscaparser.imports.ImportsLoader(
-            None,
-            base_dir,
-            repositories=repositories,
-            resolver=resolver,
-            repository_root=repository_root,
-        )
-        import_spec = dict(
-            file=artifactTpl["file"], repository=artifactTpl.get("repository")
-        )
-        base, path, doc = loader.load_yaml(import_spec)
-        if doc is None:
-            logger.warning(
-                f"document include {templatePath} does not exist (base: {baseDir})"
+        try:
+            install(resolver)
+            loader = toscaparser.imports.ImportsLoader(
+                None,
+                base_dir,
+                repositories=repositories,
+                resolver=resolver,
+                repository_root=repository_root,
             )
+            import_spec = dict(
+                file=artifactTpl["file"], repository=artifactTpl.get("repository")
+            )
+            base, path, doc = loader.load_yaml(import_spec)
+            if doc is None:
+                logger.warning(
+                    f"document include {templatePath} does not exist (base: {baseDir})"
+                )
+        finally:
+            install(None)
         return path, doc
 
     def get_import_resolver(

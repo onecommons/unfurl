@@ -194,10 +194,13 @@ class Repo(abc.ABC):
 
     @staticmethod
     def find_git_working_dirs(
-        rootDir, include_root, gitDir=".git"
+        rootDir, include_root, skip_dir = None, gitDir=".git",
     ) -> Dict[str, "RepoView"]:
         working_dirs: Dict[str, "RepoView"] = {}
         for root, dirs, files in os.walk(rootDir):
+            if skip_dir and root == os.path.join(rootDir, skip_dir):
+                del dirs[:]  # don't visit sub directories
+                continue
             if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
                 if not include_root or rootDir != root:
                     del dirs[:]  # don't visit sub directories
@@ -415,6 +418,10 @@ class RepoView:
         return self.repository.name if self.repository else ""
 
     @property
+    def python_name(self):
+        return re.sub(r"\W", "_", self.name)
+
+    @property
     def url(self) -> str:
         if self.repository:
             url = self.repository.url
@@ -619,12 +626,12 @@ class RepoView:
                 return self.working_dir, str(symlink)
             symlink.unlink()
 
-        assert os.path.isdir(self.working_dir)
+        assert Path(self.working_dir).is_dir(), self.working_dir
         # use os.path.relpath as Path.relative_to only accepts strict subpaths
         rel_repo_path = os.path.relpath(self.working_dir, tosca_repos_root)
         symlink.symlink_to(rel_repo_path)
 
-        return self.working_dir, name
+        return name, self.working_dir
 
 
 def add_transient_credentials(git, url, username, password):

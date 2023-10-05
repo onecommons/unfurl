@@ -14,6 +14,7 @@ from types import ModuleType
 import importlib._bootstrap
 from .python2yaml import restricted_exec
 from .yaml2python import yaml_to_python
+from toscaparser.imports import ImportResolver
 
 logger = logging.getLogger("tosca")
 
@@ -25,25 +26,24 @@ class RepositoryFinder(PathFinder):
     def find_spec(cls, fullname: str, path=None, target=None):
         # path is a list with a path to the parent package or None if no parent
         names = fullname.split(".")
-        tail = names[-1]
-        if path:
-            try:
-                dir_path = path[0]
-            except TypeError:
-                # _NamespacePath missing __getitem__ on older Pythons
-                dir_path = path._path[0]  # type: ignore
-        else:
-            dir_path = os.getcwd()
-        if tail == "tosca_repositories":
-            return ModuleSpec(fullname, None, is_package=True)
-        elif tail == "service_template":
-            # "tosca_repositories" or "unfurl" in names
-            filepath = os.path.join(dir_path, "service_template.yaml")
-            # XXX look for service-template.yaml or ensemble-template.yaml files
-            loader = ToscaYamlLoader(fullname, filepath)
-            return spec_from_file_location(
-                fullname, filepath, loader=loader, submodule_search_locations=path
-            )  # type: ignore
+        if names[0] == "tosca_repositories":
+            if len(names) == 1:
+                return ModuleSpec(fullname, None, is_package=True)
+            if import_resolver:
+                repo_path = import_resolver.find_repository_path(names[1])
+                if repo_path:
+                    if len(names) == 2:
+                        return ModuleSpec(fullname, None, origin=repo_path, is_package=True)
+                    else:
+                        return PathFinder.find_spec(fullname, [repo_path], target)
+        # XXX special case service-template.yaml as service_template ?
+        # elif tail == "service_template":
+        #     filepath = os.path.join(dir_path, "service_template.yaml")
+        #     # XXX look for service-template.yaml or ensemble-template.yaml files
+        #     loader = ToscaYamlLoader(fullname, filepath)
+        #     return spec_from_file_location(
+        #         fullname, filepath, loader=loader, submodule_search_locations=path
+        #     )  # type: ignore
         return None
 
 
@@ -126,15 +126,21 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     if name in modules:
         # cf. "Crazy side-effects!" in _bootstrap.py (e.g. parent could have imported child)
         return modules[name]
-
-    origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
-    if not os.path.isfile(origin_path):
-        raise ModuleNotFoundError("No module named " + name, name=name)
-    loader = ToscaYamlLoader(name, origin_path, modules)
-    spec = spec_from_loader(name, loader, origin=origin_path)
-    assert spec and spec.loader
+    if name.startswith("tosca_repositories"):
+        spec = RepositoryFinder.find_spec(name, [base_dir])
+        if not spec:
+            raise ModuleNotFoundError("No module named " + name, name=name)
+    else:
+        origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
+        if not os.path.isfile(origin_path):
+            raise ModuleNotFoundError("No module named " + name, name=name)
+        loader = ToscaYamlLoader(name, origin_path, modules)
+        spec = spec_from_loader(name, loader, origin=origin_path)
+        assert spec and spec.loader
     module = module_from_spec(spec)
     modules[name] = module
+    if not spec.loader:
+        return module
     try:
         spec.loader.exec_module(module)
     except:
@@ -214,6 +220,7 @@ def __safe_import__(
             else:
                 return _load_or_deny_module(parts[0], ALLOWED_MODULES, modules)
     else:
+        # relative import
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
@@ -221,26 +228,31 @@ def __safe_import__(
     module = load_private_module(base_dir, modules, name)
     # load user code in our restricted environment
     # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
-    importlib._bootstrap._handle_fromlist(
-        module, fromlist, lambda name: load_private_module(base_dir, modules, name)
-    )
+    if fromlist:
+        importlib._bootstrap._handle_fromlist(
+            module, fromlist, lambda name: load_private_module(base_dir, modules, name)
+        )
     return module
 
 
 loader_details = ToscaYamlLoader, [".yaml", ".yml"]
 installed = False
+import_resolver: Optional[ImportResolver] = None
 
 
-def install():
+def install(import_resolver_: Optional[ImportResolver]):
     # insert the path hook ahead of other path hooks
+    global import_resolver
+    import_resolver = import_resolver_
     global installed
     if installed:
         return
-    # sys.meta_path.insert(0, RepositoryFinder())
-    # XXX needed? this breaks imports in local scope somehow:
+
+    sys.meta_path.insert(0, RepositoryFinder())
+    # XXX this breaks imports in local scope somehow:
     # sys.path_hooks.insert(0, FileFinder.path_hook(loader_details))
-    installed = True
     # this break some imports:
     # clear any loaders that might already be in use by the FileFinder
     # sys.path_importer_cache.clear()
     # invalidate_caches()
+    installed = True
