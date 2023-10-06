@@ -37,7 +37,7 @@ from .util import (
     get_base_dir,
     taketwo,
 )
-from .repo import split_git_url, RepoView, GitRepo
+from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
 from .packages import Package, PackageSpec, PackagesType
 from .merge import merge_dicts
 from .result import ChangeRecord
@@ -555,6 +555,23 @@ class Manifest(AttributeManager):
         summary(self.rootResource, 0)
         return "\n".join(output)
 
+    def last_commit_time(self) -> Optional[datetime.datetime]:
+        # return seconds (0 if not found)
+        repo = self.repo
+        if not repo:
+            return None
+        try:
+            # find the revision that last modified this file before or equal to the current revision
+            # (use current revision to handle branches)
+            commits = list(
+                repo.repo.iter_commits(repo.revision, self.path or "", max_count=1)
+            )
+        except ValueError:
+            return None
+        if commits:
+            return commits[0].committed_datetime
+        return None
+
     def find_path_in_repos(self, path, importLoader=None):
         """
         Check if the file path is inside a folder that is managed by a repository.
@@ -570,6 +587,7 @@ class Manifest(AttributeManager):
         return None, None, None, None
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
+
     def find_repo_from_git_url(self, path, base):
         revision: Optional[str]
         repoURL, filePath, revision = split_git_url(path)
@@ -617,8 +635,30 @@ class Manifest(AttributeManager):
                     continue
                 if isinstance(repository, dict):
                     repository = resolver.get_repository(name, repository)
-                self.add_repository(repository, "")
+                inline_repoview = self.add_repository(repository, "")
+                inline_repoview.repository.tpl.setdefault("metadata", {})[
+                    "inline"
+                ] = True
         self._set_builtin_repositories()
+
+    def _set_repository_links(self):
+        if self.localEnv and not self.localEnv.readonly:
+            repos = {
+                normalize_git_url(r.url): r for r in self.localEnv._get_git_repos()
+            }
+            for name, repo_view in self.repositories.items():
+                if not repo_view.repo and repo_view.url in repos:
+                    repo_view.repo = repos[repo_view.url]
+                if repo_view.repo and name not in ["self", "project"]:
+                    if repo_view.repository.tpl.get("metadata", {}).get("inline"):
+                        continue
+                    # create tosca_repositories symlink if needed
+                    project_base_path = (
+                        self.localEnv.project.projectRoot
+                        if self.localEnv.project
+                        else self.get_base_dir()
+                    )
+                    repo_view.get_link(project_base_path, name)
 
     @staticmethod
     def _get_repositories(tpl) -> Dict:
@@ -675,7 +715,7 @@ class Manifest(AttributeManager):
                 repositories["spec"] = repositories["self"]
             repositories["spec"].package = False
 
-    def as_repositories_tpl(self) -> Dict[str, Dict[str, Any]]:
+    def repositories_as_tpl(self) -> Dict[str, Dict[str, Any]]:
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
 
     def load_yaml_include(
@@ -732,7 +772,7 @@ class Manifest(AttributeManager):
         self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
-        repositories = self.as_repositories_tpl()
+        repositories = self.repositories_as_tpl()
         base_dir = get_base_dir(baseDir)
         if repository_root is None:
             if self.localEnv and self.localEnv.project:
@@ -775,23 +815,6 @@ class Manifest(AttributeManager):
         if self.localEnv and self.localEnv.make_resolver:
             return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
-
-    def last_commit_time(self) -> Optional[datetime.datetime]:
-        # return seconds (0 if not found)
-        repo = self.repo
-        if not repo:
-            return None
-        try:
-            # find the revision that last modified this file before or equal to the current revision
-            # (use current revision to handle branches)
-            commits = list(
-                repo.repo.iter_commits(repo.revision, self.path or "", max_count=1)
-            )
-        except ValueError:
-            return None
-        if commits:
-            return commits[0].committed_datetime
-        return None
 
 
 # unused

@@ -384,6 +384,7 @@ class YamlManifest(ReadOnlyManifest):
                 create_instance_from_spec(self, rootResource, name, instance)
 
         self._configure_root(rootResource)
+        self._set_repository_links()
         self._ready(rootResource)
 
     def _add_deployment_blueprint_template(

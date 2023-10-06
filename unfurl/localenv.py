@@ -1209,7 +1209,7 @@ class LocalEnv:
                 return repo
         return Repo.find_containing_repo(instanceDir)
 
-    # NOTE this currently isn't used and returns repos outside of this LocalEnv
+    # NOTE returns repos outside of this LocalEnv
     # (every repo found in localRepositories)
     def _get_git_repos(self) -> List[GitRepo]:
         if self.project:
