@@ -50,7 +50,7 @@ if typing.TYPE_CHECKING:
 
 
 class _LocalState(threading.local):
-    def __init__(self, /, **kw):
+    def __init__(self, **kw):
         self.mode = "spec"
         self._in_process_class = False
         self.__dict__.update(kw)
