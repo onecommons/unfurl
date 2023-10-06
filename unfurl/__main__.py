@@ -1418,7 +1418,8 @@ def serve(
         os.environ["UNFURL_SERVE_CORS"] = cors
     os.environ["UNFURL_SERVE_PATH"] = project_or_ensemble_path
     os.environ["UNFURL_CLONE_ROOT"] = clone_root
-    os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
+    if cloud_server:
+        os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
     from .server import serve as _serve
 
     _serve(address, port, secret, clone_root, project_or_ensemble_path, options, cloud_server)

@@ -228,9 +228,8 @@ def get_current_project_id() -> str:
 
 
 def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) -> str:
-    clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
     if not project_id:
-        return clone_root
+        return app.config.get("UNFURL_CURRENT_WORKING_DIR", ".")
     if get_current_project_id() == project_id:
         return app.config["UNFURL_CURRENT_WORKING_DIR"]
     base = "public"
@@ -241,6 +240,7 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
             and args["visibility"] != "public"
         ):
             base = "private"
+    clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
     return os.path.join(clone_root, base, project_id, branch)
 
 
@@ -2038,6 +2038,30 @@ def load_yaml(project_id, branch, file_name, root_entry=None, latest_commit=None
     return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
 
 
+def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commit=None):
+    def _work(
+        cache_entry: CacheEntry, latest_commit: Optional[str]
+    ) -> Tuple[Any, Any, bool]:
+        path = os.path.join(cache_entry.checked_repo.working_dir, cache_entry.file_path)
+        return None, path, True
+
+    def _validate(
+        working_dir, entry: CacheEntry, cache: Cache, latest_commit: Optional[str]
+    ) -> bool:
+        return os.path.isdir(working_dir)
+
+    cache_entry = CacheEntry(
+        project_id,
+        branch,
+        file_name,
+        "working_dir",
+        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
+        do_clone=True,
+        root_entry=root_entry,
+    )
+    return cache_entry.get_or_set(cache, _work, latest_commit, _validate)
+
+
 def get_remote_tags_cached(url, pattern, args) -> List[str]:
     key = normalize_git_url_hard(url)
     tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
@@ -2090,6 +2114,30 @@ class ServerCacheResolver(SimpleCacheResolver):
     @property
     def use_local_cache(self) -> bool:
         return flask_config["CACHE_TYPE"] != "simple"
+
+    def find_repository_path(
+        self,
+        name: str,
+        tpl: Optional[Dict[str, Any]] = None,
+        base_path: Optional[str] = None,
+    ) -> Optional[str]:
+        repo_view = self._match_repoview(name, tpl)
+        if not repo_view:
+            return None
+        base_url = current_app.config["UNFURL_CLOUD_SERVER"]
+        private = (
+            not base_url or not repo_view.url.startswith(base_url) or repo_view.repo
+        )
+        if private:
+            return self._get_link_to_repo(repo_view, base_path)
+        else:
+            project_id, branch = self._project_id_from_repo(repo_view)
+            err, working_dir = get_working_dir(
+                project_id, branch, "", root_entry=None, latest_commit=None
+            )
+            if err:
+                return None
+            return working_dir
 
     def _really_resolve_to_local_path(
         self,
@@ -2146,20 +2194,7 @@ class ServerCacheResolver(SimpleCacheResolver):
         if not private:
             # assert repo_view.package # local repositories
             # if the revision doesn't look like a version_tag treat as branch
-            if repo_view.package and not repo_view.package.has_semver(True):
-                branch = repo_view.package.revision_tag or DEFAULT_BRANCH
-            elif repo_view.revision:
-                branch = repo_view.revision
-            else:
-                url, gitpath, revision = split_git_url(repo_view.url)
-                if revision and not is_semver(revision, True):
-                    branch = revision
-                else:
-                    branch = DEFAULT_BRANCH
-
-            project_id = urlparse(repo_view.url).path.strip("/")
-            if project_id.endswith(".git"):
-                project_id = project_id[:-4]
+            project_id, branch = self._project_id_from_repo(repo_view)
             cache_entry = CacheEntry(
                 project_id,
                 branch,
@@ -2208,3 +2243,20 @@ class ServerCacheResolver(SimpleCacheResolver):
             raise err
 
         return doc, cacheable
+
+    def _project_id_from_repo(self, repo_view):
+        if repo_view.package and not repo_view.package.has_semver(True):
+            branch = repo_view.package.revision_tag or DEFAULT_BRANCH
+        elif repo_view.revision:
+            branch = repo_view.revision
+        else:
+            url, gitpath, revision = split_git_url(repo_view.url)
+            if revision and not is_semver(revision, True):
+                branch = revision
+            else:
+                branch = DEFAULT_BRANCH
+
+        project_id = urlparse(repo_view.url).path.strip("/")
+        if project_id.endswith(".git"):
+            project_id = project_id[:-4]
+        return project_id, branch

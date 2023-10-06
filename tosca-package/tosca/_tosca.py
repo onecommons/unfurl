@@ -49,9 +49,14 @@ if typing.TYPE_CHECKING:
     from .python2yaml import PythonToYaml
 
 
-global_state = threading.local()
-global_state.mode = "spec"
-global_state._in_process_class = False
+class _LocalState(threading.local):
+    def __init__(self, /, **kw):
+        self.mode = "spec"
+        self._in_process_class = False
+        self.__dict__.update(kw)
+
+
+global_state = _LocalState()
 
 yaml_cls = dict
 
@@ -1690,6 +1695,6 @@ def is_newer_than(output_path, input_path):
     "Is output_path newer than input_path?"
     if not os.path.exists(input_path) or not os.path.exists(output_path):
         return True  # assume that if it doesn't exist yet its definitely newer
-    if (os.stat(output_path).st_mtime_ns > os.stat(input_path).st_mtime_ns):
+    if os.stat(output_path).st_mtime_ns > os.stat(input_path).st_mtime_ns:
         return True
     return False
