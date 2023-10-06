@@ -31,7 +31,7 @@ from .job import start_job, Job
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import filter_env, get_base_dir, get_package_digest
+from .util import UnfurlBadDocumentError, filter_env, get_base_dir, get_package_digest
 
 if TYPE_CHECKING:
     from repo import RepoView
@@ -1183,8 +1183,11 @@ def _yaml_to_python(
             manifest = local_env.get_manifest(
                 skip_validation=True,
             )  # XXX safe_mode=True
-        except:
-            manifest = None
+        except UnfurlBadDocumentError:
+            manifest = None  # assume the user didn't specify a manifest file
+        except Exception:
+            raise  # unexpected error
+
     if local_env and manifest:
         assert manifest.tosca and manifest.tosca.template
         if not file:

@@ -132,6 +132,15 @@ class UnfurlValidationError(UnfurlError):
         super().__init__(message, log=log)
         self.errors = errors or []
 
+class UnfurlBadDocumentError(UnfurlError):
+    def __init__(
+        self,
+        message: object,
+        errors: Optional[Tuple[str, List[object]]] = None,
+        saveStack: bool = False,
+    ) -> None:
+        super().__init__(message, saveStack=saveStack)
+        self.errors = cast(Tuple[str, List[object]], errors or [])
 
 class UnfurlTaskError(UnfurlError):
     def __init__(

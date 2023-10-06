@@ -22,6 +22,7 @@ from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
 
 from .util import (
+    UnfurlBadDocumentError,
     filter_env,
     is_relative_to,
     to_bytes,
@@ -859,7 +860,7 @@ class YamlConfig:
             else:
                 self.config = config
             if not isinstance(self.config, dict):
-                raise UnfurlValidationError(
+                raise UnfurlBadDocumentError(
                     f'invalid YAML document with contents: "{self.config}"'
                 )
 
@@ -878,7 +879,7 @@ class YamlConfig:
             errors = schema and self.validate(self.expanded)
             if errors and validate:
                 (message, schemaErrors) = errors
-                raise UnfurlValidationError(
+                raise UnfurlBadDocumentError(
                     "JSON Schema validation failed: " + message, errors
                 )
             else:
@@ -888,7 +889,7 @@ class YamlConfig:
                 msg = f"Unable to load yaml config at {self.path}"
             else:
                 msg = "Unable to parse yaml config"
-            raise UnfurlError(msg, True)
+            raise UnfurlBadDocumentError(msg, saveStack=True)
 
     def _expand(self) -> Tuple[dict, dict]:
         find_anchor(self.config, None)  # create _anchorCache
