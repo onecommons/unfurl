@@ -194,7 +194,10 @@ class Repo(abc.ABC):
 
     @staticmethod
     def find_git_working_dirs(
-        rootDir, include_root, skip_dir = None, gitDir=".git",
+        rootDir,
+        include_root,
+        skip_dir=None,
+        gitDir=".git",
     ) -> Dict[str, "RepoView"]:
         working_dirs: Dict[str, "RepoView"] = {}
         for root, dirs, files in os.walk(rootDir):
@@ -607,6 +610,10 @@ class RepoView:
         assert name or self.repository.name
         name = re.sub(r"\W", "_", name or self.repository.name)
         assert name.isidentifier(), name
+        if not Path(self.working_dir).is_dir():
+            raise UnfurlError(
+                f"Can not create symlink to {self.working_dir}: it isn't a directory."
+            )
         tosca_repos_root = Path(base_path) / "tosca_repositories"
         # ensure t_r and its gitignore exist
         if not tosca_repos_root.exists():
@@ -619,14 +626,13 @@ class RepoView:
         if symlink.exists():
             if not symlink.is_symlink():
                 raise UnfurlError(
-                    f"Can not create symlink to {symlink}: it already exists but is not a symlink"
+                    f"Can not create symlink at {symlink}: it already exists but is not a symlink"
                 )
             target = os.path.abspath(os.readlink(symlink))
             if target == self.working_dir:  # already exists
                 return self.working_dir, str(symlink)
             symlink.unlink()
 
-        assert Path(self.working_dir).is_dir(), self.working_dir
         # use os.path.relpath as Path.relative_to only accepts strict subpaths
         rel_repo_path = os.path.relpath(self.working_dir, tosca_repos_root)
         symlink.symlink_to(rel_repo_path)

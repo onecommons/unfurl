@@ -44,7 +44,7 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import Repo, RepoView, add_user_to_url, split_git_url, memoized_remote_tags
+from .repo import Repo, RepoView, add_user_to_url, normalize_git_url, split_git_url, memoized_remote_tags
 from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -298,24 +298,53 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         inputs = op.inputs if op.inputs is not None else {}
         return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
-    def find_repository_path(self, name: str, tpl: Optional[Dict[str, Any]]=None, base_path: Optional[str]=None) -> Optional[str]:
-        if self.manifest and self.manifest.localEnv:
-            if tpl:
-                url = tpl["url"]
-                revision = tpl.get("revision")
-            else:
-                for repo_name, repo_view in self.manifest.repositories.items():
-                    if repo_name == name or repo_view.python_name == name:
-                        break
-                else:
-                    return None
-                repo_view.python_name
-                url = repo_view.url
-                revision = repo_view.revision
-            # XXX this will use the wrong RepoView if url has path fragment
-            if not base_path:
-                base_path = self.manifest.localEnv.project.projectRoot if self.manifest.localEnv.project else self.manifest.get_base_dir()
-            return self.manifest.localEnv.link_repo(base_path, name, url, revision)[1]
+    def _match_repoview(
+        self, name: str, tpl: Optional[Dict[str, Any]]
+    ) -> Optional[RepoView]:
+        if not self.manifest:
+            return None
+        if tpl:  # match by url
+            url = normalize_git_url(tpl["url"])
+        else:
+            url = None
+        for repo_name, repo_view in self.manifest.repositories.items():
+            if url:  # match by url
+                if url == repo_view.url:
+                    # XXX repo_view.revision == tpl.get("revision")
+                    break
+            elif repo_name == name or repo_view.python_name == name:
+                break
+        else:
+            return None  # no match
+        self._resolve_repoview(repo_view)
+        return repo_view
+
+    def find_repository_path(
+        self,
+        name: str,
+        tpl: Optional[Dict[str, Any]] = None,
+        base_path: Optional[str] = None,
+    ) -> Optional[str]:
+        repo_view = self._match_repoview(name, tpl)
+        if not repo_view:
+            return None
+        return self._get_link_to_repo(repo_view, base_path)
+
+    def _get_link_to_repo(
+        self, repo_view: RepoView, base_path: Optional[str]
+    ) -> Optional[str]:
+        project_base_path = (
+            self.manifest.localEnv.project.projectRoot
+            if self.manifest.localEnv and self.manifest.localEnv.project
+            else self.manifest.get_base_dir()
+        )
+        # this will clone the repo if needed:
+        self._resolve_repo_to_path(repo_view, project_base_path, "")
+        assert repo_view.repo
+        # # XXX this will use the wrong RepoView if url has path fragment
+        link_name, target_path = repo_view.get_link(base_path or project_base_path)
+        if link_name:
+            return target_path
         return None
 
     def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
@@ -506,6 +535,19 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             assert repo_view
 
         assert repo_view
+        self._resolve_repoview(repo_view)
+        path = toscaparser.imports.normalize_path(repo_view.url)
+        is_file = not toscaparser.imports.is_url(path)
+        if is_file:
+            # repository is a local path
+            # so use the resolved base
+            path = os.path.join(base, file_name)
+            if self._has_path_escaped(path):
+                return None, None
+        repo_view.add_file_ref(file_name)
+        return path, (is_file, repo_view, base, file_name)
+
+    def _resolve_repoview(self, repo_view):
         if repo_view.package is None:
             # need to resolve if its a package
             # if repoview.repository references a package, set the repository's url
@@ -521,16 +563,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 self.manifest.package_specs,
                 remote_tags_check,
             )
-        repo_view.add_file_ref(file_name)
-        path = toscaparser.imports.normalize_path(repo_view.url)
-        is_file = not toscaparser.imports.is_url(path)
-        if is_file:
-            # repository is a local path
-            # so use the resolved base
-            path = os.path.join(base, file_name)
-            if self._has_path_escaped(path):
-                return None, None
-        return path, (is_file, repo_view, base, file_name)
 
     def resolve_to_local_path(
         self, base_dir, file_name, repository_name

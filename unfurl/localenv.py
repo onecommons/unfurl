@@ -130,14 +130,20 @@ class Project:
 
     def _set_repos(self) -> None:
         # abspath => RepoView:
-        self.workingDirs = Repo.find_git_working_dirs(self.projectRoot, True, "tosca_repositories")
+        self.workingDirs = Repo.find_git_working_dirs(
+            self.projectRoot, True, "tosca_repositories"
+        )
         self._set_project_repoview()
 
         if self.project_repoview.repo:
             # Repo.find_git_working_dirs() doesn't look inside git working dirs
             # so look for repos in dirs that might be excluded from git
             for dir in self.project_repoview.repo.find_excluded_dirs(self.projectRoot):
-                if self.projectRoot in dir and "/tosca_repositories" not in dir and os.path.isdir(dir):
+                if (
+                    self.projectRoot in dir
+                    and "/tosca_repositories" not in dir
+                    and os.path.isdir(dir)
+                ):
                     Repo.update_git_working_dirs(self.workingDirs, dir, os.listdir(dir))
 
         # add referenced local repositories outside of the project
@@ -1412,7 +1418,8 @@ class LocalEnv:
             base_path = os.getcwd()
 
         repo_view = self._find_git_repo(url, revision)
-        assert isinstance(repo_view, RepoView), url
+        if not isinstance(repo_view, RepoView):
+            return "", ""
         return repo_view.get_link(base_path, name)
 
     def map_value(self, val: Any, env_rules: Optional[dict]) -> Any:

@@ -80,9 +80,9 @@ class PythonToYaml:
                 return module, p
         return module, None
 
-    def _set_repository_for_module(self, module: str, path: Path) -> Tuple[str, Optional[Path]]:
-        parts = module.split(".")
-        if parts[0] == "tosca_repository":
+    def _set_repository_for_module(self, module_name: str, path: Path) -> Tuple[str, Optional[Path]]:
+        parts = module_name.split(".")
+        if parts[0] == "tosca_repositories":
             root_package = parts[0]+"."+parts[1]
         else:
             root_package = parts[0]
@@ -90,7 +90,7 @@ class PythonToYaml:
         if not root_module:
             return "", None
         root_path = root_module.__file__ or (root_module.__spec__ and root_module.__spec__.origin)
-        assert root_path
+        assert root_path, (module_name, root_package, parts, root_module.__dict__)
         repo_path = Path(root_path).parent
         self.repos[root_package] = repo_path
         return root_package, path.relative_to(repo_path)
