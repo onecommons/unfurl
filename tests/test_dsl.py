@@ -554,13 +554,6 @@ def test_set_constraints() -> None:
 
 
 test_datatype_yaml = """
-topology_template:
-  node_templates:
-    test:
-      type: Example
-      properties:
-        data:
-          prop1: test
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
   Example:
@@ -574,6 +567,13 @@ data_types:
       prop1:
         type: string
         default: ''
+topology_template:
+  node_templates:
+    test:
+      type: Example
+      properties:
+        data:
+          prop1: test
 """
 
 
@@ -593,6 +593,59 @@ def test_datatype():
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
     tosca_yaml = load_yaml(yaml, test_datatype_yaml)
+    # yaml.dump(yaml_dict, sys.stdout)
+    assert tosca_yaml == yaml_dict
+
+
+test_envvars_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    properties:
+      data:
+        type: MyDataType
+        default:
+            name: default_name
+        metadata:
+          transform:
+            eval:
+              to_env:
+                eval: $value
+data_types:
+  MyDataType:
+    properties:
+      name:
+        type: string
+        default: default_name
+topology_template:
+  node_templates:
+    test:
+      type: Example
+      properties:
+        data:
+          name: default_name
+"""
+
+
+def test_envvar_type():
+    import tosca
+    from tosca import EnvVarDataType, Property
+
+    class MyDataType(EnvVarDataType):
+        name: str = "default_name"
+
+    class Example(tosca.nodes.Root):
+        # data = MyDataType() # XXX support type inference
+        # data: MyDataType # XXX don't require if the type can be constructed automatically
+        data: MyDataType = Property(factory=MyDataType)
+
+    test = Example()
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, test_envvars_yaml)
     # yaml.dump(yaml_dict, sys.stdout)
     assert tosca_yaml == yaml_dict
 

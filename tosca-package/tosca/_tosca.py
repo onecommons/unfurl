@@ -541,7 +541,7 @@ class _Tosca_Field(dataclasses.Field):
         if self.description:
             field_def["description"] = self.description
         if self.metadata:
-            field_def["metadata"] = metadata_to_yaml(self.metadata)
+            field_def.setdefault("metadata", {}).update(metadata_to_yaml(self.metadata))
         return {self.tosca_name: field_def}
 
     def _add_occurrences(self, field_def: dict, info: TypeInfo) -> None:
@@ -601,6 +601,7 @@ class _Tosca_Field(dataclasses.Field):
         info = pytype_to_tosca_type(_type)
         assert len(info.types) == 1, info
         _type = info.types[0]
+        schema: Dict[str, Any] = {}
         if info.collection is dict:
             tosca_type = "map"
         elif info.collection is list:
@@ -609,8 +610,12 @@ class _Tosca_Field(dataclasses.Field):
             _type = self._resolve_class(_type)
             tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
             if not tosca_type:  # it must be a datatype
+                assert issubclass(_type, DataType), _type
                 tosca_type = _type.tosca_type_name()
-        schema: Dict[str, Any] = dict(type=tosca_type)
+                metadata = _type._get_property_metadata()
+                if metadata:
+                    schema["metadata"] = metadata
+        schema["type"] = tosca_type
         if info.collection:
             schema["entry_schema"] = self.pytype_to_tosca_schema(_type)[0]
         if info.metadata:
@@ -1556,11 +1561,21 @@ class DataType(_OwnedToscaType):
         custom_defs = cls._cls_to_yaml(None)
         return ToscaDataType(cls.tosca_type_name(), custom_defs)
 
+    @classmethod
+    def _get_property_metadata(cls) -> Optional[Dict[str, Any]]:
+        return None
+
     def to_yaml(self, dict_cls=dict):
         body = dict_cls()
         for field, value in self.get_fields():
             body[field.tosca_name] = to_tosca_value(value, dict_cls)
         return body
+
+
+class EnvVarDataType(DataType):
+    @classmethod
+    def _get_property_metadata(cls) -> Optional[Dict[str, Any]]:
+        return dict(transform=dict(eval={"to_env": {"eval": "$value"}}))
 
 
 class CapabilityType(_OwnedToscaType):
