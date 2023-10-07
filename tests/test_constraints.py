@@ -1,8 +1,15 @@
+from typing import Optional
 import unittest
+import unfurl
 from mypy import api
+import tosca
 from unfurl.localenv import LocalEnv
 from tosca import python2yaml
 import os
+import sys
+from unfurl.yamlloader import yaml, load_yaml
+from tosca.python2yaml import PythonToYaml
+
 
 def _verify_mypy(path):
     stdout, stderr, return_code = api.run([path])
@@ -27,7 +34,10 @@ def test_constraints():
             },
             "container_service": {
                 "type": "ContainerService",
-                "properties": {"image": "myimage:latest", "url": "http://localhost:8000"},
+                "properties": {
+                    "image": "myimage:latest",
+                    "url": "http://localhost:8000",
+                },
             },
             "myapp_proxy": {
                 "type": "ProxyContainerHost",
@@ -102,8 +112,60 @@ def test_constraints():
     # XXX deduced inverse
     # assert container.get_relationship("host") == proxy
 
+
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 def test_mypy():
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     _verify_mypy(basepath + "constraints.py")
+
+
+constraints_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    properties:
+      name:
+        type: string
+        constraints:
+        - min_length: 2
+        - max_length: 20
+    requirements:
+    - host:
+        node: tosca.nodes.Compute
+        node_filter:
+          capabilities:
+          - host:
+              properties:
+              - mem_size:
+                  in_range:
+                  - 2 GB
+                  - 20 GB
+topology_template: {}
+"""
+
+
+def test_set_constraints() -> None:
+    from tosca import min_length, max_length, in_range, gb
+
+    class Example(tosca.nodes.Root):
+        name: str
+        host: tosca.nodes.Compute
+
+        @classmethod
+        def _set_constraints(cls) -> None:
+            #
+            min_length(2).apply_constraint(cls.name)
+            # you can also but you lose static type checking:
+            cls.name = max_length(20)  # type: ignore
+            # setting a constraint on reference to requirement creates a node_filter:
+            in_range([2 * gb, 20 * gb]).apply_constraint(cls.host.host.mem_size)
+            # cls.container.host.host.mem_size = in_range([2*gb, 20*gb])
+
+    __name__ = "tests.test_constraints"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, constraints_yaml)
+    # yaml.dump(yaml_dict, sys.stdout)
+    assert tosca_yaml == yaml_dict

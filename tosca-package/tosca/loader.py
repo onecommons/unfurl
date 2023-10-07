@@ -13,7 +13,6 @@ from typing import Any, Dict, Optional, Sequence
 from types import ModuleType
 import importlib._bootstrap
 from .python2yaml import restricted_exec
-from .yaml2python import yaml_to_python
 from toscaparser.imports import ImportResolver
 
 logger = logging.getLogger("tosca")
@@ -78,6 +77,8 @@ class ToscaYamlLoader(Loader):
         # parse to TOSCA template and convert to python
         path = Path(self.filepath)
         if path.suffix in loader_details[1]:
+            from .yaml2python import yaml_to_python
+
             python_filepath = str(path.parent / (path.stem + ".py"))
             src = yaml_to_python(self.filepath, python_filepath)
         else:

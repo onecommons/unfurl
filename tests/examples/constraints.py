@@ -1,7 +1,6 @@
 import unfurl
 import tosca
 
-# XXX don't require type definition deduce type from default
 class ContainerService(tosca.nodes.Root):
     image: str
     url: str

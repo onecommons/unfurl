@@ -73,59 +73,64 @@ class ToscaObject:
         return None
 
 
-class _Constraint(ToscaObject):
+class DataConstraint(ToscaObject):
     def __init__(self, constraint):
         self.constraint = constraint
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return {self.__class__.__name__: to_tosca_value(self.constraint)}
 
+    def apply_constraint(self, val: Any) -> bool:
+        assert isinstance(val, FieldProjection), val
+        val.apply_constraint(self)
+        return True
 
-class equal(_Constraint):
+
+class equal(DataConstraint):
     pass
 
 
-class greater_than(_Constraint):
+class greater_than(DataConstraint):
     pass
 
 
-class greater_or_equal(_Constraint):
+class greater_or_equal(DataConstraint):
     pass
 
 
-class less_than(_Constraint):
+class less_than(DataConstraint):
     pass
 
 
-class less_or_equal(_Constraint):
+class less_or_equal(DataConstraint):
     pass
 
 
-class in_range(_Constraint):
+class in_range(DataConstraint):
     pass
 
 
-class valid_values(_Constraint):
+class valid_values(DataConstraint):
     pass
 
 
-class length(_Constraint):
+class length(DataConstraint):
     pass
 
 
-class min_length(_Constraint):
+class min_length(DataConstraint):
     pass
 
 
-class max_length(_Constraint):
+class max_length(DataConstraint):
     pass
 
 
-class pattern(_Constraint):
+class pattern(DataConstraint):
     pass
 
 
-class schema(_Constraint):
+class schema(DataConstraint):
     pass
 
 
@@ -328,6 +333,7 @@ class _Tosca_Field(dataclasses.Field):
         metadata: Optional[Dict[str, Any]] = None,
         title: str = "",
         status: str = "",
+        constraints: Optional[List[DataConstraint]] = None,
         declare_attribute: bool = False,
         owner: Optional[Type["_ToscaType"]] = None,
     ):
@@ -361,6 +367,7 @@ class _Tosca_Field(dataclasses.Field):
         self.title = title
         self.status = status
         self.declare_attribute = declare_attribute
+        self.constraints: List[DataConstraint] = constraints or []
         self.owner = owner
 
     def set_constraint(self, val):
@@ -406,14 +413,29 @@ class _Tosca_Field(dataclasses.Field):
             # XXX default is shared across template instances and subtypes -- what about mutable values like dicts and basically all Toscatypes?
             setattr(self.default, name, val)
 
-    def add_node_filter(self, val, prop_name: Optional[str] = None):
+    def add_node_filter(
+        self, val, prop_name: Optional[str] = None, capability: Optional[str] = None
+    ):
         assert self._tosca_field_type == ToscaFieldType.requirement
         if self.node_filter is None:
             self.node_filter = {}
+        if capability:
+            cap_filters = self.node_filter.setdefault("capabilities", [])
+            for cap_filter in cap_filters:
+                if list(cap_filter)[0] == capability:
+                    node_filter = cap_filter[capability]
+                    break
+            else:
+                node_filter = {}
+                cap_filters.append({capability: node_filter})
+        else:
+            node_filter = self.node_filter
         if prop_name:
-            prop_filters = self.node_filter.setdefault("properties", [])
+            prop_filters = node_filter.setdefault("properties", [])
             if isinstance(val, _Ref):
                 val.set_source()
+            elif isinstance(val, DataConstraint):
+                val = val.to_yaml()
             else:
                 # XXX validate that val is compatible type
                 val = {
@@ -428,11 +450,23 @@ class _Tosca_Field(dataclasses.Field):
             self._set_default(val)
 
     def _set_default(self, val):
-        # XXX we can be smarter based on val type, e.g. node or relationship template and merge with the existing default values
-        # XXX validate that val is compatible type
-        # XXX mark default as a constraint
-        # XXX default is shared across template instances and subtypes -- what about mutable values like dicts and basically all Toscatypes?
-        self.default = val
+        if isinstance(val, DataConstraint):
+            if self.tosca_field_type not in [
+                ToscaFieldType.property,
+                ToscaFieldType.attribute,
+            ]:
+                raise ValueError(
+                    "Value constraints can not be assigned to a TOSCA "
+                    + self.tosca_field_type.name
+                )
+            else:
+                self.constraints.append(val)
+        else:
+            # XXX we can be smarter based on val type, e.g. node or relationship template and merge with the existing default values
+            # XXX validate that val is compatible type
+            # XXX mark default as a constraint
+            # XXX default is shared across template instances and subtypes -- what about mutable values like dicts and basically all Toscatypes?
+            self.default = val
 
     def as_ref_expr(self) -> str:
         if self.tosca_field_type in [
@@ -563,6 +597,7 @@ class _Tosca_Field(dataclasses.Field):
         return cap_def
 
     def pytype_to_tosca_schema(self, _type) -> Tuple[dict, bool]:
+        # dict[str, list[int, constraint], constraint]
         info = pytype_to_tosca_type(_type)
         assert len(info.types) == 1, info
         _type = info.types[0]
@@ -579,12 +614,18 @@ class _Tosca_Field(dataclasses.Field):
         if info.collection:
             schema["entry_schema"] = self.pytype_to_tosca_schema(_type)[0]
         if info.metadata:
-            schema["constraints"] = [c.to_yaml() for c in info.metadata]
+            schema["constraints"] = [
+                c.to_yaml() for c in info.metadata if isinstance(c, DataConstraint)
+            ]
         return schema, info.optional
 
     def _to_attribute_yaml(self) -> dict:
         # self.type is from __annotations__
         prop_def, optional = self.pytype_to_tosca_schema(self.type)
+        if self.constraints:
+            prop_def.setdefault("constraints", []).extend(
+                c.to_yaml() for c in self.constraints
+            )
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
             prop_def["default"] = to_tosca_value(self.default_factory())
         elif (
@@ -605,6 +646,10 @@ class _Tosca_Field(dataclasses.Field):
         prop_def, optional = self.pytype_to_tosca_schema(self.type)
         if optional:  # omit if required is True (the default)
             prop_def["required"] = False
+        if self.constraints:
+            prop_def.setdefault("constraints", []).extend(
+                c.to_yaml() for c in self.constraints
+            )
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
             prop_def["default"] = to_tosca_value(self.default_factory())
         elif self.default is not dataclasses.MISSING and self.default is not REQUIRED:
@@ -651,6 +696,7 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
         metadata (Dict[str, str], optional): Dictionary of metadata to associate with the {name}.\n"""
     indent = "        "
     if status:
+        doc += f"{indent}constraints (List[DataConstraints], optional): List of TOSCA property constraints to apply to the {name}.\n"
         doc += f"{indent}status (str, optional): TOSCA status of the {name}.\n"
     for arg in extra:
         doc += f"{indent}{arg}\n"
@@ -662,6 +708,7 @@ def Attribute(
     default=None,
     factory=MISSING,
     name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
     metadata: Optional[Dict[str, str]] = None,
     title="",
     status="",
@@ -677,6 +724,7 @@ def Attribute(
         metadata,
         title,
         status,
+        constraints=constraints,
     )
     return field
 
@@ -689,6 +737,7 @@ def Property(
     default=MISSING,
     factory=MISSING,
     name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
     metadata: Optional[Dict[str, str]] = None,
     title="",
     status="",
@@ -702,6 +751,7 @@ def Property(
         metadata=metadata,
         title=title,
         status=status,
+        constraints=constraints,
         declare_attribute=attribute,
     )
     return field
@@ -868,6 +918,37 @@ class FieldProjection(_Ref):
 
     def __delattr__(self, name):
         raise AttributeError(name)
+
+    def apply_constraint(self, c: DataConstraint):
+        if self.field.tosca_field_type in [
+            ToscaFieldType.property,
+            ToscaFieldType.attribute,
+        ]:
+            if (
+                self.parent
+                and self.parent.field.tosca_field_type == ToscaFieldType.capability
+            ):
+                capability = self.parent.field.tosca_name
+                parent = self.parent.parent
+                if (
+                    not parent
+                    or parent.field.tosca_field_type != ToscaFieldType.requirement
+                ):
+                    raise ValueError(
+                        "Can not create node filter on capability '{capability}', expression doesn't reference a requirement."
+                    )
+            else:
+                parent = self.parent
+                capability = None
+            if parent and parent.field.tosca_field_type == ToscaFieldType.requirement:
+                parent.field.add_node_filter(c, self.field.tosca_name, capability)
+            else:
+                self.field.constraints.append(c)
+        else:
+            raise ValueError(
+                "Value constraints can not be assigned to a TOSCA "
+                + self.field.tosca_field_type.name
+            )
 
 
 def get_annotations(o):
