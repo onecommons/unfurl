@@ -1420,12 +1420,7 @@ class ToscaType(_ToscaType):
     def to_yaml(self, dict_cls=dict):
         return self._name
 
-    def to_template_yaml(self, converter: "PythonToYaml") -> dict:
-        # XXX directives, metadata, everything else
-        # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
-        # so we need to look for _ToscaFields and operation function in the object's __dict__ and generate yaml for them too
-        dict_cls = converter.yaml_cls
-        body = dict_cls(type=self.tosca_type_name())
+    def get_fields(self):
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for name, value in self.__dict__.items():
             field = fields.get(name)
@@ -1438,50 +1433,61 @@ class ToscaType(_ToscaType):
                     value = field.default
                 else:
                     continue
+                yield field, value
             elif not field and name[0] != "_" and not callable(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
                 if not field:
                     # the value was a data value or unrecognized, nothing to convert
                     continue
+                yield field, value
+            elif isinstance(field, _Tosca_Field):
+                yield field, value
 
-            if field and isinstance(field, _Tosca_Field):
-                if field.section == "requirements":
-                    # XXX node_filter if value is ref
-                    # XXX handle case where value is a type not an instance
-                    req = dict_cls()
-                    shorthand = converter.set_requirement_value(
-                        req, value, self._name + "_" + field.name
+    def to_template_yaml(self, converter: "PythonToYaml") -> dict:
+        # XXX directives, metadata, everything else
+        # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
+        # so we need to look for _ToscaFields and operation function in the object's __dict__ and generate yaml for them too
+        dict_cls = converter.yaml_cls
+        body = dict_cls(type=self.tosca_type_name())
+        for field, value in self.get_fields():
+            if field.section == "requirements":
+                # XXX node_filter if value is ref
+                # XXX handle case where value is a type not an instance
+                req = dict_cls()
+                shorthand = converter.set_requirement_value(
+                    req, value, self._name + "_" + field.name
+                )
+                if shorthand or req:
+                    body.setdefault("requirements", []).append(
+                        {field.tosca_name: shorthand or req}
                     )
-                    if shorthand or req:
-                        body.setdefault("requirements", []).append(
-                            {field.tosca_name: shorthand or req}
+            elif field.section in ["capabilities", "artifacts"]:
+                if value:
+                    assert isinstance(value, (CapabilityType, ArtifactType))
+                    if (
+                        field.default_factory
+                        and field.default_factory is not dataclasses.MISSING
+                    ):
+                        default_value = field.default_factory()
+                    else:
+                        default_value = field.default
+                    if value._local_name:
+                        compare = dataclasses.replace(
+                            value, _local_name=None, _node=None  # type: ignore
                         )
-                elif field.section in ["capabilities", "artifacts"]:
-                    if value:
-                        assert isinstance(value, (CapabilityType, ArtifactType))
-                        if (
-                            field.default_factory
-                            and field.default_factory is not dataclasses.MISSING
-                        ):
-                            default_value = field.default_factory()
-                        else:
-                            default_value = field.default
-                        if value._local_name:
-                            compare = dataclasses.replace(
-                                value, _local_name=None, _node=None  # type: ignore
-                            )
-                        else:
-                            compare = value
-                        if compare != default_value:
-                            tpl = value.to_template_yaml(converter)
-                            body.setdefault(field.section, {})[field.tosca_name] = tpl
-                elif field.section in ["properties", "attributes"]:
-                    if field.default == value:
-                        continue
-                    body.setdefault(field.section, {})[
-                        field.tosca_name
-                    ] = to_tosca_value(value)
+                    else:
+                        compare = value
+                    if compare != default_value:
+                        tpl = value.to_template_yaml(converter)
+                        body.setdefault(field.section, {})[field.tosca_name] = tpl
+            elif field.section in ["properties", "attributes"]:
+                if field.default == value:
+                    # XXX datatype values don't compare properly, should have logic like CapabilityType above
+                    continue
+                body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
+                    value
+                )
 
         if not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
@@ -1520,7 +1526,18 @@ class NodeType(ToscaType):
         return None
 
 
-class DataType(ToscaType):
+class _OwnedToscaType(ToscaType):
+    _local_name: Optional[str] = field(default=None)
+    _node: Optional[NodeType] = field(default=None)
+
+    def _set_parent(self, parent: "_ToscaType", name: str):
+        # only set once
+        if not self._local_name and isinstance(parent, NodeType):
+            self._node = parent
+            self._local_name = name
+
+
+class DataType(_OwnedToscaType):
     _type_section: ClassVar[str] = "data_types"
     _type: ClassVar[Optional[str]] = None
     _constraints: ClassVar[Optional[List[dict]]] = None
@@ -1539,16 +1556,11 @@ class DataType(ToscaType):
         custom_defs = cls._cls_to_yaml(None)
         return ToscaDataType(cls.tosca_type_name(), custom_defs)
 
-
-class _OwnedToscaType(ToscaType):
-    _local_name: Optional[str] = field(default=None)
-    _node: Optional[NodeType] = field(default=None)
-
-    def _set_parent(self, parent: "_ToscaType", name: str):
-        # only set once
-        if not self._local_name and isinstance(parent, NodeType):
-            self._node = parent
-            self._local_name = name
+    def to_yaml(self, dict_cls=dict):
+        body = dict_cls()
+        for field, value in self.get_fields():
+            body[field.tosca_name] = to_tosca_value(value, dict_cls)
+        return body
 
 
 class CapabilityType(_OwnedToscaType):

@@ -553,12 +553,64 @@ def test_set_constraints() -> None:
     }
 
 
+test_datatype_yaml = """
+topology_template:
+  node_templates:
+    test:
+      type: Example
+      properties:
+        data:
+          prop1: test
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    properties:
+      data:
+        type: MyDataType
+data_types:
+  MyDataType:
+    properties:
+      prop1:
+        type: string
+        default: ''
+"""
+
+
+def test_datatype():
+    import tosca
+    from tosca import DataType
+
+    class MyDataType(DataType):
+        prop1: str = ""
+
+    class Example(tosca.nodes.Root):
+        data: MyDataType
+
+    test = Example(data=MyDataType(prop1="test"))
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, test_datatype_yaml)
+    # yaml.dump(yaml_dict, sys.stdout)
+    assert tosca_yaml == yaml_dict
+
+
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",
     [
         (dict(file="foo.yaml"), "from .foo import *", "/path/to/foo"),
-        (dict(file="foo.yaml", namespace_prefix="ns"), "from . import foo as ns", "/path/to/foo"),
-        (dict(file="foo.yaml", namespace_prefix="foo"), "from . import foo", "/path/to/foo"),
+        (
+            dict(file="foo.yaml", namespace_prefix="ns"),
+            "from . import foo as ns",
+            "/path/to/foo",
+        ),
+        (
+            dict(file="foo.yaml", namespace_prefix="foo"),
+            "from . import foo",
+            "/path/to/foo",
+        ),
         (dict(file="../foo.yaml"), "from ..foo import *", "/path/to/../foo"),
         (
             dict(file="../../foo.yaml"),
