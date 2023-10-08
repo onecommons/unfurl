@@ -61,8 +61,14 @@ def test_constraints():
         },
         "Proxy": {
             "derived_from": "tosca.nodes.Root",
-            "properties": {"backend_url": {"type": "string", "default": None}},
-            "attributes": {"endpoint": {"type": "string"}},
+            "properties": {
+                "backend_url": {
+                    "type": "string",
+                    "default": None,
+                    "description": "URL to proxy",
+                }
+            },
+            "attributes": {"endpoint": {"type": "string", "description": "Public URL"}},
         },
         "ProxyContainerHost": {
             "derived_from": ["Proxy", "ContainerHost"],

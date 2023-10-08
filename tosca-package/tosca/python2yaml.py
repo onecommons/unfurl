@@ -367,7 +367,7 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def visit_ClassDef(self, node: ClassDef) -> Any:
         # find attribute docs in this class definition
         doc_strings = get_descriptions(node.body)
-        self.used_names[node.name] = doc_strings
+        self.used_names[node.name + ":doc_strings"] = doc_strings
         return super().visit_ClassDef(node)
 
 
@@ -421,7 +421,7 @@ def python_src_to_yaml_obj(
     result = restricted_exec(
         python_src, namespace, base_dir, full_name, modules, safe_mode
     )
-    doc_strings = result.used_names
+    doc_strings = { n[:-len(":doc_strings")]: ds for n, ds in result.used_names.items() if n.endswith(":doc_strings")}
     converter = PythonToYaml(
         namespace, yaml_cls, doc_strings, safe_mode, modules, write_policy
     )
