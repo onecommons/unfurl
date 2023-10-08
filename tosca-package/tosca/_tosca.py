@@ -1096,15 +1096,17 @@ class _Set_ConfigSpec_Method:
 
 
 class _FieldDescriptor:
-    def __init__(self, field):
+    def __init__(self, field: _Tosca_Field):
         self.field = field
 
     def __get__(self, obj, obj_type):
         if obj or global_state._in_process_class:
             return self.field.default
         else:  # attribute access on the class
-            return FieldProjection(self.field, None)
-
+            projection = FieldProjection(self.field, None)
+            # XXX add validation key to eval to assert one result only
+            projection.expr = {"eval":f"::[.type={obj_type.tosca_type_name()}]::{self.field.as_ref_expr()}"}
+            return projection
 
 def field(
     *,
@@ -1745,6 +1747,9 @@ class _ToscaTypeProxy:
             # _FieldDescriptor.__get__ returns a FieldProjection
             if isinstance(attr.field.default, ArtifactType):
                 return _ArtifactProxy(name)
+            else:
+                # this is only called when defining an operation on a type so reset query to be relative
+                attr.expr = {"eval":f".::{attr.field.as_ref_expr()}"}
         return attr
 
     def find_artifact(self, name_or_tpl):

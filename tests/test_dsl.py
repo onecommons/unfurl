@@ -128,6 +128,7 @@ class WordPress(tosca.nodes.WebApplication):
 
 class WordPressPlugin(tosca.nodes.Root):
     name: str
+    instance: str = WordPress.app_endpoint.ip_address
 '''
 
 type_reference_yaml = {
@@ -155,7 +156,14 @@ type_reference_yaml = {
         },
         "WordPressPlugin": {
             "derived_from": "tosca.nodes.Root",
-            "properties": {"name": {"type": "string"}},
+            "properties": {"name": {"type": "string"},
+            "instance": {
+                "type": "string",
+                "default": {
+                    "eval": "::[.type=WordPress]::.capabilities[.name=app_endpoint]::ip_address"
+                },
+            },
+            }
         },
     },
     "topology_template": {},
@@ -438,10 +446,10 @@ node_types:
               primary: shellScript
             inputs:
               location:
-                eval: prop1
+                eval: .::prop1
               version: 0
               host:
-                eval: .targets::host::public_address
+                eval: .::.targets::host::public_address
 interface_types:
   MyCustomInterface:
     derived_from: tosca.interfaces.Root
@@ -544,7 +552,7 @@ def test_set_constraints() -> None:
                     "operations": {
                         "create": {
                             "implementation": {"primary": "shellScript"},
-                            "inputs": {"input1": {"eval": "prop1"}},
+                            "inputs": {"input1": {"eval": ".::prop1"}},
                         }
                     }
                 }
