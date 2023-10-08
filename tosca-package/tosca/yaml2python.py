@@ -573,11 +573,19 @@ class Convert:
                     return str(value)
                 return self.convert_datatype_value(typename, cls, dt, value)
 
+    def _constraint_args(self, c) -> str:
+        if c.constraint_key == "in_range":
+            min, max = c.constraint_value_msg
+            return f"{self._get_typed_value_repr(c.property_type, None, min)},{self._get_typed_value_repr(c.property_type, None, max)}"
+        else:
+            return self._get_typed_value_repr(c.property_type, None, c.constraint_value_msg)
+
     def to_constraints(self, constraints):
         # note: c.constraint_value_msg is unconverted value
         # constraint_key will correspond to constraint class names
+        c = constraints[0]
         src_list = [
-            f"{c.constraint_key}({self._get_typed_value_repr(c.property_type, None, c.constraint_value_msg)})"
+            f"{c.constraint_key}({self._constraint_args(c)})"
             for c in constraints
         ]
         if len(src_list) == 1:
@@ -1516,7 +1524,8 @@ def convert_service_template(
         # this is already defined because tosca.nodes.Root needs to inherit from it
         Install = tosca.interfaces.Install
         """
-    src += '\nif __name__ == "__main__":\n    tosca.dump_yaml(globals())'
+    # XXX fix relative imports and re-enable
+    # src += '\nif __name__ == "__main__":\n    tosca.dump_yaml(globals())'
 
     if format:
         try:

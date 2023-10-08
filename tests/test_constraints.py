@@ -166,8 +166,8 @@ def test_set_constraints() -> None:
             # you can also but you lose static type checking:
             cls.name = max_length(20)  # type: ignore
             # setting a constraint on reference to requirement creates a node_filter:
-            in_range([2 * gb, 20 * gb]).apply_constraint(cls.host.host.mem_size)
-            # cls.container.host.host.mem_size = in_range([2*gb, 20*gb])
+            in_range(2 * gb, 20 * gb).apply_constraint(cls.host.host.mem_size)
+            # cls.container.host.host.mem_size = in_range(2*gb, 20*gb)
 
     __name__ = "tests.test_constraints"
     converter = PythonToYaml(locals())

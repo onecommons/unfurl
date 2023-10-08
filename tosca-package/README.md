@@ -12,7 +12,7 @@ Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or interna
 
 * Expressiveness. With a full-fledged programming language as the host language (ie. Python), you have all its facilities for writing good code.
 
-* Reduced learning curve. By mapping to TOSCA syntax to existing language constructs like classes and methods and by rely on type inference we can present a simpler and more intuitive mental model to developers. For example, TOSCA's notion of requirements, properties, and artifacts are all represented the same way as regular Python attributes assigned to a Python class.
+* Reduced learning curve. By mapping to TOSCA syntax to existing language constructs like classes and methods and by rely on type inference we can present a simpler and more intuitive mental model to developers. For example, TOSCA's notions of requirements, capabilities, properties, and artifacts are all represented the same way as regular Python attributes assigned to a Python class.
 
 * IDE and tooling integration. You can take of all of the existing IDE and tooling integrations for the host language.
 
@@ -161,7 +161,7 @@ Here the `Attribute()` field specifier is used to indicate a field is an TOSCA a
 
 Also note `_type_name`, which can be used to name the type when the YAML identifier doesn't conform to Python's identifier syntax.
 
-You can see all of TOSCA 1.3's pre-defined types as automatically converted from YAML to Python [here](https://github.com/onecommons/unfurl/blob/dsl/tosca-package/tosca/builtin_types.py).
+You can see all of TOSCA 1.3's pre-defined types as automatically converted from YAML to Python [here](https://github.com/onecommons/unfurl/blob/main/tosca-package/tosca/builtin_types.py).
 
 ### Interfaces and Operations
 
@@ -219,6 +219,7 @@ node_types:
             node: tosca.nodes.Compute
         interfaces:
           MyCustomInterface:
+            type: MyCustomInterface
             operations:
               my_operation:
                 implementation:
@@ -230,7 +231,46 @@ node_types:
                     {get_property: [SELF, host, public_address]}
 ```
 
-It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA. Another illustration of the benefits building a DSL on a widely supported language.
+It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA -- another illustration of the benefits of building a DSL on a widely supported language.
+
+### Node Filters
+
+Tosca types can declared a special class-level method called `_set_constraints` that is called when the class is definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
+
+This example creates sets the `node_filter` on the declared `host` requirement:
+
+
+```python
+    from tosca import in_range, gb
+
+    class Example(tosca.nodes.Root):
+        host: tosca.nodes.Compute
+
+        @classmethod
+        def _set_constraints(cls) -> None:
+            in_range(2 * gb, 20 * gb).apply_constraint(cls.host.host.mem_size)
+```
+
+And will translated to YAML as:
+
+```yaml
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - host:
+        node: tosca.nodes.Compute
+        node_filter:
+          capabilities:
+          - host:
+              properties:
+              - mem_size:
+                  in_range:
+                  - 2 GB
+                  - 20 GB
+```
+
+Note that your IDEs type checker will detect if the `mem_size`'s type was incompatible with the values passed to `in_range`.
 
 ### Imports and repositories
 
@@ -264,7 +304,7 @@ from tosca_repositories.my_repo.bar.foo import *
 from tosca_repositories.my_repo.bar import foo
 ```
 
-`unfurl export` will resolve imports from repository by creating a`tosca_repository` directory with symlinks to the location of the repository. This enables compatibility with IDEs that rely simple file system path mapping to resolve Python imports.
+`unfurl export` will resolve imports from repository by creating a`tosca_repository` directory with symlinks to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
 
 ## Usage
 

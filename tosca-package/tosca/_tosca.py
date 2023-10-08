@@ -15,6 +15,7 @@ from typing import (
     ClassVar,
     Dict,
     ForwardRef,
+    Generic,
     Iterator,
     Mapping,
     NamedTuple,
@@ -106,8 +107,14 @@ class less_or_equal(DataConstraint):
     pass
 
 
-class in_range(DataConstraint):
-    pass
+T = TypeVar('T')
+
+class in_range(DataConstraint, Generic[T]):
+    def __init__(self, min: T, max: T):
+        super().__init__([min, max])
+
+    def apply_constraint(self, val: T) -> bool:
+        return super().apply_constraint(val)
 
 
 class valid_values(DataConstraint):
@@ -792,8 +799,6 @@ _make_field_doc(
     ],
 )
 
-T = TypeVar("T")
-
 
 def Capability(
     *,
@@ -1105,8 +1110,11 @@ class _FieldDescriptor:
         else:  # attribute access on the class
             projection = FieldProjection(self.field, None)
             # XXX add validation key to eval to assert one result only
-            projection.expr = {"eval":f"::[.type={obj_type.tosca_type_name()}]::{self.field.as_ref_expr()}"}
+            projection.expr = {
+                "eval": f"::[.type={obj_type.tosca_type_name()}]::{self.field.as_ref_expr()}"
+            }
             return projection
+
 
 def field(
     *,
@@ -1385,7 +1393,7 @@ class ToscaType(_ToscaType):
 
     @classmethod
     def _shared_cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
-        # XXX _type_metadata, version
+        # XXX version
         dict_cls = converter and converter.yaml_cls or yaml_cls
         body: Dict[str, Any] = dict_cls()
         tosca_name = cls.tosca_type_name()
@@ -1398,6 +1406,8 @@ class ToscaType(_ToscaType):
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
             body["description"] = doc
+        if cls._type_metadata:
+            body["metadata"] = metadata_to_yaml(cls._type_metadata)
 
         for field in cls.explicit_tosca_fields:
             assert field.name, field
@@ -1749,7 +1759,7 @@ class _ToscaTypeProxy:
                 return _ArtifactProxy(name)
             else:
                 # this is only called when defining an operation on a type so reset query to be relative
-                attr.expr = {"eval":f".::{attr.field.as_ref_expr()}"}
+                attr.expr = {"eval": f".::{attr.field.as_ref_expr()}"}
         return attr
 
     def find_artifact(self, name_or_tpl):
