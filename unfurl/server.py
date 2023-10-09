@@ -2181,7 +2181,9 @@ class ServerCacheResolver(SimpleCacheResolver):
             cache_entry: CacheEntry, latest_commit: Optional[str]
         ) -> Tuple[Any, Any, bool]:
             path = os.path.join(cache_entry.checked_repo.working_dir, file_name)
-            doc, cacheable = self._really_load_yaml(path, True, fragment, repo_view)
+            doc, cacheable = self._really_load_yaml(
+                path, True, fragment, repo_view, cache_entry.checked_repo.working_dir
+            )
             # we only care about deps when the revision is mutable (not a version tag)
             # # version specified or explicit -> not a dependency
             # # no revision specified -> use key for latest remote tags cache of repo

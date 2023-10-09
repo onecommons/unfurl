@@ -695,13 +695,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             assert repo_view  # urls must have a repo_view
             path = self._resolve_repo_to_path(repo_view, base, file_name)
             is_file = True
-        return self._really_load_yaml(path, is_file, fragment, repo_view)
+        return self._really_load_yaml(path, is_file, fragment, repo_view, base)
 
     def _convert_to_yaml(
         self,
         contents: str,
         path: str,
         repo_view: Optional[RepoView],
+        base_dir: str,
         yaml_dict: type = dict,
     ):
         if path.endswith(".py"):
@@ -709,7 +710,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
             self.expand = False
             namespace: Dict[str, Any] = {}
-            base_dir = self.manifest.get_base_dir()
             if repo_view and repo_view.repository:
                 package_path = Path(get_base_dir(path)).relative_to(
                     repo_view.working_dir
@@ -746,6 +746,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         isFile: bool,
         fragment: Optional[str],
         repo_view: Optional[RepoView],
+        base_dir: str,
     ) -> Tuple[Any, bool]:
         originalPath = path
         try:
@@ -759,7 +760,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
-                doc = self._convert_to_yaml(contents, path, repo_view, yaml_dict)
+                doc = self._convert_to_yaml(contents, path, repo_view, base_dir, yaml_dict)
                 base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
@@ -810,7 +811,7 @@ class SimpleCacheResolver(ImportResolver):
             path = self._resolve_repo_to_path(repo_view, base, file_name)
         doc = self.get_cache((path, fragment))
         if doc is None:
-            doc, cacheable = self._really_load_yaml(path, True, fragment, repo_view)
+            doc, cacheable = self._really_load_yaml(path, True, fragment, repo_view, base)
             if cacheable:
                 self.set_cache((path, fragment), doc)
         else:
