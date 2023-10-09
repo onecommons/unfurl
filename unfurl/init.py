@@ -145,12 +145,9 @@ def _create_repo(gitDir, ignore=True):
     return GitRepo(repo)
 
 
-def write_service_template(projectdir):
-    from .spec import TOSCA_VERSION
-
-    vars = dict(version=TOSCA_VERSION)
+def write_service_template(projectdir, templateDir=None):
     return write_template(
-        projectdir, "service-template.yaml", "service-template.yaml.j2", vars
+        projectdir, "service_template.py", "service_template.py.j2", {}, templateDir
     )
 
 
@@ -324,6 +321,8 @@ def render_project(
         {},
         templateDir,
     )
+    # write service_template.py
+    write_service_template(projectdir, templateDir)
 
     if ensembleRepo:
         extraVars = dict(

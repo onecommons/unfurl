@@ -1,33 +1,40 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
 # This template is intended to be included in your ensemble.yaml manifest file
 # (by default, found at ensemble/ensemble.yaml)
-# Edit it to include any reusable your ensemble needs, such as its service_template.
+# Edit it to include any reusable components your ensemble needs.
 apiVersion: unfurl/v1alpha1
 spec:
   service_template:
+    # Declare your TOSCA types and topology here.
+    # This include allows you to also declare your TOSCA as Python code:
+    +?include: service_template.py
+    # It will be merged with the YAML TOSCA definitions defined here.
+
     topology_template:
       node_templates: {}
-
         # # this is an example of a minimal node template
         # # it is essentially defining an untyped node
         # minimalNode:
-        #   type: tosca:Root  # base type for all nodes
+        #   type: unfurl.nodes.Generic
         #   properties:
-        #     # You can set arbitrary properties unless the node's type has
-        #     # the "additionalProperties" metadata attribute set to false
-        #     # If it is, the properties must conform to the type's definitions
-        #     property1: foo
+        #     # Templates need to define the properties declared by its type.
+        #     # but unfurl.nodes.Generic is defined to allow its templates to declare
+        #     # arbitrary properties, like this one:
+        #     name: foo
         #   requirements:
         #     # "dependency" is the base relationship type between nodes
         #     # use it if you want to set untyped dependencies between nodes
         #     - dependency: anotherNode
         #   interfaces:
-        #     # you need define these operation if they are missing from node's type definition
+        #     # you need to define these operations if they are missing from node's type definition
+        #     # the operation is defined as a simple string, the implementation is executed as a shell command.
+        #     # Jinja2 style templates expressions are supported.
         #     Standard:
         #       # to deploy a node you need to at least define a configure operation
-        #       configure: echo "created and configured"
+        #       configure: echo "created and configured {{ SELF.name }}"
         #       # if you want to be able to undeploy this node, define a delete operation
-        #       delete: echo "deleted"
+        #       delete: echo "deleted {{ SELF.name }}"
         #     Install:
         #       # if you want to be able to check on the status of a deployed node,
         #       # define a check operation
-        #       check: echo "check ok"
+        #       check: echo "{{ SELF.name }} ok"
