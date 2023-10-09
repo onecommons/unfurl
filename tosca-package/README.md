@@ -34,7 +34,7 @@ Requirements: Python versions 3.7 or later.
 
 ## Status
 
-Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since you always stick with YAML for the less common elements. Also, YAML to Python completeness is less of a priority than Python to YAML since the former is a just a convenience, while the latter is required for the DSL to be useable.
+Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since YAML can be used as a fallback for the less common elements. Also, YAML-to-Python completeness is less of a priority than Python-to-YAML since the former is a just a convenience, while the latter is required for the DSL to be useable.
 
 ## Examples
 
@@ -87,7 +87,7 @@ db_server = tosca.nodes.Compute(
 It looks very similar, except explicit types are required when assigning the `host` and `os` capabilities and properties that have unit values (`disk_size` and `mem_size`).
 
 Things are a little more interesting when defining a TOSCA node type in Python.
-Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2 ):
+Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):
 
 ```yaml
 node_types:
@@ -151,10 +151,10 @@ class Compute(AbstractCompute):
     )
 
     local_storage: Sequence[
-            "relationships.AttachesTo" |
-            "nodes.StorageBlockStorage" |
-            "capabilities.Attachment" |
-        ] = Requirement(default=())
+        "relationships.AttachesTo" |
+        "nodes.StorageBlockStorage" |
+        "capabilities.Attachment"
+    ] = Requirement(default=())
 ```
 
 Here the `Attribute()` field specifier is used to indicate a field is an TOSCA attribute, not a property (the default for data types), and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences: [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence. See the [API documentation](https://docs.unfurl.run/api.html#tosca-field-specifiers) for the full list of field specifiers.
@@ -184,8 +184,9 @@ By mapping TOSCA's interfaces and operations to Python's classes and methods we 
 
       def my_operation(self):
           return self.shellScript.execute(
-                      MyCustomInterface.Inputs(location=self.location),
-                      host_address=self.host.public_address)
+              MyCustomInterface.Inputs(location=self.location),
+              host_address=self.host.public_address
+          )
 ```
 
 This will be translated to YAML as:
@@ -270,7 +271,7 @@ node_types:
                   - 20 GB
 ```
 
-Note that your IDEs type checker will detect if the `mem_size`'s type was incompatible with the values passed to `in_range`.
+Note that your IDE's type checker will detect if the `mem_size`'s type was incompatible with the values passed to `in_range`.
 
 ### Imports and repositories
 
