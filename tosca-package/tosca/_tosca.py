@@ -113,7 +113,7 @@ class in_range(DataConstraint, Generic[T]):
     def __init__(self, min: T, max: T):
         super().__init__([min, max])
 
-    def apply_constraint(self, val: T) -> bool:
+    def apply_constraint(self, val: Optional[T]) -> bool:
         return super().apply_constraint(val)
 
 
