@@ -1,0 +1,60 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
+apiVersion: unfurl/v1alpha1
+kind: Project
+[%include | default("") %]
+{%- if default_context | default("") %}
+default_environment: [%default_context%]
+{% endif %}
+
+environments:
+  [% default_context  | default("defaults") %]:
+    imports:
+       - file: tosca_plugins/k8s.yaml
+         repository: unfurl
+
+    connections:
+      # declare the primary_provider as a connection to a Kubernetes cluster:
+      primary_provider:
+        type: unfurl.relationships.ConnectsTo.K8sCluster
+        # properties:
+        #   name:
+        #   Defaults to envvar: KUBE_CTX_CLUSTER
+
+        #   KUBECONFIG:
+        #   Path to an existing Kubernetes config file. If not provided, and no other connection
+        #   options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
+        #   Defaults to envvar: KUBECONFIG
+
+        #   context:
+        #   The name of a context found in the config file. If not set the current-context will be used.
+        #   Defaults to envvar: KUBE_CTX
+
+        #   cluster_ca_certificate:
+        #   Defaults to envvar: KUBE_CLUSTER_CA_CERT_DATA
+
+        #   insecure:
+        #   If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+        #   Defaults to envvar: KUBE_INSECURE
+
+        #   token:
+        #   Defaults to envvar: KUBE_TOKEN
+
+        #   credential:
+        #   token_type is either "api_key" or "password" (default is "password")
+        #   Its "keys" map can have the following values:
+        #   "cert_file": Path to a cert file for the certificate authority
+        #   "ca_cert": Path to a client certificate file for TLS
+        #   "key_file": Path to a client key file for TLS
+
+        #   namespace:
+        #   The default namespace scope to use
+
+        #   api_server:
+        #   The address and port of the Kubernetes API server
+        #   Defaults to envvar: KUBE_HOST
+
+        #   protocol: https
+
+        # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
+        # setting "primary_provider" to the name of the inherited connection, for example:
+        # primary_provider: k8s
