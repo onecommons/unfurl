@@ -14,7 +14,7 @@ Usage:
 '1.0 MB'
 """
 import math
-from typing import Generic, Type, TypeVar, Dict
+from typing import Any, Generic, Type, TypeVar, Dict
 from toscaparser.elements.scalarunit import (
     ScalarUnit_Size,
     ScalarUnit_Time,
@@ -53,13 +53,13 @@ class _Scalar(float):
     #     return f"{self.__class__.__name__}({super().__repr__()})"
 
 
-S = TypeVar("S", bound="_Scalar")
+_S = TypeVar("_S", bound="_Scalar")
 
-class _Unit(Generic[S]):
-    def __init__(self, scalar_type: Type[S], unit: str):
+class _Unit(Generic[_S]):
+    def __init__(self, scalar_type: Type[_S], unit: str):
         self.unit = scalar_type(scalar_type.SCALAR_UNIT_DICT[unit], unit)
 
-    def __rmul__(self, other: float) -> S:
+    def __rmul__(self, other: float) -> _S:
         return self.unit.__class__(self.unit * other, self.unit.unit)
 
 class Size(_Scalar):
