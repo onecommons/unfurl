@@ -1,0 +1,54 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
+apiVersion: unfurl/v1alpha1
+kind: Project
+[%include | default("") %]
+{%- if default_context | default("") %}
+default_environment: [%default_context%]
+{% endif %}
+
+environments:
+  [% default_context  | default("defaults") %]:
+    connections:
+      # declare the primary_provider as a connection to an Azure account:
+      primary_provider:
+        type: unfurl.relationships.ConnectsTo.Azure
+        # properties:
+        #   AZURE_CLIENT_ID:
+        #   Also known as an Application ID or appId. Can be created via CLI[0] or through the Azure portal[1].
+        #   Defaults to envvars: ARM_CLIENT_ID, AZURE_CLIENT_ID
+
+        #   AZURE_TENANT:
+        #   See https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-ad-tenant
+        #   Defaults to envvars: ARM_TENANT_ID, AZURE_TENANT
+
+        #   AZURE_SUBSCRIPTION_ID:
+        #   See https://learn.microsoft.com/en-us/azure/azure-portal/get-subscription-tenant-id#find-your-azure-subscription
+        #   Defaults to envvars: ARM_SUBSCRIPTION_ID, AZURE_SUBSCRIPTION_ID
+
+        #   AZURE_SECRET:
+        #   For authentication with service principal. [2]
+        #   Default to envvars: ARM_CLIENT_SECRET, AZURE_SECRET
+
+
+        # the following properties are usually needed
+        #   AZURE_AD_USER:
+        #   for authentication with Active Directory
+        #   Defaults to envvar: AZURE_AD_USER
+
+        #   AZURE_PASSWORD:
+        #   for authentication with Active Directory
+        #   Defaults to envvar: AZURE_PASSWORD
+
+        #   AZURE_ADFS_AUTHORITY_URL:
+        #   set if you have your own ADFS authority
+        #   Defaults to envvar: AZURE_ADFS_AUTHORITY_URL 
+
+
+        # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
+        # setting "primary_provider" to the name of the inherited connection, for example:
+        # primary_provider: azure
+
+# LINKS
+# [0] https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_certificate
+# [1] https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal
+# [2] https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal#option-2-create-a-new-application-secret
