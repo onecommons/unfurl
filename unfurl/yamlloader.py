@@ -45,7 +45,14 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import Repo, RepoView, add_user_to_url, normalize_git_url, split_git_url, memoized_remote_tags
+from .repo import (
+    Repo,
+    RepoView,
+    add_user_to_url,
+    normalize_git_url,
+    split_git_url,
+    memoized_remote_tags,
+)
 from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -519,9 +526,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repo_view = self.manifest.add_repository(repository, "")
         else:
             # if file_name is relative, base will be set (to the importsLoader's path)
-            url = os.path.join(base, file_name)
-            if not toscaparser.imports.is_url(url):
+            if toscaparser.imports.is_url(base):
+                url = base
+            else:
                 # url is a local path
+                url = os.path.join(base, file_name)
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:
                     if toscaparser.imports.is_url(importsLoader.repository_root):
@@ -532,6 +541,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 if self._has_path_escaped(url, base=repository_root):
                     return None, None
                 return url, (True, None, base, file_name)
+
             repo_view = self._find_repoview(url)
             assert repo_view
 
@@ -760,7 +770,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
-                doc = self._convert_to_yaml(contents, path, repo_view, base_dir, yaml_dict)
+                doc = self._convert_to_yaml(
+                    contents, path, repo_view, base_dir, yaml_dict
+                )
                 base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
@@ -811,7 +823,9 @@ class SimpleCacheResolver(ImportResolver):
             path = self._resolve_repo_to_path(repo_view, base, file_name)
         doc = self.get_cache((path, fragment))
         if doc is None:
-            doc, cacheable = self._really_load_yaml(path, True, fragment, repo_view, base)
+            doc, cacheable = self._really_load_yaml(
+                path, True, fragment, repo_view, base
+            )
             if cacheable:
                 self.set_cache((path, fragment), doc)
         else:
