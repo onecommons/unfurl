@@ -309,14 +309,25 @@ class Convert:
         if is_url(url):
             if self.template.import_resolver:
                 local_path = self.template.import_resolver.find_repository_path(
-                    name, tpl, self.template.path
+                    name, tpl, self.template.base_dir
                 )
                 if local_path:
                     self.repository_paths[name] = local_path
                     return "tosca_repositories." + name, local_path
-        else:
+                else:
+                    logger.error(
+                        'Bad import: can not find repository "%s" in "%s"',
+                        name,
+                        self.template.path,
+                    )
+            else:
+                logger.warning(
+                    "No import_resolver set, can't resolve local path for repository %s",
+                    name,
+                )
+        else:  # import special (non-url) repositories like unfurl directly
             return name, url
-        return name, name
+        return "tosca_repositories." + name, name
 
     def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str, Tuple[str, str]]:
         "converts tosca yaml import dict (as `imp`) to python import statement"
@@ -336,7 +347,6 @@ class Convert:
             # generate repo import if repository: key given
             module_name, _import_path = self.find_repository(repo)
             import_path = PurePath(_import_path)
-
         else:
             # otherwise assume local path
             assert self.template.path
@@ -355,7 +365,9 @@ class Convert:
             python_prefix, tosca_name = self._get_name(namespace_prefix)
             self.import_prefixes[namespace_prefix] = python_prefix
             if python_prefix != filename:
-                import_stmt = f"from {module_name or '.'} import {filename} as {python_prefix}"
+                import_stmt = (
+                    f"from {module_name or '.'} import {filename} as {python_prefix}"
+                )
             else:
                 import_stmt = f"from {module_name or '.'} import {filename}"
         else:
@@ -578,15 +590,16 @@ class Convert:
             min, max = c.constraint_value_msg
             return f"{self._get_typed_value_repr(c.property_type, None, min)},{self._get_typed_value_repr(c.property_type, None, max)}"
         else:
-            return self._get_typed_value_repr(c.property_type, None, c.constraint_value_msg)
+            return self._get_typed_value_repr(
+                c.property_type, None, c.constraint_value_msg
+            )
 
     def to_constraints(self, constraints):
         # note: c.constraint_value_msg is unconverted value
         # constraint_key will correspond to constraint class names
         c = constraints[0]
         src_list = [
-            f"{c.constraint_key}({self._constraint_args(c)})"
-            for c in constraints
+            f"{c.constraint_key}({self._constraint_args(c)})" for c in constraints
         ]
         if len(src_list) == 1:
             return f"({src_list[0]},)"
@@ -1136,21 +1149,33 @@ class Convert:
     def template_reference(self, tosca_name: str, type: str, indent="") -> str:
         localname = self.imports.get_local_ref(tosca_name)
         if not localname:
+            assert self.template.topology_template
             if type == "node":
                 template = self.template.topology_template.node_templates.get(
                     tosca_name
                 )
-                assert template
-                localname, src = self.node_template2obj(template, indent="")
+                if template:
+                    localname, src = self.node_template2obj(template, indent="")
+                else:
+                    logger.error(
+                        f'Could not generate {type} template, "{tosca_name}" not found in topology.'
+                    )
+                    return tosca_name
             elif type == "relationship":
-                template = self.template.topology_template.relationship_templates.get(
-                    tosca_name
+                logger.warning(
+                    f'Skipping "{tosca_name}", relationship template not implemented'
                 )
-                assert template
-                assert False  # XXX
-                # name, src = self.relationship_template2obj(template, indent="")
+                return tosca_name
+                # XXX
+                # template = self.template.topology_template.relationship_templates.get(
+                #     tosca_name
+                # )
+                # if template:
+                #     localname, src = self.relationship_template2obj(template, indent="")
+                # else:
+                #     logger.error(f'Could not generate {type} template, "{tosca_name}" not found in topology.').
             else:
-                assert False, type
+                assert False, f"templates of type {type} not supported"
 
             # we need insert the code declaring this template before its name is referenced
             self._pending_defs.append(src)
@@ -1317,22 +1342,27 @@ class Convert:
         if "repositories" in self.template.tpl:
             repositories = self.template.tpl["repositories"]
             tpl.setdefault("repositories", {}).update(repositories)
-        convert_service_template(
-            ToscaTemplate(
-                file_path,
-                yaml_dict_tpl=tpl,
-                import_resolver=self.template.import_resolver,
-                verify=False,
-                base_dir=self.base_dir
-            ),
-            self.python_compatible,
-            self._builtin_prefix,
-            format,
-            custom_defs=self.custom_defs,
-            path=import_path,
-            write_policy=self.write_policy,
-            base_dir=self.base_dir,
-        )
+        if self.write_policy.can_overwrite(file_path, import_path):
+            convert_service_template(
+                ToscaTemplate(
+                    file_path,
+                    yaml_dict_tpl=tpl,
+                    import_resolver=self.template.import_resolver,
+                    verify=False,
+                    base_dir=self.base_dir,
+                ),
+                self.python_compatible,
+                self._builtin_prefix,
+                format,
+                custom_defs=self.custom_defs,
+                path=import_path,
+                write_policy=self.write_policy,
+                base_dir=self.base_dir,
+            )
+        else:
+            logger.info(
+                "not converting %s: %s", import_path, self.write_policy.deny_message()
+            )
 
     def get_package_name(self) -> str:
         path = self.template.path
@@ -1351,14 +1381,16 @@ class Convert:
         namespace: Dict[str, Any] = {}
         package = self.get_package_name()
         assert self.template.path
-        full_name = package + "." + Path(self.template.path).stem
+        full_name = package + "." + re.sub(r"\W", "_", Path(self.template.path).stem)
         try:
             result = restricted_exec(
                 self.imports.prelude() + src, namespace, self.base_dir, full_name
             )
             self.imports._add_imports("", namespace)
         except:
-            logger.error(f"error executing generated source for {full_name}", exc_info=True)
+            logger.error(
+                f"error executing generated source for {full_name}", exc_info=True
+            )
 
 
 def generate_builtins(import_resolver, format=True) -> str:
@@ -1467,7 +1499,9 @@ def convert_service_template(
                 imports._add_imports(ns, module.__dict__)
             except:
                 if module_name[0] == ".":
-                    logger.error(f"error importing {module_name} in {package}", exc_info=True)
+                    logger.error(
+                        f"error importing {module_name} in {package}", exc_info=True
+                    )
                 else:
                     logger.error(f"error importing {module_name}", exc_info=True)
             src += import_src

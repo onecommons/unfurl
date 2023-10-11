@@ -34,7 +34,6 @@ from .util import (
     unique_name,
     wrap_sensitive_value,
     UnfurlError,
-    UnfurlValidationError,
     find_schema_errors,
     get_base_dir,
 )
@@ -49,7 +48,7 @@ from .repo import (
     Repo,
     RepoView,
     add_user_to_url,
-    normalize_git_url,
+    normalize_git_url_hard,
     split_git_url,
     memoized_remote_tags,
 )
@@ -312,18 +311,24 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if not self.manifest:
             return None
         if tpl:  # match by url
-            url = normalize_git_url(tpl["url"])
+            # normalize_git_url_hard removes the fragment
+            url = normalize_git_url_hard(tpl["url"])
         else:
             url = None
+        candidate = None
         for repo_name, repo_view in self.manifest.repositories.items():
             if url:  # match by url
-                if url == repo_view.url:
+                if url == normalize_git_url_hard(repo_view.url):
                     # XXX repo_view.revision == tpl.get("revision")
+                    candidate = repo_view
+            if candidate or not url:
+                if repo_name == name or repo_view.python_name == name:
                     break
-            elif repo_name == name or repo_view.python_name == name:
-                break
         else:
-            return None  # no match
+            if candidate:  # use candidate even though name didn't match
+                repo_view = candidate
+            else:
+                return None  # no match
         self._resolve_repoview(repo_view)
         return repo_view
 
