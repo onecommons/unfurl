@@ -17,7 +17,6 @@ dependencies = [
   "black",
   "typing_extensions>=4.7",
   "RestrictedPython>=6.1",
-  "google-re2~=1"
 ]
 
 [project.urls]

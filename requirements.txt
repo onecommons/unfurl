@@ -23,4 +23,3 @@ uvicorn<=0.18.2 # BSD 3-clause
 python-gitlab==3.13.0
 black
 RestrictedPython>=6.1
-google-re2~=1
