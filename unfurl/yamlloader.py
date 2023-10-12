@@ -9,7 +9,19 @@ import sys
 import codecs
 import json
 import os
-from typing import Any, Optional, TextIO, Union, Tuple, List, cast, TYPE_CHECKING, Dict
+from typing import (
+    Any,
+    Optional,
+    TextIO,
+    Union,
+    Tuple,
+    List,
+    cast,
+    TYPE_CHECKING,
+    Dict,
+    overload,
+)
+from typing_extensions import Literal
 import urllib
 import urllib.request
 from urllib.parse import urljoin, urlsplit
@@ -360,13 +372,28 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             return target_path
         return None
 
-    def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
+    @overload
+    def get_repository(
+        self, name: str, tpl: None, unique: Literal[False] = False
+    ) -> Optional[Repository]:
+        ...
+
+    @overload
+    def get_repository(self, name: str, tpl: dict, unique: bool = False) -> Repository:
+        ...
+
+    def get_repository(
+        self, name: str, tpl: Optional[dict], unique: bool = False
+    ) -> Optional[Repository]:
         # this is also called by ToscaTemplate
         if not unique and name in self.manifest.repositories:
             # don't create another Repository instance
             return self.manifest.repositories[name].repository
         else:
             name = unique_name(name, list(self.manifest.repositories))
+
+        if tpl is None:
+            return None
 
         if isinstance(tpl, dict) and "url" in tpl:
             url = tpl["url"]
@@ -750,6 +777,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 yaml_dict,
                 safe_mode,
                 self.modules,
+                import_resolver=self,
             )
             return yaml_src
         else:

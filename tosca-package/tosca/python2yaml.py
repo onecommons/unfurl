@@ -16,6 +16,7 @@ from typing import (
     Union,
 )
 import logging
+logger = logging.getLogger("tosca")
 from pathlib import Path
 from tosca import Namespace
 from toscaparser import topology_template
@@ -52,6 +53,7 @@ class PythonToYaml:
         safe_mode=False,
         modules=None,
         write_policy=WritePolicy.never,
+        import_resolver=None,
     ):
         self.globals = namespace
         self.imports: Set[Tuple[str, Path]] = set()
@@ -65,6 +67,7 @@ class PythonToYaml:
         else:
             self.modules = modules
         self.write_policy = write_policy
+        self.import_resolver = import_resolver
 
     def find_yaml_import(self, module_name: str) -> Tuple[Optional[ModuleType], Optional[Path]]:
         module = self.modules.get(module_name) or sys.modules.get(module_name)
@@ -84,16 +87,31 @@ class PythonToYaml:
         parts = module_name.split(".")
         if parts[0] == "tosca_repositories":
             root_package = parts[0]+"."+parts[1]
+            repo_name = parts[1]
         else:
             root_package = parts[0]
+            repo_name = parts[0]
         root_module = self.modules.get(root_package, sys.modules.get(root_package))
         if not root_module:
             return "", None
-        root_path = root_module.__file__ or (root_module.__spec__ and root_module.__spec__.origin)
-        assert root_path, (module_name, root_package, parts, root_module.__dict__)
-        repo_path = Path(root_path).parent
-        self.repos[root_package] = repo_path
-        return root_package, path.relative_to(repo_path)
+        root_path = root_module.__file__
+        if not root_path:
+            if root_module.__spec__ and root_module.__spec__.origin:
+                root_path = root_module.__spec__.origin
+            else:
+                assert hasattr(root_module, "__path__"), (module_name, root_package, parts, root_module.__dict__)
+                module_path = root_module.__path__
+                try:
+                    root_path = module_path[0]
+                except TypeError:
+                    # _NamespacePath missing __getitem__ on older Pythons
+                    root_path = module_path._path[0]  # type: ignore
+            assert root_path
+            repo_path = Path(root_path)
+        else:
+            repo_path = Path(root_path).parent
+        self.repos[repo_name] = repo_path
+        return repo_name, path.relative_to(repo_path)
 
     def module2yaml(self) -> dict:
         mode = global_state.mode
@@ -112,7 +130,8 @@ class PythonToYaml:
             _import = dict(file=str(p))
             if repo:
                 _import["repository"] = repo
-                if repo != "unfurl":  # skip built-in repository
+                if not self.import_resolver or not self.import_resolver.get_repository(repo, None):
+                    # if repository has already been defined, don't add it here (it will probably be wrong)
                     repositories[repo] = dict(url=self.repos[repo].as_uri())
             imports.append(_import)
         if repositories:
@@ -167,7 +186,7 @@ class PythonToYaml:
         path = Path(module.__file__)
         yaml_path = path.parent / (path.stem + ".yaml")
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
-            logging.info(
+            logger.info(
                 "skipping saving imported python module as YAML %s: %s",
                 yaml_path,
                 self.write_policy.deny_message(),
@@ -184,9 +203,10 @@ class PythonToYaml:
             self.safe_mode,
             self.modules,
             self.write_policy,
+            self.import_resolver,
         )
         with open(yaml_path, "w") as yo:
-            logging.info("saving imported python module as YAML at %s", yaml_path)
+            logger.info("saving imported python module as YAML at %s", yaml_path)
             yaml.dump(yaml_dict, yo)
         return yaml_path
 
@@ -217,9 +237,9 @@ class PythonToYaml:
             if isinstance(obj, _DataclassType):
                 if module_name and module_name != current_module:
                     if not module_name.startswith("tosca."):
-                        logging.debug(
-                            f"adding import statement to {current_module} for {obj} in {module_name}"
-                        )
+                        # logger.debug(
+                        #     f"adding import statement to {current_module} for {obj} in {module_name}"
+                        # )
                         # this type was imported from another module
                         # instead of converting the type, add an import if missing
                         module, p = self.find_yaml_import(module_name)
@@ -235,7 +255,7 @@ class PythonToYaml:
                                 if path:
                                     self.imports.add((ns, path))
                                 else:
-                                    logging.warning(f"import look up in {current_module} failed, can find {module_name}")
+                                    logger.warning(f"import look up in {current_module} failed, can find {module_name}")
                     continue
 
                 # this is a class not an instance
@@ -413,6 +433,7 @@ def python_src_to_yaml_obj(
     safe_mode: bool = False,
     modules=None,
     write_policy=WritePolicy.never,
+    import_resolver=None,
 ) -> dict:
     if modules is None:
         modules = {}
@@ -423,7 +444,7 @@ def python_src_to_yaml_obj(
     )
     doc_strings = { n[:-len(":doc_strings")]: ds for n, ds in result.used_names.items() if n.endswith(":doc_strings")}
     converter = PythonToYaml(
-        namespace, yaml_cls, doc_strings, safe_mode, modules, write_policy
+        namespace, yaml_cls, doc_strings, safe_mode, modules, write_policy, import_resolver
     )
     yaml_dict = converter.module2yaml()
     return yaml_dict
@@ -431,7 +452,7 @@ def python_src_to_yaml_obj(
 
 def python_to_yaml(
     src_path: str,
-    dest_path=None,
+    dest_path: Optional[str]=None,
     overwrite="auto",
     safe_mode: bool = False,
 ) -> Optional[dict]:
@@ -440,8 +461,8 @@ def python_to_yaml(
     except ImportError:
         import yaml
     write_policy = WritePolicy[overwrite]
-    if not write_policy.can_overwrite(src_path, dest_path):
-        logging.info(
+    if dest_path and not write_policy.can_overwrite(src_path, dest_path):
+        logger.info(
             "not saving YAML file at %s: %s", dest_path, write_policy.deny_message()
         )
         return None
@@ -468,7 +489,7 @@ def python_to_yaml(
     if dest_path:
         output = io.StringIO(prologue)
         yaml.dump(tosca_tpl, output)
-        logging.info("converted Python to YAML at %s", dest_path)
+        logger.info("converted Python to YAML at %s", dest_path)
         with open(dest_path, "w") as f:
             f.write(output.getvalue())
     else:
