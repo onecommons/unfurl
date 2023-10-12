@@ -5,13 +5,13 @@ name = "pypi"
 
 [packages]
 pipenv = "==2023.7.3"
-click = ">=8.0.1,<8.1.4"
+click = "<8.1.4,>=8.0.1"
 jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
 "ruamel.yaml" = "==0.17.21"
 charset-normalizer = "==2.1.1"
 cryptography = "==38.0.3"
-ansible-core = ">=2.11.12,<=2.12.10"
-gitpython = "==3.1.30"
+ansible-core = "<=2.12.10,>=2.11.12"
+gitpython = "==3.1.37"
 rich = "==12.4.4"
 pbr = "==5.9.0"
 cliff = "==3.10.1"
