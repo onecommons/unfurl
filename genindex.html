@@ -176,6 +176,13 @@
 </li>
       </ul></li>
       <li>
+    --cloud-server
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-serve-cloud-server">unfurl-serve command line option</a>
+</li>
+      </ul></li>
+      <li>
     --commit
 
       <ul>
@@ -204,6 +211,13 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-init-create-environment">unfurl-init command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --design
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-clone-design">unfurl-clone command line option</a>
 </li>
       </ul></li>
       <li>
@@ -504,6 +518,8 @@
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-clone-overwrite">unfurl-clone command line option</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-export-overwrite">unfurl-export command line option</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-init-overwrite">unfurl-init command line option</a>
 </li>
       </ul></li>
@@ -514,6 +530,8 @@
         <li><a href="cli.html#cmdoption-unfurl-serve-port">unfurl-serve command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --project
 
@@ -521,8 +539,6 @@
         <li><a href="cli.html#cmdoption-unfurl-cloudmap-project">unfurl-cloudmap command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --prune
 
@@ -547,6 +563,13 @@
         <li><a href="cli.html#cmdoption-unfurl-stop-push">unfurl-stop command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-undeploy-push">unfurl-undeploy command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --python-target
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-export-python-target">unfurl-export command line option</a>
 </li>
       </ul></li>
       <li>
@@ -925,13 +948,17 @@
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.add_dependency">add_dependency() (unfurl.configurator.TaskView method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.add_message">add_message() (unfurl.configurator.TaskView method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.runtime.Operational.aggregate_status">aggregate_status() (unfurl.runtime.Operational static method)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.apply_work_folders">apply_work_folders() (unfurl.configurator.TaskView method)</a>
+</li>
+      <li><a href="api.html#tosca.Artifact">Artifact() (in module tosca)</a>
+</li>
+      <li><a href="api.html#tosca.Attribute">Attribute() (in module tosca)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.attribute_output_metadata_key">attribute_output_metadata_key (unfurl.configurator.Configurator attribute)</a>
 </li>
@@ -946,6 +973,8 @@
       <li><a href="api.html#unfurl.configurator.Configurator.can_run">can_run() (unfurl.configurator.Configurator method)</a>
 </li>
       <li><a href="api.html#unfurl.job.Job.can_run_task">can_run_task() (unfurl.job.Job method)</a>
+</li>
+      <li><a href="api.html#tosca.Capability">Capability() (in module tosca)</a>
 </li>
       <li><a href="api.html#unfurl.result.ChangeRecord">ChangeRecord (class in unfurl.result)</a>
 </li>
@@ -1304,6 +1333,8 @@
     module
 
       <ul>
+        <li><a href="api.html#module-tosca">tosca</a>
+</li>
         <li><a href="api.html#module-unfurl.configurator">unfurl.configurator</a>
 </li>
         <li><a href="api.html#module-unfurl.eval">unfurl.eval</a>
@@ -1369,6 +1400,13 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.LocalEnv.parent">parent (unfurl.localenv.LocalEnv attribute)</a>
 </li>
+      <li>
+    PATH
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-export-arg-PATH">unfurl-export command line option</a>
+</li>
+      </ul></li>
       <li><a href="api.html#unfurl.support.Status.pending">pending (unfurl.support.Status attribute)</a>
 </li>
       <li><a href="api.html#unfurl.support.Priority">Priority (class in unfurl.support)</a>
@@ -1394,8 +1432,6 @@
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-commit-arg-PROJECT_OR_ENSEMBLE_PATH">unfurl-commit command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-export-arg-PROJECT_OR_ENSEMBLE_PATH">unfurl-export command line option</a>
-</li>
         <li><a href="cli.html#cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH">unfurl-git-status command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-serve-arg-PROJECT_OR_ENSEMBLE_PATH">unfurl-serve command line option</a>
@@ -1408,6 +1444,8 @@
         <li><a href="cli.html#cmdoption-unfurl-init-arg-PROJECTDIR">unfurl-init command line option</a>
 </li>
       </ul></li>
+      <li><a href="api.html#tosca.Property">Property() (in module tosca)</a>
+</li>
       <li><a href="api.html#unfurl.support.Reason.prune">prune (unfurl.support.Reason attribute)</a>
 </li>
   </ul></td>
@@ -1442,11 +1480,13 @@
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.remove_dependency">remove_dependency() (unfurl.configurator.TaskView method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.Configurator.render">render() (unfurl.configurator.Configurator method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.support.Priority.required">required (unfurl.support.Priority attribute)</a>
+</li>
+      <li><a href="api.html#tosca.Requirement">Requirement() (in module tosca)</a>
 </li>
       <li><a href="api.html#unfurl.eval.Ref.resolve">resolve() (unfurl.eval.Ref method)</a>
 </li>
@@ -1533,12 +1573,19 @@
         <li><a href="api.html#unfurl.configurator.TaskView.target">(unfurl.configurator.TaskView attribute)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskRequest">TaskRequest (class in unfurl.configurator)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView">TaskView (class in unfurl.configurator)</a>
 </li>
+      <li>
+    tosca
+
+      <ul>
+        <li><a href="api.html#module-tosca">module</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -1623,6 +1670,8 @@
     unfurl-clone command line option
 
       <ul>
+        <li><a href="cli.html#cmdoption-unfurl-clone-design">--design</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-clone-empty">--empty</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-clone-existing">--existing</a>
@@ -1798,9 +1847,13 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-export-format">--format</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-export-overwrite">--overwrite</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-export-python-target">--python-target</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-export-use-environment">--use-environment</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-export-arg-PROJECT_OR_ENSEMBLE_PATH">PROJECT_OR_ENSEMBLE_PATH</a>
+        <li><a href="cli.html#cmdoption-unfurl-export-arg-PATH">PATH</a>
 </li>
       </ul></li>
       <li>
@@ -1986,6 +2039,8 @@
         <li><a href="cli.html#cmdoption-unfurl-serve-address">--address</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-serve-clone-root">--clone-root</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-serve-cloud-server">--cloud-server</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-serve-cors">--cors</a>
 </li>
@@ -2221,7 +2276,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2022, OneCommons Co..</p>
+    <p>&#169; Copyright 2023, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

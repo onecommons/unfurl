@@ -64,6 +64,10 @@
 <li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Python API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#api-for-writing-service-templates">API for writing service templates</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#tosca-field-specifiers">TOSCA Field Specifiers</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#module-unfurl.configurator">API for writing configurators</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#module-unfurl.runtime">Runtime module</a></li>
 </ul>
@@ -113,15 +117,131 @@
 <ul class="simple">
 <li><p><a class="reference internal" href="#python-api" id="id1">Python API</a></p>
 <ul>
-<li><p><a class="reference internal" href="#module-unfurl.configurator" id="id2">API for writing configurators</a></p></li>
-<li><p><a class="reference internal" href="#apis-for-controlling-unfurl" id="id3">APIs for controlling Unfurl</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.logs" id="id4">Utility classes and functions</a></p></li>
+<li><p><a class="reference internal" href="#api-for-writing-service-templates" id="id2">API for writing service templates</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.configurator" id="id3">API for writing configurators</a></p></li>
+<li><p><a class="reference internal" href="#apis-for-controlling-unfurl" id="id4">APIs for controlling Unfurl</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.logs" id="id5">Utility classes and functions</a></p></li>
 </ul>
 </li>
 </ul>
 </div>
+<section id="api-for-writing-service-templates">
+<h2><a class="toc-backref" href="#id2">API for writing service templates</a><a class="headerlink" href="#api-for-writing-service-templates" title="Permalink to this headline"></a></h2>
+<section id="tosca-field-specifiers">
+<h3>TOSCA Field Specifiers<a class="headerlink" href="#tosca-field-specifiers" title="Permalink to this headline"></a></h3>
+<p>The follow are functions that are used as field specified when declaring attributes on TOSCA type. Use these if you need to specify TOSCA specific information about the field or if the TOSCA field type can’t be inferred from the Python’s attribute’s type. For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MyNodeType</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">a_tosca_property</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Property</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;a-tosca-property&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;foo&quot;</span><span class="p">:</span> <span class="s2">&quot;bar&quot;</span><span class="p">})</span>
+</pre></div>
+</div>
+<p>Note that these functions all take keyword-only parameters (this is needed for IDE integration).</p>
+<span class="target" id="module-tosca"></span><dl class="py function">
+<dt class="sig sig-object py" id="tosca.Artifact">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Artifact</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Artifact" title="Permalink to this definition"></a></dt>
+<dd><p>Field specifier for declaring a TOSCA artifact.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>default</strong> (<em>Any</em><em>, </em><em>optional</em>) – Default value. Set to None if the artifact isn’t required. Defaults to MISSING.</p></li>
+<li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the artifact with a unique value per template. Defaults to MISSING.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the artifact’s name when generating YAML. Defaults to “”.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the artifact.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.Attribute">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Attribute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Attribute" title="Permalink to this definition"></a></dt>
+<dd><p>Field specifier for declaring a TOSCA attribute.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>default</strong> (<em>Any</em><em>, </em><em>optional</em>) – Default value. Set to None if the attribute isn’t required. Defaults to MISSING.</p></li>
+<li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the attribute with a unique value per template. Defaults to MISSING.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the attribute’s name when generating YAML. Defaults to “”.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the attribute.</p></li>
+<li><p><strong>constraints</strong> (<em>List</em><em>[</em><em>DataConstraints</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA property constraints to apply to the attribute.</p></li>
+<li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the attribute.</p></li>
+<li><p><strong>init</strong> (<em>Literal</em><em>[</em><em>False</em><em>]</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.Capability">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Capability</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valid_source_types=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Capability" title="Permalink to this definition"></a></dt>
+<dd><p>Field specifier for declaring a TOSCA capability.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>default</strong> (<em>Any</em><em>, </em><em>optional</em>) – Default value. Set to None if the capability isn’t required. Defaults to MISSING.</p></li>
+<li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the capability with a unique value per template. Defaults to MISSING.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the capability’s name when generating YAML. Defaults to “”.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the capability.</p></li>
+<li><p><strong>valid_source_types</strong> (<em>List</em><em>[</em><em>str</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA type names to set as the capability’s valid_source_types</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.Property">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Property</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attribute=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Property" title="Permalink to this definition"></a></dt>
+<dd><p>Field specifier for declaring a TOSCA property.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>default</strong> (<em>Any</em><em>, </em><em>optional</em>) – Default value. Set to None if the property isn’t required. Defaults to MISSING.</p></li>
+<li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the property with a unique value per template. Defaults to MISSING.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the property’s name when generating YAML. Defaults to “”.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the property.</p></li>
+<li><p><strong>constraints</strong> (<em>List</em><em>[</em><em>DataConstraints</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA property constraints to apply to the property.</p></li>
+<li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the property.</p></li>
+<li><p><strong>attribute</strong> (<em>bool</em><em>, </em><em>optional</em>) – Indicate that the property is also a TOSCA attribute. Defaults to False.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.Requirement">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Requirement</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_filter=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Requirement" title="Permalink to this definition"></a></dt>
+<dd><p>Field specifier for declaring a TOSCA requirement.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>default</strong> (<em>Any</em><em>, </em><em>optional</em>) – Default value. Set to None if the requirement isn’t required. Defaults to MISSING.</p></li>
+<li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the requirement with a unique value per template. Defaults to MISSING.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the requirement’s name when generating YAML. Defaults to “”.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the requirement.</p></li>
+<li><p><strong>node_filter</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>, </em><em>optional</em>) – The TOSCA node_filter for this requirement.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
 <section id="module-unfurl.configurator">
-<span id="api-for-writing-configurators"></span><h2><a class="toc-backref" href="#id2">API for writing configurators</a><a class="headerlink" href="#module-unfurl.configurator" title="Permalink to this headline"></a></h2>
+<span id="api-for-writing-configurators"></span><h2><a class="toc-backref" href="#id3">API for writing configurators</a><a class="headerlink" href="#module-unfurl.configurator" title="Permalink to this headline"></a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">Configurator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kw</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator" title="Permalink to this definition"></a></dt>
@@ -1236,7 +1356,7 @@ Otherwise return ok.
 </section>
 </section>
 <section id="apis-for-controlling-unfurl">
-<h2><a class="toc-backref" href="#id3">APIs for controlling Unfurl</a><a class="headerlink" href="#apis-for-controlling-unfurl" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id4">APIs for controlling Unfurl</a><a class="headerlink" href="#apis-for-controlling-unfurl" title="Permalink to this headline"></a></h2>
 <section id="module-unfurl.localenv">
 <span id="localenv-module"></span><h3>Localenv module<a class="headerlink" href="#module-unfurl.localenv" title="Permalink to this headline"></a></h3>
 <p>Classes for managing the local environment.</p>
@@ -1461,6 +1581,9 @@ found in the current project and the home project.</p>
 <li><p><strong>url</strong> (<em>str</em>) – </p></li>
 </ul>
 </dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Tuple</em>[str, str]</p>
+</dd>
 </dl>
 </dd></dl>
 
@@ -1574,7 +1697,7 @@ one or more ensemble.yaml files which maybe optionally organized into one or mor
 <dd class="field-odd"><p><strong>repoSpec</strong> (<em>toscaparser.repositories.Repository</em>) – </p>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p><em>Optional</em>[unfurl.repo.Repo]</p>
+<dd class="field-even"><p><em>Optional</em>[unfurl.repo.GitRepo]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2117,7 +2240,7 @@ but the local repository names will remain the same.</p>
 </section>
 </section>
 <section id="module-unfurl.logs">
-<span id="utility-classes-and-functions"></span><h2><a class="toc-backref" href="#id4">Utility classes and functions</a><a class="headerlink" href="#module-unfurl.logs" title="Permalink to this headline"></a></h2>
+<span id="utility-classes-and-functions"></span><h2><a class="toc-backref" href="#id5">Utility classes and functions</a><a class="headerlink" href="#module-unfurl.logs" title="Permalink to this headline"></a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.logs.sensitive">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.logs.</span></span><span class="sig-name descname"><span class="pre">sensitive</span></span><a class="headerlink" href="#unfurl.logs.sensitive" title="Permalink to this definition"></a></dt>
@@ -2402,7 +2525,7 @@ use resolve() which always returns a (possible empty) of matches</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2022, OneCommons Co..</p>
+    <p>&#169; Copyright 2023, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

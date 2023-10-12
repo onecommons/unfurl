@@ -1300,6 +1300,14 @@ node_types:
   unfurl.nodes.Default:
     derived_from: unfurl.nodes.Installation
     description: &quot;Used if pre-existing instances are declared with no TOSCA template&quot;
+    metadata:
+      additionalProperties: true
+
+  unfurl.nodes.Generic:
+    derived_from: tosca.nodes.Root
+    description: An open, generic type that allows your template to declare arbitrary properties.
+    metadata:
+      additionalProperties: true
 
   unfurl.nodes.CloudAccount:
     derived_from: tosca.nodes.Root
@@ -1373,7 +1381,7 @@ capability_types:
         type: string
         default: local
       port:
-        type: tosca:PortDef
+        type: tosca.datatypes.network.PortDef
         description: sets &quot;ansible_port&quot;
         required: false
       host:
@@ -1716,7 +1724,7 @@ group_types:
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2022, OneCommons Co..</p>
+    <p>&#169; Copyright 2023, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
