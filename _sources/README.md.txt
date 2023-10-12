@@ -37,7 +37,7 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live clo
 
 - Push your repository to a git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.
 - Pull incoming changes and review and approve pull requests before deploying.
-- Clone the repository and deploy to new environments even if they use different services -- because is your model is adaptable, manual changes are minimized.
+- Clone the repository and deploy to new environments even if they use different services -- because your model is adaptable, manual changes are minimized.
 
 ## Features
 
@@ -50,7 +50,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 - Model your cloud infrastructure with [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.
 - Import reusable and adaptable components or build (and publish) your own.
 - Easily declare dependencies to enable incremental deployment.
-- Path-based query DSL to express dynamic relationships between resources and configurations
+- Path-based query DSL to express dynamic relationships between resources and configurations.
 - Ansible-compatible Jinja2 templates provide an extensive, mature templating library.
 - Dynamic matching and substitution so models can adapt to different environments, services and cloud providers.
 
@@ -74,13 +74,13 @@ Simple, stand-alone CLI that can be used both in your local development environm
 - You so can easily override or repair resource representations enabling interactive development.
 - Editor friendly config files:
   - Comments, order, and whitespace are preserved.
-  - Syntactic macros for YAML provide generic facility for re-use and avoiding verbose, boiler-plate
+  - Syntactic macros for YAML provide generic facility for re-use and avoiding verbose boiler-plate.
 
 ### Zero installation
 
 - Manage your local machine and bootstrap setup by deploying locally.
 - Downloads and installs specified software versions and code as deployment process.
-- Creates and manages isolated deployment environments
+- Creates and manages isolated deployment environments.
 - Isolated environments can be either a Docker container or a Python virtualenv with [asdf](https://asdf-vm.com/).
 - Clear separation of local and shared configuration to avoid unnecessary local configuration steps.
 
@@ -93,7 +93,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 ### "Day Two" Operations
 
-- Check, discover and repair commands
+- Check, discover, and repair commands
 - Define your own workflows for maintenance tasks like backup and restore.
 
 # Installation
