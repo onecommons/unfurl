@@ -1157,15 +1157,15 @@ class Convert:
                 if template:
                     localname, src = self.node_template2obj(template, indent="")
                 else:
-                    logger.error(
-                        f'Could not generate {type} template, "{tosca_name}" not found in topology.'
+                    logger.warning(
+                        f'Node template "{tosca_name}" not found in topology, using find_node("{tosca_name}") instead of converting to Python.'
                     )
-                    return tosca_name
+                    return f'tosca.find_node("{tosca_name}")'
             elif type == "relationship":
                 logger.warning(
-                    f'Skipping "{tosca_name}", relationship template not implemented'
+                    f'Relationship template conversion not implemented, adding find_relationship("{tosca_name}") instead'
                 )
-                return tosca_name
+                return f'tosca.find_relationship("{tosca_name}")'
                 # XXX
                 # template = self.template.topology_template.relationship_templates.get(
                 #     tosca_name
@@ -1175,7 +1175,8 @@ class Convert:
                 # else:
                 #     logger.error(f'Could not generate {type} template, "{tosca_name}" not found in topology.').
             else:
-                assert False, f"templates of type {type} not supported"
+                logger.error(f"templates of type {type} not supported")
+                return tosca_name
 
             # we need insert the code declaring this template before its name is referenced
             self._pending_defs.append(src)
