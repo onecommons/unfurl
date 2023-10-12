@@ -4,7 +4,7 @@ import logging
 import logging.config
 from enum import IntEnum
 import os
-import re
+import re2
 import tempfile
 import time
 import types
@@ -193,7 +193,7 @@ class SensitiveFilter(logging.Filter):
 
     @staticmethod
     def sanitize_urls(value: str) -> str:
-        return re.sub(r"://(\S+):(\S+)@", r"://\1:XXXXX@", value)
+        return re2.sub(r"://(\S+):(\S+)@", r"://\1:XXXXX@", value)
 
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
