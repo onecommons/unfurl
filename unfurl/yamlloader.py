@@ -9,7 +9,19 @@ import sys
 import codecs
 import json
 import os
-from typing import Any, Optional, TextIO, Union, Tuple, List, cast, TYPE_CHECKING, Dict
+from typing import (
+    Any,
+    Optional,
+    TextIO,
+    Union,
+    Tuple,
+    List,
+    cast,
+    TYPE_CHECKING,
+    Dict,
+    overload,
+)
+from typing_extensions import Literal
 import urllib
 import urllib.request
 from urllib.parse import urljoin, urlsplit
@@ -22,6 +34,7 @@ from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
 
 from .util import (
+    UnfurlBadDocumentError,
     filter_env,
     is_relative_to,
     to_bytes,
@@ -33,7 +46,6 @@ from .util import (
     unique_name,
     wrap_sensitive_value,
     UnfurlError,
-    UnfurlValidationError,
     find_schema_errors,
     get_base_dir,
 )
@@ -44,7 +56,14 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import Repo, RepoView, add_user_to_url, split_git_url, memoized_remote_tags
+from .repo import (
+    Repo,
+    RepoView,
+    add_user_to_url,
+    normalize_git_url_hard,
+    split_git_url,
+    memoized_remote_tags,
+)
 from .packages import UnfurlPackageUpdateNeeded, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -298,13 +317,83 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         inputs = op.inputs if op.inputs is not None else {}
         return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
 
-    def get_repository(self, name: str, tpl: dict, unique=False) -> Repository:
+    def _match_repoview(
+        self, name: str, tpl: Optional[Dict[str, Any]]
+    ) -> Optional[RepoView]:
+        if not self.manifest:
+            return None
+        if tpl:  # match by url
+            # normalize_git_url_hard removes the fragment
+            url = normalize_git_url_hard(tpl["url"])
+        else:
+            url = None
+        candidate = None
+        for repo_name, repo_view in self.manifest.repositories.items():
+            if url:  # match by url
+                if url == normalize_git_url_hard(repo_view.url):
+                    # XXX repo_view.revision == tpl.get("revision")
+                    candidate = repo_view
+            if candidate or not url:
+                if repo_name == name or repo_view.python_name == name:
+                    break
+        else:
+            if candidate:  # use candidate even though name didn't match
+                repo_view = candidate
+            else:
+                return None  # no match
+        self._resolve_repoview(repo_view)
+        return repo_view
+
+    def find_repository_path(
+        self,
+        name: str,
+        tpl: Optional[Dict[str, Any]] = None,
+        base_path: Optional[str] = None,
+    ) -> Optional[str]:
+        repo_view = self._match_repoview(name, tpl)
+        if not repo_view:
+            return None
+        return self._get_link_to_repo(repo_view, base_path)
+
+    def _get_link_to_repo(
+        self, repo_view: RepoView, base_path: Optional[str]
+    ) -> Optional[str]:
+        project_base_path = (
+            self.manifest.localEnv.project.projectRoot
+            if self.manifest.localEnv and self.manifest.localEnv.project
+            else self.manifest.get_base_dir()
+        )
+        # this will clone the repo if needed:
+        self._resolve_repo_to_path(repo_view, project_base_path, "")
+        assert repo_view.repo
+        # # XXX this will use the wrong RepoView if url has path fragment
+        link_name, target_path = repo_view.get_link(base_path or project_base_path)
+        if link_name:
+            return target_path
+        return None
+
+    @overload
+    def get_repository(
+        self, name: str, tpl: None, unique: Literal[False] = False
+    ) -> Optional[Repository]:
+        ...
+
+    @overload
+    def get_repository(self, name: str, tpl: dict, unique: bool = False) -> Repository:
+        ...
+
+    def get_repository(
+        self, name: str, tpl: Optional[dict], unique: bool = False
+    ) -> Optional[Repository]:
         # this is also called by ToscaTemplate
         if not unique and name in self.manifest.repositories:
             # don't create another Repository instance
             return self.manifest.repositories[name].repository
         else:
             name = unique_name(name, list(self.manifest.repositories))
+
+        if tpl is None:
+            return None
 
         if isinstance(tpl, dict) and "url" in tpl:
             url = tpl["url"]
@@ -466,12 +555,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repository = self.get_repository(
                     repository_name, importsLoader.repositories[repository_name]
                 )
-                repo_view = self.manifest.add_repository(None, repository, "")
+                repo_view = self.manifest.add_repository(repository, "")
         else:
             # if file_name is relative, base will be set (to the importsLoader's path)
-            url = os.path.join(base, file_name)
-            if not toscaparser.imports.is_url(url):
+            if toscaparser.imports.is_url(base):
+                url = base
+            else:
                 # url is a local path
+                url = os.path.join(base, file_name)
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:
                     if toscaparser.imports.is_url(importsLoader.repository_root):
@@ -482,10 +573,24 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 if self._has_path_escaped(url, base=repository_root):
                     return None, None
                 return url, (True, None, base, file_name)
+
             repo_view = self._find_repoview(url)
             assert repo_view
 
         assert repo_view
+        self._resolve_repoview(repo_view)
+        path = toscaparser.imports.normalize_path(repo_view.url)
+        is_file = not toscaparser.imports.is_url(path)
+        if is_file:
+            # repository is a local path
+            # so use the resolved base
+            path = os.path.join(base, file_name)
+            if self._has_path_escaped(path):
+                return None, None
+        repo_view.add_file_ref(file_name)
+        return path, (is_file, repo_view, base, file_name)
+
+    def _resolve_repoview(self, repo_view):
         if repo_view.package is None:
             # need to resolve if its a package
             # if repoview.repository references a package, set the repository's url
@@ -501,16 +606,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 self.manifest.package_specs,
                 remote_tags_check,
             )
-        repo_view.add_file_ref(file_name)
-        path = toscaparser.imports.normalize_path(repo_view.url)
-        is_file = not toscaparser.imports.is_url(path)
-        if is_file:
-            # repository is a local path
-            # so use the resolved base
-            path = os.path.join(base, file_name)
-            if self._has_path_escaped(path):
-                return None, None
-        return path, (is_file, repo_view, base, file_name)
 
     def resolve_to_local_path(
         self, base_dir, file_name, repository_name
@@ -642,34 +737,47 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             assert repo_view  # urls must have a repo_view
             path = self._resolve_repo_to_path(repo_view, base, file_name)
             is_file = True
-        return self._really_load_yaml(path, is_file, fragment, repo_view)
+        return self._really_load_yaml(path, is_file, fragment, repo_view, base)
 
-    def _convert_to_yaml(self, contents: str, path: str, repo_view: Optional[RepoView], yaml_dict: type = dict):
+    def _convert_to_yaml(
+        self,
+        contents: str,
+        path: str,
+        repo_view: Optional[RepoView],
+        base_dir: str,
+        yaml_dict: type = dict,
+    ):
         if path.endswith(".py"):
-            from tosca.python2yaml import python_to_yaml
+            from tosca.python2yaml import python_src_to_yaml_obj
 
             self.expand = False
             namespace: Dict[str, Any] = {}
-            base_dir = self.manifest.get_base_dir()
             if repo_view and repo_view.repository:
-                package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
-                name = re.sub(r"\W", "_", repo_view.repository.name)
+                package_path = Path(get_base_dir(path)).relative_to(
+                    repo_view.working_dir
+                )
                 relpath = str(package_path).strip("/").replace("/", ".")
-                # make sure tosca_repository symlink exists:
-                assert self.manifest.localEnv
-                self.manifest.localEnv.link_repo(base_dir, name, repo_view.url, repo_view.revision)
+                # make sure tosca_repository symlink exists
+                name = repo_view.get_link(base_dir)[0]
                 package = "tosca_repository." + name
             else:
                 package_path = Path(get_base_dir(path)).relative_to(base_dir)
-                relpath = str(package_path).strip("/").replace("/", ".")
+                relpath = str(package_path).replace("/", ".").strip(".")
                 package = "service_template"
             if relpath:
                 package += "." + relpath
             if self.modules is None:
                 self.modules = {}
             safe_mode = (self.manifest and self.manifest.safe_mode) or self.safe_mode
-            yaml_src = python_to_yaml(
-                contents, namespace, base_dir, package + "." + Path(path).stem, yaml_dict, safe_mode, self.modules
+            yaml_src = python_src_to_yaml_obj(
+                contents,
+                namespace,
+                base_dir,
+                package + "." + Path(path).stem,
+                yaml_dict,
+                safe_mode,
+                self.modules,
+                import_resolver=self,
             )
             return yaml_src
         else:
@@ -681,6 +789,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         isFile: bool,
         fragment: Optional[str],
         repo_view: Optional[RepoView],
+        base_dir: str,
     ) -> Tuple[Any, bool]:
         originalPath = path
         try:
@@ -694,7 +803,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
-                doc = self._convert_to_yaml(contents, path, repo_view, yaml_dict)
+                doc = self._convert_to_yaml(
+                    contents, path, repo_view, base_dir, yaml_dict
+                )
                 base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
@@ -745,7 +856,9 @@ class SimpleCacheResolver(ImportResolver):
             path = self._resolve_repo_to_path(repo_view, base, file_name)
         doc = self.get_cache((path, fragment))
         if doc is None:
-            doc, cacheable = self._really_load_yaml(path, True, fragment, repo_view)
+            doc, cacheable = self._really_load_yaml(
+                path, True, fragment, repo_view, base
+            )
             if cacheable:
                 self.set_cache((path, fragment), doc)
         else:
@@ -795,7 +908,7 @@ class YamlConfig:
             else:
                 self.config = config
             if not isinstance(self.config, dict):
-                raise UnfurlValidationError(
+                raise UnfurlBadDocumentError(
                     f'invalid YAML document with contents: "{self.config}"'
                 )
 
@@ -814,7 +927,7 @@ class YamlConfig:
             errors = schema and self.validate(self.expanded)
             if errors and validate:
                 (message, schemaErrors) = errors
-                raise UnfurlValidationError(
+                raise UnfurlBadDocumentError(
                     "JSON Schema validation failed: " + message, errors
                 )
             else:
@@ -824,7 +937,7 @@ class YamlConfig:
                 msg = f"Unable to load yaml config at {self.path}"
             else:
                 msg = "Unable to parse yaml config"
-            raise UnfurlError(msg, True)
+            raise UnfurlBadDocumentError(msg, saveStack=True)
 
     def _expand(self) -> Tuple[dict, dict]:
         find_anchor(self.config, None)  # create _anchorCache

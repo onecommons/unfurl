@@ -29,8 +29,15 @@ from .runtime import (
     ArtifactInstance,
     TopologyInstance,
 )
-from .util import UnfurlError, is_relative_to, to_enum, sensitive_str, get_base_dir, taketwo
-from .repo import split_git_url, RepoView, GitRepo
+from .util import (
+    UnfurlError,
+    is_relative_to,
+    to_enum,
+    sensitive_str,
+    get_base_dir,
+    taketwo,
+)
+from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
 from .packages import Package, PackageSpec, PackagesType
 from .merge import merge_dicts
 from .result import ChangeRecord
@@ -38,6 +45,7 @@ from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolve
 from .logs import getLogger
 import toscaparser.imports
 from toscaparser.repositories import Repository
+from tosca.loader import install
 
 if TYPE_CHECKING:
     from .localenv import LocalEnv
@@ -117,9 +125,9 @@ class Manifest(AttributeManager):
         for key, value in relabel_dict(context, self.localEnv, "repositories").items():
             if "." in key:  # assume it's a package not a repository name
                 assert isinstance(value, dict)
-                self.package_specs.append( PackageSpec(
-                    key, value.get("url"), value.get("revision")
-                ))
+                self.package_specs.append(
+                    PackageSpec(key, value.get("url"), value.get("revision"))
+                )
             else:
                 repositories[key] = value
         env_package_spec = context.get("variables", {}).get(
@@ -127,7 +135,7 @@ class Manifest(AttributeManager):
         )
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
-                self.package_specs.append( PackageSpec(key, value, None) )
+                self.package_specs.append(PackageSpec(key, value, None))
         resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
@@ -156,7 +164,9 @@ class Manifest(AttributeManager):
             #     return repo
         return None
 
-    def _load_spec(self, spec, path, repositories, more_spec, skip_validation, fragment):
+    def _load_spec(
+        self, spec, path, repositories, more_spec, skip_validation, fragment
+    ):
         if "service_template" in spec:
             toscaDef = spec["service_template"] or {}
             fragment += "/service_template"
@@ -190,7 +200,12 @@ class Manifest(AttributeManager):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.base_dir
         return ToscaSpec(
-            toscaDef, spec, path, self.get_import_resolver(expand=True), skip_validation, fragment
+            toscaDef,
+            spec,
+            path,
+            self.get_import_resolver(expand=True),
+            skip_validation,
+            fragment,
         )
 
     def get_spec_digest(self, spec):
@@ -540,7 +555,24 @@ class Manifest(AttributeManager):
         summary(self.rootResource, 0)
         return "\n".join(output)
 
-    def find_path_in_repos(self, path, importLoader=None):  # currently unused
+    def last_commit_time(self) -> Optional[datetime.datetime]:
+        # return seconds (0 if not found)
+        repo = self.repo
+        if not repo:
+            return None
+        try:
+            # find the revision that last modified this file before or equal to the current revision
+            # (use current revision to handle branches)
+            commits = list(
+                repo.repo.iter_commits(repo.revision, self.path or "", max_count=1)
+            )
+        except ValueError:
+            return None
+        if commits:
+            return commits[0].committed_datetime
+        return None
+
+    def find_path_in_repos(self, path, importLoader=None):
         """
         Check if the file path is inside a folder that is managed by a repository.
         If the revision is pinned and doesn't match the repo, it might be bare
@@ -555,6 +587,7 @@ class Manifest(AttributeManager):
         return None, None, None, None
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
+
     def find_repo_from_git_url(self, path, base):
         revision: Optional[str]
         repoURL, filePath, revision = split_git_url(path)
@@ -566,27 +599,22 @@ class Manifest(AttributeManager):
         )
         return repo, filePath, revision, bare
 
-    def add_repository(
-        self, repo: Optional[GitRepo], toscaRepository: Repository, file_name: str
-    ) -> RepoView:
+    def add_repository(self, toscaRepository: Repository, file_name: str) -> RepoView:
         # add or replace the repository
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
-            repo = repo or repository.repo
-            if (
-                repository.repo and repository.repo != repo
-            ) or repository.repository.tpl != toscaRepository.tpl:
+            if repository.repository.tpl != toscaRepository.tpl:
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
-        repository = RepoView(toscaRepository, repo, file_name)
+        repository = RepoView(toscaRepository, None, file_name)
         self.repositories[toscaRepository.name] = repository
         return repository
 
     def _update_repositories(
         self, config, inlineRepositories=None, resolver: Optional[ImportResolver] = None
-    ) -> Dict[str, dict]:
+    ) -> None:
         # Called during parse time when including files
         if not resolver:
             resolver = self.get_import_resolver()
@@ -607,8 +635,30 @@ class Manifest(AttributeManager):
                     continue
                 if isinstance(repository, dict):
                     repository = resolver.get_repository(name, repository)
-                self.add_repository(None, repository, "")
-        return self._set_repositories()
+                inline_repoview = self.add_repository(repository, "")
+                inline_repoview.repository.tpl.setdefault("metadata", {})[
+                    "inline"
+                ] = True
+        self._set_builtin_repositories()
+
+    def _set_repository_links(self):
+        if self.localEnv and not self.localEnv.readonly:
+            repos = {
+                normalize_git_url(r.url): r for r in self.localEnv._get_git_repos()
+            }
+            for name, repo_view in self.repositories.items():
+                if not repo_view.repo and repo_view.url in repos:
+                    repo_view.repo = repos[repo_view.url]
+                if repo_view.repo and name not in ["self", "project"]:
+                    if repo_view.repository.tpl.get("metadata", {}).get("inline"):
+                        continue
+                    # create tosca_repositories symlink if needed
+                    project_base_path = (
+                        self.localEnv.project.projectRoot
+                        if self.localEnv.project
+                        else self.get_base_dir()
+                    )
+                    repo_view.get_link(project_base_path, name)
 
     @staticmethod
     def _get_repositories(tpl) -> Dict:
@@ -619,7 +669,7 @@ class Manifest(AttributeManager):
         repositories.update((tpl.get("environment") or {}).get("repositories") or {})
         return repositories
 
-    def _set_repositories(self) -> Dict[str, Dict]:
+    def _set_builtin_repositories(self):
         repositories = self.repositories
         if "unfurl" not in repositories:
             # add a repository that points to this package
@@ -664,6 +714,8 @@ class Manifest(AttributeManager):
             else:
                 repositories["spec"] = repositories["self"]
             repositories["spec"].package = False
+
+    def repositories_as_tpl(self) -> Dict[str, Dict[str, Any]]:
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
 
     def load_yaml_include(
@@ -717,61 +769,52 @@ class Manifest(AttributeManager):
             raise UnfurlError(msg)
 
         resolver = self.get_import_resolver(warnWhenNotFound, config=expanded)
-        repositories = self._update_repositories(
+        self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
+        repositories = self.repositories_as_tpl()
         base_dir = get_base_dir(baseDir)
         if repository_root is None:
             if self.localEnv and self.localEnv.project:
                 repository_root = self.localEnv.project.projectRoot
             else:
-                repository_root=self.get_base_dir()
+                repository_root = self.get_base_dir()
             if not is_relative_to(baseDir, repository_root):
                 # when including relative files inside a repository we don't know the repository we are in
                 # but we might already be out of the project root
                 # in that case, repository_root to the base_dir
                 # this prevents visiting a parent directory but it is safe if we have gotten this far already
                 repository_root = base_dir
-        loader = toscaparser.imports.ImportsLoader(
-            None,
-            base_dir,
-            repositories=repositories,
-            resolver=resolver,
-            repository_root=repository_root
-        )
-        import_spec = dict(
-            file=artifactTpl["file"], repository=artifactTpl.get("repository")
-        )
-        base, path, doc = loader.load_yaml(import_spec)
-        if doc is None:
-            logger.warning(
-                f"document include {templatePath} does not exist (base: {baseDir})"
+        try:
+            install(resolver)
+            loader = toscaparser.imports.ImportsLoader(
+                None,
+                base_dir,
+                repositories=repositories,
+                resolver=resolver,
+                repository_root=repository_root,
             )
+            import_spec = dict(
+                file=artifactTpl["file"], repository=artifactTpl.get("repository")
+            )
+            base, path, doc = loader.load_yaml(import_spec)
+            if doc is None:
+                logger.warning(
+                    f"document include {templatePath} does not exist (base: {baseDir})"
+                )
+        finally:
+            install(None)
         return path, doc
 
     def get_import_resolver(
-        self, ignoreFileNotFound: bool=False, expand: bool=False, config: Optional[dict]=None
+        self,
+        ignoreFileNotFound: bool = False,
+        expand: bool = False,
+        config: Optional[dict] = None,
     ) -> ImportResolver:
         if self.localEnv and self.localEnv.make_resolver:
             return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
-
-    def last_commit_time(self) -> Optional[datetime.datetime]:
-        # return seconds (0 if not found)
-        repo = self.repo
-        if not repo:
-            return None
-        try:
-            # find the revision that last modified this file before or equal to the current revision
-            # (use current revision to handle branches)
-            commits = list(
-                repo.repo.iter_commits(repo.revision, self.path or "", max_count=1)
-            )
-        except ValueError:
-            return None
-        if commits:
-            return commits[0].committed_datetime
-        return None
 
 
 # unused

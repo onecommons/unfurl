@@ -145,6 +145,7 @@ class GitRepoTest(unittest.TestCase):
                 "unfurl.yaml",
                 ".unfurl-local-template.yaml",
                 "ensemble-template.yaml",
+                "service_template.py",
                 ".gitignore",
                 ".gitattributes",
             }
@@ -232,6 +233,7 @@ class GitRepoTest(unittest.TestCase):
 .secrets/secrets.yaml
 .unfurl-local-template.yaml
 ensemble-template.yaml
+service_template.py
 unfurl.yaml
 
 *** Running 'git ls-files' in './ensemble'

@@ -1,10 +1,14 @@
 import dataclasses
 import inspect
+import os
+import time
 from typing import Optional
 from unittest.mock import MagicMock, patch
 import pytest
 from unfurl.merge import diff_dicts
 import sys
+from click.testing import CliRunner
+from unfurl.__main__ import cli
 
 try:
     from tosca import yaml2python
@@ -12,7 +16,7 @@ except ImportError:
     print(sys.path)
     raise
 
-from tosca.python2yaml import PythonToYaml, python_to_yaml
+from tosca.python2yaml import PythonToYaml, python_src_to_yaml_obj
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from toscaparser.tosca_template import ToscaTemplate
@@ -35,7 +39,7 @@ def _to_python(yaml_str: str):
 
 def _to_yaml(python_src: str, safe_mode) -> dict:
     namespace: dict = {}
-    tosca_tpl = python_to_yaml(python_src, namespace, safe_mode=safe_mode)
+    tosca_tpl = python_src_to_yaml_obj(python_src, namespace, safe_mode=safe_mode)
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
@@ -61,17 +65,20 @@ def dump_yaml(namespace, out=sys.stdout):
     return doc
 
 
-def _generate_builtin(generate, builtin_name=None):
+def _generate_builtin(generate, builtin_path=None):
     import_resolver = ImportResolver(None)  # type: ignore
     python_src = generate(import_resolver, True)
-    if builtin_name:
-        with open(builtin_name + ".py", "w") as po:
+    if builtin_path:
+        path = os.path.abspath(builtin_path + ".py")
+        print("*** writing source to", path)
+        with open(path, "w") as po:
             print(python_src, file=po)
     namespace: dict = {}
     exec(python_src, namespace)
     yo = None
-    if builtin_name:
-        yo = open(builtin_name + ".yaml", "w")
+    # if builtin_name:
+    #     path = os.path.abspath(builtin_name + ".yaml")
+    #     yo = open(path, "w")
     yaml_src = dump_yaml(namespace, yo)  # type: ignore
     if yo:
         yo.close()
@@ -100,6 +107,72 @@ def test_builtin_generation():
 
 def test_builtin_ext_generation():
     assert _generate_builtin(yaml2python.generate_builtin_extensions)
+
+
+type_reference_python = '''
+import tosca
+from tosca import *
+from typing import Sequence
+
+class WordPress(tosca.nodes.WebApplication):
+    """
+    Description of the Wordpress type
+    """
+    admin_user: str
+    admin_password: str
+    db_host: str
+    "Description of the db_host property"
+
+    # test forward references in type defined later in the module
+    plugins: Sequence["WordPressPlugin"] = ()
+
+class WordPressPlugin(tosca.nodes.Root):
+    name: str
+    instance: str = WordPress.app_endpoint.ip_address
+'''
+
+type_reference_yaml = {
+    "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+    "node_types": {
+        "WordPress": {
+            "derived_from": "tosca.nodes.WebApplication",
+            "description": "Description of the Wordpress type",
+            "properties": {
+                "admin_password": {"type": "string"},
+                "admin_user": {"type": "string"},
+                "db_host": {
+                    "description": "Description of the db_host property",
+                    "type": "string",
+                },
+            },
+            "requirements": [
+                {
+                    "plugins": {
+                        "node": "WordPressPlugin",
+                        "occurrences": [0, "UNBOUNDED"],
+                    }
+                }
+            ],
+        },
+        "WordPressPlugin": {
+            "derived_from": "tosca.nodes.Root",
+            "properties": {"name": {"type": "string"},
+            "instance": {
+                "type": "string",
+                "default": {
+                    "eval": "::[.type=WordPress]::.capabilities[.name=app_endpoint]::ip_address"
+                },
+            },
+            }
+        },
+    },
+    "topology_template": {},
+}
+
+
+def test_type_references():
+    tosca_tpl = _to_yaml(type_reference_python, True)
+    assert tosca_tpl == type_reference_yaml
 
 
 default_operations_types_yaml = """
@@ -152,7 +225,7 @@ foo = 1
 
 def test_default_operations():
     src, src_tpl = _to_python(default_operations_yaml)
-    assert "def default(self):" in src
+    assert "def default(self" in src
     tosca_tpl = _to_yaml(src, False)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
@@ -373,10 +446,10 @@ node_types:
               primary: shellScript
             inputs:
               location:
-                eval: prop1
+                eval: .::prop1
               version: 0
               host:
-                eval: .targets::host::public_address
+                eval: .::.targets::host::public_address
 interface_types:
   MyCustomInterface:
     derived_from: tosca.interfaces.Root
@@ -479,7 +552,7 @@ def test_set_constraints() -> None:
                     "operations": {
                         "create": {
                             "implementation": {"primary": "shellScript"},
-                            "inputs": {"input1": {"eval": "prop1"}},
+                            "inputs": {"input1": {"eval": ".::prop1"}},
                         }
                     }
                 }
@@ -488,10 +561,117 @@ def test_set_constraints() -> None:
     }
 
 
+test_datatype_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    properties:
+      data:
+        type: MyDataType
+data_types:
+  MyDataType:
+    properties:
+      prop1:
+        type: string
+        default: ''
+topology_template:
+  node_templates:
+    test:
+      type: Example
+      properties:
+        data:
+          prop1: test
+"""
+
+
+def test_datatype():
+    import tosca
+    from tosca import DataType
+
+    class MyDataType(DataType):
+        prop1: str = ""
+
+    class Example(tosca.nodes.Root):
+        data: MyDataType
+
+    test = Example(data=MyDataType(prop1="test"))
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, test_datatype_yaml)
+    # yaml.dump(yaml_dict, sys.stdout)
+    assert tosca_yaml == yaml_dict
+
+
+test_envvars_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    properties:
+      data:
+        type: MyDataType
+        default:
+            name: default_name
+        metadata:
+          transform:
+            eval:
+              to_env:
+                eval: $value
+data_types:
+  MyDataType:
+    properties:
+      name:
+        type: string
+        default: default_name
+topology_template:
+  node_templates:
+    test:
+      type: Example
+      properties:
+        data:
+          name: default_name
+"""
+
+
+def test_envvar_type():
+    import tosca
+    from tosca import EnvVarDataType, Property
+
+    class MyDataType(EnvVarDataType):
+        name: str = "default_name"
+
+    class Example(tosca.nodes.Root):
+        # data = MyDataType() # XXX support type inference
+        # data: MyDataType # XXX don't require if the type can be constructed automatically
+        data: MyDataType = Property(factory=MyDataType)
+
+    test = Example()
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, test_envvars_yaml)
+    # yaml.dump(yaml_dict, sys.stdout)
+    assert tosca_yaml == yaml_dict
+
+
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",
     [
         (dict(file="foo.yaml"), "from .foo import *", "/path/to/foo"),
+        (
+            dict(file="foo.yaml", namespace_prefix="ns"),
+            "from . import foo as ns",
+            "/path/to/foo",
+        ),
+        (
+            dict(file="foo.yaml", namespace_prefix="foo"),
+            "from . import foo",
+            "/path/to/foo",
+        ),
         (dict(file="../foo.yaml"), "from ..foo import *", "/path/to/../foo"),
         (
             dict(file="../../foo.yaml"),
@@ -542,6 +722,11 @@ def test_convert_import(test_input, exp_import, exp_path):
             "from tosca_repositories.repo import foo as ns",
             "tosca_repositories/repo/foo",
         ),
+        (
+            dict(repository="repo", file="foo.yaml", namespace_prefix="foo"),
+            "from tosca_repositories.repo import foo",
+            "tosca_repositories/repo/foo",
+        ),
     ],
 )
 # patch repo lookup so we don't need to write the whole template
@@ -554,7 +739,7 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
             f"tosca_repositories/{test_input.get('repository')}",
         ),
     ):
-        c = tosca.yaml2python.Convert(MagicMock())
+        c = tosca.yaml2python.Convert(MagicMock(path="/path/to/including_file.yaml"))
         output = c.convert_import(test_input)
 
         # generated import
@@ -576,7 +761,7 @@ def test_sandbox():
     imports = [
         "import sys; sys.version_info",
         "from tosca import python2yaml",
-        "import tosca_repositories",
+        "import tosca_repositories.missing_repository",
         """from tosca.python2yaml import ALLOWED_MODULE, missing
 str(ALLOWED_MODULE)
     """,
@@ -631,6 +816,46 @@ node._name = "test"
         assert _to_yaml(src, True)
 
 
+def test_write_policy():
+    test_path = os.path.join(os.getenv("UNFURL_TMPDIR"), "test_generated.txt")
+    with open(test_path, "w") as f:
+        f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file"))
+    try:
+        assert tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
+        os.utime(test_path, (time.time() + 5, time.time() + 5))
+        assert not tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
+    finally:
+        os.remove(test_path)
+
+
+def test_export():
+    runner = CliRunner()
+    path = os.path.join(
+        os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "export",
+            "--format",
+            "python",
+            "--python-target",
+            "3.7",
+            "--overwrite",
+            "always",
+            path,
+        ],
+    )
+    # print(result.stdout)
+    if result.exception:
+        raise result.exception
+    assert result.exit_code == 0
+
+
 if __name__ == "__main__":
-    _generate_builtin(yaml2python.generate_builtins, "builtin_types")
-    _generate_builtin(yaml2python.generate_builtin_extensions, "tosca_ext")
+    _generate_builtin(
+        yaml2python.generate_builtins, "tosca-package/tosca/builtin_types"
+    )
+    _generate_builtin(
+        yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext"
+    )

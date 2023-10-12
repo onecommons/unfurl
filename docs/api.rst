@@ -5,6 +5,27 @@ Python API
     :depth: 2
 
 
+API for writing service templates
+---------------------------------
+
+TOSCA Field Specifiers
+~~~~~~~~~~~~~~~~~~~~~~
+
+The follow are functions that are used as field specified when declaring attributes on TOSCA type. Use these if you need to specify TOSCA specific information about the field or if the TOSCA field type can't be inferred from the Python's attribute's type. For example:
+
+.. code-block:: python
+
+    class MyNodeType(tosca.nodes.Root):
+        a_tosca_property: str = Property(name="a-tosca-property", default=None, metadata={"foo": "bar"})
+
+
+Note that these functions all take keyword-only parameters (this is needed for IDE integration).
+
+
+.. automodule:: tosca
+  :imported-members: true
+  :members: ArtifactType, CapabilityType, DataType, GroupType, InterfaceType, PolicyType, NodeType, RelationshipType, Property, Attribute, Requirement, Capability, Artifact, ToscaInputs, ToscaOutputs
+
 API for writing configurators
 -----------------------------
 

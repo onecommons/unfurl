@@ -45,6 +45,8 @@ import stat
 import shutil
 import codecs
 from collections.abc import MutableSequence
+import typing
+from typing import Optional
 
 from .eval import RefContext, set_eval_func, map_value
 from .result import ExternalValue
@@ -58,6 +60,9 @@ from .yamlloader import cleartext_yaml
 import logging
 
 logger = logging.getLogger("unfurl")
+
+if typing.TYPE_CHECKING:
+    from .manifest import Manifest
 
 
 class Folders:
@@ -457,7 +462,7 @@ class FilePath(ExternalValue):
         if not os.path.exists(fullpath):
             return "path:" + stablepath
 
-        manifest = options and options.get("manifest")
+        manifest: Optional["Manifest"] = options and options.get("manifest")
         if manifest:
             repo, relPath, revision, bare = manifest.find_path_in_repos(
                 self.get_full_path()

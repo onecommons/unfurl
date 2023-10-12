@@ -31,7 +31,7 @@ from .job import start_job, Job
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import filter_env, get_base_dir, get_package_digest
+from .util import UnfurlBadDocumentError, filter_env, get_base_dir, get_package_digest
 
 if TYPE_CHECKING:
     from repo import RepoView
@@ -939,6 +939,9 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 @click.option(
+    "--design", default=False, is_flag=True, help="Set up project for blueprint development."
+)
+@click.option(
     "--use-environment",
     default=None,
     help="Associate the given environment with the ensemble.",
@@ -1166,52 +1169,53 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         click.echo(statuses)
 
 
-def _python_to_yaml(src_path: str, dest_path=None) -> dict:
-    from tosca.python2yaml import python_to_yaml
-    from unfurl.yamlloader import yaml
+def _yaml_to_python(
+    project_or_ensemble_path, file, local_env, python_target_version, overwrite: str
+):
+    from tosca import yaml2python, WritePolicy
 
-    with open(src_path) as f:
-        python_src = f.read()
-    sys.path.insert(0, get_base_dir(src_path))
-    namespace: dict = {}
-    tosca_tpl = python_to_yaml(python_src, namespace, src_path)
-    if dest_path:
-        with open(dest_path, "w") as yo:
-            yaml.dump(tosca_tpl, yo)
-    else:
-        yaml.dump(tosca_tpl, sys.stdout)
-    return tosca_tpl
+    if python_target_version:
+        python_target_version = int(python_target_version.split(".")[-1])
 
-def _yaml_to_python(project_or_ensemble_path, file, local_env):
-    from tosca import yaml2python
-
+    write_policy = WritePolicy[overwrite]
     if local_env:
         try:
             manifest = local_env.get_manifest(
-                    skip_validation=True,
-                )  # XXX safe_mode=True
-        except:
-            manifest = None
+                skip_validation=True,
+            )  # XXX safe_mode=True
+        except UnfurlBadDocumentError:
+            manifest = None  # assume the user didn't specify a manifest file
+        except Exception:
+            raise  # unexpected error
+
     if local_env and manifest:
         assert manifest.tosca and manifest.tosca.template
         if not file:
             file = Path(manifest.get_base_dir()) / (
-                    re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py"
-                )
-        python_src = yaml2python.convert_service_template(
-                 manifest.tosca.template, path=str(file)
+                re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py"
             )
+        python_src = yaml2python.convert_service_template(
+            manifest.tosca.template,
+            python_compatible=python_target_version,
+            path=str(file),
+            write_policy=write_policy,
+        )
     else:
         if not file:
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
-        python_src = yaml2python.yaml_to_python(project_or_ensemble_path, file)
+        python_src = yaml2python.yaml_to_python(
+            project_or_ensemble_path,
+            file,
+            python_target_version=python_target_version,
+            write_policy=write_policy,
+        )
     return file
 
 
 @cli.command()
 @click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=False))
+@click.argument("path", default=".", type=click.Path(exists=False))
 @click.option(
     "--format",
     default="deployment",
@@ -1230,19 +1234,34 @@ def _yaml_to_python(project_or_ensemble_path, file, local_env):
     default=None,
     help="Write json export to this file instead of the console.",
 )
-def export(ctx, project_or_ensemble_path: str, format, file, **options):
-    """Export ensemble in a simplified json format or as Python source."""
+@click.option(
+    "--overwrite",
+    default="auto",
+    type=click.Choice(["older", "never", "always", "auto"]),
+    help="Overwrite existing files (Default: auto)",
+)
+@click.option(
+    "--python-target",
+    default=None,
+    type=click.Choice(["3.7", "3.8", "3.9", "3.10"]),
+    help="Python version to target when --format python (Default: current version)",
+)
+def export(ctx, path: str, format, file, overwrite, python_target, **options):
+    """If path to an Unfurl project or ensemble, export ensemble in a simplified json format or as Python source.
+    If a Python file, export to YAML."""
     from . import to_json
 
     options.update(ctx.obj)
 
-    if project_or_ensemble_path.endswith(".py"):
-        _python_to_yaml(project_or_ensemble_path, file)
+    if path.endswith(".py"):
+        from tosca import python2yaml
+
+        python2yaml.python_to_yaml(path, file, overwrite)
         return
 
     try:
         local_env = LocalEnv(
-            project_or_ensemble_path,
+            path,
             options.get("home"),
             override_context=options.get("use_environment") or "",
             readonly=True,
@@ -1253,16 +1272,14 @@ def export(ctx, project_or_ensemble_path: str, format, file, **options):
         local_env = None
 
     if format == "python":
-        file = _yaml_to_python(project_or_ensemble_path, file, local_env)
-        logger = logging.getLogger("unfurl")
-        logger.info("Export to %s", file)
+        file = _yaml_to_python(path, file, local_env, python_target, overwrite)
         return
 
     exporter = getattr(to_json, "to_" + format)
     # $UNFURL_EXPORT_ARG for internal testing
     jsonSummary = exporter(local_env, os.getenv("UNFURL_EXPORT_ARG"), file=file)
     output = json.dumps(jsonSummary, indent=2)
-    if file:
+    if file and (overwrite != "never" or not os.path.exists(file)):
         with open(file, "w") as f:
             f.write(output)
     else:
@@ -1366,8 +1383,12 @@ def help(ctx, cmd=""):
     envvar="UNFURL_SERVE_PATH",
     type=click.Path(exists=True),
 )
-@click.option("--port", default=8081, help="Port to listen on")
-@click.option("--address", default="localhost", help="Host to listen on")
+@click.option("--port", default=8081, help="Port to listen on (default: 8081)")
+@click.option(
+    "--address",
+    default="localhost",
+    help="Host to listen on (0.0.0.0 for external connections) (default: localhost)",
+)
 @click.option(
     "--secret",
     envvar="UNFURL_SERVE_SECRET",
@@ -1375,10 +1396,15 @@ def help(ctx, cmd=""):
 )
 @click.option(
     "--clone-root",
-    default=".",
-    help="Where to clone all repositories",
+    default="./repos",
+    help="Where to clone repositories (default: ./repos)",
     envvar="UNFURL_CLONE_ROOT",
-    type=click.Path(exists=True),
+    type=click.Path(exists=False),
+)
+@click.option(
+    "--cloud-server",
+    envvar="UNFURL_CLOUD_SERVER",
+    help='Unfurl Cloud server URL to connect to.',
 )
 @click.option(
     "--cors",
@@ -1386,7 +1412,7 @@ def help(ctx, cmd=""):
     help='enable CORS with origin (e.g. "*")',
 )
 def serve(
-    ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options
+    ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, cloud_server, **options
 ):
     """Run unfurl as a server."""
     options.update(ctx.obj)
@@ -1395,9 +1421,11 @@ def serve(
         os.environ["UNFURL_SERVE_CORS"] = cors
     os.environ["UNFURL_SERVE_PATH"] = project_or_ensemble_path
     os.environ["UNFURL_CLONE_ROOT"] = clone_root
+    if cloud_server:
+        os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
     from .server import serve as _serve
 
-    _serve(address, port, secret, clone_root, project_or_ensemble_path, options)
+    _serve(address, port, secret, clone_root, project_or_ensemble_path, options, cloud_server)
 
 
 @cli.command(short_help="Manage a cloud map")
@@ -1483,7 +1511,9 @@ def cloudmap(
     if not host_name:
         print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
         return
-    host = CloudMap.get_host(localEnv, host_name, namespace or "", clone_root or "", visibility)
+    host = CloudMap.get_host(
+        localEnv, host_name, namespace or "", clone_root or "", visibility
+    )
     cloud_map = CloudMap.from_name(
         localEnv, cloudmap, clone_root or "", host.name, namespace or "", skip_analysis
     )

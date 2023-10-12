@@ -4,7 +4,7 @@ kind: Project
 
 # The presence of this YAML file indicates that this directory contains an Unfurl project.
 
-# These "?include" directives merge these files so secret and local-only settings can be managed separately.
+# These "+?include" directives merge these files so secret and local-only settings can be managed separately.
 [%include | default("") %]
 
 # The primary thing configured here is the environment that ensembles are deployed in.

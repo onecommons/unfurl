@@ -132,6 +132,15 @@ class UnfurlValidationError(UnfurlError):
         super().__init__(message, log=log)
         self.errors = errors or []
 
+class UnfurlBadDocumentError(UnfurlError):
+    def __init__(
+        self,
+        message: object,
+        errors: Optional[Tuple[str, List[object]]] = None,
+        saveStack: bool = False,
+    ) -> None:
+        super().__init__(message, saveStack=saveStack)
+        self.errors = cast(Tuple[str, List[object]], errors or [])
 
 class UnfurlTaskError(UnfurlError):
     def __init__(
@@ -790,6 +799,8 @@ required_envvars = [
     "UNFURL_LOGFILE",
     "UNFURL_SKIP_VAULT_DECRYPT",
     "UNFURL_SKIP_UPSTREAM_CHECK",
+    "UNFURL_SEARCH_ROOT",
+    "UNFURL_CLOUD_SERVER",
     "UNFURL_VALIDATION_MODE",
     "UNFURL_PACKAGE_RULES",
     "UNFURL_LOG_FORMAT",

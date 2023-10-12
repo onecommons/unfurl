@@ -130,14 +130,20 @@ class Project:
 
     def _set_repos(self) -> None:
         # abspath => RepoView:
-        self.workingDirs = Repo.find_git_working_dirs(self.projectRoot, True)
+        self.workingDirs = Repo.find_git_working_dirs(
+            self.projectRoot, True, "tosca_repositories"
+        )
         self._set_project_repoview()
 
         if self.project_repoview.repo:
-            # Repo.findGitWorkingDirs() doesn't look inside git working dirs
+            # Repo.find_git_working_dirs() doesn't look inside git working dirs
             # so look for repos in dirs that might be excluded from git
             for dir in self.project_repoview.repo.find_excluded_dirs(self.projectRoot):
-                if self.projectRoot in dir and os.path.isdir(dir):
+                if (
+                    self.projectRoot in dir
+                    and "/tosca_repositories" not in dir
+                    and os.path.isdir(dir)
+                ):
                     Repo.update_git_working_dirs(self.workingDirs, dir, os.listdir(dir))
 
         # add referenced local repositories outside of the project
@@ -345,7 +351,7 @@ class Project:
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()
         return repo
 
-    def find_git_repo_from_repository(self, repoSpec: Repository) -> Optional[Repo]:
+    def find_git_repo_from_repository(self, repoSpec: Repository) -> Optional[GitRepo]:
         repoUrl = repoSpec.url
         return self.find_git_repo(split_git_url(repoUrl)[0])
 
@@ -881,7 +887,9 @@ class LocalEnv:
                 return project.get_managed_project(location, self), context_name
         return project, context_name
 
-    def _resolve_path_and_project(self, manifestPath: str, can_be_empty: bool) -> None:
+    def _resolve_path_and_project(
+        self, manifestPath: str, can_be_empty: bool, stop_at: str = os.sep
+    ) -> None:
         if manifestPath:
             # raises if manifestPath is a directory without either a manifest or project
             foundManifestPath, project = self._find_given_manifest_or_project(
@@ -968,6 +976,8 @@ class LocalEnv:
             self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
         if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
+        if os.getenv("UNFURL_SEARCH_ROOT"):
+            self.overrides["UNFURL_SEARCH_ROOT"] = os.getenv("UNFURL_SEARCH_ROOT")
 
         if parent:
             self.parent = parent
@@ -983,7 +993,11 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
             self.make_resolver = None
 
-        self._resolve_path_and_project(manifestPath or "", can_be_empty)
+        self._resolve_path_and_project(
+            manifestPath or "",
+            can_be_empty,
+            self.overrides.get("UNFURL_SEARCH_ROOT", os.sep),
+        )
         if override_context:
             # set after _resolve_path_and_project() is called
             self.manifest_context_name = override_context
@@ -1195,7 +1209,7 @@ class LocalEnv:
                 return repo
         return Repo.find_containing_repo(instanceDir)
 
-    # NOTE this currently isn't used and returns repos outside of this LocalEnv
+    # NOTE returns repos outside of this LocalEnv
     # (every repo found in localRepositories)
     def _get_git_repos(self) -> List[GitRepo]:
         if self.project:
@@ -1208,12 +1222,10 @@ class LocalEnv:
             return repos
 
     def _search_for_manifest_or_project(
-        self,
-        dir: str,
-        can_be_empty: bool,
+        self, dir: str, can_be_empty: bool, stop_at=os.sep
     ) -> Tuple[str, Optional[Project]]:
         current = os.path.abspath(dir)
-        while current and current != os.sep:
+        while current and current != stop_at:
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return "", self.get_project(test, self.homeProject)
@@ -1396,33 +1408,19 @@ class LocalEnv:
                 return repo, filePath, revision, bare
         return None, None, None, None
 
-    def link_repo(self, base_path: str, name: str, url: str, revision):
+    def link_repo(
+        self, base_path: str, name: str, url: str, revision
+    ) -> Tuple[str, str]:
+        # return link name, target path
         if base_path:
             base_path = get_base_dir(base_path)
         else:
             base_path = os.getcwd()
 
-        assert name.isidentifier(), name
-        repo = self.find_git_repo(url, revision)
-        assert repo, url
-
-        tosca_repos_root = Path(base_path) / "tosca_repositories"
-        # ensure t_r and its gitignore exist
-        if not tosca_repos_root.exists():
-            os.mkdir(tosca_repos_root)
-            with open(tosca_repos_root / ".gitignore", "w") as gi:
-                gi.write("*")
-
-        target = tosca_repos_root / name
-        # remove/recreate to ensure symlink is correct
-        if target.exists():
-            target.unlink()
-
-        # use os.path.relpath as Path.relative_to only accepts strict subpaths
-        rel_repo_path = os.path.relpath(repo.working_dir, tosca_repos_root)
-        target.symlink_to(rel_repo_path)
-
-        return repo.working_dir
+        repo_view = self._find_git_repo(url, revision)
+        if not isinstance(repo_view, RepoView):
+            return "", ""
+        return repo_view.get_link(base_path, name)
 
     def map_value(self, val: Any, env_rules: Optional[dict]) -> Any:
         """

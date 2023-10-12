@@ -129,6 +129,14 @@ node_types:
   unfurl.nodes.Default:
     derived_from: unfurl.nodes.Installation
     description: "Used if pre-existing instances are declared with no TOSCA template"
+    metadata:
+      additionalProperties: true
+
+  unfurl.nodes.Generic:
+    derived_from: tosca.nodes.Root
+    description: An open, generic type that allows your template to declare arbitrary properties.
+    metadata:
+      additionalProperties: true
 
   unfurl.nodes.CloudAccount:
     derived_from: tosca.nodes.Root
@@ -202,7 +210,7 @@ capability_types:
         type: string
         default: local
       port:
-        type: tosca:PortDef
+        type: tosca.datatypes.network.PortDef
         description: sets "ansible_port"
         required: false
       host:

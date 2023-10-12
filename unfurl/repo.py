@@ -4,6 +4,7 @@ import abc
 import os
 import os.path
 from pathlib import Path
+import re
 import sys
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast
@@ -59,8 +60,8 @@ def normalize_git_url(url: str, hard: int = 0):
             # convert to ssh://user@server/project.git
             url = "ssh://" + url.replace(":", "/", 1)
     if hard:
-        parts = urlparse(url)
         # remove password and .git
+        parts = urlparse(url)
         user, sep, host = parts.netloc.rpartition("@")
         if sep and hard == 1:
             netloc = f"{user.partition(':')[0]}@{host}"
@@ -157,7 +158,12 @@ def get_remote_tags(url, pattern="*") -> List[str]:
     # len("b90df3d12413db22d051db1f7c7286cdd2f00b66\trefs/tags/") == 51
     # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
     tags = [line[51:] for line in blob.split("\n") if not line.endswith("^{}")]
-    logger.debug("got %s remote tags with pattern %s from %s", len(tags), pattern, sanitize_url(url))
+    logger.debug(
+        "got %s remote tags with pattern %s from %s",
+        len(tags),
+        pattern,
+        sanitize_url(url),
+    )
     return tags
 
 
@@ -188,10 +194,16 @@ class Repo(abc.ABC):
 
     @staticmethod
     def find_git_working_dirs(
-        rootDir, include_root, gitDir=".git"
+        rootDir,
+        include_root,
+        skip_dir=None,
+        gitDir=".git",
     ) -> Dict[str, "RepoView"]:
         working_dirs: Dict[str, "RepoView"] = {}
         for root, dirs, files in os.walk(rootDir):
+            if skip_dir and root == os.path.join(rootDir, skip_dir):
+                del dirs[:]  # don't visit sub directories
+                continue
             if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
                 if not include_root or rootDir != root:
                     del dirs[:]  # don't visit sub directories
@@ -242,7 +254,9 @@ class Repo(abc.ABC):
     def is_path_excluded(self, localPath):
         return False
 
-    def find_path(self, path: str, importLoader=None) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
+    def find_path(
+        self, path: str, importLoader=None
+    ) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
         base = self.working_dir
         if not base:  # XXX support bare repos
             return None, None, None
@@ -384,17 +398,16 @@ class RepoView:
         self.yaml = None
         self.revision: Optional[str] = None
         self.file_refs: List[str] = []
-        self.set_repo_and_path(repo, path)
-        self.read_only = False
-        self.package: Optional[Union[Literal[False], "Package"]] = None
-
-    def set_repo_and_path(self, repo: Optional["GitRepo"], path: str):
         self.repo = repo
         self.path = path
         if repo and path and self.repository:
+            # XXX check that repo.url and repository.url match
+            # and neither have fragments
             self.repository.url = repo.get_url_with_path(
                 path, False, self.revision or ""
             )
+        self.read_only = False
+        self.package: Optional[Union[Literal[False], "Package"]] = None
 
     @property
     def working_dir(self) -> str:
@@ -406,6 +419,10 @@ class RepoView:
     @property
     def name(self):
         return self.repository.name if self.repository else ""
+
+    @property
+    def python_name(self):
+        return re.sub(r"\W", "_", self.name)
 
     @property
     def url(self) -> str:
@@ -576,6 +593,51 @@ class RepoView:
         if self.origin:
             record["origin"] = normalize_git_url(self.origin, 1)
         return record
+
+    def get_link(self, base_path: str, name: str = "") -> Tuple[str, str]:
+        """Find or create a symlink to this repository in "tosca_repositories"
+
+        Args:
+            base_path (str): Location of "tosca_repositories"
+            name (str, optional): name of the symlink. Defaults to repository.name.
+
+        Raises:
+            UnfurlError: if a file exists and
+
+        Returns:
+            Tuple[str, str]: symlink file name, target path
+        """
+        assert name or self.repository.name
+        name = re.sub(r"\W", "_", name or self.repository.name)
+        assert name.isidentifier(), name
+        if not Path(self.working_dir).is_dir():
+            raise UnfurlError(
+                f"Can not create symlink to {self.working_dir}: it isn't a directory."
+            )
+        tosca_repos_root = Path(base_path) / "tosca_repositories"
+        # ensure t_r and its gitignore exist
+        if not tosca_repos_root.exists():
+            os.mkdir(tosca_repos_root)
+            with open(tosca_repos_root / ".gitignore", "w") as gi:
+                gi.write("*")
+
+        symlink = tosca_repos_root / name
+        # remove/recreate to ensure symlink is correct
+        if symlink.exists():
+            if not symlink.is_symlink():
+                raise UnfurlError(
+                    f"Can not create symlink at {symlink}: it already exists but is not a symlink"
+                )
+            target = os.path.abspath(os.readlink(symlink))
+            if target == self.working_dir:  # already exists
+                return self.working_dir, str(symlink)
+            symlink.unlink()
+
+        # use os.path.relpath as Path.relative_to only accepts strict subpaths
+        rel_repo_path = os.path.relpath(self.working_dir, tosca_repos_root)
+        symlink.symlink_to(rel_repo_path)
+
+        return name, self.working_dir
 
 
 def add_transient_credentials(git, url, username, password):

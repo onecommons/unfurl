@@ -4,6 +4,7 @@ import logging
 import logging.config
 from enum import IntEnum
 import os
+import re
 import tempfile
 import time
 import types
@@ -187,11 +188,22 @@ class SensitiveFilter(logging.Filter):
         else:
             if record.args is not None:
                 record.args = tuple(self.redact(a) for a in record.args)
+        record.msg = self.sanitize_urls(record.msg)
         return True
 
     @staticmethod
+    def sanitize_urls(value: str) -> str:
+        return re.sub(r"://(\S+):(\S+)@", r"://\1:XXXXX@", value)
+
+    @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
-        return sensitive.redacted_str if is_sensitive(value) else value
+        if is_sensitive(value):
+            return sensitive.redacted_str
+        elif isinstance(value, str):
+            # make sure urls with credentials don't leak
+            return SensitiveFilter.sanitize_urls(value)
+        else:
+            return value
 
 
 def start_collapsible(name: str, section_id: Union[str, int], autoclose) -> bool:

@@ -1,6 +1,8 @@
 # A TOSCA Python-based DSL
 
-This package implements a Python representation of TOSCA 1.3. It converts TOSCA YAML to Python and vice versa. It can be used as a library by TOSCA processor or as a stand-alone conversion tool.
+This package implements a Python representation of [TOSCA 1.3](https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html). It converts TOSCA YAML to Python and vice versa. It can be used as a library by a TOSCA processor or as a stand-alone conversion tool.
+
+TOSCA (Topology and Orchestration Specification for Cloud Applications) is an [OASIS open standard](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) that provides language to describe a topology of cloud based web services, their components, relationships, and the processes that manage them. TOSCA provides mechanisms for abstraction and composition, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure.
 
 ## Why a DSL (Domain Specic Language)?
 
@@ -10,7 +12,7 @@ Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or interna
 
 * Expressiveness. With a full-fledged programming language as the host language (ie. Python), you have all its facilities for writing good code.
 
-* Reduced learning curve. By mapping to TOSCA syntax to existing language constructs like classes and methods and by rely on type inference we can present a simpler and more intuitive mental model to developers. For example, TOSCA's notion of requirements, properties, and artifacts are all represented the same way as regular Python attributes assigned to a Python class.
+* Reduced learning curve. By mapping to TOSCA syntax to existing language constructs like classes and methods and by rely on type inference we can present a simpler and more intuitive mental model to developers. For example, TOSCA's notions of requirements, capabilities, properties, and artifacts are all represented the same way as regular Python attributes assigned to a Python class.
 
 * IDE and tooling integration. You can take of all of the existing IDE and tooling integrations for the host language.
 
@@ -32,7 +34,7 @@ Requirements: Python versions 3.7 or later.
 
 ## Status
 
-Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since you always stick with YAML for the less common elements. Also, YAML to Python completeness is less of a priority than Python to YAML since the former is a just a convenience, while the latter is required for the DSL to be used.
+Experimental, syntax subject to change based on feedback. Currently converts a significant subset of TOSCA 1.3, to and from Python and YAML but there are still significant gaps. 100% coverage is not a goal since YAML can be used as a fallback for the less common elements. Also, YAML-to-Python completeness is less of a priority than Python-to-YAML since the former is a just a convenience, while the latter is required for the DSL to be useable.
 
 ## Examples
 
@@ -85,7 +87,7 @@ db_server = tosca.nodes.Compute(
 It looks very similar, except explicit types are required when assigning the `host` and `os` capabilities and properties that have unit values (`disk_size` and `mem_size`).
 
 Things are a little more interesting when defining a TOSCA node type in Python.
-Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2 ):
+Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):
 
 ```yaml
 node_types:
@@ -149,17 +151,17 @@ class Compute(AbstractCompute):
     )
 
     local_storage: Sequence[
-            "relationships.AttachesTo" |
-            "nodes.StorageBlockStorage" |
-            "capabilities.Attachment" |
-        ] = Requirement(default=())
+        "relationships.AttachesTo" |
+        "nodes.StorageBlockStorage" |
+        "capabilities.Attachment"
+    ] = Requirement(default=())
 ```
 
-Here the `Attribute()` field specifier is used to indicate a field is an TOSCA attribute, not a property, and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences: [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence.
+Here the `Attribute()` field specifier is used to indicate a field is an TOSCA attribute, not a property (the default for data types), and `Capability()` and `Requirement()` also used as field specifiers. Note that we can infer that `local_storage` has `occurrences: [0, UNBOUNDED]` because the type is a sequence and its default value is an empty sequence. See the [API documentation](https://docs.unfurl.run/api.html#tosca-field-specifiers) for the full list of field specifiers.
 
 Also note `_type_name`, which can be used to name the type when the YAML identifier doesn't conform to Python's identifier syntax.
 
-You can see all of TOSCA 1.3's pre-defined types as automatically converted from YAML to Python [here](https://github.com/onecommons/unfurl/blob/dsl/tosca-package/tosca/builtin_types.py).
+You can see all of TOSCA 1.3's pre-defined types as automatically converted from YAML to Python [here](https://github.com/onecommons/unfurl/blob/main/tosca-package/tosca/builtin_types.py).
 
 ### Interfaces and Operations
 
@@ -182,8 +184,9 @@ By mapping TOSCA's interfaces and operations to Python's classes and methods we 
 
       def my_operation(self):
           return self.shellScript.execute(
-                      MyCustomInterface.Inputs(location=self.location),
-                      host_address=self.host.public_address)
+              MyCustomInterface.Inputs(location=self.location),
+              host_address=self.host.public_address
+          )
 ```
 
 This will be translated to YAML as:
@@ -217,6 +220,7 @@ node_types:
             node: tosca.nodes.Compute
         interfaces:
           MyCustomInterface:
+            type: MyCustomInterface
             operations:
               my_operation:
                 implementation:
@@ -228,7 +232,80 @@ node_types:
                     {get_property: [SELF, host, public_address]}
 ```
 
-It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA. Another illustration of the benefits building a DSL on a widely supported language.
+It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA -- another illustration of the benefits of building a DSL on a widely supported language.
+
+### Node Filters
+
+Tosca types can declared a special class-level method called `_set_constraints` that is called when the class is definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
+
+This example creates sets the `node_filter` on the declared `host` requirement:
+
+
+```python
+    from tosca import in_range, gb
+
+    class Example(tosca.nodes.Root):
+        host: tosca.nodes.Compute
+
+        @classmethod
+        def _set_constraints(cls) -> None:
+            in_range(2 * gb, 20 * gb).apply_constraint(cls.host.host.mem_size)
+```
+
+And will translated to YAML as:
+
+```yaml
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - host:
+        node: tosca.nodes.Compute
+        node_filter:
+          capabilities:
+          - host:
+              properties:
+              - mem_size:
+                  in_range:
+                  - 2 GB
+                  - 20 GB
+```
+
+Note that your IDE's type checker will detect if the `mem_size`'s type was incompatible with the values passed to `in_range`.
+
+### Imports and repositories
+
+We translate TOSCA imports statements as relative imports in Python or, if a repository was specified, as a Python import in a package named "tosca_repository.<repository_name>". For example:
+
+```yaml
+  imports:
+    - file: foo.yaml
+    - file: foo.yaml
+      namespace_prefix: ns
+    - file: foo.yaml
+      namespace_prefix: foo
+    - file: ../bar/foo.yaml
+    - file: foo.yaml
+      repository: my_repo
+    - file: bar/foo.yaml
+      repository: my_repo
+    - file: bar/foo.yaml
+      repository: my_repo
+      namespace_prefix: foo
+```
+
+will be translated to:
+
+```python
+from .foo import *
+from . import foo as ns
+from . import foo
+from ..bar.foo import *
+from tosca_repositories.my_repo.bar.foo import *
+from tosca_repositories.my_repo.bar import foo
+```
+
+`unfurl export` will resolve imports from repository by creating a`tosca_repository` directory with symlinks to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
 
 ## Usage
 
@@ -247,19 +324,28 @@ If you are using unfurl, you can accomplish the same thing from the command line
 
 `unfurl export --format python service_template.yaml`
 
+The following options affect the output of the generated Python code:
+
+```
+  --python-target [3.7|3.8|3.9|3.10]
+                                  Python version to target (Default: current version)
+  --overwrite [older|never|always|auto]
+                                  Overwrite existing files (Default: auto)
+```
+
+The conversion process will follow TOSCA imports and generate Python files alongside the imported YAML files. The `--overwrite` controls what happens when a file with the same name already exists; its values can be:
+
+* `older` will only overwrite the output file if it is older than the source file.
+* `never` will never overwrite an existing file.
+* `always` will always write the file even if one currently exists.
+* `auto` (the default) will check if the existing file contains a generated comment at the beginning of the file. If The header comment is missing or the modified time included in the comment does not match the file's modified time, the file will be skipped. This way files with manually modifications won't be overwritten. To always allow a file to overwritten, edit the header to include the string "overwrite ok".
+
 ### Python to YAML
 
-This example does the reverse, saving the Python file as YAML:
+This example does the reverse, saving the Python file as a YAML file:
 
 ```python
-from tosca.python2yaml import python_to_yaml
-import yaml
-
-with open("service_template.py") as f_in:
-    python_src = f.read()
-tosca_template = python_to_yaml(python_src, safe_mode=False)
-with open("service_template.yaml", "w") as f_out:
-    yaml.dump(tosca_template, f_out)
+tosca_template = python_to_yaml("service_template.py", "service_template.yaml", safe_mode=False)
 ```
 
 With unfurl, the command line equivalent is:
@@ -272,7 +358,7 @@ To enable untrusted Python service templates to be safely parsed in the same con
 
 * The sandbox only a provides a subset of Python's built-ins functions and objects -- ones that do not perform IO or modify global state.
 * Imports are limited to relative imports, TOSCA repositories via the  `tosca_repository` package, or the modules named in the `tosca.python2yaml.ALLOWED_MODULES` list, which defaults to "tosca", "typing", "typing_extensions", "random", "math", "string", "DateTime", and "unfurl".
-* If a modules in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
+* If a module in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.
 * Disallowed imports will only raise `ImportError` when an imported module's attribute is accessed.
