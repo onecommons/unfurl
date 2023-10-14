@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Changelog for Unfurl &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Python API" href="api.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html">
+            
+              <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Changelog for Unfurl</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#v0-9-0-friday-10-13-23">v0.9.0 - Friday 10-13-23</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#features">Features</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#introduce-python-dsl-for-tosca"><em><strong>Introduce Python DSL for TOSCA</strong></em></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#unfurl-cloud-local-development-mode">Unfurl Cloud local development mode</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#embedded-blueprints-tosca-substitution-mapping">Embedded Blueprints (TOSCA substitution mapping)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cli-improvements">CLI Improvements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dry-run-improvements">Dry Run improvements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#runtime-eval-expressions">Runtime Eval Expressions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#new-environment-variables">New Environment Variables</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#minor-enhancements-and-notable-bug-fixes">Minor Enhancements and Notable Bug Fixes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id1">0.8.0 - 2023-07-26</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#breaking-changes">Breaking Changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id2">Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#bug-fixes">Bug Fixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#misc">Misc</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Changelog for Unfurl</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/CHANGELOG.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="changelog-for-unfurl">
+<h1>Changelog for Unfurl<a class="headerlink" href="#changelog-for-unfurl" title="Permalink to this headline"></a></h1>
+<section id="v0-9-0-friday-10-13-23">
+<h2>v0.9.0 - Friday 10-13-23<a class="headerlink" href="#v0-9-0-friday-10-13-23" title="Permalink to this headline"></a></h2>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0">Compare with 0.9.0</a> </small></p>
+<section id="features">
+<h3>Features<a class="headerlink" href="#features" title="Permalink to this headline"></a></h3>
+<section id="introduce-python-dsl-for-tosca">
+<h4><em><strong>Introduce Python DSL for TOSCA</strong></em><a class="headerlink" href="#introduce-python-dsl-for-tosca" title="Permalink to this headline"></a></h4>
+<p>Write TOSCA as Python modules instead of YAML. Features include:</p>
+<ul class="simple">
+<li><p>Static type checking of your TOSCA model.</p></li>
+<li><p>IDE integration.</p></li>
+<li><p>Export command now support conversion from YAML to Python and Python to YAML.</p></li>
+<li><p>Python data model simplifies TOSCA YAML</p></li>
+<li><p>But allows advanced constraints that encapsulate verbose relationships and node filters.</p></li>
+<li><p>Python executes in a sandbox to safely parse untrusted TOSCA service templates.</p></li>
+</ul>
+<p>See <a class="reference external" href="https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md">https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md</a> for more information.</p>
+</section>
+<section id="unfurl-cloud-local-development-mode">
+<h4>Unfurl Cloud local development mode<a class="headerlink" href="#unfurl-cloud-local-development-mode" title="Permalink to this headline"></a></h4>
+<p>You can now see local changes to a blueprint project under development on <a class="reference external" href="https://unfurl.cloud">Unfurl Cloud</a> by running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">serve</span> <span class="pre">.</span></code> in the project directory.  If the project was cloned from Unfurl Cloud, it will connect to that local server to render and deploy that local copy of the blueprint (for security, on your local browser only). Use the <code class="docutils literal notranslate"><span class="pre">--cloud-server</span></code> option to specify an alternative instance of Unfurl Cloud.</p>
+</section>
+</section>
+<section id="embedded-blueprints-tosca-substitution-mapping">
+<h3>Embedded Blueprints (TOSCA substitution mapping)<a class="headerlink" href="#embedded-blueprints-tosca-substitution-mapping" title="Permalink to this headline"></a></h3>
+<p>Support for TOSCA substitution mapping has been stabilized and integrated into Unfurl Cloud.</p>
+<p>One new feature level enhancement an extension to TOSCA’s requirements mapping to that enables you to essentially parameterize an embedded template by letting the outer (the embedding template) substitute node templates in the embedded template.</p>
+<p>When substituted node template (in the outer topologies) declares requirements with whose name matches the name of a node template in the substituted (inner) topology then that node template will be replaced by the node template targeted by the requirement.</p>
+<p>For example, if the substituted (inner) topology looked like:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">NestedWithPlaceHolder</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">placeholder</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PlaceHolderType</span>
+
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">substitution_mapping</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NestedWithPlaceHolder</span>
+
+<span class="w w-Error">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">placeholder</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PlaceHolderType</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+<p>Then another topology that is embedding it can replace the “placeholder” template like so:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w">  </span>
+<span class="w">    </span><span class="nt">nested1</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NestedWithPlaceHolder</span>
+<span class="w">      </span><span class="nt">directives</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">substitute</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">placeholder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">replacement</span>
+
+<span class="w">    </span><span class="nt">replacement</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PlaceHolderType</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+<section id="cli-improvements">
+<h4>CLI Improvements<a class="headerlink" href="#cli-improvements" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">--skip-upstream-check</span></code> global option which skips pulling latest upstream changes from existing repositories and checking remote repositories for version tags.</p></li>
+</ul>
+<p>Improvements to sub commands:</p>
+<ul class="simple">
+<li><p><strong>init</strong> Add Azure and Kubernetes project skeletons (<code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span> <span class="pre">--skeleton</span> <span class="pre">k8s</span></code> and <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span> <span class="pre">--skeleton</span> <span class="pre">azure</span></code>)</p></li>
+<li><p><strong>export</strong> Add support for exporting TOSCA YAML to Python and Python to YAML, add <code class="docutils literal notranslate"><span class="pre">--overwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">--python-target</span></code> options.</p></li>
+<li><p><strong>cloudmap</strong> Allow host urls in place of pre-configured names.</p></li>
+</ul>
+</section>
+<section id="dry-run-improvements">
+<h4>Dry Run improvements<a class="headerlink" href="#dry-run-improvements" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>When deploying jobs with <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> if a <code class="docutils literal notranslate"><span class="pre">Mock</span></code> operation is defined for a node type or template it will be invoked if the configurator doesn’t support dry run mode.</p></li>
+<li><p>The <strong>terraform:</strong> configurator now supports “dryrun_mode” and “dryrun_outputs” input parameters.</p></li>
+</ul>
+</section>
+<section id="runtime-eval-expressions">
+<h4>Runtime Eval Expressions<a class="headerlink" href="#runtime-eval-expressions" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Eval expressions can now be used in <code class="docutils literal notranslate"><span class="pre">node_filter</span></code>s to query for node matches using the next “match” keyword.</p></li>
+<li><p>Add a “.hosted_on” key to eval expressions  that (recursively) follows “.targets” filtered by the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship, even across topology boundaries.</p></li>
+<li><p>Add optional <code class="docutils literal notranslate"><span class="pre">wantList</span></code> parameter to the jinja2 <code class="docutils literal notranslate"><span class="pre">eval</span></code>  filter to guarantee the result is a list e.g. <code class="docutils literal notranslate"><span class="pre">{{&quot;expression&quot;</span> <span class="pre">|</span> <span class="pre">eval(wantList=True)}}</span></code></p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">trace</span></code> keyword in eval expressions now accept “break” as value with will invoke Python’s <code class="docutils literal notranslate"><span class="pre">breakpoint()</span></code> function when the expression is evaluated.</p></li>
+</ul>
+</section>
+<section id="new-environment-variables">
+<h4>New Environment Variables<a class="headerlink" href="#new-environment-variables" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">UNFURL_SEARCH_ROOT</span></code> environment variable: When search for ensembles and unfurl projects Unfurl will stop when it reach the directory this is set to.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">UNFURL_SKIP_SAVE</span></code> environment variable: If set, skips saving the ensemble.yaml to disk after a job runs,</p></li>
+</ul>
+</section>
+</section>
+<section id="minor-enhancements-and-notable-bug-fixes">
+<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#minor-enhancements-and-notable-bug-fixes" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p><strong>artifacts</strong> Add an <code class="docutils literal notranslate"><span class="pre">asdf</span></code> artifact for <code class="docutils literal notranslate"><span class="pre">kompose</span></code> and have the <strong>kompose</strong> configurator schedule the artifact if <code class="docutils literal notranslate"><span class="pre">kompose</span></code> is missing.</p></li>
+<li><p><strong>Parser</strong> better syntax validation <code class="docutils literal notranslate"><span class="pre">+include</span></code> statements.</p></li>
+<li><p><strong>Parser</strong> treat import failures are fatal errors</p></li>
+</ul>
+<ul class="simple">
+<li><p><strong>Cloudmap:</strong> allow anonymous connections to Gitlab and Unfurl Cloud api for readonly access</p></li>
+</ul>
+<ul class="simple">
+<li><p><strong>plan</strong> spurious validation failures when creating initial environment variable rules</p></li>
+<li><p><strong>tosca</strong>: Add support for ‘unsupported’, ‘deprecated’, and ‘removed’ property statuses.</p></li>
+<li><p><strong>tosca:</strong> Add support for bitrate scalar units.</p></li>
+<li><p><strong>tosca:</strong> fix built-in storage type definition</p></li>
+<li><p><strong>plan:</strong> fix candidate status check when deleting instances.</p></li>
+<li><p><strong>server:</strong> make sure generated local unfurl.yaml exists when patching deployments.</p></li>
+<li><p><strong>packages:</strong> warn when remote lookup of version tags fails.</p></li>
+<li><p><strong>repo:</strong> fix matching local paths with repository paths.</p></li>
+<li><p><strong>loader:</strong> fix relative path lookups when processing an +include directives during a TOSCA import of a file in a repository.</p></li>
+<li><p><strong>logging:</strong> improve log readability pretty printing</p></li>
+</ul>
+</section>
+</section>
+<section id="id1">
+<h2>0.8.0 - 2023-07-26<a class="headerlink" href="#id1" title="Permalink to this headline"></a></h2>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.7.1...v0.8.0">Compare with 0.7.1</a></small></p>
+<section id="breaking-changes">
+<h3>Breaking Changes<a class="headerlink" href="#breaking-changes" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>The Unfurl package now only depends on the <a class="reference external" href="https://pypi.org/project/ansible-core">ansible-core</a> package instead of the full <a class="reference external" href="https://pypi.org/project/ansible/">ansible</a> package. Unfurl projects that depend on ansible modules installed by that package will not work with new Unfurl installations unless it is installed by some other means – or, better, declare an Ansible collection artifact as a dependency on the template that requires it. For an example, see this usage in the <a class="reference external" href="https://github.com/onecommons/unfurl/blob/v0.7.2/unfurl/configurators/docker-template.yaml#L127C29-L127C29">docker-template.yaml</a>.</p></li>
+</ul>
+</section>
+<section id="id2">
+<h3>Features<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Allow Ansible collections to be declared as TOSCA artifacts. Some predefined ones are defined <a class="reference external" href="https://github.com/onecommons/unfurl/blob/v0.7.2/unfurl/tosca_plugins/artifacts.yaml#L163">here</a>.</p></li>
+<li><p>Unfurl Server now tracks the dependent repositories accessed when generating cached representations (e.g. for <code class="docutils literal notranslate"><span class="pre">/export</span></code>) and uses that information to invalidate cache items when the dependencies change.</p></li>
+<li><p>Unfurl Server now caches more git operations, controlled by these environment variables: <code class="docutils literal notranslate"><span class="pre">CACHE_DEFAULT_PULL_TIMEOUT</span></code> (default: 120s) and
+<code class="docutils literal notranslate"><span class="pre">CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT</span></code> (default: 300s)</p></li>
+<li><p>Unfurl Server: add a <code class="docutils literal notranslate"><span class="pre">/types</span></code> endpoint that can extract types from a cloudmap.</p></li>
+<li><p>API: allow simpler <a class="reference external" href="https://docs.unfurl.run/api.html#unfurl.configurator.Configurator.run">Configurator.run()</a> implementations</p></li>
+<li><p>cloudmap: The <a class="reference external" href="https://docs.unfurl.run/cli.html#unfurl-cloudmap">cloudmap</a> command now supports <code class="docutils literal notranslate"><span class="pre">--import</span> <span class="pre">local</span></code>.</p></li>
+<li><p>eval: Unfurl’s Jinja2 filters that are marked as safe can now be used in safe evaluation mode (currently: <code class="docutils literal notranslate"><span class="pre">eval</span></code>, <code class="docutils literal notranslate"><span class="pre">map_value</span></code>, <code class="docutils literal notranslate"><span class="pre">sensitive</span></code>, and the <code class="docutils literal notranslate"><span class="pre">to_*_label</span></code> family).</p></li>
+</ul>
+</section>
+<section id="bug-fixes">
+<h3>Bug Fixes<a class="headerlink" href="#bug-fixes" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>jobs: Fix issue where some tasks that failed during the render phase were missing from the job summary.</p></li>
+<li><p>jobs: Don’t apply the <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> option to the tasks that are installing local artifacts. (Since they will most likely be needed to execute the tasks in the job even in dryrun mode.)</p></li>
+<li><p>k8s: Fix evaluation of the <code class="docutils literal notranslate"><span class="pre">kubernetes_current_namespace()</span></code> expression function outside of a job context</p></li>
+<li><p>k8s: Filter out data keys with null values when generating a Kubernetes Secret resource.</p></li>
+<li><p>helm: Fix <code class="docutils literal notranslate"><span class="pre">check</span></code> operation for <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.HelmRepository</span></code></p></li>
+<li><p>helm: If the Kubernetes environment has the insecure flag set, pass <code class="docutils literal notranslate"><span class="pre">--kube-insecure-skip-tls-verify</span></code> to helm.</p></li>
+</ul>
+</section>
+<section id="misc">
+<h3>Misc<a class="headerlink" href="#misc" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Introduce CHANGELOG.md (this file – long overdue!)</p></li>
+<li><p>CI: container images will be built and pushed to <a class="reference external" href="https://github.com/onecommons/unfurl/pkgs/container/unfurl">https://github.com/onecommons/unfurl/pkgs/container/unfurl</a> with every git push to CI, regardless of the branch. (In addition to the container images at <a class="reference external" href="https://hub.docker.com/r/onecommons/unfurl">https://hub.docker.com/r/onecommons/unfurl</a>, which are only built from main.)</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="api.html" class="btn btn-neutral float-left" title="Python API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, OneCommons Co..</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

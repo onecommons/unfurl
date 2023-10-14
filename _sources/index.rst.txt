@@ -51,6 +51,8 @@ Table of Contents
 
    api.rst
 
+   CHANGELOG.md
+
 
 Indices and tables
 ==================

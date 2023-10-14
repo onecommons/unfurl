@@ -88,6 +88,7 @@
 <li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
 </ul>
 
         </div>
@@ -160,7 +161,7 @@
 <section id="deploy-infrastructure-from-simple-application-centric-descriptions">
 <h3>Deploy infrastructure from simple, application-centric descriptions<a class="headerlink" href="#deploy-infrastructure-from-simple-application-centric-descriptions" title="Permalink to this headline"></a></h3>
 <ul class="simple">
-<li><p>Model your cloud infrastructure with <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.</p></li>
+<li><p>Model your cloud infrastructure with the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard either in YAML or <a class="reference external" href="https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md">Python</a>.</p></li>
 <li><p>Import reusable and adaptable components or build (and publish) your own.</p></li>
 <li><p>Easily declare dependencies to enable incremental deployment.</p></li>
 <li><p>Path-based query DSL to express dynamic relationships between resources and configurations.</p></li>
@@ -311,7 +312,7 @@ If you use <code class="docutils literal notranslate"><span class="pre">asdf</sp
 </section>
 <section id="status-and-caveats">
 <h2>Status and Caveats<a class="headerlink" href="#status-and-caveats" title="Permalink to this headline"></a></h2>
-<p>Unfurl is in early stages of development and should not be used in production. In particular be mindful of these limitations:</p>
+<p>Be mindful of these limitations:</p>
 <ul class="simple">
 <li><p>Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.</p></li>
 <li><p>Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.</p></li>
@@ -324,7 +325,7 @@ If you use <code class="docutils literal notranslate"><span class="pre">asdf</sp
 </section>
 <section id="get-started">
 <h2>Get Started<a class="headerlink" href="#get-started" title="Permalink to this headline"></a></h2>
-<p>Check out the rest of Unfurl’s documentation <a class="reference external" href="https://docs.unfurl.run/quickstart.html">here</a></p>
+<p>Check out the rest of Unfurl’s documentation <a class="reference external" href="https://docs.unfurl.run/quickstart.html">here</a>. Release notes can be found <a class="reference internal" href="CHANGELOG.html"><span class="doc std std-doc">here</span></a>.</p>
 </section>
 </section>
 
