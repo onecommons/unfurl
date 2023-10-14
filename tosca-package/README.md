@@ -8,7 +8,7 @@ TOSCA (Topology and Orchestration Specification for Cloud Applications) is an [O
 
 Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or internal) DSL](https://en.wikipedia.org/wiki/Domain-specific_language#External_and_Embedded_Domain_Specific_Languages) -- a DSL that is a subset of existing programming language?
 
-* Avoid what is affectionately known as "YAML hell". YAML's syntax is limited to expressing basic data types and has various quirks that makes it hard to manage at scale. But TOSCA is a fairly strongly typed language, so expressing it in a syntax that can reflect that makes for a much more powerful solution with regard to developer usability and tooling.
+* Avoid what is affectionately known as "YAML hell". YAML's syntax is limited to expressing basic data types and has [various quirks](https://noyaml.com) that makes it hard to manage at scale. But TOSCA is a fairly strongly typed language, so expressing it in a syntax that can reflect that makes for a much more powerful solution with regard to developer usability and tooling.
 
 * Expressiveness. With a full-fledged programming language as the host language (ie. Python), you have all its facilities for writing good code.
 
@@ -236,7 +236,7 @@ It interesting to note that the readability improvements in this example stem no
 
 ### Node Filters
 
-Tosca types can declared a special class-level method called `_set_constraints` that is called when the class is definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
+Tosca types can declared a special class-level method called `_set_constraints` that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
 
 This example creates sets the `node_filter` on the declared `host` requirement:
 
@@ -252,7 +252,7 @@ This example creates sets the `node_filter` on the declared `host` requirement:
             in_range(2 * gb, 20 * gb).apply_constraint(cls.host.host.mem_size)
 ```
 
-And will translated to YAML as:
+And will be translated to YAML as:
 
 ```yaml
 node_types:

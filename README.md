@@ -47,7 +47,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 ### Deploy infrastructure from simple, application-centric descriptions
 
-- Model your cloud infrastructure with [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.
+- Model your cloud infrastructure with the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard either in YAML or [Python](https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md).
 - Import reusable and adaptable components or build (and publish) your own.
 - Easily declare dependencies to enable incremental deployment.
 - Path-based query DSL to express dynamic relationships between resources and configurations.
@@ -175,7 +175,7 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
 
 ## Status and Caveats
 
-Unfurl is in early stages of development and should not be used in production. In particular be mindful of these limitations:
+Be mindful of these limitations:
 
 - Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.
 - Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.
@@ -187,4 +187,4 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 ## Get Started
 
-Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/quickstart.html)
+Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/quickstart.html). Release notes can be found [here](CHANGLOG.md).
