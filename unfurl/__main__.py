@@ -1213,7 +1213,7 @@ def _yaml_to_python(
     return file
 
 
-@cli.command()
+@cli.command(short_help="Export as JSON, Python or YAML.")
 @click.pass_context
 @click.argument("path", default=".", type=click.Path(exists=False))
 @click.option(

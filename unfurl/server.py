@@ -116,8 +116,8 @@ app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
 )
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
-if not cors and app.config["UNFURL_CLOUD_SERVER"]:
-    ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
+if not cors:
+    ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"] or "https://unfurl.cloud")
     cors = f"{ucs_parts.scheme}://{ucs_parts.netloc}"
 if cors:
     CORS(app, origins=cors.split())
@@ -1725,6 +1725,7 @@ def _get_commit_msg(body, default_msg):
         body.pop("username", None)
         body.pop("private_token", None)
         body.pop("password", None)
+        body.pop("cloud_vars_url", None)
         msg += "\n" + json.dumps(body, indent=2)
     return msg
 
