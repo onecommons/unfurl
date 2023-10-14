@@ -1,13 +1,12 @@
 [project]
 name = "tosca"
-version = "0.0.1"
+version = "0.0.3"
 requires-python = ">=3.7"
 authors = [
   { name="Adam Souzis", email="adam@onecommons.org" },
 ]
 description = "A library for representing TOSCA (Topology and Orchestration Specification for Cloud Applications) in Python"
 readme = "README.md"
-license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -15,11 +14,11 @@ classifiers = [
 ]
 dependencies = [
   "black",
-  "typing_extensions>=4.7",
-  "RestrictedPython>=6.1",
+  "typing_extensions>=4.7.1",
+  "RestrictedPython==6.2",
 ]
 
 [project.urls]
-    Homepage = https://www.unfurl.cloud
-    Documentation = https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md
-    Repository = https://github.com/onecommons/unfurl/tree/main/tosca-package
+Homepage = "https://www.unfurl.cloud"
+Documentation = "https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md"
+Repository = "https://github.com/onecommons/unfurl/tree/main/tosca-package"

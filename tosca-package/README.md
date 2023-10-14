@@ -16,7 +16,7 @@ Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or interna
 
 * IDE and tooling integration. You can take of all of the existing IDE and tooling integrations for the host language.
 
-![VS Code displaying tooltip](vs-tosca-python-error-tooltip.png)
+![VS Code displaying tooltip](https://github.com/onecommons/unfurl/raw/main/tosca-package/vs-tosca-python-error-tooltip.png)
 
 Using our TOSCA DSL, VS-Code will detect missing or invalid node template properties and requirements out of the box.
 
