@@ -16,6 +16,7 @@ from typing import (
     Union,
 )
 import logging
+
 logger = logging.getLogger("tosca")
 from pathlib import Path
 from tosca import Namespace
@@ -69,7 +70,9 @@ class PythonToYaml:
         self.write_policy = write_policy
         self.import_resolver = import_resolver
 
-    def find_yaml_import(self, module_name: str) -> Tuple[Optional[ModuleType], Optional[Path]]:
+    def find_yaml_import(
+        self, module_name: str
+    ) -> Tuple[Optional[ModuleType], Optional[Path]]:
         module = self.modules.get(module_name) or sys.modules.get(module_name)
         if not module:
             return None, None
@@ -83,10 +86,12 @@ class PythonToYaml:
                 return module, p
         return module, None
 
-    def _set_repository_for_module(self, module_name: str, path: Path) -> Tuple[str, Optional[Path]]:
+    def _set_repository_for_module(
+        self, module_name: str, path: Path
+    ) -> Tuple[str, Optional[Path]]:
         parts = module_name.split(".")
         if parts[0] == "tosca_repositories":
-            root_package = parts[0]+"."+parts[1]
+            root_package = parts[0] + "." + parts[1]
             repo_name = parts[1]
         else:
             root_package = parts[0]
@@ -99,7 +104,12 @@ class PythonToYaml:
             if root_module.__spec__ and root_module.__spec__.origin:
                 root_path = root_module.__spec__.origin
             else:
-                assert hasattr(root_module, "__path__"), (module_name, root_package, parts, root_module.__dict__)
+                assert hasattr(root_module, "__path__"), (
+                    module_name,
+                    root_package,
+                    parts,
+                    root_module.__dict__,
+                )
                 module_path = root_module.__path__
                 try:
                     root_path = module_path[0]
@@ -130,7 +140,9 @@ class PythonToYaml:
             _import = dict(file=str(p))
             if repo:
                 _import["repository"] = repo
-                if not self.import_resolver or not self.import_resolver.get_repository(repo, None):
+                if not self.import_resolver or not self.import_resolver.get_repository(
+                    repo, None
+                ):
                     # if repository has already been defined, don't add it here (it will probably be wrong)
                     repositories[repo] = dict(url=self.repos[repo].as_uri())
             imports.append(_import)
@@ -234,7 +246,7 @@ class PythonToYaml:
                 self._namespace2yaml(obj.get_defs())
                 continue
             module_name: str = getattr(obj, "__module__", "")
-            if isinstance(obj, _DataclassType):
+            if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):
                 if module_name and module_name != current_module:
                     if not module_name.startswith("tosca."):
                         # logger.debug(
@@ -251,11 +263,15 @@ class PythonToYaml:
                                 self.imports.add(("", p.relative_to(path)))
                             except ValueError:
                                 # not a subpath of the current module, add a repository
-                                ns, path = self._set_repository_for_module(module_name, p)
+                                ns, path = self._set_repository_for_module(
+                                    module_name, p
+                                )
                                 if path:
                                     self.imports.add((ns, path))
                                 else:
-                                    logger.warning(f"import look up in {current_module} failed, can find {module_name}")
+                                    logger.warning(
+                                        f"import look up in {current_module} failed, can find {module_name}"
+                                    )
                     continue
 
                 # this is a class not an instance
@@ -270,7 +286,7 @@ class PythonToYaml:
                 # XXX this will render any templates that were imported into this namespace from another module
                 self.add_template(obj, name)
             else:
-                section = getattr(obj, "_template_section", None)
+                section = getattr(obj, "_template_section", "")
                 to_yaml = getattr(obj, "to_yaml", None)
                 if section:
                     assert to_yaml
@@ -380,6 +396,15 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def check_import_names(self, node):
         return self.node_contents_visit(node)
 
+    def visit_Constant(self, node):
+        # allow `...`
+        return self.node_contents_visit(node)
+
+    def visit_Ellipsis(self, node):
+        # allow `...`
+        # replaced by Constant in 3.8
+        return self.node_contents_visit(node)
+
     def visit_AnnAssign(self, node: AnnAssign) -> Any:
         # missing in RestrictingNodeTransformer
         return self.node_contents_visit(node)
@@ -442,9 +467,19 @@ def python_src_to_yaml_obj(
     result = restricted_exec(
         python_src, namespace, base_dir, full_name, modules, safe_mode
     )
-    doc_strings = { n[:-len(":doc_strings")]: ds for n, ds in result.used_names.items() if n.endswith(":doc_strings")}
+    doc_strings = {
+        n[: -len(":doc_strings")]: ds
+        for n, ds in result.used_names.items()
+        if n.endswith(":doc_strings")
+    }
     converter = PythonToYaml(
-        namespace, yaml_cls, doc_strings, safe_mode, modules, write_policy, import_resolver
+        namespace,
+        yaml_cls,
+        doc_strings,
+        safe_mode,
+        modules,
+        write_policy,
+        import_resolver,
     )
     yaml_dict = converter.module2yaml()
     return yaml_dict
@@ -452,7 +487,7 @@ def python_src_to_yaml_obj(
 
 def python_to_yaml(
     src_path: str,
-    dest_path: Optional[str]=None,
+    dest_path: Optional[str] = None,
     overwrite="auto",
     safe_mode: bool = False,
 ) -> Optional[dict]:

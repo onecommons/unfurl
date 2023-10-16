@@ -217,7 +217,7 @@ class ConfigTask(TaskView, ConfigChange):
         ConfigChange.__init__(self, job)
         TaskView.__init__(self, job.manifest, configSpec, target, reason)
         self.dry_run = job.dry_run
-        self.verbose = job.verbose
+        self.verbose = job.jobOptions.verbose
         self._configurator = None
         self.generator = None
         self.job = job

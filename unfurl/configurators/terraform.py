@@ -1,9 +1,9 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING
-
+from typing import TYPE_CHECKING, Union, Dict, Any
+from typing_extensions import Literal
 from ..util import save_to_file, UnfurlTaskError, wrap_var, which
-from .shell import ShellConfigurator, clean_output, make_regex_filter
+from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
 from ..result import Result
 from ..projectpaths import get_path, FilePath, Folders
@@ -11,6 +11,15 @@ import json
 import os
 import os.path
 import re
+
+
+class TerraformInputs(ShellInputs):
+    main: Union[None, str, Dict[str, Any]] = None
+    tfvars: Union[None, str, Dict[str, Any]] = None
+    stateLocation: Literal["secrets", "artifacts", "remote"] = "secrets"
+    workdir: Union[None, str] = None
+    dryrun_mode: Literal["plan", "real"] = "plan"
+    dryrun_output: Union[None, str, Dict[str, Any]] = None
 
 
 def _get_env(env, verbose, dataDir):
@@ -523,11 +532,12 @@ class TerraformConfigurator(ShellConfigurator):
             state = mark_sensitive(providerSchema, state, task, self.sensitive_names)
             # save state file in home as yaml, encrypting sensitive values
             folderName = self._get_workfolder_name(task)
-            # set always_apply because we want to commit the terraform state file
-            # even if the terraform command failed (as it might have updated some resources)
-            task.set_work_folder(folderName, always_apply=True).write_file(
-                state, "terraform.tfstate.yaml"
-            )
+            if folderName != "remote":  # don't use local state file
+                # set always_apply because we want to commit the terraform state file
+                # even if the terraform command failed (as it might have updated some resources)
+                task.set_work_folder(folderName, always_apply=True).write_file(
+                    state, "terraform.tfstate.yaml"
+                )
             outputs = {
                 name: wrap_var(attrs["value"])
                 for name, attrs in state["outputs"].items()

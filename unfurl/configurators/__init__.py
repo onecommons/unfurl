@@ -1,6 +1,9 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import os
+from typing_extensions import TypedDict
+
+from tosca import ToscaInputs
 from ..eval import Ref, map_value
 from ..configurator import Configurator, TaskView
 from ..result import Results, ResultsMap
@@ -8,7 +11,7 @@ from ..util import register_short_names
 from ..support import Status
 from ..planrequests import set_default_command, ConfigurationSpecKeywords
 import importlib
-from typing import Sequence, Tuple, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
@@ -23,7 +26,7 @@ register_short_names(
 
 class CmdConfigurator(Configurator):
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target):
+    def set_config_spec_args(cls, kw: dict, target):
         return set_default_command(cast(ConfigurationSpecKeywords, kw), "")
 
 
@@ -37,6 +40,22 @@ class PythonPackageCheckConfigurator(Configurator):
         except Exception:
             status = Status.error
         yield task.done(True, status=status)
+
+
+class DoneDict(TypedDict):
+    success: Optional[bool]
+    modified: Optional[bool]
+    status: Optional[Status]
+    result: Union[dict, str, None]
+    outputs: Optional[dict]
+
+
+class TemplateInputs(ToscaInputs):
+    run: Optional[Dict] = None
+    dryrun: Union[None, bool, str, dict] = None
+    done: Optional[DoneDict] = None
+    resultTemplate: Optional[Dict] = None
+    outputs: Optional[Dict] = None
 
 
 class TemplateConfigurator(Configurator):

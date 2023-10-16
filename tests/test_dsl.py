@@ -206,7 +206,7 @@ default_operations_yaml = (
 
 default_operations_python = """
 import unfurl
-import unfurl.configurators.terraform
+from unfurl.configurators.terraform import TerraformConfigurator, TerraformInputs
 from tosca import operation, Property, Eval
 from typing import Union
 
@@ -216,9 +216,8 @@ class unfurl_nodes_Installer_Terraform(unfurl.nodes.Installer):
 
     @operation(apply_to=["Install.check", "Standard.delete"])
     def default(self):
-        return unfurl.configurators.terraform.TerraformConfigurator(
-            main=Eval({"get_property": ["SELF", "main"]}),
-        )
+        return TerraformConfigurator(TerraformInputs(main=Eval({"get_property": ["SELF", "main"]})))
+
 foo = 1
 """
 
@@ -447,14 +446,20 @@ node_types:
             inputs:
               location:
                 eval: .::prop1
-              version: 0
               host:
                 eval: .::.targets::host::public_address
 interface_types:
   MyCustomInterface:
     derived_from: tosca.interfaces.Root
-    my_operation:
-      description: description of my_operation
+    inputs: 
+      location:
+        type: string
+      version:
+        type: integer
+        default: 0
+    operations:
+      my_operation:
+        description: description of my_operation
 topology_template: {}
 """
 

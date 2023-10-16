@@ -246,7 +246,7 @@ Inputs
   :echo: (*Default: true*) Whether or not should be standard output (and stderr)
          should be echod to Unfurl's stdout while the command is being run.
          (Doesn't affect the capture of stdout and stderr.)
-  :keeplines:
+  :keeplines: (*Default: false*) If true, preserve line breaks in the given command.
   :done: As as `done` defined by the `Template` configurator.
   :resultTemplate: A Jinja2 template that is processed after shell command completes, it will have the following template variables:
 

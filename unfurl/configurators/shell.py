@@ -21,17 +21,39 @@ inputs:
 # see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
-from ..configurator import Status
+from ..configurator import Status, TaskView
 from ..util import which, truncate_str, clean_output
-from . import TemplateConfigurator
+from . import TemplateConfigurator, TemplateInputs
 import os
 import sys
 import shlex
 import six
 import re
-from typing import Optional
-
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    TYPE_CHECKING,
+)
 import subprocess
+
+if TYPE_CHECKING:
+    from ..job import ConfigTask
+
+
+class ShellInputs(TemplateInputs):
+    command: Union[None, str, List[str]] = None
+    shell: Union[None, str, bool] = None
+    "If shell is None, default to True if command is a string otherwise False"
+    cwd: Union[None, str] = None
+    keeplines: bool = False
+    echo: Union[None, bool] = None
+    "Echo output, default depends on job verbosity"
 
 
 def make_regex_filter(logregex: re.Pattern, levels: list):
@@ -78,6 +100,7 @@ def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
             stdout = None
             stderr = None
             _save_input = process._save_input  # type: ignore
+
             # _save_input is called after _fileobj2output is setup but before reading
             def _save_input_hook_hack(input):
                 if process.stdout:
@@ -111,12 +134,9 @@ class ShellConfigurator(TemplateConfigurator):
     _default_cmd: Optional[str] = None
     _default_dryrun_arg: Optional[str] = None
 
-
-    # def __init__(self, *, cmd: Union[str, List[str], None])
-
     @staticmethod
     def _cmd(cmd, keeplines):
-        if not isinstance(cmd, six.string_types):
+        if not isinstance(cmd, str):
             cmdStr = " ".join(cmd)
         else:
             if not keeplines:
@@ -157,7 +177,7 @@ class ShellConfigurator(TemplateConfigurator):
                 # Windows and 2.7 don't have _save_input
                 run = subprocess.run  # type: ignore
                 kwargs = {}
-            if shell and isinstance(shell, six.string_types):
+            if shell and isinstance(shell, str):
                 executable = shell
             else:
                 executable = None
@@ -257,17 +277,17 @@ class ShellConfigurator(TemplateConfigurator):
         cmd = self.resolve_dry_run(cmd, task)
         return [cmd, cwd]
 
-    def run(self, task):
+    def run(self, task: TaskView):
         cmd, cwd = task.rendered
         task.logger.trace("executing %s", cmd)
         params = task.inputs
-        isString = isinstance(cmd, six.string_types)
+        isString = isinstance(cmd, str)
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isString)
         env = task.environ
         task.logger.trace("shell using env %s", env)
-        keeplines = params.get("keeplines")
-        echo = params.get("echo", task.verbose > -1)
+        keeplines = params.get("keeplines", False)
+        echo = params.get("echo", cast("ConfigTask", task).verbose > -1)
         result = self.run_process(
             cmd,
             shell=shell,
@@ -281,7 +301,7 @@ class ShellConfigurator(TemplateConfigurator):
         yield self.done(task, success=success, status=status, result=result.__dict__)
 
     def resolve_dry_run(self, cmd, task):
-        is_string = isinstance(cmd, six.string_types)
+        is_string = isinstance(cmd, str)
         dry_run_arg = task.inputs.get("dryrun", self._default_dryrun_arg)
         if task.dry_run and isinstance(dry_run_arg, six.string_types):
             if "%dryrun%" in cmd:  # replace %dryrun%

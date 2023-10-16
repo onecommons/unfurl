@@ -6,7 +6,7 @@ from collections.abc import MutableSequence
 import functools
 import logging
 import sys
-from typing import Dict, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import ansible.constants as C
 from ansible import context
@@ -14,14 +14,23 @@ from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback.default import CallbackModule
 from ansible.utils.display import Display
 
-from . import TemplateConfigurator
+from tosca import ToscaInputs
+from . import TemplateConfigurator, TemplateInputs
 from ..configurator import Status
 from ..result import serialize_value
 from ..util import assert_form
 
+
 display = Display()
 
 logger = logging.getLogger("unfurl")
+
+
+class AnsibleInputs(TemplateInputs):
+    playbook: Union[None, str, List[dict]]
+    inventory: Union[None, str, Dict[str, Any]] = None
+    playbookArgs: Union[None, List[str]] = None
+    resultKeys: Union[None, List[str]] = None
 
 
 def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
@@ -79,9 +88,9 @@ def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
 class AnsibleConfigurator(TemplateConfigurator):
     """The current resource is the inventory."""
 
-    def __init__(self, **kw):
-        super().__init__(**kw)
-        self._cleanupRoutines = []
+    def __init__(self, *args: ToscaInputs, **kw) -> None:
+        super().__init__(*args, **kw)
+        self._cleanupRoutines: List[Callable] = []
 
     def can_dry_run(self, task):
         return True
@@ -138,8 +147,8 @@ class AnsibleConfigurator(TemplateConfigurator):
     def _make_inventory(self, host, allVars, task):
         if host:
             hostVars = self._get_host_vars(host)
-            connection = task.find_connection(task.inputs.context,
-                host, "unfurl.relationships.ConnectsTo.Ansible"
+            connection = task.find_connection(
+                task.inputs.context, host, "unfurl.relationships.ConnectsTo.Ansible"
             )
             if connection:
                 self._update_vars(connection, hostVars)
@@ -433,7 +442,10 @@ def _run_playbooks(args, params=None, vault_secrets=None):
     logger.info("running " + " ".join(args))
     # collections may have been installed while the job is running, need reset the loader to pick those up
     from ansible.plugins.loader import _configure_collection_loader
-    from ansible.utils.collection_loader._collection_finder import AnsibleCollectionConfig
+    from ansible.utils.collection_loader._collection_finder import (
+        AnsibleCollectionConfig,
+    )
+
     AnsibleCollectionConfig._collection_finder = None
     _configure_collection_loader()
     cli = PlaybookCLI(args)

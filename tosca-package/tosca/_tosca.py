@@ -1164,6 +1164,7 @@ def field(
         Property,
         Capability,
         Requirement,
+        Artifact,
         field,
         dataclasses.field,
     ),
@@ -1270,7 +1271,32 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
 
 class ToscaInputs(_ToscaType):
-    pass
+    @classmethod
+    def _shared_cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
+        dict_cls = converter and converter.yaml_cls or yaml_cls
+        body: Dict[str, Any] = dict_cls()
+        for field in cls.explicit_tosca_fields:
+            assert field.name, field
+            item = field.to_yaml(converter)
+            body.update(item)
+        return body
+
+    @staticmethod
+    def _get_inputs(*args: "ToscaInputs", **kw):
+        inputs = yaml_cls()
+        for arg in args:
+            assert isinstance(arg, ToscaInputs), arg
+            for field in arg.__dataclass_fields__.values():
+                if isinstance(field, _Tosca_Field):
+                    val = getattr(arg, field.name, dataclasses.MISSING)
+                    if val != dataclasses.MISSING and val != REQUIRED:
+                        if val is not None or field.default is REQUIRED:
+                            # only set field with None if the field is required
+                            if val != field.default:
+                                # don't set if matches default
+                                inputs[field.tosca_name] = val
+        inputs.update(kw)
+        return inputs
 
 
 class ToscaOutputs(_ToscaType):
@@ -1694,7 +1720,7 @@ class ArtifactType(_OwnedToscaType):
         return tpl
 
     def execute(self, *args: ToscaInputs, **kw):
-        self.inputs = _ArtifactProxy._get_inputs(*args, **kw)
+        self.inputs = ToscaInputs._get_inputs(*args, **kw)
         return self
 
 
@@ -1706,15 +1732,19 @@ class InterfaceType(ToscaType):
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
-        body: Dict[str, Any] = {}
+        body: Dict[str, Any] = converter.yaml_cls()
         tosca_name = cls.tosca_type_name()
         for name, obj in cls.__dict__.items():
             if name[0] != "_" and cls.is_operation(obj):
                 doc = obj.__doc__ and obj.__doc__.strip()
                 if doc:
-                    body[obj.__name__] = converter.yaml_cls(description=doc)
+                    op = converter.yaml_cls(description=doc)
                 else:
-                    body[obj.__name__] = None
+                    op = None
+                # body[obj.__name__] = op
+                body.setdefault("operations", converter.yaml_cls())[obj.__name__] = op
+            elif isinstance(obj, _DataclassType) and issubclass(obj, ToscaInputs):
+                body["inputs"] = obj._shared_cls_to_yaml(converter)
         yaml = cls._shared_cls_to_yaml(converter)
         if not yaml:
             if not body:
@@ -1749,21 +1779,8 @@ class _ArtifactProxy:
         self.name_or_tpl = name_or_tpl
 
     def execute(self, *args: ToscaInputs, **kw):
-        self.inputs = self._get_inputs(*args, **kw)
+        self.inputs = ToscaInputs._get_inputs(*args, **kw)
         return self
-
-    @staticmethod
-    def _get_inputs(*args: ToscaInputs, **kw):
-        inputs = {}
-        for arg in args:
-            assert isinstance(arg, ToscaInputs), arg
-            for field in arg.__dataclass_fields__.values():
-                if isinstance(field, _Tosca_Field):
-                    val = getattr(arg, field.name, dataclasses.MISSING)
-                    if val != dataclasses.MISSING:
-                        inputs[field.tosca_name] = val
-        inputs.update(kw)
-        return inputs
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return dict_cls(get_artifact=["SELF", self.name_or_tpl])

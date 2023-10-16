@@ -33,9 +33,9 @@
               # env: "{{ SELF.env }}" # currently only container.environment is supported
 """
 
-from typing import cast
+from typing import cast, Union, Optional, List, Dict, Any
 from toscaparser.elements.portspectype import PortSpec
-from .shell import ShellConfigurator
+from .shell import ShellConfigurator, ShellInputs
 from .k8s import make_pull_secret, mark_sensitive
 from ..util import UnfurlTaskError, which
 from ..yamlloader import yaml
@@ -50,7 +50,21 @@ from pathlib import Path
 TIMEOUT = 180  # default timeout in seconds (3 minutes)
 
 
-def _get_service(compose: dict, service_name: str = None):
+class KomposeInputs(ShellInputs):
+    files: Union[None, Dict[str, Dict[str, Any]]] = None
+    container: Union[None, Dict[str, Any]] = None
+    image: Optional[str] = None
+    service_name: Optional[str] = None
+    registry_url: Optional[str] = None
+    registry_user: Optional[str] = None
+    registry_password: Optional[str] = None
+    labels: Union[None, Dict[str, str]] = None
+    annotations: Union[None, Dict[str, Any]] = None
+    expose: Optional[bool] = None
+    ingress_extras: Union[None, Dict[str, Any]] = None
+
+
+def _get_service(compose: dict, service_name: Optional[str] = None):
     if service_name:
         return compose["services"][service_name]
     else:
@@ -116,7 +130,6 @@ class KomposeConfigurator(ShellConfigurator):
             )
         return service_name
 
-    # inputs: files, env
     def render(self, task):
         """
         1. Render the docker_compose template if neccessary
@@ -173,9 +186,13 @@ class KomposeConfigurator(ShellConfigurator):
         if registry_password:
             pull_secret_name = f"{service_name}-registry-secret"
             registry_url = task.inputs.get("registry_url")
+            # XXX validate registry_url, shouldn't be a full url
             registry_user = task.inputs.get("registry_user")
             pull_secret = make_pull_secret(
-                pull_secret_name, registry_url, registry_user, registry_password
+                pull_secret_name,
+                registry_url,
+                registry_user or "",
+                registry_password or "",
             )
             cwd.write_file(
                 pull_secret,
