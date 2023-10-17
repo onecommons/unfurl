@@ -12,18 +12,12 @@ data_types:
       additionalProperties: true
     properties:
       environment: # env
-        type: map
-        entry_schema:
-          type: string
+        type: unfurl.datatypes.EnvironmentVariables
         default: {}
         required: false
         metadata:
           user_settable: true
           tab_title: Environment Variables
-          transform:
-            eval:
-              to_env:
-                eval: $value
       container_name: # name
         type: string
         required: false

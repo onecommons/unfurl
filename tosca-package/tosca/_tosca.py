@@ -1636,10 +1636,16 @@ class DataType(_OwnedToscaType):
         return body
 
 
-class EnvVarDataType(DataType):
-    @classmethod
-    def _get_property_metadata(cls) -> Optional[Dict[str, Any]]:
-        return dict(transform=dict(eval={"to_env": {"eval": "$value"}}))
+class OpenDataType(DataType):
+    "Properties don't need to be declared with TOSCA data types derived from this class."
+
+    _type_metadata = dict(additionalProperties=True)  # type: ignore
+
+    def __init__(self, _name="", **kw):
+        for k in list(kw):
+            if k[0] != "_":
+                self.__dict__[k] = kw.pop(k)
+        super().__init__(_name, **kw)
 
 
 class CapabilityType(_OwnedToscaType):

@@ -620,13 +620,15 @@ node_types:
         type: MyDataType
         default:
             name: default_name
-        metadata:
-          transform:
-            eval:
-              to_env:
-                eval: $value
 data_types:
   MyDataType:
+    derived_from: unfurl.datatypes.EnvironmentVariables
+    metadata:
+      additionalProperties: True
+      transform:
+        eval:
+          to_env:
+            eval: $value
     properties:
       name:
         type: string
@@ -643,9 +645,9 @@ topology_template:
 
 def test_envvar_type():
     import tosca
-    from tosca import EnvVarDataType, Property
-
-    class MyDataType(EnvVarDataType):
+    from tosca import Property
+    import unfurl
+    class MyDataType(unfurl.datatypes.EnvironmentVariables):
         name: str = "default_name"
 
     class Example(tosca.nodes.Root):

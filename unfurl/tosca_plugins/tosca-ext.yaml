@@ -197,6 +197,16 @@ data_types:
     type: string
     description: The value of an environment variable whose name matches the property's name
 
+  unfurl.datatypes.EnvironmentVariables:
+    derived_from: tosca.datatypes.Root
+    description: An open type (properties don't need to be declared) that serializes as a map of environment variables.
+    metadata:
+      additionalProperties: true
+      transform:
+        eval:
+          to_env:
+            eval: $value
+
 capability_types:
   unfurl.capabilities.Installer:
     derived_from: tosca.capabilities.Root
