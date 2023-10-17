@@ -5,10 +5,11 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import io
 import logging
-from typing import TYPE_CHECKING, Any, Match, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, Match, Optional, Tuple, cast
 import hashlib
 import re
 from toscaparser.common.exception import ValidationError
+from toscaparser.properties import Property
 
 if TYPE_CHECKING:
     from .spec import EntitySpec
@@ -527,7 +528,7 @@ class Results(ABC):
     This also allows us to track changes to the returned structure.
     """
 
-    __slots__ = ("_attributes", "context", "_deleted")
+    __slots__ = ("_attributes", "context", "_deleted", "validate", "defs")
 
     doFullResolve = False
     applyTemplates = True
@@ -540,12 +541,12 @@ class Results(ABC):
     def resolve_all(self):
         ...
 
-    def __init__(self, serializedOriginal, resourceOrCxt, validate=False, defs=None):
+    def __init__(self, serializedOriginal, resourceOrCxt, validate=False, defs: Optional[Dict[str, Property]]=None):
         from .eval import RefContext
 
         assert not isinstance(serializedOriginal, Results), serializedOriginal
         self._attributes = serializedOriginal.copy()
-        self._deleted = {}
+        self._deleted: dict = {}
         if not isinstance(resourceOrCxt, RefContext):
             ctx = RefContext(resourceOrCxt)
         else:
@@ -663,9 +664,10 @@ class Results(ABC):
                 if self._attributes[key] is _RecursionGuard:
                     self._attributes[key] = val
 
-    def get_datatype_defs(self, key):
+    def get_datatype_defs(self, key) -> Optional[Dict[str, Any]]:
         property = self.defs.get(key)
         if property:
+            # if property is not a complex datatype this will return {}
             return property.entity.properties
         return None
 
@@ -675,6 +677,10 @@ class Results(ABC):
         property = self.defs.get(key)
         if property:
             transform = property.schema.metadata.get("transform")
+            if not transform and property.entity.datatype.defs:
+                metadata = property.entity.datatype.defs.get("metadata")
+                if metadata:
+                    transform = metadata.get("transform")
             if transform:
                 logger.debug(
                     "running transform on %s.%s", self.context.currentResource.name, key

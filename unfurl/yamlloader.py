@@ -1107,7 +1107,7 @@ class YamlConfig:
             raise UnfurlError(f"Invalid include: {key}")
 
         if self.loadHook:
-            # give loadHook change to transform key
+            # give loadHook a chance to transform the key
             key = self.loadHook(
                 self,
                 templatePath,
