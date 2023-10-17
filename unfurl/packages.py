@@ -95,7 +95,7 @@ class PackageSpec:
         self.package_spec = package_spec
         if url_ish:
             self.package_id, self.url, revision = get_package_id_from_url(url_ish)
-            if self.url:  # url_ish was a full url, preserve the original
+            if self.url and "*" not in url_ish:  # url_ish was a full url, preserve the original
                 self.url = url_ish
         else:
             self.url = None
