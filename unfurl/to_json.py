@@ -1824,7 +1824,7 @@ def _annotate_requirement(
         if isinstance(match, str):
             # override the resource template
             req["match"] = match
-        elif list(match) == "get_nodes_of_type":
+        elif list(match)[0] == "get_nodes_of_type":
             # override the resourceType
             req["resourceType"] = match["get_nodes_of_type"]
 
