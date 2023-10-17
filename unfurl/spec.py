@@ -1562,7 +1562,7 @@ class TopologySpec(EntitySpec):
 
     @property
     def all(self):
-        return self
+        return self.node_templates
 
     def _resolve(self, key):
         try:

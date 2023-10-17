@@ -19,6 +19,12 @@ class DecoratorTest(unittest.TestCase):
             manifest = YamlManifest(path=path)
 
             ctx = RefContext(manifest.tosca.topology)
+            result0 = Ref("::*").resolve(ctx)
+            assert result0, len(result0) == 5
+
+            result0b = Ref({"get_nodes_of_type":"tosca.nodes.Compute"}).resolve_one(ctx)
+            assert result0b and len(result0b) == 2, result0b
+
             result1 = Ref("my_server::dependency::tosca.nodes.Compute").resolve(ctx)
             self.assertEqual("my_server2", result1[0].name)
 

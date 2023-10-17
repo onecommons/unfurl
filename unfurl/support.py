@@ -1047,12 +1047,17 @@ set_eval_func("get_attribute", get_attribute, True, True)
 
 
 def get_nodes_of_type(type_name: str, ctx: RefContext):
-    return [
-        r
-        for r in ctx.currentResource.root.get_self_and_descendants()
-        if r.template.is_compatible_type(type_name)
-        and r.name not in ["inputs", "outputs"]
-    ]
+    from .spec import EntitySpec
+
+    if isinstance(ctx.currentResource, EntitySpec):
+        return list(ctx.currentResource.topology.find_matching_templates(type_name))
+    else:
+        return [
+            r
+            for r in ctx.currentResource.root.get_self_and_descendants()
+            if r.template.is_compatible_type(type_name)
+            and r.name not in ["inputs", "outputs"]
+        ]
 
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
