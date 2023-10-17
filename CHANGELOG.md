@@ -2,7 +2,7 @@
 
 ## v0.9.0 - Friday 10-13-23
 
-<small>[Compare with 0.9.0](https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0) </small>
+<small>[Compare with 0.8.0](https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0) </small>
 
 ### Features
 
@@ -74,20 +74,22 @@ node_templates:
 Improvements to sub commands:
 
 * **init** Add Azure and Kubernetes project skeletons (`unfurl init --skeleton k8s` and `unfurl init --skeleton azure`)
-* **export** Add support for exporting TOSCA YAML to Python and Python to YAML, add `--overwrite` and `--python-target` options.
-* **cloudmap** Allow host urls in place of pre-configured names.
+* **clone** Add `--design` flag which to configure the cloned project for blueprint development.
+* **serve** Add `--cloud-server` option to specify Unfurl Cloud instance to connect to.
+* **export** Add support for exporting TOSCA YAML to Python and Python to YAML; add `--overwrite` and `--python-target` options.
+* **cloudmap** Also allow host urls for options that had only accepted a pre-configured name of a repository host.
 
 #### Dry Run improvements
 
 * When deploying jobs with `--dryrun` if a `Mock` operation is defined for a node type or template it will be invoked if the configurator doesn't support dry run mode.
-* The **terraform:** configurator now supports "dryrun_mode" and "dryrun_outputs" input parameters.
+* The **terraform** configurator now supports `dryrun_mode` and `dryrun_outputs` input parameters.
 
 #### Runtime Eval Expressions
 
-* Eval expressions can now be used in `node_filter`s to query for node matches using the next "match" keyword.
+* Eval expressions can now be used in `node_filter`s to query for node matches using the new `match` keyword in the node filter.
 * Add a ".hosted_on" key to eval expressions  that (recursively) follows ".targets" filtered by the `HostedOn` relationship, even across topology boundaries.
 * Add optional `wantList` parameter to the jinja2 `eval`  filter to guarantee the result is a list e.g. `{{"expression" | eval(wantList=True)}}`
-* The `trace` keyword in eval expressions now accept "break" as value with will invoke Python's `breakpoint()` function when the expression is evaluated.
+* The `trace` keyword in eval expressions now accept `break` as a value. This will invoke Python's `breakpoint()` function when the expression is evaluated.
 
 #### New Environment Variables
 
@@ -97,22 +99,20 @@ Improvements to sub commands:
 
 ### Minor Enhancements and Notable Bug Fixes
 
-* **artifacts** Add an `asdf` artifact for `kompose` and have the **kompose** configurator schedule the artifact if `kompose` is missing.
-
-* **Parser** better syntax validation `+include` statements.
-* **Parser** treat import failures are fatal errors
-
-- **Cloudmap:** allow anonymous connections to Gitlab and Unfurl Cloud api for readonly access
-* **plan** spurious validation failures when creating initial environment variable rules
-* **tosca**: Add support for 'unsupported', 'deprecated', and 'removed' property statuses.
+* **artifacts:** Add an `asdf` artifact for `kompose` and have the **kompose** configurator schedule the artifact if `kompose` is missing.
+* **parser:** treat import failures are fatal errors (abort parsing and validation).
+* **parser:** better syntax validation of `+include` statements.
+* **cloudmap:** allow anonymous connections to Gitlab and Unfurl Cloud api for readonly access
+* **plan:** fix spurious validation failures when creating initial environment variable rules
+* **tosca:**: Add support for 'unsupported', 'deprecated', and 'removed' property statuses.
 * **tosca:** Add support for bitrate scalar units.
 * **tosca:** fix built-in storage type definition
 * **plan:** fix candidate status check when deleting instances.
-* **server:** make sure generated local unfurl.yaml exists when patching deployments.
+* **server:** make sure the generated local unfurl.yaml exists when patching deployments.
 * **packages:** warn when remote lookup of version tags fails.
 * **repo:** fix matching local paths with repository paths.
 * **loader:** fix relative path lookups when processing an +include directives during a TOSCA import of a file in a repository.
-* **logging:** improve log readability pretty printing
+* **logging:** improve readability when pretty printing dictionaries.
 
 ## 0.8.0 - 2023-07-26
 
