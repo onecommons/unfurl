@@ -89,12 +89,14 @@ class Package_Url_Info(NamedTuple):
 
 class PackageSpec:
     def __init__(
-        self, package_spec: str, url: Optional[str], minimum_version: Optional[str]
+        self, package_spec: str, url_ish: Optional[str], minimum_version: Optional[str]
     ) -> None:
         # url can be package id, a url prefix, or an url with a revision or branch
         self.package_spec = package_spec
-        if url:
-            self.package_id, self.url, revision = get_package_id_from_url(url)
+        if url_ish:
+            self.package_id, self.url, revision = get_package_id_from_url(url_ish)
+            if self.url:  # url_ish was a full url, preserve the original
+                self.url = url_ish
         else:
             self.url = None
             self.package_id = None
@@ -199,10 +201,10 @@ class PackageSpec:
                 if pkg_spec.matches(package):
                     replaced_id = pkg_spec.update(package)
                     logger.trace(
-                        "updated package %s using rule %s: old package_id was %s",
+                        "updated package %s using rule %s%s",
                         package,
                         pkg_spec,
-                        replaced_id,
+                        f"(old package_id was {replaced_id})" if replaced_id else "",
                     )
                     changed = True
                     if not replaced_id:

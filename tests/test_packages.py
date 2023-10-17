@@ -133,6 +133,9 @@ if __name__ == "__main__":
     import sys
     test_url = sys.argv[1]
     env_package_spec = sys.argv[2]
+    package = get_package_from_url(test_url)
+    assert package
+    print("initial package", package.package_id, package.url, package.revision)
     package, package_specs = _apply_package_rules(test_url, env_package_spec)
-    print(package_specs)
-    print(f"from {test_url} to {package.url}")
+    print("applying specs", package_specs)
+    print(f"converted {test_url} to {package.url}")
