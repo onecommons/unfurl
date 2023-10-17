@@ -1818,6 +1818,16 @@ def _annotate_requirement(
         return
     node_filter = req["node_filter"]
     req_filters = node_filter.get("requirements")
+    match_filters = node_filter.get("match")
+    if match_filters:
+        match = match_filters[0]  # XXX support more than one
+        if isinstance(match, str):
+            # override the resource template
+            req["match"] = match
+        elif list(match) == "get_nodes_of_type":
+            # override the resourceType
+            req["resourceType"] = match["get_nodes_of_type"]
+
     # node_filter properties might refer to properties that are only present on some subtypes
     prop_filters: Dict = {}
     for typename in reqtype["extends"]:
