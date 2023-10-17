@@ -120,7 +120,7 @@
 <h1>Changelog for Unfurl<a class="headerlink" href="#changelog-for-unfurl" title="Permalink to this headline"></a></h1>
 <section id="v0-9-0-friday-10-13-23">
 <h2>v0.9.0 - Friday 10-13-23<a class="headerlink" href="#v0-9-0-friday-10-13-23" title="Permalink to this headline"></a></h2>
-<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0">Compare with 0.9.0</a> </small></p>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0">Compare with 0.8.0</a> </small></p>
 <section id="features">
 <h3>Features<a class="headerlink" href="#features" title="Permalink to this headline"></a></h3>
 <section id="introduce-python-dsl-for-tosca">
@@ -186,24 +186,26 @@
 <p>Improvements to sub commands:</p>
 <ul class="simple">
 <li><p><strong>init</strong> Add Azure and Kubernetes project skeletons (<code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span> <span class="pre">--skeleton</span> <span class="pre">k8s</span></code> and <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span> <span class="pre">--skeleton</span> <span class="pre">azure</span></code>)</p></li>
-<li><p><strong>export</strong> Add support for exporting TOSCA YAML to Python and Python to YAML, add <code class="docutils literal notranslate"><span class="pre">--overwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">--python-target</span></code> options.</p></li>
-<li><p><strong>cloudmap</strong> Allow host urls in place of pre-configured names.</p></li>
+<li><p><strong>clone</strong> Add <code class="docutils literal notranslate"><span class="pre">--design</span></code> flag which to configure the cloned project for blueprint development.</p></li>
+<li><p><strong>serve</strong> Add <code class="docutils literal notranslate"><span class="pre">--cloud-server</span></code> option to specify Unfurl Cloud instance to connect to.</p></li>
+<li><p><strong>export</strong> Add support for exporting TOSCA YAML to Python and Python to YAML; add <code class="docutils literal notranslate"><span class="pre">--overwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">--python-target</span></code> options.</p></li>
+<li><p><strong>cloudmap</strong> Also allow host urls for options that had only accepted a pre-configured name of a repository host.</p></li>
 </ul>
 </section>
 <section id="dry-run-improvements">
 <h4>Dry Run improvements<a class="headerlink" href="#dry-run-improvements" title="Permalink to this headline"></a></h4>
 <ul class="simple">
 <li><p>When deploying jobs with <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> if a <code class="docutils literal notranslate"><span class="pre">Mock</span></code> operation is defined for a node type or template it will be invoked if the configurator doesn’t support dry run mode.</p></li>
-<li><p>The <strong>terraform:</strong> configurator now supports “dryrun_mode” and “dryrun_outputs” input parameters.</p></li>
+<li><p>The <strong>terraform</strong> configurator now supports <code class="docutils literal notranslate"><span class="pre">dryrun_mode</span></code> and <code class="docutils literal notranslate"><span class="pre">dryrun_outputs</span></code> input parameters.</p></li>
 </ul>
 </section>
 <section id="runtime-eval-expressions">
 <h4>Runtime Eval Expressions<a class="headerlink" href="#runtime-eval-expressions" title="Permalink to this headline"></a></h4>
 <ul class="simple">
-<li><p>Eval expressions can now be used in <code class="docutils literal notranslate"><span class="pre">node_filter</span></code>s to query for node matches using the next “match” keyword.</p></li>
+<li><p>Eval expressions can now be used in <code class="docutils literal notranslate"><span class="pre">node_filter</span></code>s to query for node matches using the new <code class="docutils literal notranslate"><span class="pre">match</span></code> keyword in the node filter.</p></li>
 <li><p>Add a “.hosted_on” key to eval expressions  that (recursively) follows “.targets” filtered by the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship, even across topology boundaries.</p></li>
 <li><p>Add optional <code class="docutils literal notranslate"><span class="pre">wantList</span></code> parameter to the jinja2 <code class="docutils literal notranslate"><span class="pre">eval</span></code>  filter to guarantee the result is a list e.g. <code class="docutils literal notranslate"><span class="pre">{{&quot;expression&quot;</span> <span class="pre">|</span> <span class="pre">eval(wantList=True)}}</span></code></p></li>
-<li><p>The <code class="docutils literal notranslate"><span class="pre">trace</span></code> keyword in eval expressions now accept “break” as value with will invoke Python’s <code class="docutils literal notranslate"><span class="pre">breakpoint()</span></code> function when the expression is evaluated.</p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">trace</span></code> keyword in eval expressions now accept <code class="docutils literal notranslate"><span class="pre">break</span></code> as a value. This will invoke Python’s <code class="docutils literal notranslate"><span class="pre">breakpoint()</span></code> function when the expression is evaluated.</p></li>
 </ul>
 </section>
 <section id="new-environment-variables">
@@ -217,24 +219,20 @@
 <section id="minor-enhancements-and-notable-bug-fixes">
 <h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#minor-enhancements-and-notable-bug-fixes" title="Permalink to this headline"></a></h3>
 <ul class="simple">
-<li><p><strong>artifacts</strong> Add an <code class="docutils literal notranslate"><span class="pre">asdf</span></code> artifact for <code class="docutils literal notranslate"><span class="pre">kompose</span></code> and have the <strong>kompose</strong> configurator schedule the artifact if <code class="docutils literal notranslate"><span class="pre">kompose</span></code> is missing.</p></li>
-<li><p><strong>Parser</strong> better syntax validation <code class="docutils literal notranslate"><span class="pre">+include</span></code> statements.</p></li>
-<li><p><strong>Parser</strong> treat import failures are fatal errors</p></li>
-</ul>
-<ul class="simple">
-<li><p><strong>Cloudmap:</strong> allow anonymous connections to Gitlab and Unfurl Cloud api for readonly access</p></li>
-</ul>
-<ul class="simple">
-<li><p><strong>plan</strong> spurious validation failures when creating initial environment variable rules</p></li>
-<li><p><strong>tosca</strong>: Add support for ‘unsupported’, ‘deprecated’, and ‘removed’ property statuses.</p></li>
+<li><p><strong>artifacts:</strong> Add an <code class="docutils literal notranslate"><span class="pre">asdf</span></code> artifact for <code class="docutils literal notranslate"><span class="pre">kompose</span></code> and have the <strong>kompose</strong> configurator schedule the artifact if <code class="docutils literal notranslate"><span class="pre">kompose</span></code> is missing.</p></li>
+<li><p><strong>parser:</strong> treat import failures are fatal errors (abort parsing and validation).</p></li>
+<li><p><strong>parser:</strong> better syntax validation of <code class="docutils literal notranslate"><span class="pre">+include</span></code> statements.</p></li>
+<li><p><strong>cloudmap:</strong> allow anonymous connections to Gitlab and Unfurl Cloud api for readonly access</p></li>
+<li><p><strong>plan:</strong> fix spurious validation failures when creating initial environment variable rules</p></li>
+<li><p><strong>tosca:</strong>: Add support for ‘unsupported’, ‘deprecated’, and ‘removed’ property statuses.</p></li>
 <li><p><strong>tosca:</strong> Add support for bitrate scalar units.</p></li>
 <li><p><strong>tosca:</strong> fix built-in storage type definition</p></li>
 <li><p><strong>plan:</strong> fix candidate status check when deleting instances.</p></li>
-<li><p><strong>server:</strong> make sure generated local unfurl.yaml exists when patching deployments.</p></li>
+<li><p><strong>server:</strong> make sure the generated local unfurl.yaml exists when patching deployments.</p></li>
 <li><p><strong>packages:</strong> warn when remote lookup of version tags fails.</p></li>
 <li><p><strong>repo:</strong> fix matching local paths with repository paths.</p></li>
 <li><p><strong>loader:</strong> fix relative path lookups when processing an +include directives during a TOSCA import of a file in a repository.</p></li>
-<li><p><strong>logging:</strong> improve log readability pretty printing</p></li>
+<li><p><strong>logging:</strong> improve readability when pretty printing dictionaries.</p></li>
 </ul>
 </section>
 </section>
