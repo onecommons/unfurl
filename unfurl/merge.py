@@ -380,7 +380,7 @@ def has_template(doc: dict, key, value, path, cls) -> bool:
 
 
 class _MissingInclude:
-    def __init__(self, key, value):
+    def __init__(self, key: "MergeKey", value):
         self.key = key
         self.value = value
 
@@ -509,7 +509,7 @@ def _delete_deleted_keys(expanded):
                 _delete_deleted_keys(value)
 
 
-def expand_doc(doc, current=None, cls=dict):
+def expand_doc(doc, current=None, cls=dict) -> Tuple[Mapping, Mapping]:
     includes = cls()
     if current is None:
         current = doc
@@ -527,13 +527,24 @@ def expand_doc(doc, current=None, cls=dict):
             _delete_deleted_keys(expanded)
             return includes, expanded
         if len(missing) == last:  # no progress
-            raise UnfurlError(
-                "missing includes: %s"
-                % [f"{i.key.key}:{i.value or ''}" for i in missing]
-            )
+            required_missing = [f"{i.key.key}:{i.value or ''}" for i in missing if not i.key.maybe]
+            if required_missing:
+                raise UnfurlError(
+                    f"missing includes: {required_missing}"
+                )
+            # delete missing includes directives
+            for path, _includes in includes.items():
+                for i in _includes:
+                    if i in missing:
+                        if path:
+                            delete_path(expanded, path)
+                        else:
+                            del expanded[str(i)]  # type: ignore
+            return includes, expanded
         last = len(missing)
         includes = CommentedMap()
         expanded = expand_dict(expanded, (), includes, current, cls)
+        assert isinstance(expanded, Mapping), expanded
         if hasattr(doc, "_anchorCache"):
             expanded._anchorCache = doc._anchorCache  # type: ignore
 
@@ -665,6 +676,15 @@ def replace_path(doc, key, value, cls=dict):
     last = key[-1]
     ref = lookup_path(doc, path, cls)
     ref[last] = value
+
+
+def delete_path(doc, key):
+    if key:
+        path = key[:-1]
+        last = key[-1]
+        ref = lookup_path(doc, path)
+        if ref:
+            del ref[last]
 
 
 def add_template(changedDoc, path, mergeKey, template, cls):

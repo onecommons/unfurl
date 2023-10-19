@@ -137,6 +137,20 @@ class ExpandDocTest(unittest.TestCase):
         doc1["missing"] = {"?+include": "ensemble-template.yaml"}
         includes, expanded = expand_doc(doc1, cls=CommentedMap)
 
+        doc2 = CommentedMap(
+            [("+/a/d", None), ("a", {"+/e": None}), ("b", {"c": {"d": 1}})]
+        )
+        with self.assertRaises(UnfurlError) as err:
+            includes, expanded = expand_doc(doc2, cls=CommentedMap)
+
+        doc3 = CommentedMap(
+            [("+?/a/d", None), ("a", {"+?/e": None}), ("b", {"c": {"d": 1}})]
+        )
+        includes, expanded = expand_doc(doc3, cls=CommentedMap)
+        # missing includes are removed
+        assert expanded == {"b": {"c": {"d": 1}}}, expanded
+
+
     def test_recursion(self):
         doc = {"test3": {"a": {"recurse": {"+/test3": None}}}}
         with self.assertRaises(UnfurlError) as err:
