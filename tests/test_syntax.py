@@ -4,7 +4,7 @@ import json
 import os.path
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError
-from unfurl.to_json import to_deployment
+from unfurl.to_json import to_blueprint, to_deployment
 from unfurl.localenv import LocalEnv
 from unfurl.planrequests import _find_implementation
 
@@ -19,24 +19,31 @@ def test_jsonexport():
     jsonExport = to_deployment(local)
 
     # check that subtypes can remove inherited operations
-    assert jsonExport["ResourceType"]["Atlas"]['implementations'] == ['configure', 'connect'] 
-    assert "SelfHostedMongoDb" not in jsonExport["ResourceType"]  # not referenced by a template
+    assert jsonExport["ResourceType"]["Atlas"]["implementations"] == [
+        "configure",
+        "connect",
+    ]
+    assert (
+        "SelfHostedMongoDb" not in jsonExport["ResourceType"]
+    )  # not referenced by a template
     # assert jsonExport["ResourceType"]["SelfHostedMongoDb"]['implementations'] == ['configure']
 
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
-        assert "examples" in jsonExport["DeploymentTemplate"], jsonExport["DeploymentTemplate"]
+        assert "examples" in jsonExport["DeploymentTemplate"], jsonExport[
+            "DeploymentTemplate"
+        ]
         # test environmentVariableNames export
         deploymentTemplate = jsonExport["DeploymentTemplate"]["examples"]
         assert deploymentTemplate["environmentVariableNames"] == [
-                                                  "APP_IMAGE",
-                                                  "APP_DOMAIN",
-                                                  "HOST_CPUS",
-                                                  "HOST_MEMORY",
-                                                  "HOST_STORAGE",
-                                                  "RESOLVER_CONSOLE_URL"
-                                                  ]
+            "APP_IMAGE",
+            "APP_DOMAIN",
+            "HOST_CPUS",
+            "HOST_MEMORY",
+            "HOST_STORAGE",
+            "RESOLVER_CONSOLE_URL",
+        ]
         resource = jsonExport["Resource"]["foo.com"]
         assert resource
         # test explicit "export" metadata
@@ -48,10 +55,13 @@ def test_jsonexport():
     # verify included json was parsed correctly
     app_container = manifest.tosca.topology.node_templates.get("app_container")
     assert app_container and len(app_container.relationships) == 2, app_container and [
-                                                r.source for r in app_container.relationships]
+        r.source for r in app_container.relationships
+    ]
 
     # assert app_container and len(app_container.instances) == 1, app_container and app_container.instances
-    assert app_container.relationships[0].source == manifest.tosca.topology.node_templates.get("the_app")
+    assert app_container.relationships[
+        0
+    ].source == manifest.tosca.topology.node_templates.get("the_app")
 
     # XXX verify that saving the manifest preserves the json include
 
@@ -59,21 +69,43 @@ def test_jsonexport():
 def test_jsonexport_requirement_visibility():
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
-    jsonExport = to_deployment(local)
-    assert jsonExport["ResourceTemplate"]["template1"]["dependencies"], pprint.pformat(jsonExport["ResourceTemplate"]["template1"])
-    assert jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"]["visibility"] == "visible"
-    app_type = jsonExport["ResourceType"]["App"]
-    hostRequirement = app_type['requirements'][0]
-    assert hostRequirement['inputsSchema'] == {'properties': {'image': None, 'domain': {'default': 'foo.com'}}}
-    assert hostRequirement['requirementsFilter'] == [{
-        '__typename': 'RequirementConstraint',
-        'name': 'host',
-        'description': 'A compute instance with at least 2000MB RAM',
-        'inputsSchema': {'properties': {'Memory': {'minimum': 2000, 'maximum': 20000},
-                                        'CPUs': {'default': 2}}}}
+    jsonExport = to_blueprint(local) # to_deployment(local)
+    assert jsonExport["ResourceTemplate"]["template1"]["dependencies"], pprint.pformat(
+        jsonExport["ResourceTemplate"]["template1"]
+    )
+    assert (
+        jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"][
+            "visibility"
         ]
-    assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"], pprint.pformat(jsonExport["ResourceTemplate"]["the_app"])
-    assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"][0]["constraint"] == hostRequirement
+        == "visible"
+    )
+    app_type = jsonExport["ResourceType"]["App"]
+    hostRequirement = app_type["requirements"][0]
+    assert hostRequirement["inputsSchema"] == {
+        "properties": {"image": None, "domain": {"default": "foo.com"}}
+    }
+    assert hostRequirement["requirementsFilter"] == [
+        {
+            "__typename": "RequirementConstraint",
+            "name": "host",
+            "description": "A compute instance with at least 2000MB RAM",
+            "inputsSchema": {
+                "properties": {
+                    "Memory": {"minimum": 2000, "maximum": 20000},
+                    "CPUs": {"default": 2},
+                }
+            },
+            "resourceType": "ContainerHost",
+        }
+    ]
+    assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"], pprint.pformat(
+        jsonExport["ResourceTemplate"]["the_app"]
+    )
+    assert (
+        jsonExport["ResourceTemplate"]["the_app"]["dependencies"][0]["constraint"]
+        == hostRequirement
+    )
+
 
 class ManifestSyntaxTest(unittest.TestCase):
     def test_hasVersion(self):
@@ -176,25 +208,29 @@ spec:
 
 """
         manifest = YamlManifest(manifest)
-        app_template = manifest.tosca.topology.node_templates['the_app']
-        req_def = app_template.toscaEntityTemplate.type_definition.requirement_definitions['host']
+        app_template = manifest.tosca.topology.node_templates["the_app"]
+        req_def = (
+            app_template.toscaEntityTemplate.type_definition.requirement_definitions[
+                "host"
+            ]
+        )
         assert _find_implementation("Standard", "configure", app_template)
-        
+
         assert req_def == {
-          'metadata': {'base': 'meta', 'title': 'derived host'},
-          'relationship': {'type': 'tosca.relationships.DependsOn'},
-          'description': 'A derived compute instance',
-          'node': 'Derived'
+            "metadata": {"base": "meta", "title": "derived host"},
+            "relationship": {"type": "tosca.relationships.DependsOn"},
+            "description": "A derived compute instance",
+            "node": "Derived",
         }
 
         # make sure "defaults" doesn't mess up _find_implementation
         assert not _find_implementation("Standard", "start", app_template)
         assert not _find_implementation("Standard", "delete", app_template)
-        base_template = manifest.tosca.topology.node_templates['base']
+        base_template = manifest.tosca.topology.node_templates["base"]
         assert _find_implementation("Standard", "delete", base_template)
 
-class ToscaSyntaxTest(unittest.TestCase):
 
+class ToscaSyntaxTest(unittest.TestCase):
     def test_bad_interface_on_type(self):
         manifest = """
 apiVersion: unfurl/v1alpha1

@@ -6,25 +6,27 @@ spec:
       App:
         derived_from: tosca:Root
         requirements:
-        - host:
-            node: ServiceHost
-            node_filter:
-              properties:
-                # set the value of the "image" property
-                - image: foo:latest
-                - domain:
-                    default: foo.com
-              # we need to constrain the properties on the compute instance that hosts the dockerhost
-              # so we set the requirements on the dockerhost so it passes on that requirment
-              requirements:
-                - host:
-                    description: A compute instance with at least 2000MB RAM
-                    node_filter:
+          - host:
+              node: ServiceHost
+              node_filter:
+                properties:
+                  # set the value of the "image" property
+                  - image: foo:latest
+                  - domain:
+                      default: foo.com
+                # we need to constrain the properties on the compute instance that hosts the dockerhost
+                # so we set the requirements on the dockerhost so it passes on that requirment
+                requirements:
+                  - host:
+                      description: A compute instance with at least 2000MB RAM
+                      node_filter:
                         properties:
                           - Memory:
                               in_range: [2gb, 20gb]
-                          - CPUs: 
+                          - CPUs:
                               default: 2
+                        match:
+                          - get_nodes_of_type: ContainerHost
 
       ServiceHost:
         derived_from: tosca:Root
@@ -37,9 +39,9 @@ spec:
           domain:
             type: string
         requirements:
-        - host:
-            description: A compute instance to host this container on    
-            node: Compute
+          - host:
+              description: A compute instance to host this container on
+              node: Compute
 
       Compute:
         derived_from: tosca:Root
@@ -54,6 +56,9 @@ spec:
               default_unit: MB
 
     topology_template:
+      root:
+        node: the_app
+
       node_templates:
         template1:
           type: tosca:Root

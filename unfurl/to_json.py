@@ -333,22 +333,45 @@ def expand_prefix(nodetype: str):
     return nodetype.replace("tosca:", "tosca.nodes.")  # XXX
 
 
-def _find_req_typename(types: ResourceTypesByName, typename, reqname) -> str:
+def find_descendents(descendents, typename: str):
+    if typename in descendents:
+        for child in descendents[typename]:
+            yield child
+            yield from find_descendents(descendents, child)
+
+
+def _find_req_typename(
+    types: ResourceTypesByName,
+    typename: str,
+    reqname: str,
+    topology: TopologySpec,
+    descendents: Optional[Dict[str, List[str]]],
+) -> str:
+    # find the name of the resource type that is the target of "reqname" on "typename"
     # have types[typename] go first
     for target_reqs in types[typename]["requirements"]:
         if target_reqs["name"] == reqname:
             return target_reqs["resourceType"]
 
-    # XXX not very efficient
-    for t in types.values():
-        # mark_leaf_types() sets implementations, assume its has already been called
-        if "requirements" in t and not t["implementations"]:
+    # reqname wasn't found, look for it on subtypes of typename
+    if not descendents:
+        return ""
+
+    for subtype in find_descendents(descendents, typename):
+        t = types.get(subtype)
+        if not t:
+            t = _node_typename_to_graphql(subtype, topology, types)
+            if not t:
+                continue
+        # mark_leaf_types() sets the "implementations" key, assume its has already been called
+        if "requirements" not in t or not t["implementations"]:
             continue  # not a leaf type
-        if typename in t["extends"]:
-            # type is typename or derived from typename
-            for target_reqs in t["requirements"]:
-                if target_reqs["name"] == reqname:
-                    return target_reqs["resourceType"]
+        assert typename in t["extends"]
+        # type is typename or derived from typename
+        for target_reqs in t["requirements"]:
+            if target_reqs["name"] == reqname:
+                return target_reqs["resourceType"]
+
     return ""  # not found
 
 
@@ -357,6 +380,7 @@ def _make_req(
     topology: Optional[TopologySpec] = None,
     types: Optional[ResourceTypesByName] = None,
     typename: Optional[str] = None,
+    descendents: Optional[Dict[str, List[str]]] = None,
 ) -> Tuple[str, dict, GraphqlObject]:
     name, req = _get_req(req_dict)
     reqobj = GraphqlObject(
@@ -388,10 +412,16 @@ def _make_req(
             assert topology
             assert typename is not None
             # we're called from annotate_requirements annotating a nested requirements constraint
-            reqtypename = _find_req_typename(types, typename, name)
+            reqtypename = _find_req_typename(
+                types, typename, name, topology, descendents
+            )
             if reqtypename:
-                _annotate_requirement(reqobj, reqtypename, topology, types)
-
+                _annotate_requirement(reqobj, reqtypename, topology, types, descendents)
+            else:
+                logger.warning(
+                    f'could not find target resource type of requirement "{name}" on "{typename}"'
+        )
+                reqobj.pop("node_filter")
     return name, req, reqobj
 
 
@@ -872,7 +902,9 @@ def _update_root_type(
             jsontype["requirements"].append(req_json)
 
 
-def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByName:
+def to_graphql_nodetypes(
+    spec: ToscaSpec, include_all: bool
+) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
     types = cast(ResourceTypesByName, {})
     topology = spec.topology
@@ -889,13 +921,20 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
                 jsontype = node_type_to_graphql(nested_topology, typedef, types)
                 _update_root_type(jsontype, sub_map, nested_topology)
 
+    descendents: Dict[str, List[str]] = {}
+    for typename, defs in custom_defs.items():
+        parents = defs.get("derived_from", [])
+        if isinstance(parents, str):
+            parents = (parents,)
+        for parent in parents:
+            descendents.setdefault(parent, []).append(typename)
+        if not include_all or typename in types:
+            continue
+        typedef = _make_typedef(typename, custom_defs)
+        if typedef:
+            node_type_to_graphql(topology, typedef, types)
+
     if include_all:
-        for typename in custom_defs:
-            if typename in types:
-                continue
-            typedef = _make_typedef(typename, custom_defs)
-            if typedef:
-                node_type_to_graphql(topology, typedef, types)
         for typename in StatefulEntityType.TOSCA_DEF:  # builtin types
             if typename.startswith("unfurl.nodes") or typename.startswith(
                 "unfurl.relationships"
@@ -915,7 +954,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
 
     mark_leaf_types(types)
     assert spec.topology
-    annotate_requirements(spec.topology, types)
+    annotate_requirements(spec.topology, types, descendents)
 
     return types
 
@@ -986,42 +1025,23 @@ def template_properties_to_json(nodetemplate: NodeTemplate, visitor):
         yield dict(name=p.name, value=value)
 
 
-def _get_requirement_for_template(
-    req: dict, nodespec: EntitySpec, types: ResourceTypesByName
+def find_reqconstraint_for_template(
+    nodespec: NodeSpec, name: str, types: ResourceTypesByName
 ) -> Optional[GraphqlObject]:
-    name, template_req_dict = _get_req(req)
-    # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
-    # _get_explicit_relationship returns req_dict merged with its type definition
-    req_dict, rel_template = nodespec.toscaEntityTemplate._get_explicit_relationship(
-        name, template_req_dict
-    )
     if nodespec.type not in types:
         typeobj = _node_typename_to_graphql(nodespec.type, nodespec.topology, types)
         if not typeobj:
             return None
     else:
         typeobj = types[nodespec.type]
+    for constraint in typeobj["requirements"]:
+        if name == constraint["name"]:
+            return constraint
+    return None
 
-    match = req_dict.get("node")
-    reqconstraint = reqconstaint_from_nodetemplate(nodespec, name, req_dict)
-    if reqconstraint is None:
-        return None
-
-    if "substitute" in typeobj.get("directives", []):
-        # we've might have modified the type in _update_root_type()
-        # and the tosca object won't know about that change so set it now
-        for typeconstraint in typeobj["requirements"]:
-            if name == typeconstraint["name"]:
-                if not template_req_dict.get("node"):
-                    reqconstraint["match"] = typeconstraint.get("match")
-                    match = None
-                reqconstraint["min"] = typeconstraint["min"]
-                if "visibility" in typeconstraint:
-                    reqconstraint["visibility"] = typeconstraint["visibility"]
-
-    _annotate_requirement(
-        reqconstraint, reqconstraint["resourceType"], nodespec.topology, types
-    )
+def create_requirement_for_template(
+    nodespec: NodeSpec, name: str, reqconstraint: dict, match: Optional[str]
+) -> Optional[GraphqlObject]:
     reqjson = GraphqlObject(
         dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
     )
@@ -1034,18 +1054,23 @@ def _get_requirement_for_template(
     return reqjson
 
 
-def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: dict):
+def create_reqconstraint_from_nodetemplate(
+    nodespec: EntitySpec, name: str, req_dict: dict, types: ResourceTypesByName
+):
+    # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
+    # _get_explicit_relationship returns req_dict merged with its type definition
+    req_dict, rel_template = cast(
+        NodeTemplate, nodespec.toscaEntityTemplate
+    )._get_explicit_relationship(name, req_dict)
     if "constraint" in req_dict.get("metadata", {}):
         # this happens when we import graphql json directly
         reqconstraint = req_dict["metadata"]["constraint"]
     else:
         # "node" on a node template's requirement in TOSCA yaml is the node match so don't use as part of the constraint
         # use the type's "node" (unless the requirement isn't defined on the type at all)
-        typeReqDef = (
-            nodespec.toscaEntityTemplate.type_definition.get_requirement_definition(
-                name
-            )
-        )
+        typeReqDef = cast(
+            NodeType, nodespec.toscaEntityTemplate.type_definition
+        ).get_requirement_definition(name)
         if typeReqDef:
             # preserve node as "match" for _requirement_visibility
             req_dict["match"] = req_dict.get("node")
@@ -1055,6 +1080,23 @@ def reqconstaint_from_nodetemplate(nodespec: EntitySpec, name: str, req_dict: di
                 req_dict.pop("node", None)
             # else: empty typeReqDef, leave req_dict alone
         reqconstraint = requirement_to_graphql(nodespec.topology, {name: req_dict})
+
+    if reqconstraint:
+        # XXX do we still need this?
+        # if "substitute" in typeobj.get("directives", [])
+        #   for typeconstraint in typeobj["requirements"]:
+        #     if name == typeconstraint["name"]:
+        #         # then we've might have modified the type in _update_root_type()
+        #         # and the tosca object won't know about that change so set it now
+        #         if not req_dict.get("node"):
+        #             reqconstraint["match"] = typeconstraint.get("match")
+        #             match = None
+        #         reqconstraint["min"] = typeconstraint["min"]
+        #         if "visibility" in typeconstraint:
+        #             reqconstraint["visibility"] = typeconstraint["visibility"]
+        _annotate_requirement(
+            reqconstraint, reqconstraint["resourceType"], nodespec.topology, types, None
+        )
     return reqconstraint
 
 
@@ -1160,8 +1202,31 @@ def nodetemplate_to_json(
 
     has_visible_dependency = False
     ExceptionCollector.start()
+    nodetemplate = cast(NodeTemplate, nodetemplate)
+    node_spec = cast(NodeSpec, node_spec)
     for req in nodetemplate.all_requirements:
-        reqjson = _get_requirement_for_template(req, node_spec, types)
+        name, req_dict = _get_req(req)
+        if not req_dict:
+            # not defined on the template at all
+            reqconstraint = find_reqconstraint_for_template(node_spec, name, types)
+            match = None
+        else:
+            match = req_dict.get("node")
+            if (
+                len(req_dict) > 1
+                or name
+                not in cast(
+                    NodeType, node_spec.toscaEntityTemplate.type_definition
+                ).requirement_definitions
+            ):
+                reqconstraint = create_reqconstraint_from_nodetemplate(
+                    node_spec, name, req_dict, types
+                )
+            else:
+                reqconstraint = find_reqconstraint_for_template(node_spec, name, types)
+        if reqconstraint is None:
+            continue
+        reqjson = create_requirement_for_template(node_spec, name, reqconstraint, match)
         if reqjson is None:
             continue
         if reqjson["constraint"].get("visibility") != "hidden":
@@ -1380,8 +1445,10 @@ def _generate_env_names(spec: ToscaSpec, root_name: str) -> Iterator[str]:
         name = req_json["name"]
         target_type = req_json["resourceType"]
         typedef = _make_typedef(target_type, custom_defs)
-        assert typedef, target_type
-        yield from _generate_env_names_from_type(name.upper(), typedef, custom_defs)
+        if typedef:
+            yield from _generate_env_names_from_type(name.upper(), typedef, custom_defs)
+        else:
+            logger.warning(f"unable to generate enviroment variable names for type {target_type}: could not find its type definition.")
 
 
 def get_deployment_blueprints(
@@ -1795,10 +1862,16 @@ def _node_typename_to_graphql(
     return None
 
 
-def annotate_requirements(topology: TopologySpec, types: ResourceTypesByName) -> None:
+def annotate_requirements(
+    topology: TopologySpec,
+    types: ResourceTypesByName,
+    descendents: Dict[str, List[str]],
+) -> None:
     for jsontype in list(types.values()):  # _annotate_requirement() might modify types
         for req in jsontype.get("requirements") or []:
-            _annotate_requirement(req, req["resourceType"], topology, types)
+            _annotate_requirement(
+                req, req["resourceType"], topology, types, descendents
+            )
 
 
 def _annotate_requirement(
@@ -1806,14 +1879,9 @@ def _annotate_requirement(
     reqtypename: str,
     topology: TopologySpec,
     types: ResourceTypesByName,
+    descendents: Optional[Dict[str, List[str]]],
 ) -> None:
     # req is a RequirementConstraint dict
-    reqtype = types.get(reqtypename)
-    if not reqtype:
-        reqtype = _node_typename_to_graphql(reqtypename, topology, types)
-        if not reqtype:
-            return
-
     if "node_filter" not in req:
         return
     node_filter = req["node_filter"]
@@ -1828,6 +1896,12 @@ def _annotate_requirement(
             # override the resourceType
             req["resourceType"] = match["get_nodes_of_type"]
 
+    reqtype = types.get(reqtypename)
+    if not reqtype:
+        reqtype = _node_typename_to_graphql(reqtypename, topology, types)
+        if not reqtype:
+            return
+
     # node_filter properties might refer to properties that are only present on some subtypes
     prop_filters: Dict = {}
     for typename in reqtype["extends"]:
@@ -1841,7 +1915,8 @@ def _annotate_requirement(
         req["inputsSchema"] = dict(properties=prop_filters)
     if req_filters:
         req["requirementsFilter"] = [
-            _make_req(rf, topology, types, reqtypename)[2] for rf in req_filters
+            _make_req(rf, topology, types, reqtypename, descendents)[2]
+            for rf in req_filters
         ]
     req.pop("node_filter")
 
