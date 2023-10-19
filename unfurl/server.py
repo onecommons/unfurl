@@ -66,7 +66,7 @@ from .repo import (
     split_git_url,
     get_remote_tags,
 )
-from .util import UnfurlError, get_package_digest, unique_name
+from .util import UnfurlError, get_package_digest, is_relative_to, unique_name
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from .yamlloader import ImportResolver_Context, SimpleCacheResolver
@@ -81,6 +81,8 @@ __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
     add_log_file(__logfile)
 logger = getLogger("unfurl.server")
+
+DEFAULT_CLOUD_SERVER = "https://unfurl.cloud"
 
 # note: export FLASK_ENV=development to see error stacks
 # see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
@@ -107,7 +109,9 @@ cache = Cache(app)
 logger.info("created cache %s", flask_config["CACHE_TYPE"])
 app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
-app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
+app.config["UNFURL_CLOUD_SERVER"] = (
+    os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
+)
 app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
 app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
@@ -117,7 +121,7 @@ app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
 )
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
 if not cors:
-    ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"] or "https://unfurl.cloud")
+    ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
     cors = f"{ucs_parts.scheme}://{ucs_parts.netloc}"
 if cors:
     CORS(app, origins=cors.split())
@@ -190,9 +194,16 @@ def set_current_ensemble_git_url():
             app.config[
                 "UNFURL_CURRENT_WORKING_DIR"
             ] = local_env.project.project_repoview.repo.working_dir
-            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(
-                local_env.project.project_repoview.url
+            server_url = app.config["UNFURL_CLOUD_SERVER"]
+            server_host = urlparse(server_url).hostname
+            remote = local_env.project.project_repoview.repo.find_remote(
+                host=server_host
             )
+            if remote:
+                remote_url = remote.url
+            else:
+                remote_url = local_env.project.project_repoview.url
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
@@ -213,11 +224,8 @@ def get_current_project_id() -> str:
     current_git_url = app.config.get("UNFURL_CURRENT_GIT_URL")
     if not current_git_url:
         return ""
-    server_url = app.config.get("UNFURL_CLOUD_SERVER")
-    if server_url:
-        server_host = urlparse(server_url).hostname
-    else:
-        server_host = "unfurl.cloud"
+    server_url = app.config["UNFURL_CLOUD_SERVER"]
+    server_host = urlparse(server_url).hostname
     parts = urlparse(current_git_url)
     if parts.hostname != server_host:
         return ""
@@ -848,11 +856,11 @@ def version():
 
 
 def get_canonical_url(project_id: str) -> str:
-    return urljoin("https://unfurl.cloud/", project_id + ".git")
+    return urljoin(DEFAULT_CLOUD_SERVER, project_id + ".git")
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
-    base_url = current_app.config.get("UNFURL_CLOUD_SERVER")
+    base_url = current_app.config["UNFURL_CLOUD_SERVER"]
     assert base_url
     if username:
         url_parts = urlsplit(base_url)
@@ -1173,8 +1181,10 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
             # XXX enable skipping when deps support private repositories
             UNFURL_SKIP_UPSTREAM_CHECK=False,
             apply_url_credentials=True,
-            UNFURL_SEARCH_ROOT=current_app.config.get("UNFURL_CLONE_ROOT", "."),
         )
+        clone_root = os.path.abspath(current_app.config.get("UNFURL_CLONE_ROOT", "."))
+        if is_relative_to(clone_location, clone_root):
+            overrides["UNFURL_SEARCH_ROOT"] = clone_root
         local_env = LocalEnv(
             clone_location,
             current_app.config["UNFURL_OPTIONS"].get("home"),
@@ -1983,18 +1993,24 @@ def serve(
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
-    app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER")
+    app.config["UNFURL_CLOUD_SERVER"] = (
+        cloud_server or os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
+    )
     if os.getenv("UNFURL_SERVE_PATH") != project_path:
         # this happens in the unit tests
         os.environ["UNFURL_SERVE_PATH"] = project_path
-        set_current_ensemble_git_url()
+    set_current_ensemble_git_url()
 
     current_project_id = get_current_project_id()
     if current_project_id:
-        set_local_server_url = f'{urljoin(app.config.get("UNFURL_CLOUD_SERVER") or "https://unfurl.cloud", current_project_id)}?unfurl-server=http://{host}:{port}'
+        set_local_server_url = f'{urljoin(app.config["UNFURL_CLOUD_SERVER"], current_project_id)}?unfurl-server=http://{host}:{port}'
         logger.info(
             f"***Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
             extra=dict(rich=dict(markup=True)),
+        )
+    elif app.config.get("UNFURL_CURRENT_GIT_URL"):
+        logger.warning(
+            f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
         )
 
     # Start one WSGI server

@@ -734,6 +734,19 @@ class GitRepo(Repo):
         except Exception:
             return None
 
+    def find_remote(self, *, url=None, host=None) -> Optional[git.Remote]:
+        if url:
+            url = normalize_git_url_hard(url)
+        else:
+            assert host
+        for remote in self.repo.remotes:
+            if host:
+                if host == urlparse(normalize_git_url(remote.url)).hostname:
+                    return remote
+            elif normalize_git_url_hard(remote.url) == url:
+                return remote
+        return None
+
     def get_url_with_path(self, path: str, sanitize: bool = False, revision: str = ""):
         hard = 2 if sanitize else 0
         if is_url_or_git_path(self.url):
