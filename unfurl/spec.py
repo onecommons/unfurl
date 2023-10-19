@@ -17,7 +17,7 @@ from .util import (
     env_var_value,
 )
 from .eval import Ref, SafeRefContext, map_value, analyze_expr
-from .result import ExternalValue, ResourceRef, ResultsList
+from .result import ExternalValue, ResourceRef, ResultsList, serialize_value
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
 from .support import is_template, ContainerImage
@@ -138,7 +138,7 @@ def _patch(node, patchsrc, quote=False, tpl=None):
     if quote:
         patch = copy.deepcopy(patchsrc)
     else:
-        patch = map_value(patchsrc, ctx)
+        patch = serialize_value(map_value(patchsrc, ctx))
     logger.trace("patching node %s was %s", node.name, tpl)
     patched = patch_dict(tpl, patch, True)
     logger.trace("patched node %s: now %s", node.name, patched)
@@ -216,6 +216,7 @@ class ToscaSpec:
                             _patch(
                                 nodespec,
                                 value,
+                                quote=True,
                                 tpl=matching_target_req.entity_tpl[name],
                             )
                             patched = True
