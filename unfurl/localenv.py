@@ -907,7 +907,7 @@ class LocalEnv:
             if not project:
                 # set this because the yaml loader needs access to this while the project is being instantiated
                 self.overrides["manifest_path"] = foundManifestPath
-                project = self.find_project(os.path.dirname(foundManifestPath))
+                project = self.find_project(os.path.dirname(foundManifestPath), stop_at)
         elif project:
             # the manifestPath was pointing to a project, not a manifest
             manifestPath = ""
@@ -916,7 +916,7 @@ class LocalEnv:
             self.overrides["manifest_alias"] = manifestPath
             # if manifestPath doesn't point to a project or ensemble,
             # look for a project in the current directory and then see if the project has a manifest with that name
-            project = self.find_project(".")
+            project = self.find_project(".", stop_at)
             if not project:
                 raise UnfurlError(
                     "Ensemble manifest does not exist: '%s'" % manifestPath
@@ -1246,11 +1246,11 @@ class LocalEnv:
         message = "Can't find an Unfurl ensemble or project in the current directory (or any of the parent directories)"
         raise UnfurlError(message)
 
-    def find_project(self, testPath: str) -> Optional[Project]:
+    def find_project(self, testPath: str, stopPath: Optional[str] = None) -> Optional[Project]:
         """
         Walk parents looking for unfurl.yaml
         """
-        path = Project.find_path(testPath)
+        path = Project.find_path(testPath, stopPath)
         if path is not None:
             return self.get_project(path, self.homeProject)
         return None

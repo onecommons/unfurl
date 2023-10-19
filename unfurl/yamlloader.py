@@ -11,6 +11,7 @@ import json
 import os
 from typing import (
     Any,
+    Mapping,
     Optional,
     TextIO,
     Union,
@@ -939,7 +940,7 @@ class YamlConfig:
                 msg = "Unable to parse yaml config"
             raise UnfurlBadDocumentError(msg, saveStack=True)
 
-    def _expand(self) -> Tuple[dict, dict]:
+    def _expand(self) -> Tuple[Mapping, Mapping]:
         find_anchor(self.config, None)  # create _anchorCache
         self._cachedDocIncludes: Dict[str, Tuple[str, dict]] = {}
         yaml_dict = yaml_dict_type(self.readonly)
