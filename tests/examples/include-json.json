@@ -30,13 +30,12 @@
         {
           "constraint": {
             "name": "host",
-            "title": "host",
             "description": "A compute instance with at least 512MB RAM",
             "match": null,
             "min": 1,
             "max": 1,
             "resourceType": "Compute",
-            "visibility": "hidden"
+            "__typename": "RequirementConstraint"
           },
           "name": "host",
           "__typename": "Requirement",
@@ -45,13 +44,12 @@
         {
           "constraint": {
             "name": "resolver",
-            "title": "resolver",
             "description": "",
             "match": null,
             "min": 1,
             "max": 1,
             "resourceType": "DNS",
-            "visibility": "hidden"
+            "__typename": "RequirementConstraint"
           },
           "name": "resolver",
           "__typename": "Requirement",
@@ -60,13 +58,12 @@
         {
           "constraint": {
             "name": "db",
-            "title": "db",
             "description": "MongoDB database service",
             "match": null,
             "min": 1,
             "max": 1,
             "resourceType": "MongoDb",
-            "visibility": "hidden"
+            "__typename": "RequirementConstraint"
           },
           "name": "db",
           "__typename": "Requirement",
@@ -75,12 +72,12 @@
         {
           "constraint": {
             "name": "mail",
-            "title": "mail",
             "description": "",
             "match": null,
             "min": 1,
             "max": 1,
-            "resourceType": "Mail"
+            "resourceType": "Mail",
+            "__typename": "RequirementConstraint"
           },
           "name": "mail",
           "__typename": "Requirement",

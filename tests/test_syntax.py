@@ -2,6 +2,8 @@ import pprint
 import unittest
 import json
 import os.path
+
+import pytest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError
 from unfurl.to_json import to_blueprint, to_deployment
@@ -30,6 +32,7 @@ def test_jsonexport():
 
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
+        pprint.pprint(jsonExport["ResourceTemplate"])
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
         assert "examples" in jsonExport["DeploymentTemplate"], jsonExport[
             "DeploymentTemplate"
@@ -54,7 +57,7 @@ def test_jsonexport():
     manifest = local.get_manifest()
     # verify included json was parsed correctly
     app_container = manifest.tosca.topology.node_templates.get("app_container")
-    assert app_container and len(app_container.relationships) == 2, app_container and [
+    assert app_container and len(app_container.relationships) == 1, app_container and [
         r.source for r in app_container.relationships
     ]
 
@@ -66,10 +69,13 @@ def test_jsonexport():
     # XXX verify that saving the manifest preserves the json include
 
 
-def test_jsonexport_requirement_visibility():
+@pytest.mark.parametrize(
+    "export_fn", [to_deployment, to_blueprint]
+)    
+def test_jsonexport_requirement_visibility(export_fn):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
-    jsonExport = to_blueprint(local) # to_deployment(local)
+    jsonExport =  export_fn(local)
     assert jsonExport["ResourceTemplate"]["template1"]["dependencies"], pprint.pformat(
         jsonExport["ResourceTemplate"]["template1"]
     )

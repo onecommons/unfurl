@@ -420,7 +420,7 @@ def _make_req(
             else:
                 logger.warning(
                     f'could not find target resource type of requirement "{name}" on "{typename}"'
-        )
+                )
                 reqobj.pop("node_filter")
     return name, req, reqobj
 
@@ -902,9 +902,7 @@ def _update_root_type(
             jsontype["requirements"].append(req_json)
 
 
-def to_graphql_nodetypes(
-    spec: ToscaSpec, include_all: bool
-) -> ResourceTypesByName:
+def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
     types = cast(ResourceTypesByName, {})
     topology = spec.topology
@@ -1039,8 +1037,13 @@ def find_reqconstraint_for_template(
             return constraint
     return None
 
+
 def create_requirement_for_template(
-    nodespec: NodeSpec, name: str, reqconstraint: dict, _match: Optional[str]
+    nodespec: NodeSpec,
+    name: str,
+    reqconstraint: dict,
+    _match: Optional[str],
+    visibility=None,
 ) -> Optional[GraphqlObject]:
     if _match and not _get_typedef(
         _match, nodespec.topology.topology_template.custom_defs
@@ -1051,9 +1054,12 @@ def create_requirement_for_template(
     else:
         # use the match set in the type definition
         match = reqconstraint.get("match")
+    visibility = visibility or reqconstraint.get("visibility")
     reqjson = GraphqlObject(
         dict(constraint=reqconstraint, name=name, match=match, __typename="Requirement")
     )
+    if visibility:
+         reqjson["visibility"] = visibility
     return reqjson
 
 
@@ -1144,6 +1150,7 @@ def nodetemplate_to_json(
       constraint: RequirementConstraint!
       match: ResourceTemplate
       target: Resource
+      visibility: String
     }
     """
     nodetemplate = node_spec.toscaEntityTemplate
@@ -1213,10 +1220,14 @@ def nodetemplate_to_json(
             # not defined on the template at all
             reqconstraint = find_reqconstraint_for_template(node_spec, name, types)
             match = None
+            visibility = None
         else:
-            match = req_dict.get("node")
+            req_dict_copy = req_dict.copy()
+            match = req_dict_copy.pop("node", None)
+            metadata = req_dict_copy.pop("metadata", {})
+            visibility = metadata.get("visibility")
             if (
-                len(req_dict) > 1
+                req_dict_copy
                 or name
                 not in cast(
                     NodeType, node_spec.toscaEntityTemplate.type_definition
@@ -1229,10 +1240,12 @@ def nodetemplate_to_json(
                 reqconstraint = find_reqconstraint_for_template(node_spec, name, types)
         if reqconstraint is None:
             continue
-        reqjson = create_requirement_for_template(node_spec, name, reqconstraint, match)
+        reqjson = create_requirement_for_template(
+            node_spec, name, reqconstraint, match, visibility
+        )
         if reqjson is None:
             continue
-        if reqjson["constraint"].get("visibility") != "hidden":
+        if reqjson.get("visibility") != "hidden":
             has_visible_dependency = True
         json["dependencies"].append(reqjson)
 
@@ -1451,7 +1464,9 @@ def _generate_env_names(spec: ToscaSpec, root_name: str) -> Iterator[str]:
         if typedef:
             yield from _generate_env_names_from_type(name.upper(), typedef, custom_defs)
         else:
-            logger.warning(f"unable to generate enviroment variable names for type {target_type}: could not find its type definition.")
+            logger.warning(
+                f"unable to generate enviroment variable names for type {target_type}: could not find its type definition."
+            )
 
 
 def get_deployment_blueprints(
