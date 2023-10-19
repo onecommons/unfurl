@@ -1040,17 +1040,20 @@ def find_reqconstraint_for_template(
     return None
 
 def create_requirement_for_template(
-    nodespec: NodeSpec, name: str, reqconstraint: dict, match: Optional[str]
+    nodespec: NodeSpec, name: str, reqconstraint: dict, _match: Optional[str]
 ) -> Optional[GraphqlObject]:
-    reqjson = GraphqlObject(
-        dict(constraint=reqconstraint, name=name, match=None, __typename="Requirement")
-    )
-    if match and not _get_typedef(
-        match, nodespec.topology.topology_template.custom_defs
+    if _match and not _get_typedef(
+        _match, nodespec.topology.topology_template.custom_defs
     ):
         # it's not a type, assume it's a node template
         # (the node template name might not match a template if it is only defined in the deployment blueprints)
-        reqjson["match"] = match
+        match: Optional[str] = _match
+    else:
+        # use the match set in the type definition
+        match = reqconstraint.get("match")
+    reqjson = GraphqlObject(
+        dict(constraint=reqconstraint, name=name, match=match, __typename="Requirement")
+    )
     return reqjson
 
 
