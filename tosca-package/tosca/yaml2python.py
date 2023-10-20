@@ -34,7 +34,6 @@ from typing import (
 )
 
 from toscaparser.artifacts import Artifact
-from .python2yaml import restricted_exec
 from toscaparser import functions
 from toscaparser.imports import is_url, normalize_path
 from toscaparser.elements.nodetype import NodeType
@@ -1384,7 +1383,7 @@ class Convert:
         assert self.template.path
         full_name = package + "." + re.sub(r"\W", "_", Path(self.template.path).stem)
         try:
-            result = restricted_exec(
+            result = loader.restricted_exec(
                 self.imports.prelude() + src, namespace, self.base_dir, full_name
             )
             self.imports._add_imports("", namespace)
