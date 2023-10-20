@@ -1239,6 +1239,7 @@ def _yaml_to_python(
     default="auto",
     type=click.Choice(["older", "never", "always", "auto"]),
     help="Overwrite existing files (Default: auto)",
+    envvar="UNFURL_OVERWRITE_POLICY"
 )
 @click.option(
     "--python-target",

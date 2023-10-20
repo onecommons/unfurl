@@ -749,7 +749,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         yaml_dict: type = dict,
     ):
         if path.endswith(".py"):
-            from tosca.python2yaml import python_src_to_yaml_obj
+            from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
 
             self.expand = False
             namespace: Dict[str, Any] = {}
@@ -770,15 +770,18 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if self.modules is None:
                 self.modules = {}
             safe_mode = (self.manifest and self.manifest.safe_mode) or self.safe_mode
+            write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
             yaml_src = python_src_to_yaml_obj(
                 contents,
                 namespace,
                 base_dir,
                 package + "." + Path(path).stem,
-                yaml_dict,
+                # can't use readonly yaml since we might write out yaml files with it
+                yaml_dict_type(False),
                 safe_mode,
                 self.modules,
-                import_resolver=self,
+                write_policy,
+                self,
             )
             return yaml_src
         else:

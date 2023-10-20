@@ -806,6 +806,7 @@ required_envvars = [
     "UNFURL_LOG_FORMAT",
     "UNFURL_RAISE_LOGGING_EXCEPTIONS",
     "PY_COLORS",
+    "UNFURL_OVERWRITE_POLICY",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]
