@@ -295,6 +295,19 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     return schema
 
 
+def _template_visibility(topology: TopologySpec, node_name: str, req_metadata: dict):
+    entity_tpl = topology.get_node_src(node_name)
+    if entity_tpl:
+        node_metadata = entity_tpl.get("metadata") or {}
+        if not node_metadata.get("user_settable") and not req_metadata.get(
+            "user_settable"
+        ):
+            return "hidden"
+        else:
+            return "visible"
+    return ""
+
+
 def _requirement_visibility(topology: TopologySpec, name: str, req) -> str:
     if name in ["dependency", "installer"]:
         # skip artifact requirements and the base TOSCA relationship type that every node has
@@ -307,16 +320,9 @@ def _requirement_visibility(topology: TopologySpec, name: str, req) -> str:
     if metadata.get("internal"):
         return "hidden"
     if node:
-        entity_tpl = topology.get_node_src(node)
-        if entity_tpl:
-            # if there's already a resource template assigned and it is marked internal
-            node_metadata = entity_tpl.get("metadata") or {}
-            if not node_metadata.get("user_settable") and not metadata.get(
-                "user_settable"
-            ):
-                return "hidden"
-            else:
-                return "visible"
+        visibility = _template_visibility(topology, node, metadata)
+        if visibility:
+            return visibility
     return "inherit"
 
 
@@ -457,7 +463,7 @@ def requirement_to_graphql(
     if not include_omitted and visibility == "omit":
         return None
 
-    if visibility != "inherit":
+    if visibility and visibility != "inherit":
         reqobj["visibility"] = visibility
 
     if reqobj["max"] == 0:
@@ -1043,14 +1049,17 @@ def create_requirement_for_template(
     name: str,
     reqconstraint: dict,
     _match: Optional[str],
-    visibility=None,
+    metadata: Dict[str, Any],
 ) -> Optional[GraphqlObject]:
+    visibility = metadata.get("visibility")
     if _match and not _get_typedef(
         _match, nodespec.topology.topology_template.custom_defs
     ):
         # it's not a type, assume it's a node template
         # (the node template name might not match a template if it is only defined in the deployment blueprints)
         match: Optional[str] = _match
+        if not visibility:
+            visibility = _template_visibility(nodespec.topology, _match, metadata)
     else:
         # use the match set in the type definition
         match = reqconstraint.get("match")
@@ -1059,7 +1068,7 @@ def create_requirement_for_template(
         dict(constraint=reqconstraint, name=name, match=match, __typename="Requirement")
     )
     if visibility:
-         reqjson["visibility"] = visibility
+        reqjson["visibility"] = visibility
     return reqjson
 
 
@@ -1220,12 +1229,11 @@ def nodetemplate_to_json(
             # not defined on the template at all
             reqconstraint = find_reqconstraint_for_template(node_spec, name, types)
             match = None
-            visibility = None
+            metadata = {}
         else:
             req_dict_copy = req_dict.copy()
             match = req_dict_copy.pop("node", None)
             metadata = req_dict_copy.pop("metadata", {})
-            visibility = metadata.get("visibility")
             if (
                 req_dict_copy
                 or name
@@ -1241,7 +1249,7 @@ def nodetemplate_to_json(
         if reqconstraint is None:
             continue
         reqjson = create_requirement_for_template(
-            node_spec, name, reqconstraint, match, visibility
+            node_spec, name, reqconstraint, match, metadata
         )
         if reqjson is None:
             continue

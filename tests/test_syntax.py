@@ -32,7 +32,7 @@ def test_jsonexport():
 
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
-        pprint.pprint(jsonExport["ResourceTemplate"])
+        # pprint.pprint(jsonExport["ResourceTemplate"])
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
         assert "examples" in jsonExport["DeploymentTemplate"], jsonExport[
             "DeploymentTemplate"
@@ -71,7 +71,7 @@ def test_jsonexport():
 
 @pytest.mark.parametrize(
     "export_fn", [to_deployment, to_blueprint]
-)    
+)
 def test_jsonexport_requirement_visibility(export_fn):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")

@@ -39,7 +39,8 @@
           },
           "name": "host",
           "__typename": "Requirement",
-          "match": "app_container"
+          "match": "app_container",
+          "visibility": "hidden"
         },
         {
           "constraint": {
@@ -53,7 +54,8 @@
           },
           "name": "resolver",
           "__typename": "Requirement",
-          "match": "foo.com-zone"
+          "match": "foo.com-zone",
+          "visibility": "hidden"
         },
         {
           "constraint": {
@@ -67,7 +69,8 @@
           },
           "name": "db",
           "__typename": "Requirement",
-          "match": "atlas_service"
+          "match": "atlas_service",
+          "visibility": "hidden"
         },
         {
           "constraint": {
