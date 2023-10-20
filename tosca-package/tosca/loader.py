@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from importlib.abc import Loader
 from importlib import invalidate_caches
-from importlib.machinery import FileFinder, ModuleSpec, PathFinder, SourceFileLoader
+from importlib.machinery import FileFinder, ModuleSpec, PathFinder
 from importlib.util import spec_from_file_location, spec_from_loader, module_from_spec
 import traceback
 from typing import Any, Dict, Optional, Sequence
@@ -39,7 +39,7 @@ class RepositoryFinder(PathFinder):
     "Place on sys.meta_path to enable finding modules in tosca repositories"
 
     @classmethod
-    def find_spec(cls, fullname: str, path=None, target=None):
+    def find_spec(cls, fullname: str, path=None, target=None, modules=None):
         # path is a list with a path to the parent package or None if no parent
         names = fullname.split(".")
         if names[0] == "tosca_repositories":
@@ -54,7 +54,12 @@ class RepositoryFinder(PathFinder):
                             fullname, None, origin=repo_path, is_package=True
                         )
                     else:
-                        return PathFinder.find_spec(fullname, [repo_path], target)
+                        origin_path = os.path.join(repo_path, *names[2:]) + ".py"
+                        assert os.path.isfile(origin_path), origin_path
+                        loader = ToscaYamlLoader(fullname, origin_path, modules)
+                        spec = spec_from_loader(fullname, loader, origin=origin_path)
+                        return spec
+                        # return PathFinder.find_spec(fullname, [repo_path], target)
         # XXX special case service-template.yaml as service_template ?
         elif names[0] == "service_template":
             if path:
@@ -68,7 +73,11 @@ class RepositoryFinder(PathFinder):
             if len(names) == 1:
                 return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
             else:
-                return PathFinder.find_spec(fullname, [dir_path], target)
+                origin_path = os.path.join(dir_path, *names[1:]) + ".py"
+                loader = ToscaYamlLoader(fullname, origin_path, modules)
+                spec = spec_from_loader(fullname, loader, origin=origin_path)
+                return spec
+                # return PathFinder.find_spec(fullname, [dir_path], target)
 
         #     filepath = os.path.join(dir_path, "service_template.yaml")
         #     # XXX look for service-template.yaml or ensemble-template.yaml files
@@ -153,10 +162,13 @@ class DeniedModule(ImmutableModule):
 
 
 def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
-    parent = name.rpartition(".")[0]
+    parent, sep, last = name.rpartition(".")
     if parent:
         if parent not in modules:
-            load_private_module(base_dir, modules, parent)
+            if parent in sys.modules:
+                modules[parent] = sys.modules[parent]
+            else:
+                load_private_module(base_dir, modules, parent)
     if name in modules:
         # cf. "Crazy side-effects!" in _bootstrap.py (e.g. parent could have imported child)
         return modules[name]
@@ -165,9 +177,17 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
         if not spec:
             raise ModuleNotFoundError("No module named " + name, name=name)
     else:
-        origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
+        if parent:
+            parent_path = get_module_path(modules[parent])
+            if os.path.isfile(parent_path):
+                parent_path = os.path.dirname(parent_path)
+            origin_path = os.path.join(parent_path, last) + ".py"
+        else:
+            origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
         if not os.path.isfile(origin_path):
-            raise ModuleNotFoundError("No module named " + name, name=name)
+            raise ModuleNotFoundError(
+                f"No module named {name} at {origin_path}", name=name
+            )
         loader = ToscaYamlLoader(name, origin_path, modules)
         spec = spec_from_loader(name, loader, origin=origin_path)
         assert spec and spec.loader
@@ -176,6 +196,10 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     if not spec.loader:
         return module
     try:
+        assert spec.loader.__class__.__name__ in (
+            "_NamespaceLoader",
+            "ToscaYamlLoader",
+        ), f"unexpected loader {spec.loader}"
         spec.loader.exec_module(module)
     except:
         del modules[name]
@@ -248,11 +272,20 @@ def __safe_import__(
                 module = ImmutableModule(name, **vars(module))
                 modules[name] = module
                 return module
-        elif parts[0] != "tosca_repositories":
-            if fromlist:
-                return DeniedModule(name, fromlist)
-            else:
-                return _load_or_deny_module(parts[0], ALLOWED_MODULES, modules)
+        elif parts[0] not in ["tosca_repositories"]:
+            # these modules fall through to load_private_module():
+            if name not in [
+                "unfurl.tosca_plugins.artifacts",
+                "unfurl.tosca_plugins.googlecloud",
+                "unfurl.tosca_plugins.k8s",
+                "unfurl.configurators.docker_template",
+                "unfurl.configurators.dns_template",
+                "unfurl.configurators.helm_template",
+            ]:
+                if fromlist:
+                    return DeniedModule(name, fromlist)
+                else:
+                    return _load_or_deny_module(parts[0], ALLOWED_MODULES, modules)
     else:
         # relative import
         package = globals["__package__"] if globals else None
