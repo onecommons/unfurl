@@ -149,7 +149,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/dns-template.yaml
+        file: configurators/templates/dns.yaml
 
     node_types:
       Route53DNSZone:
@@ -195,7 +195,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/dns-template.yaml
+        file: configurators/templates/dns.yaml
 
     topology_template:
       node_templates:
@@ -224,7 +224,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/dns-template.yaml
+        file: configurators/templates/dns.yaml
 
     decorators:
       tosca.nodes.WebServer::dns:

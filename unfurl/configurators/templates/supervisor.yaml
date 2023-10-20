@@ -1,0 +1,92 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  unfurl.nodes.Supervisor:
+    derived_from: tosca.nodes.SoftwareComponent
+    properties:
+      homeDir:
+        type: string
+        default:
+          eval:
+            get_dir: local
+      confFile:
+        type: string
+        default: supervisord.conf
+      conf:
+        type: string
+        default: |
+          [supervisord]
+          pidfile=%(here)s/supervisord.pid
+          logfile=%(here)s/supervisord.log
+          loglevel=debug
+
+          [unix_http_server]
+          file=%(here)s/supervisor.sock   ; the path to the socket file
+          ;chmod=0700                 ; socket file mode (default 0700)
+          ;chown=nobody:nogroup       ; socket file uid:gid owner
+          ;username=user              ; default is no username (open server)
+          ;password=123               ; default is no password (open server)
+
+          [supervisorctl]
+          serverurl=unix:///%(here)s/supervisor.sock ; use a unix:// URL  for a unix socket
+
+          [rpcinterface:supervisor]
+          supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+          [include]
+          files = programs/*.conf
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+    # XXX
+    # artifacts:
+    #     supervisorPackage:
+    #       type: artifact.PythonPackage
+    #       file: supervisor
+    interfaces:
+      Install:
+        check: test -f '{{ SELF.homeDir }}/supervisord.pid' && ps -p `cat '{{ SELF.homeDir }}/supervisord.pid'`
+        inputs:
+          done:
+            success: True # succeeds if even if command fails
+          resultTemplate: |
+            readyState:
+              local: "{%if returncode == 0 %}ok{%else%}absent{%endif%}"
+      Standard:
+        create:
+          implementation:
+            primary: Template
+            # XXX dependencies: supervisorPackage
+          inputs:
+            run:
+              eval:
+                file: '{{ SELF.homeDir }}/{{ SELF.confFile }}'
+                contents: '{{ SELF.conf }}'
+
+        start: supervisord -c {{ SELF.homeDir }}/{{ SELF.confFile }}
+        stop: supervisorctl -c {{ SELF.homeDir }}/{{ SELF.confFile }} shutdown
+        # XXX delete: remove the conf file we added
+
+  unfurl.nodes.ProcessController:
+    derived_from: tosca.nodes.Root
+
+  unfurl.nodes.ProcessController.Supervisor:
+    derived_from: unfurl.nodes.ProcessController
+    properties:
+      name:
+        type: string
+      program:
+        type: map
+    requirements:
+      - host:
+          node: unfurl.nodes.Supervisor
+          relationship: tosca.relationships.HostedOn
+    interfaces:
+      Standard:
+        implementation: unfurl.configurators.supervisor.SupervisorConfigurator
+        operations:
+          configure:
+          start:
+          stop:
+          delete:

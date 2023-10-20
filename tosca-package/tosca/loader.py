@@ -283,7 +283,8 @@ def __safe_import__(
                 return module
         elif parts[0] not in ["tosca_repositories"]:
             # these modules fall through to load_private_module():
-            if name not in ALLOWED_PRIVATE_MODULES:
+            package_name, sep, module_name = name.rpartition(".")
+            if package_name not in ALLOWED_PRIVATE_PACKAGES:
                 if fromlist:
                     return DeniedModule(name, fromlist)
                 else:
@@ -348,13 +349,9 @@ ALLOWED_MODULES = (
 )
 
 # XXX have the unfurl package set these:
-ALLOWED_PRIVATE_MODULES = [
-    "unfurl.tosca_plugins.artifacts",
-    "unfurl.tosca_plugins.googlecloud",
-    "unfurl.tosca_plugins.k8s",
-    "unfurl.configurators.docker_template",
-    "unfurl.configurators.dns_template",
-    "unfurl.configurators.helm_template",
+ALLOWED_PRIVATE_PACKAGES = [
+    "unfurl.tosca_plugins",
+    "unfurl.configurators.templates",
 ]
 
 

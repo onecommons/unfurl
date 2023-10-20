@@ -15,7 +15,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/docker-template.yaml
+        file: configurators/templates/docker.yaml
     repositories:
       docker_hub:
         url: https://index.docker.io

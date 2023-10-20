@@ -4,7 +4,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/supervisor-template.yaml
+        file: configurators/templates/supervisor.yaml
 
     topology_template:
       node_templates:

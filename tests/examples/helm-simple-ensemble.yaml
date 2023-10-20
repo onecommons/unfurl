@@ -4,7 +4,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/helm-template.yaml
+        file: configurators/templates/helm.yaml
 
     topology_template:
       node_templates:

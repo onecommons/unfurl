@@ -1,0 +1,290 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+dsl_definitions:
+  environment: &environment
+      # set these to pass k8s connection setting to helm
+      # leading + means copy from current environment if present
+      # note: helm also honors KUBECONFIG
+      +HELM_KUBECONTEXT:
+          eval: $connections::K8sCluster::context
+      +HELM_KUBETOKEN:
+          eval: $connections::K8sCluster::token
+      +HELM_KUBEAPISERVER:
+          eval:
+            if: $connections::K8sCluster::api_server
+            then:
+              if: "{{ '//' in '$connections::K8sCluster::api_server' | eval }}"
+              then:
+                eval: $connections::K8sCluster::api_server
+              else: "{{ '$connections::K8sCluster::protocol' | eval }}://{{ '$connections::K8sCluster::api_server' | eval }}"
+            else: null
+      +HELM_KUBECAFILE:
+          eval: $connections::K8sCluster::cluster_ca_certificate_file
+      +HELM_NAMESPACE:
+          eval: $connections::K8sCluster::namespace
+      +HELM_KUBEASGROUPS:
+          eval:
+            concat:
+              eval: $connections::K8sCluster::as_groups
+            sep: ","
+      +HELM_KUBEASUSER:
+          eval: $connections::K8sCluster::as
+
+imports:
+  - repository: unfurl
+    file: tosca_plugins/artifacts.yaml
+
+  - repository: unfurl
+    file: tosca_plugins/k8s.yaml
+
+topology_template:
+  node_templates:
+    helm-artifacts:
+      type: unfurl.nodes.LocalRepository
+      directives:
+        - default # we need this so that this node template is imported
+      artifacts:
+        helm:
+          type: artifact.AsdfTool
+          file: helm
+          properties:
+            version: 3.7.1
+
+node_types:
+  unfurl.nodes.HelmRepository:
+    derived_from: tosca.nodes.Root
+    description: Represents a Helm repository
+    properties:
+      name:
+        type: string
+        default: {eval: ".name"}
+      url:
+        type: string
+    capabilities:
+      feature:
+        type: tosca.capabilities.Node
+    interfaces:
+      Standard:
+        create: helm repo add {{ SELF.name }} "{{ SELF.url }}"
+        delete: helm repo remove {{ SELF.name }}
+      Install:
+        check:
+          implementation: helm
+          inputs:
+            command: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
+            done:
+              success: True # helm repo list returns error if there are no repos so set success true regardless
+            resultTemplate: |
+                - readyState: absent
+                {%if returncode == 0 %}
+                  {%for json in stdout | from_json %}
+                    {%if json.name == SELF.name %}
+                - readyState: {%if json.url == json.url %}ok{%else%}error{%endif%}
+                    {%endif%}
+                  {% endfor%}
+                {%endif%}
+        discover:
+          implementation: helm
+          inputs:
+            command: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
+            done:
+              success: true # helm repo list returns error if there are no repos so set success true regardless
+              modified: false
+            resultTemplate: |
+              {%if returncode == 0 %}
+                {%for json in stdout | from_json %}
+                  - name: {{ json.name }}-helm-repo
+                    template:
+                      type: unfurl.nodes.HelmRepository
+                      properties:
+                        name: {{ json.name }}
+                        url: {{ json.url }}
+                    readyState: ok
+                {% endfor%}
+              {%endif%}
+
+  unfurl.nodes.HelmRelease:
+    derived_from: unfurl.nodes.Installation
+    description: Represents a Helm release
+    requirements:
+      - host:
+          relationship: tosca.relationships.HostedOn
+          node: unfurl.nodes.K8sNamespace
+          occurrences: [0, 1]
+          # XXX support this grammar:
+          # valid_target_types: [ unfurl.nodes.K8sNamespace, unfurl.nodes.K8sCluster]
+      - repository:
+          node: unfurl.nodes.HelmRepository
+          capability: tosca.capabilities.Node
+    properties:
+      chart:
+        type: string
+      chart_values:
+        type: map
+        required: false
+      release_name:
+        type: string
+      namespace:
+        type: string
+        # if we are hosted on a namespace then use that
+        default: {eval: ".::.requirements::[.name=host]::.target::name" }
+        required: false
+
+    interfaces:
+      Helm:
+        type: unfurl.interfaces.Helm
+        operations:
+          execute:
+            implementation:
+              primary: helm
+              environment: *environment
+            inputs:
+              chart: { get_property: ["SELF", "chart"] }
+              release_name: { get_property: ["SELF", "release_name"] }
+              dryrun: "--dry-run"
+              chart_values: { get_property: ["SELF", "chart_values"] }
+              command:
+                eval:
+                  template: >-
+                    helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }} -o json
+                      {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
+                      {%if lookup('env', 'KUBE_INSECURE') %}
+                      --kube-insecure-skip-tls-verify
+                      {% endif %}
+                      {% if inputs.chart_values | default('', true) %}
+                      --values {{ valuesfile }}
+                      {% endif %}
+                      {% if task.verbose > 0 %}--debug{%endif%}
+                      {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if inputs.helmcmd == 'upgrade' %}--reuse-values{%endif%}
+                      {% if inputs.flags is defined -%}
+                        {% for flag, value in inputs.flags.items() %}
+                          --{{flag}} "{{value | quote }}"
+                        {% endfor%}
+                      {%endif%}
+                vars:
+                  valuesfile:
+                    eval:
+                      file: '{{ "values.yaml" | abspath("tasks") }}'
+                      contents:
+                        eval: $inputs::chart_values
+                    select: path
+              # XXX if still deploying readyState should be set to pending instead of ok but delegate the check to this release
+              resultTemplate: |
+                {%if returncode == 0 %}
+                {% set json = stdout | from_json %}
+                {%for doc in json.manifest | from_yaml_all %}
+                  {%if doc.kind is defined and doc.kind != 'Secret' %}
+                  - name: {{doc.kind}}-{{doc.metadata.namespace | default('') }}-{{ doc.metadata.name }}
+                    {%if doc.metadata.namespace is not defined %}
+                    parent: HOST
+                    {% endif %}
+                    template:
+                      {%if doc.kind == 'Secret' %}
+                      type: unfurl.nodes.K8sSecretResource
+                      {% else %}
+                      type: unfurl.nodes.K8sResource
+                      {% endif %}{%if doc.metadata.namespace is defined %}
+                      requirements:
+                        - host:
+                            node: {{ "::*::[.template::type=unfurl.nodes.K8sNamespace][name=$namespace]::.template::name" | eval(namespace=doc.metadata.namespace) }}
+                      {%endif%}
+                    attributes:
+                      {%if doc.metadata.namespace is defined %}
+                      namespace: {{doc.metadata.namespace }}
+                      {% endif %}
+                      apiResource:
+                {{ doc | to_yaml | indent(10, true) }}
+                    readyState: {%if json.info.status == 'deleted' or json.info.status == 'deleting' %}absent
+                                {%- elif json.info.status=='superseded' %}degraded
+                                {%- elif json.info.status=='deployed' %}ok
+                                {%- elif json.info.status=='failed' %}error
+                                {%- else %}ok{%- endif%}
+                  {%endif%}
+                {% endfor %}
+                  - name: SELF
+                    readyState: ok
+                {% endif %}
+
+      Standard:
+        operations:
+          configure:
+            invoke: Helm.execute
+            inputs:
+              helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}}'
+          delete:
+            implementation:
+              primary: helm
+              environment: *environment
+            inputs:
+              command:
+                eval:
+                  template: >-
+                    helm uninstall {{ "release_name" | eval }}
+                      {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
+                      {% if task.verbose > 0 %}--debug{%endif%}
+                      {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if inputs.flags is defined -%}
+                        {% for flag, value in inputs.flags.items() %}
+                          --{{flag}} "{{value | quote }}"
+                        {% endfor%}
+                      {%endif%}
+              # XXX add result template that removes added resources
+
+      Install:
+        operations:
+          check:
+            invoke: Helm.execute
+            inputs:
+              done:
+                success: true # helm status returns an error if the release doesn't exist
+                modified: false
+              resultTemplate: |
+                - readyState: {%if returncode == 0 %}ok{%else%}absent{%endif%}
+              helmcmd: status
+              dryrun: "--dry-run"
+              # don't pass these as cmd arguments
+              chart: ""
+              chart_values: ""
+          discover:
+            invoke: Helm.execute
+            inputs:
+              helmcmd: list
+              dryrun: "--dry-run"
+              # don't pass these as cmd arguments
+              chart: ""
+              chart_values: ""
+              resultTemplate: |
+                {%if returncode == 0 %}
+                  {%for json in stdout | from_json %}
+                    - name: {{ json.name }}-release
+                      template:
+                        type: unfurl.nodes.HelmRelease
+                        properties:
+                          chart: {{ json.chart }}
+                          release_name: {{ json.name }}
+                      readyState: unknown
+                  {% endfor%}
+                {%endif%}
+
+interface_types:
+  unfurl.interfaces.Helm:
+    derived_from: tosca.interfaces.Root
+    operations:
+      execute:
+    inputs:
+      helmcmd:
+        type: string
+      release_name:
+        type: string
+      chart:
+        type: string
+        required: false
+      flags:
+        type: map
+        required: false
+      chart_values:
+        type: map
+        required: false

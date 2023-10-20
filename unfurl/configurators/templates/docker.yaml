@@ -1,0 +1,243 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+imports:
+  - repository: unfurl
+    file: tosca_plugins/artifacts.yaml
+data_types:
+  unfurl.datatypes.DockerContainer:
+    # properties match Docker compose schema
+    # see https://docs.docker.com/compose/compose-file/compose-file-v3
+    metadata:
+      additionalProperties: true
+    properties:
+      environment: # env
+        type: unfurl.datatypes.EnvironmentVariables
+        default: {}
+        required: false
+        metadata:
+          user_settable: true
+          tab_title: Environment Variables
+      container_name: # name
+        type: string
+        required: false
+      image:
+        type: string
+        required: false
+      command: # list or string
+        type: any
+        required: false
+      volumes:
+        type: list
+        entry_schema:
+          type: string
+        required: false
+      ports:
+        # https://docs.docker.com/compose/compose-file/compose-file-v3/#ports
+        description: "Ports to expose (format: 80:8080)"
+        type: list
+        entry_schema:
+          type: string
+        required: false
+      user:
+        type: string
+        description: "User used to run the container process. format: <UID>[:<GID>]"
+        # Overrides the user used to run the container process. Default is that set by image (i.e. Dockerfile USER), if not set, root."
+        required: false
+      expose:
+        # https://docs.docker.com/compose/compose-file/compose-file-v3/#expose
+        description: Expose ports without publishing them to the host machine
+        # - they’ll only be accessible to linked services. Only the internal port can be specified.
+        type: list
+        entry_schema:
+          type: string
+        required: false
+      entrypoint: # ansible requires this to be a list
+        type: list
+        entry_schema:
+          type: string
+        required: false
+      privileged:
+        type: boolean
+        required: false
+      pull_policy:
+        type: string
+        constraints:
+          - valid_values: [always, never, missing, build]
+        required: false
+      network_mode:
+        description: Use the same values as the docker client --network parameter ("bridge", "host", "none")
+        type: string
+        required: false
+
+node_types:
+  unfurl.nodes.Container.Application.Docker:
+    # derived_from: tosca.nodes.Container.Application.Docker
+    # the requirements for tosca.nodes.Container.Application are too strong, so break inheritance for now
+    derived_from: tosca.nodes.Root
+    artifacts:
+      image:
+        type: tosca.artifacts.Deployment.Image.Container.Docker
+        required: false
+    properties:
+      name:
+        type: string
+        description: The name of the container
+        default:
+          eval:
+            or:
+              - .::container.container_name
+              - .name
+      container:
+        type: unfurl.datatypes.DockerContainer
+        required: false
+      container_image:
+        type: string
+        default:
+          eval:
+            if: .artifacts::image
+            then:
+              get_artifact: [SELF, image]
+            else:
+              eval:
+                container_image:
+                  eval: container::image
+      registry_url:
+        type: string
+        default: "{{ '.::.artifacts::image::.repository::url' | eval }}"
+        required: false
+      registry_user:
+        type: string
+        default: "{{ '.::.artifacts::image::.repository::credential::user' | eval }}"
+        required: false
+      registry_password:
+        type: string
+        default: "{{ '.::.artifacts::image::.repository::credential::token' | eval }}"
+        required: false
+
+    interfaces:
+      defaults:
+        implementation:
+          primary: community.docker
+          className: unfurl.configurators.ansible.AnsibleConfigurator
+        outputs:
+          container: # dict matching docker container inspect output, including HostPort
+          image_path:
+        inputs:
+          playbook:
+            eval:
+              template: |
+                #jinja2: variable_start_string: '<%', variable_end_string: '%>'
+                {% filter from_yaml %}
+                {%if 'registry_user' | eval %}
+                - community.docker.docker_login:
+                     # https://docs.ansible.com/ansible/latest/modules/docker_login_module.html#docker-login-module
+                     # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_login.py
+                     username: "<% SELF.registry_user %>"
+                     password: "<% SELF.registry_password %>"
+                     registry_url: "<% SELF.registry_url %>"
+                {% endif %}
+                - set_fact:
+                    image_path: "<% SELF.container_image %>"
+                - community.docker.docker_container:
+                    # https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html#ansible-collections-community-docker-docker-container-module
+                    # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_container.py
+                    name: "<% SELF.name %>" # required
+                    image: "{{ image_path }}" # Repository path and tag
+                    state: "<%  inputs.state %>"
+                    {%if SELF.container is defined %}
+                    {%if SELF.container.pull_policy is defined %}                    
+                    pull: <% SELF.container.pull_policy == "always" %>
+                    {%endif%}
+                    # filter out env vars set to none
+                    env: <% SELF.container.environment | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
+                    # merge container dict after stripping out "container_name" and "environment" keys
+                    <<: <% SELF.container | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
+                    {%endif%}
+                    <<: <% inputs.configuration | default({}) | map_value | to_json %>
+                    # XXX :
+                    # api_version: max(set(capabilities.versions) | set(host::versions))
+                {% endfilter %}
+          # https://medium.com/@BeNitinAgarwal/lifecycle-of-docker-container-d2da9f85959
+          # https://stackoverflow.com/questions/32427684/what-are-the-possible-states-for-a-docker-container
+          resultTemplate: |
+            {% set status = outputs.container.State.Status | d("") %}
+            {% set error = outputs.container.State.Error | d("") %}
+            readyState:
+              state: {{ {'created': 'created', 'restarting': 'starting', '': 'initial',
+                        'running': 'started', 'removing': 'deleting',
+                        'paused': 'stopped',  'stopped': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
+              local: {%if error %}error
+                          {% elif status == 'exited' or status == 'dead' %}absent
+                          {% elif status == 'running' %}ok
+                          {%else%}pending{%endif%}
+            # attributes: # XXX 
+            #   container_image.digest:  outputs.container.Image
+            #   e.g. sha256:a5ab4ab35b15731c675a531b85ec15c8dd50e36b22d96bcceeca37d016537c8e
+      Install:
+        operations:
+          check:
+            inputs:
+              playbookArgs:
+                - --check
+                - --diff
+              state: started
+              done:
+                modified: false
+      Standard:
+        operations:
+          configure:
+            inputs:
+              state: started
+          start:
+            inputs:
+              state: started
+          stop:
+            inputs:
+              state: stopped
+          delete:
+            inputs:
+              state: absent
+
+  # XXX
+  # unfurl.nodes.Container.Application.DockerCompose:
+  #   derived_from: tosca.nodes.Container.Application.Docker
+  #   description: run docker compose configuration on your local Docker engine
+  #   interfaces:
+  #     defaults:
+  #       implementation:
+  #         className: unfurl.configurators.ansible.AnsibleConfigurator
+  #       outputs:
+  #         output:
+  #       inputs:
+  #         playbook:
+  #           # https://docs.ansible.com/ansible/latest/collections/community/docker/docker_compose_module.html#ansible-collections-community-docker-docker-compose-module
+  #           tasks:
+  #             - community.docker.docker_compose:
+  #                 files: # List of Compose file names relative to project_src
+  #                 project_src: # Path to a directory containing a docker-compose.yml or docker-compose.yaml file.
+  #                 project_name: SELF.container.name# If not provided, the project name is taken from the basename of project_src.
+  #                 # definition are mutually exclusive with project_src and files.
+  #                 definition:
+  #                   version: "3.3"
+  #                   services:
+  #                     app:
+  #                       restart: unless-stopped
+  #                       {%if SELF.container is defined %}
+  #                       <<:  <%  "{{ SELF.container }}" %>
+  #                       {% endif %}
+  #               register: output
+  #     Standard:
+  #       operations:
+  #         configure:
+  #           inputs:
+  #             state: started
+  #         start:
+  #           inputs:
+  #             state: started
+  #         stop:
+  #           inputs:
+  #             state: stopped
+  #         delete:
+  #           inputs:
+  #             state: absent

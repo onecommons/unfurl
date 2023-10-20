@@ -1,0 +1,124 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+decorators:
+  # set the NS record for a child DNS zone on the parent zone relationship template
+  # (use a decorator because we can't use node_filter properties directly on relationships)
+  unfurl.nodes.DNSZone::parent_zone:
+    relationship:
+      type: unfurl.relationships.DNSRecords
+      properties:
+        records:
+          q:
+            eval:
+              if: $zone
+              # XXX should only select NS records not all ''
+              then: "{{ {subdomain.split('.')[0] : zone['']} }}"
+              else: {}
+            vars:
+              subdomain:
+                eval: .source::name
+              zone:
+                eval: .source::zone
+
+data_types:
+  unfurl.datatypes.DNSRecord:
+    metadata:
+      additionalProperties: true
+    properties:
+      type:
+        type: string
+      value:
+        type: string
+        required: false
+      values:
+        type: list
+        required: false
+
+node_types:
+  unfurl.nodes.DNSZone:
+    derived_from: tosca.nodes.Root
+    metadata:
+      title: DNS Zone
+    properties:
+      name:
+        description: Top level part of the DNS name (e.g. example.com)
+        title: Domain Name
+        type: string
+      provider:
+        description: OctoDNS provider configuration
+        type: map
+        metadata:
+          sensitive: true # might have credentials
+      records:
+        description: DNS records to add to the zone
+        type: map
+        entry_schema:
+          type: unfurl.datatypes.DNSRecord
+        default: {}
+        metadata: # XXX
+          computed: true
+      exclusive:
+        description: Zone exclusively managed by this instance (removes unrecognized records)
+        type: boolean
+        default: false
+      default_ttl:
+        type: integer
+        title: Default TTL
+        default: 300
+      testing:
+        type: boolean
+        title: Testing
+        description: Is this DNS zone being used for testing? (If set, Let's Encrypt staging will be used.)
+        default: false
+    attributes:
+      zone:
+        description: The records found in the zone
+        type: map
+        metadata:
+          internal: true
+      managed_records:
+        title: "Managed Records"
+        description: The records in the zone that are managed by this instance
+        type: map
+        required: false
+    capabilities:
+      resolve:
+        type: unfurl.capabilities.DNSZone
+    requirements:
+      - parent_zone:
+          metadata:
+            visibility: hidden
+          capability: unfurl.capabilities.DNSZone
+          occurrences: [0, 1] # it isn't always required
+
+    interfaces:
+      defaults:
+        implementation:
+          className: unfurl.configurators.dns.DNSConfigurator
+      Standard:
+        operations:
+          delete:
+          configure:
+      Install:
+        operations:
+          check:
+          connect:
+      Mock:
+        operations:
+          configure:
+
+capability_types:
+  unfurl.capabilities.DNSZone:
+    derived_from: tosca.capabilities.Root
+
+relationship_types:
+  unfurl.relationships.DNSRecords:
+    derived_from: tosca.relationships.Root
+    valid_target_types: [unfurl.capabilities.DNSZone]
+    properties:
+      records:
+        type: map
+        entry_schema:
+          type: unfurl.datatypes.DNSRecord

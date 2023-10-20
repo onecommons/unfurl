@@ -443,7 +443,7 @@ declare node templates with the needed properties and operation inputs.
 Docker
 ======
 
-Required TOSCA import: ``configurators/docker-template.yaml`` (in the ``unfurl`` repository)
+Required TOSCA import: ``configurators/templates/docker.yaml`` (in the ``unfurl`` repository)
 
 unfurl.nodes.Container.Application.Docker
 -----------------------------------------
@@ -491,7 +491,7 @@ DNS
 
 The DNS installer support nearly all major DNS providers using `OctoDNS <https://github.com/octodns/octodns>`_.
 
-Required TOSCA import: ``configurators/dns-template.yaml`` (in the ``unfurl`` repository)
+Required TOSCA import: ``configurators/templates/dns.yaml`` (in the ``unfurl`` repository)
 
 unfurl.nodes.DNSZone
 ---------------------
@@ -562,7 +562,7 @@ Helm
 
 Requires Helm 3, which will be installed automatically if missing.
 
-Required TOSCA import: ``configurators/helm-template.yaml`` (in the ``unfurl`` repository)
+Required TOSCA import: ``configurators/templates/helm.yaml`` (in the ``unfurl`` repository)
 
 unfurl.nodes.HelmRelease
 ------------------------
@@ -704,7 +704,7 @@ Supervisor
 
 `Supervisor <http://supervisord.org>`_ is a light-weight process manager that is useful when you want to run local development instances of server applications.
 
-Required TOSCA import: ``configurators/supervisor-template.yaml`` (in the ``unfurl`` repository)
+Required TOSCA import: ``configurators/templates/supervisor.yaml`` (in the ``unfurl`` repository)
 
 unfurl.nodes.Supervisor
 -----------------------
