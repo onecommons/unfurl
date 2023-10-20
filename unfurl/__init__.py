@@ -71,7 +71,7 @@ class DefaultNames:
     EnsembleDirectory = "ensemble"
     Ensemble = "ensemble.yaml"
     EnsembleTemplate = "ensemble-template.yaml"
-    ServiceTemplate = "service-template.yaml"
+    ServiceTemplate = "service_template.yaml"
     LocalConfig = "unfurl.yaml"
     SecretsConfig = "secrets.yaml"
     HomeDirectory = ".unfurl_home"

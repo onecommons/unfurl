@@ -550,7 +550,7 @@ def _get_ensemble_paths(sourcePath, sourceProject, want_init, use_environment):
     if sourcePath doesn't exist, return {}
 
     look for an ensemble given sourcePath (unless sourcePath looks like a service template)
-    if that fails look for (ensemble-template, service-template) if sourcePath is a directory
+    if that fails look for (ensemble-template.yaml or service_template.yaml) if sourcePath is a directory
     otherwise
         return {}
     """
@@ -561,7 +561,7 @@ def _get_ensemble_paths(sourcePath, sourceProject, want_init, use_environment):
             f'Given clone source "{os.path.abspath(relPath)}" does not exist.'
         )
 
-    # we only support cloning TOSCA service templates if their names end in "service-template.yaml"
+    # we only support cloning TOSCA service templates if their names end in "service_template.yaml"
     isServiceTemplate = sourcePath.endswith(DefaultNames.ServiceTemplate)
     if not want_init and not isServiceTemplate:
         try:
@@ -581,7 +581,7 @@ def _get_ensemble_paths(sourcePath, sourceProject, want_init, use_environment):
     # didn't find the specified file (or the default ensemble if none was specified)
     # so if sourcePath was a directory try for one of the default template files
     if isServiceTemplate or os.path.isdir(relPath):
-        # look for an ensemble-template or service-template in source path
+        # look for an ensemble-template or service_template in source path
         if os.path.isdir(os.path.join(sourcePath, DefaultNames.ProjectDirectory)):
             sourcePath = os.path.join(sourcePath, DefaultNames.ProjectDirectory)
         template = _looks_like(sourcePath, DefaultNames.EnsembleTemplate)
