@@ -18,6 +18,23 @@ from toscaparser.imports import ImportResolver
 logger = logging.getLogger("tosca")
 
 
+def get_module_path(module) -> str:
+    if module.__spec__ and module.__spec__.origin:
+        # __file__ can be wrong
+        return module.__spec__.origin
+    elif module.__file__:
+        return module.__file__
+    else:
+        assert hasattr(module, "__path__"), module.__dict__
+        module_path = module.__path__
+        try:
+            module_path = module_path[0]
+        except TypeError:
+            # _NamespacePath missing __getitem__ on older Pythons
+            module_path = module_path._path[0]  # type: ignore
+        return module_path
+
+
 class RepositoryFinder(PathFinder):
     "Place on sys.meta_path to enable finding modules in tosca repositories"
 
@@ -245,6 +262,15 @@ def __safe_import__(
     # load user code in our restricted environment
     module = load_private_module(base_dir, modules, name)
     if fromlist:
+        if "*" in fromlist:
+            # ok if there's no __all__ because default * will exclude names that start with "_"
+            for all_name in getattr(module, "__all__", ()):
+                if all_name[0] == "_":
+                    raise ImportError(
+                        f'Import of * from {module.__name__} is not permitted, its __all__ has disallowed name "{all_name}"',
+                        name=module.__name__,
+                    )
+
         # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
         importlib._bootstrap._handle_fromlist(
             module, fromlist, lambda name: load_private_module(base_dir, modules, name)

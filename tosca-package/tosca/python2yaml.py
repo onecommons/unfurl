@@ -39,11 +39,6 @@ from RestrictedPython import RestrictingNodeTransformer
 from RestrictedPython import safe_builtins, PrintCollector
 from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAMES
 
-# see https://restrictedpython.readthedocs.io/en/latest/usage/basic_usage.html#necessary-setup
-# https://github.com/zopefoundation/RestrictedPython
-# https://github.com/zopefoundation/zope.untrustedpython
-# https://github.com/zopefoundation/AccessControl/blob/master/src/AccessControl/ZopeGuards.py
-
 
 class PythonToYaml:
     def __init__(
@@ -89,6 +84,8 @@ class PythonToYaml:
     def _set_repository_for_module(
         self, module_name: str, path: Path
     ) -> Tuple[str, Optional[Path]]:
+        from .loader import get_module_path
+
         parts = module_name.split(".")
         if parts[0] == "tosca_repositories":
             root_package = parts[0] + "." + parts[1]
@@ -101,22 +98,7 @@ class PythonToYaml:
             return "", None
         root_path = root_module.__file__
         if not root_path:
-            if root_module.__spec__ and root_module.__spec__.origin:
-                root_path = root_module.__spec__.origin
-            else:
-                assert hasattr(root_module, "__path__"), (
-                    module_name,
-                    root_package,
-                    parts,
-                    root_module.__dict__,
-                )
-                module_path = root_module.__path__
-                try:
-                    root_path = module_path[0]
-                except TypeError:
-                    # _NamespacePath missing __getitem__ on older Pythons
-                    root_path = module_path._path[0]  # type: ignore
-            assert root_path
+            root_path = get_module_path(root_module)
             repo_path = Path(root_path)
         else:
             repo_path = Path(root_path).parent
@@ -189,13 +171,14 @@ class PythonToYaml:
                 return node_name
         return None
 
-    def _imported_module2yaml(self, module) -> Path:
+    def _imported_module2yaml(self, module: ModuleType) -> Path:
         try:
             from unfurl.yamlloader import yaml
         except ImportError:
             import yaml
+        from .loader import get_module_path
 
-        path = Path(module.__file__)
+        path = Path(get_module_path(module))
         yaml_path = path.parent / (path.stem + ".yaml")
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
             logger.info(
@@ -206,8 +189,10 @@ class PythonToYaml:
             return yaml_path
 
         base_dir = "/".join(path.parts[1 : -len(module.__name__.split("."))])
+        with open(path) as sf:
+            src = sf.read()
         yaml_dict = python_src_to_yaml_obj(
-            inspect.getsource(module),
+            src,
             None,
             base_dir,
             module.__name__,
@@ -217,8 +202,14 @@ class PythonToYaml:
             self.write_policy,
             self.import_resolver,
         )
+        # if self.import_resolver:
+        #     yaml = self.import_resolver.manifest.config.yaml
         with open(yaml_path, "w") as yo:
-            logger.info("saving imported python module as YAML at %s", yaml_path)
+            logger.info(
+                "saving imported python module as YAML at %s %s",
+                yaml_path,
+                type(yaml_dict),
+            )
             yaml.dump(yaml_dict, yo)
         return yaml_path
 
@@ -325,11 +316,12 @@ ALLOWED_MODULES = (
     "typing",
     "typing_extensions",
     "tosca",
-    "unfurl",
     "random",
     "math",
     "string",
     "DateTime",
+    # XXX have unfurl package set these:
+    "unfurl",
 )
 
 
@@ -417,9 +409,6 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
 
 
 ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(["__name__"])
-# from foo import *" uses __all__ not __safe__ so allow separately from ALLOWED_MODULES
-ALLOWED_IMPORT_STAR_MODULES = ("typing", "typing_extensions", "tosca", "math")
-
 
 class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
     def _name_ok(self, node, name: str):
@@ -436,10 +425,8 @@ class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
 
     def check_import_names(self, node):
         # import * is not allowed (to avoid rebinding attacks)
-        # unless whitelisted by ALLOWED_IMPORT_STAR_MODULES
         if (
             isinstance(node, ast.ImportFrom)
-            and node.module in ALLOWED_IMPORT_STAR_MODULES
             and node.level == 0
             and len(node.names) == 1
             and node.names[0].name == "*"
@@ -534,7 +521,7 @@ def python_to_yaml(
 
 
 def restricted_exec(
-    python_src,
+    python_src: str,
     namespace,
     base_dir,
     full_name="service_template",

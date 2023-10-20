@@ -32,10 +32,10 @@ def is_version_unreleased(v: Union[None, str] = None) -> bool:
     return len(version_tuple(v)) > 3
 
 
-vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
-sys.path.insert(0, vendor_dir)
-vendor_dir2 = os.path.join(vendor_dir, "tosca", "vendor")
-sys.path.insert(0, vendor_dir2)
+_vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
+sys.path.insert(0, _vendor_dir)
+_vendor_dir2 = os.path.join(_vendor_dir, "tosca", "vendor")
+sys.path.insert(0, _vendor_dir2)
 
 if TYPE_CHECKING:
     from .tosca_plugins.tosca_ext import nodes
@@ -105,6 +105,7 @@ def get_home_config_path(homepath: Union[None, str]) -> Union[None, str]:
             return os.path.abspath(homepath)
     return None
 
+__all__ = ["DefaultNames", "get_home_config_path", "is_version_unreleased", "version_tuple"]
 
 ### Ansible initialization
 if "ANSIBLE_CONFIG" not in os.environ:
