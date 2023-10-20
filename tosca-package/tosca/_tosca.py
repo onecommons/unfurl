@@ -40,8 +40,10 @@ from typing_extensions import (
     Self,
 )
 import sys
+import logging
 
-from toscaparser import topology_template
+logger = logging.getLogger("tosca")
+
 from toscaparser.elements.datatype import DataType as ToscaDataType
 from .scalars import *
 
@@ -498,6 +500,13 @@ class _Tosca_Field(dataclasses.Field):
         types = tuple(self._resolve_class(t) for t in type_info.types)
         return type_info._replace(types=types)
 
+    def get_type_info_checked(self) -> Optional[TypeInfo]:
+        try:
+            return self.get_type_info()
+        except NameError as e:
+            logger.warning("error while converting python to yaml: " + str(e))
+            return None
+
     def guess_field_type(self) -> ToscaFieldType:
         type_info = self.get_type_info()
         has_capability = False
@@ -565,8 +574,10 @@ class _Tosca_Field(dataclasses.Field):
     def _to_requirement_yaml(
         self, converter: Optional["PythonToYaml"]
     ) -> Dict[str, Any]:
-        req_def = {}
-        info = self.get_type_info()
+        req_def: Dict[str, Any] = yaml_cls()
+        info = self.get_type_info_checked()
+        if not info:
+            return req_def
         for _type in info.types:
             if issubclass(_type, RelationshipType):
                 req_def["relationship"] = _type.tosca_type_name()
@@ -583,11 +594,13 @@ class _Tosca_Field(dataclasses.Field):
         return req_def
 
     def _to_capability_yaml(self) -> Dict[str, Any]:
-        info = self.get_type_info()
+        info = self.get_type_info_checked()
+        if not info:
+            return yaml_cls()
         assert len(info.types) == 1
         _type = info.types[0]
         assert issubclass(_type, _ToscaType), (self, _type)
-        cap_def: dict = dict(type=_type.tosca_type_name())
+        cap_def: dict = yaml_cls(type=_type.tosca_type_name())
         self._add_occurrences(cap_def, info)
 
         if self.valid_source_types:  # is not None: XXX only set to [] if declared
@@ -597,11 +610,13 @@ class _Tosca_Field(dataclasses.Field):
     def _to_artifact_yaml(self, converter: Optional["PythonToYaml"]) -> Dict[str, Any]:
         if self.default and self.default is not dataclasses.MISSING:
             return self.default.to_template_yaml(converter)
-        info = self.get_type_info()
+        info = self.get_type_info_checked()
+        if not info:
+            return yaml_cls()
         assert len(info.types) == 1
         _type = info.types[0]
         assert issubclass(_type, _ToscaType), (self, _type)
-        cap_def: dict = dict(type=_type.tosca_type_name())
+        cap_def: dict = yaml_cls(type=_type.tosca_type_name())
         return cap_def
 
     def pytype_to_tosca_schema(self, _type) -> Tuple[dict, bool]:
@@ -1081,7 +1096,9 @@ def _make_dataclass(cls):
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
-        assert cls.__module__ in sys.modules  # _process_class checks this
+        assert (
+            cls.__module__ in sys.modules
+        ), cls.__module__  # _process_class checks this
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
         # note: _process_class replaces each field with its default value (or delete the attribute)
         # replace those with _FieldDescriptors to allow class level attribute access to be customized
@@ -1251,7 +1268,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         locals = cls._namespace or {}
         obj = locals.get(name, globals.get(name))
         if obj is None:
-            raise NameError(f"{qname} not found {cls}'s scope")
+            raise NameError(f"{qname} not found in {cls}'s scope")
         while names:
             name = names.pop(0)
             ns = obj
