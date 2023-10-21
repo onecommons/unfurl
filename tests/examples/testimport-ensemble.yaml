@@ -3,7 +3,7 @@ kind: Ensemble
 spec:
   service_template:
     imports:
-    - file: spec/service-template.yaml
+    - file: spec/service_template.yaml
       namespace_prefix: A
     topology_template:
       outputs:

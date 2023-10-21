@@ -387,7 +387,7 @@ spec:
         runner = CliRunner()
         with runner.isolated_filesystem():
             specTemplate = os.path.join(
-                os.path.dirname(__file__), "examples/spec/service-template.yaml"
+                os.path.dirname(__file__), "examples/spec/service_template.yaml"
             )
             result = runner.invoke(
                 cli,
