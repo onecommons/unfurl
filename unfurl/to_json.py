@@ -277,6 +277,11 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
                 if is_property_user_visible(p)
             ]
             type_schema = tosca_type_to_jsonschema(custom_defs, propdefs, dt.type)
+            metadata = dt.get_value('metadata', parent=True)
+            if metadata and 'additionalProperties' in metadata:
+                schema["additionalProperties"] = dict(type="string", required=True)
+                if len(type_schema["properties"]) == 1 and "$toscatype" in type_schema["properties"]:
+                    del type_schema["properties"]  # XXX remove this temporary hack
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
     schema.update(type_schema)
