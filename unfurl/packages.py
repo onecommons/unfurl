@@ -74,9 +74,11 @@ class UnfurlPackageUpdateNeeded(UnfurlError):
 
 def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
     """Return true if ``revision`` looks like a semver with major version >= 1"""
+    if not revision:
+        return False
+    revision = str(revision)
     return bool(
-        revision
-        and (include_unreleased or not revision.lstrip("v").startswith("0"))
+        (include_unreleased or not revision.lstrip("v").startswith("0"))
         and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
     )
 
@@ -284,8 +286,11 @@ class Package:
         self.package_id = package_id
         self.revision = minimum_version
         if url is None:
+            # set self.url now because set_url_from_package_id() calls version_tag_prefix()
+            self.url = ""
             self.set_url_from_package_id()
-        self.url = cast(str, url)
+        else:
+            self.url = url
         self.repositories: List[RepoView] = []
         self.discovered_revision = False
         self.lock_to_commit = ""
@@ -301,12 +306,13 @@ class Package:
 
     def version_tag_prefix(self) -> str:
         # see https://go.dev/ref/mod#vcs-version
-        url, repopath, urlrevision = split_git_url(self.url)
-        # return tag prefix to match version tags with
-        if repopath:
-            # strip out major version suffix:
-            # if repopath looks "foo" or "foo/v2", return "foo/v"
-            return re.sub(r"(/v\d+)?$", "", repopath) + "/v"
+        if self.url:
+            url, repopath, urlrevision = split_git_url(self.url)
+            # return tag prefix to match version tags with
+            if repopath:
+                # strip out major version suffix:
+                # if repopath looks "foo" or "foo/v2", return "foo/v"
+                return re.sub(r"(/v\d+)?$", "", repopath) + "/v"
         return "v"
 
     def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
@@ -395,13 +401,13 @@ class Package:
         if not self.revision or not package.revision:
             # there aren't two revisions to compare so skip compatibility check
             return True
-        if not self.has_semver():
+        if not self.has_semver(True):
             # if the revision wasn't specified, skip compatibility check
             # otherwise, require an exact match for non-semver revisions
             if self.discovered_revision or package.discovered_revision:
                 return True
             return self.revision == package.revision
-        if not package.has_semver():  # doesn't have a semver and doesn't match
+        if not package.has_semver(True):  # doesn't have a semver and doesn't match
             return False
 
         # # if given revision is newer than current packages we need to reload (error for now?)
