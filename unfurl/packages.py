@@ -60,7 +60,13 @@ import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 from urllib.parse import urlparse
-from .repo import RepoView, split_git_url, get_remote_tags, sanitize_url
+from .repo import (
+    RepoView,
+    split_git_url,
+    get_remote_tags,
+    sanitize_url,
+    is_url_or_git_path,
+)
 from .logs import getLogger
 from .util import UnfurlError
 from toscaparser.utils.validateutils import TOSCAVersionProperty
@@ -97,7 +103,8 @@ class PackageSpec:
         self.package_spec = package_spec
         if url_ish:
             self.package_id, self.url, revision = get_package_id_from_url(url_ish)
-            if self.url and "*" not in url_ish:  # url_ish was a full url, preserve the original
+            # if url_ish was a full url, preserve the original
+            if self.url and "*" not in url_ish:
                 self.url = url_ish
         else:
             self.url = None
@@ -378,7 +385,7 @@ class Package:
             self.repositories.append(repoview)
             repoview.package = self
             # we need to set the path, url, and revision to match the package
-            if self.revision:
+            if self.revision and is_url_or_git_path(self.url):
                 url, repopath, urlrevision = split_git_url(self.url)
                 repoview.path = repopath
                 repoview.revision = self.revision_tag
@@ -427,7 +434,7 @@ def resolve_package(
 ) -> Optional["Package"]:
     """
     If repository references a package, register it with existing package or create a new one.
-    A error is raised if a package's version conficts with the repository's version requirement.
+    A error is raised if a package's version conflicts with the repository's version requirement.
     """
     package_id, url, revision = get_package_id_from_url(repoview.url)
     if not package_id:

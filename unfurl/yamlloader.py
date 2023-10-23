@@ -549,7 +549,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         # resolve to an url or absolute path along with context
         if repository_name:
             if self._has_path_escaped(file_name, repository_name):
-                # can't be ".." or absolute path
+                # file_name can't be ".." or absolute path
                 return None, None
             repo_view = self.manifest.repositories.get(repository_name)
             if not repo_view:
@@ -585,7 +585,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if is_file:
             # repository is a local path
             # so use the resolved base
-            path = os.path.join(base, file_name)
+            if not os.path.isabs(path):
+                path = os.path.join(base, path)
+            path = os.path.join(path, file_name)
             if self._has_path_escaped(path):
                 return None, None
         repo_view.add_file_ref(file_name)

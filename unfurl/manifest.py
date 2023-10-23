@@ -43,6 +43,7 @@ from .merge import merge_dicts
 from .result import ChangeRecord
 from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
 from .logs import getLogger
+from . import __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
 from tosca.loader import install
@@ -622,9 +623,16 @@ class Manifest(AttributeManager):
         repositories = self._get_repositories(config)
         for name, tpl in repositories.items():
             # only set if we haven't seen this repository before
-            if name not in self.repositories:
-                toscaRepository = resolver.get_repository(name, tpl)
-                self.repositories[name] = RepoView(toscaRepository, None)
+            toscaRepository = resolver.get_repository(name, tpl)
+            if toscaRepository:
+                try:
+                    self.add_repository(toscaRepository, "")
+                except UnfurlError:
+                    # just warn if the repository is redefined
+                    logger.warning(
+                        f"Ignoring redefinition of repository {name} to {tpl}"
+                    )
+
         if inlineRepositories:
             for name, repository in inlineRepositories.items():
                 if name in self.repositories:
@@ -671,15 +679,26 @@ class Manifest(AttributeManager):
 
     def _set_builtin_repositories(self):
         repositories = self.repositories
-        if "unfurl" not in repositories:
-            # add a repository that points to this package
-            repository = RepoView(
-                Repository("unfurl", dict(url="file:" + _basepath)),
-                None,
-                "",
+        if "github.com/onecommons/unfurl" not in self.packages:
+            # add a package rule so the unfurl package uses the local installed location
+            # (note that it can't set the revision because don't want to overwrite the request version
+            unfurl_package_spec = PackageSpec(
+                "github.com/onecommons/unfurl", "file:" + _basepath, None
             )
-            repository.package = False
-            repositories["unfurl"] = repository
+            self.package_specs.append(unfurl_package_spec)
+            # add a package with the installed version so that package resolution will detect version incompatibility
+            unfurl_package = Package(
+                "github.com/onecommons/unfurl", "file:" + _basepath, __version__()
+            )
+            repository = RepoView(
+                Repository("unfurl", dict(url=unfurl_package.url)),
+                None,
+            )
+            unfurl_package.add_reference(repository)
+            self.packages["github.com/onecommons/unfurl"] = unfurl_package
+            if "unfurl" not in repositories:
+                # the user didn't declare one
+                repositories["unfurl"] = repository
         if "self" not in repositories:
             # this is called too early to use self.getBaseDir()
             path = get_base_dir(self.path) if self.path else "."

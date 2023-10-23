@@ -8,6 +8,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.packages import PackageSpec, Package, get_package_id_from_url, get_package_from_url
 from unfurl.repo import get_remote_tags
 from unfurl.util import UnfurlError, taketwo
+from unfurl.yamlmanifest import YamlManifest
 
 
 def _apply_package_rules(test_url, env_package_spec):
@@ -43,6 +44,13 @@ def test_package_rules():
     with pytest.raises(UnfurlError) as err:
         _apply_package_rules("https://app.dev.unfurl.cloud/user/dashboard", "http://tunnel.abreidenbach.com:3000/onecommons/* #main")
     assert "Malformed package spec" in str(err)
+
+    unfurl_spec = PackageSpec("github.com/onecommons/unfurl", "file:///home/unfurl/unfurl", None)
+    unfurl_package = Package("github.com/onecommons/unfurl", "https://github.com/onecommons/unfurl", "v0.9.1")
+    assert unfurl_package.url
+    changed = PackageSpec.update_package([unfurl_spec], unfurl_package)
+    assert changed
+    assert unfurl_package.url == "file:///home/unfurl/unfurl"
 
 
 def test_remote_tags():
@@ -128,6 +136,30 @@ def test_remote_tags():
     finally:
         if UNFURL_PACKAGE_RULES:
             os.environ["UNFURL_PACKAGE_RULES"] = UNFURL_PACKAGE_RULES
+
+_ENSEMBLE_TPL = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    repositories:
+      unfurl:
+        url: https://github.com/onecommons/unfurl
+        revision: %s
+    imports:
+      - repository: unfurl
+        file: configurators/templates/dns.yaml
+"""
+ENSEMBLE_UNFURL_PAST = _ENSEMBLE_TPL % "v0.9.1"
+ENSEMBLE_UNFURL_FUTURE = _ENSEMBLE_TPL % "2.0"
+
+
+def test_unfurl_dependencies():
+    assert YamlManifest(ENSEMBLE_UNFURL_PAST)
+    with pytest.raises(UnfurlError) as err:
+        YamlManifest(ENSEMBLE_UNFURL_FUTURE)
+        assert "github.com/onecommons/unfurl has version 2.0 but incompatible version" in str(err)
+
 
 if __name__ == "__main__":
     import sys
