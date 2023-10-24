@@ -915,42 +915,44 @@ interface_types:
       The TOSCA root Interface Type all other TOSCA Interface types derive from
   
   tosca.interfaces.node.lifecycle.Standard:
-    create:
-      description: Standard lifecycle create operation.
-    configure:
-      description: Standard lifecycle configure operation.
-    start:
-      description: Standard lifecycle start operation.
-    stop:
-      description: Standard lifecycle stop operation.
-    delete:
-      description: Standard lifecycle delete operation.
+    operations:
+      create:
+        description: Standard lifecycle create operation.
+      configure:
+        description: Standard lifecycle configure operation.
+      start:
+        description: Standard lifecycle start operation.
+      stop:
+        description: Standard lifecycle stop operation.
+      delete:
+        description: Standard lifecycle delete operation.
 
   tosca.interfaces.relationship.Configure:
-    pre_configure_source:
-      description: Operation to pre-configure the source endpoint.
-    pre_configure_target:
-      description: Operation to pre-configure the target endpoint.
-    post_configure_source:
-      description: Operation to post-configure the source endpoint.
-    post_configure_target:
-      description: Operation to post-configure the target endpoint.
-    add_target:
-      description: Operation to add a target node.
-    remove_target:
-      description: Operation to remove a target node.
-    add_source:
-      description: &gt;
-        Operation to notify the target node of a source node which
-        is now available via a relationship.
-    remove_source:
-      description: &gt;
-        Operation to notify the target node of a source node which
-        is no longer available via a relationship.
-    target_changed:
-      description: &gt;
-        Operation to notify source some property or attribute of the
-        target changed
+    operations:
+      pre_configure_source:
+        description: Operation to pre-configure the source endpoint.
+      pre_configure_target:
+        description: Operation to pre-configure the target endpoint.
+      post_configure_source:
+        description: Operation to post-configure the source endpoint.
+      post_configure_target:
+        description: Operation to post-configure the target endpoint.
+      add_target:
+        description: Operation to add a target node.
+      remove_target:
+        description: Operation to remove a target node.
+      add_source:
+        description: &gt;
+          Operation to notify the target node of a source node which
+          is now available via a relationship.
+      remove_source:
+        description: &gt;
+          Operation to notify the target node of a source node which
+          is no longer available via a relationship.
+      target_changed:
+        description: &gt;
+          Operation to notify source some property or attribute of the
+          target changed
 
 ##########################################################################
 # Data Type.
@@ -1368,6 +1370,16 @@ data_types:
     derived_from: tosca.datatypes.Root
     type: string
     description: The value of an environment variable whose name matches the property&#39;s name
+
+  unfurl.datatypes.EnvironmentVariables:
+    derived_from: tosca.datatypes.Root
+    description: An open type (properties don&#39;t need to be declared) that serializes as a map of environment variables.
+    metadata:
+      additionalProperties: true
+      transform:
+        eval:
+          to_env:
+            eval: $value
 
 capability_types:
   unfurl.capabilities.Installer:
