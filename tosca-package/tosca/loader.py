@@ -81,7 +81,10 @@ class RepositoryFinder(PathFinder):
             if len(names) == 1:
                 return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
             else:
-                origin_path = os.path.join(dir_path, *names[1:]) + ".py"
+                origin_path = os.path.join(dir_path, *names[1:])
+                if os.path.isdir(origin_path):
+                    return ModuleSpec(fullname, None, origin=origin_path, is_package=True)
+                origin_path += ".py"
                 loader = ToscaYamlLoader(fullname, origin_path, modules)
                 spec = spec_from_loader(fullname, loader, origin=origin_path)
                 return spec
@@ -192,17 +195,20 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
             origin_path = os.path.join(parent_path, last)
         else:
             origin_path = os.path.join(base_dir, name.replace(".", "/"))
-        if name in ALLOWED_PRIVATE_PACKAGES or parent == "service_template":
+        if name in ALLOWED_PRIVATE_PACKAGES or name == "service_template":
             spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
         else:
-            origin_path += ".py"
-            if not os.path.isfile(origin_path):
-                raise ModuleNotFoundError(
-                    f"No module named {name} at {origin_path}", name=name
-                )
-            loader = ToscaYamlLoader(name, origin_path, modules)
-            spec = spec_from_loader(name, loader, origin=origin_path)
-            assert spec and spec.loader
+            if os.path.isdir(origin_path):
+                spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
+            else:
+                origin_path += ".py"
+                if not os.path.isfile(origin_path):
+                    raise ModuleNotFoundError(
+                        f"No module named {name} at {origin_path}", name=name
+                    )
+                loader = ToscaYamlLoader(name, origin_path, modules)
+                spec = spec_from_loader(name, loader, origin=origin_path)
+                assert spec and spec.loader
     module = module_from_spec(spec)
     modules[name] = module
     if not spec.loader:
