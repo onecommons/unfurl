@@ -189,16 +189,20 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
             parent_path = get_module_path(modules[parent])
             if os.path.isfile(parent_path):
                 parent_path = os.path.dirname(parent_path)
-            origin_path = os.path.join(parent_path, last) + ".py"
+            origin_path = os.path.join(parent_path, last)
         else:
-            origin_path = os.path.join(base_dir, name.replace(".", "/")) + ".py"
-        if not os.path.isfile(origin_path):
-            raise ModuleNotFoundError(
-                f"No module named {name} at {origin_path}", name=name
-            )
-        loader = ToscaYamlLoader(name, origin_path, modules)
-        spec = spec_from_loader(name, loader, origin=origin_path)
-        assert spec and spec.loader
+            origin_path = os.path.join(base_dir, name.replace(".", "/"))
+        if name in ALLOWED_PRIVATE_PACKAGES or parent == "service_template":
+            spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
+        else:
+            origin_path += ".py"
+            if not os.path.isfile(origin_path):
+                raise ModuleNotFoundError(
+                    f"No module named {name} at {origin_path}", name=name
+                )
+            loader = ToscaYamlLoader(name, origin_path, modules)
+            spec = spec_from_loader(name, loader, origin=origin_path)
+            assert spec and spec.loader
     module = module_from_spec(spec)
     modules[name] = module
     if not spec.loader:
@@ -455,15 +459,14 @@ class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
         return True
 
     def check_import_names(self, node):
-        # import * is not allowed (to avoid rebinding attacks)
         if (
             isinstance(node, ast.ImportFrom)
-            and node.level == 0
             and len(node.names) == 1
             and node.names[0].name == "*"
         ):
             return self.node_contents_visit(node)
         else:
+            # import * is not allowed (to avoid rebinding attacks)
             return RestrictingNodeTransformer.check_import_names(self, node)
 
 
