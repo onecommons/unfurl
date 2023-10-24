@@ -405,6 +405,7 @@ def safe_guarded_write(ob):
 # _iter_unpack_sequence_
 # _unpack_sequence_
 
+PRINT_AST_SRC = False
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
@@ -427,6 +428,12 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
 
     def check_import_names(self, node):
         return self.node_contents_visit(node)
+
+    def visit(self, node):
+        if PRINT_AST_SRC and not ":top" in self.used_names:
+            self.used_names[":top"] = node
+        v = super().visit(node)
+        return v
 
     def visit_Constant(self, node):
         # allow `...`
@@ -577,6 +584,9 @@ def restricted_exec(
         namespace["__package__"] = package
     policy = SafeToscaDslNodeTransformer if safe_mode else ToscaDslNodeTransformer
     result = compile_restricted_exec(python_src, policy=policy)
+    if PRINT_AST_SRC:
+        c_ast = result.used_names[":top"]
+        print(ast.unparse(c_ast))
     if result.errors:
         raise SyntaxError("\n".join(result.errors))
     temp_module = None
