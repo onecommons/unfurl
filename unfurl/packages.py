@@ -60,6 +60,7 @@ import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 from urllib.parse import urlparse
+
 from .repo import (
     RepoView,
     split_git_url,
@@ -70,6 +71,7 @@ from .repo import (
 from .logs import getLogger
 from .util import UnfurlError
 from toscaparser.utils.validateutils import TOSCAVersionProperty
+from toscaparser.imports import normalize_path
 
 logger = getLogger("unfurl")
 
@@ -391,7 +393,7 @@ class Package:
                 repoview.revision = self.revision_tag
                 repoview.repository.url = f"{url}#{self.revision_tag}:{repopath}"
             else:
-                repoview.repository.url = self.url
+                repoview.repository.url = normalize_path(self.url)
             return True
         return False
 
