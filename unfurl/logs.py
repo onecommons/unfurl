@@ -188,7 +188,8 @@ class SensitiveFilter(logging.Filter):
         else:
             if record.args is not None:
                 record.args = tuple(self.redact(a) for a in record.args)
-        record.msg = self.sanitize_urls(record.msg)
+        if isinstance(record.msg, str):
+            record.msg = self.sanitize_urls(record.msg)
         return True
 
     @staticmethod
