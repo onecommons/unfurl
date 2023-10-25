@@ -1031,9 +1031,6 @@ class Convert:
                     cmd = f'self.load_class("{module_path}", "{klass}")'
                 else:
                     self.imports.add_import(module)
-
-        # XXX other kw:
-        # environment, dependencies, operation_host, timeout
         return cmd, kw
 
     # XXX if default operation defined with empty operations, don't call operation2func, add decorator instead
@@ -1053,6 +1050,11 @@ class Convert:
         if op.name == "default":
             apply_to = ", ".join([f'"{op[0]}.{op[1]}"' for op in default_ops])
             decorator.append(f"apply_to=[{apply_to}]")
+        # XXX other kw: dependencies
+        for imp_key in ("timeout", "operation_host", "environment"):
+            imp_val = kw.get(imp_key)
+            if imp_val is not None:
+                decorator.append(f"{imp_key}={value2python_repr(imp_val)}")
         if decorator:  # add decorator
             src += f"{indent}@operation({', '.join(decorator)})\n"
 
