@@ -21,5 +21,4 @@ flask_cors==3.0.10
 Werkzeug==2.2.3 # fix for flask
 uvicorn<=0.18.2 # BSD 3-clause
 python-gitlab==3.13.0
-black
-RestrictedPython>=6.1
+tosca>=0.0.5
