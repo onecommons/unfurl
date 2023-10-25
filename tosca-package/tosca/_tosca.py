@@ -153,11 +153,39 @@ class Namespace(types.SimpleNamespace):
     location: str
 
 
-# XXX operation_host, environment, timeout, dependencies, invoke, preConditions
-def operation(name="", apply_to=()):
+# XXX dependencies, invoke, preConditions
+def operation(
+    name="",
+    apply_to: Sequence[str] = (),
+    timeout: Optional[float] = None,
+    operation_host: Optional[str] = None,
+    environment: Optional[Dict[str, str]] = None,
+) -> Callable:
+    """Function decorator that marks a function or methods as a TOSCA operation.
+
+    Args:
+        name (str, optional): Name of the TOSCA operation. Defaults to the name of the function.
+        apply_to (Sequence[str], optional): List of TOSCA operations to apply this method to. If omitted, match by the operation name.
+        timeout (Optional[float], optional): Timeout for the operation (in seconds). Defaults to None.
+        operation_host (Optional[str], optional): The name of host where this operation will be executed. Defaults to None.
+        environment (Optional[Dict[str, str]], optional): A map of environment variables to use while executing the operation. Defaults to None.
+
+    This example marks a method a implementing the ``create`` and ``delete`` operations on the ``Standard`` TOSCA interface.
+
+    .. code-block:: python
+
+        @operation(apply_to=["Standard.create","Standard.delete"])
+        def default(self):
+            return self.my_artifact.execute()
+
+    """
+
     def decorator_operation(func):
         func.operation_name = name or func.__name__
         func.apply_to = apply_to
+        func.timeout = timeout
+        func.operation_host = operation_host
+        func.environment = environment
         return func
 
     return decorator_operation
@@ -329,6 +357,19 @@ REQUIRED = _REQUIRED_TYPE()
 MISSING = dataclasses.MISSING
 
 
+class Options(frozenset):
+    def asdict(self):
+        return {n: True for n in self}
+
+
+class PropertyOptions(Options):
+    pass
+
+
+class AttributeOptions(Options):
+    pass
+
+
 class _Tosca_Field(dataclasses.Field):
     title = None
     node_filter: Optional[Dict[str, Any]] = None
@@ -344,9 +385,14 @@ class _Tosca_Field(dataclasses.Field):
         title: str = "",
         status: str = "",
         constraints: Optional[List[DataConstraint]] = None,
+        options: Optional[Options] = None,
         declare_attribute: bool = False,
         owner: Optional[Type["_ToscaType"]] = None,
     ):
+        if metadata is None:
+            metadata = {}
+        if options:
+            metadata.update(options.asdict())
         args = [
             self,
             default,
@@ -726,6 +772,7 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
     if status:
         doc += f"{indent}constraints (List[DataConstraints], optional): List of TOSCA property constraints to apply to the {name}.\n"
         doc += f"{indent}status (str, optional): TOSCA status of the {name}.\n"
+        doc += f"{indent}options ({func.__name__}Options, optional): Typed metadata to apply.\n"
     for arg in extra:
         doc += f"{indent}{arg}\n"
     func.__doc__ = doc
@@ -740,6 +787,7 @@ def Attribute(
     metadata: Optional[Dict[str, str]] = None,
     title="",
     status="",
+    options: Optional[AttributeOptions] = None,
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
@@ -753,6 +801,7 @@ def Attribute(
         title,
         status,
         constraints=constraints,
+        options=options,
     )
     return field
 
@@ -767,8 +816,9 @@ def Property(
     name: str = "",
     constraints: Optional[List[DataConstraint]] = None,
     metadata: Optional[Dict[str, str]] = None,
-    title="",
-    status="",
+    title: str = "",
+    status: str = "",
+    options: Optional[PropertyOptions] = None,
     attribute: bool = False,
 ) -> Any:
     field = _Tosca_Field(
@@ -780,6 +830,7 @@ def Property(
         title=title,
         status=status,
         constraints=constraints,
+        options=options,
         declare_attribute=attribute,
     )
     return field
@@ -853,13 +904,14 @@ _make_field_doc(Artifact)
 
 
 class _Ref:
-    def __init__(self, expr):
-        self.expr = expr
+    def __init__(self, expr: Optional[Dict[str, Any]]):
+        self.expr: Optional[Dict[str, Any]] = expr
 
     def set_source(self):
-        expr = self.expr.get("eval")
-        if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
-            self.expr["eval"] = "$SOURCE::" + expr
+        if self.expr:
+            expr = self.expr.get("eval")
+            if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
+                self.expr["eval"] = "$SOURCE::" + expr
 
     def __repr__(self):
         return f"_Ref({self.expr})"
@@ -867,8 +919,9 @@ class _Ref:
     def to_yaml(self, dict_cls=dict):
         return self.expr
 
+    # note: we need this to prevent dataclasses error on 3.11+: mutable default for field
     def __hash__(self) -> int:
-        return hash(self.expr)
+        return hash(str(self.expr))
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, type(self.expr)):
@@ -917,7 +970,7 @@ class FieldProjection(_Ref):
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
         expr = field.as_ref_expr()
-        if parent:
+        if parent and parent.expr:
             # XXX map to tosca name but we can't do this now because it might be too early to resolve the attribute's type
             expr = parent.expr["eval"] + "::" + expr
         super().__init__(dict(eval=expr))
@@ -1449,9 +1502,14 @@ class ToscaType(_ToscaType):
         else:
             className = f"{result.__class__.__module__}.{result.__class__.__name__}"
             implementation = dict_cls(className=className)
-
-        # XXX add to implementation: operation_host, environment, timeout, dependencies, invoke, preConditions
-        op_def: Dict[str, Any] = dict_cls(implementation=implementation)
+        # XXX add to implementation: dependencies, invoke, preConditions
+        for key in ("operation_host", "environment", "timeout"):
+            impl_val = getattr(operation, key, None)
+            if impl_val is not None:
+                implementation[key] = impl_val
+        op_def: Dict[str, Any] = dict_cls(
+            implementation=to_tosca_value(implementation, dict_cls)
+        )
         if result.inputs:
             op_def["inputs"] = to_tosca_value(result.inputs, dict_cls)
         description = getattr(operation, "__doc__", "")
