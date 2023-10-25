@@ -329,6 +329,19 @@ REQUIRED = _REQUIRED_TYPE()
 MISSING = dataclasses.MISSING
 
 
+class Options(frozenset):
+    def asdict(self):
+        return {n: True for n in self}
+
+
+class PropertyOptions(Options):
+    pass
+
+
+class AttributeOptions(Options):
+    pass
+
+
 class _Tosca_Field(dataclasses.Field):
     title = None
     node_filter: Optional[Dict[str, Any]] = None
@@ -344,9 +357,14 @@ class _Tosca_Field(dataclasses.Field):
         title: str = "",
         status: str = "",
         constraints: Optional[List[DataConstraint]] = None,
+        options: Optional[Options] = None,
         declare_attribute: bool = False,
         owner: Optional[Type["_ToscaType"]] = None,
     ):
+        if metadata is None:
+            metadata = {}
+        if options:
+            metadata.update(options.asdict())
         args = [
             self,
             default,
@@ -726,6 +744,7 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
     if status:
         doc += f"{indent}constraints (List[DataConstraints], optional): List of TOSCA property constraints to apply to the {name}.\n"
         doc += f"{indent}status (str, optional): TOSCA status of the {name}.\n"
+        doc += f"{indent}options ({func.__name__}Options, optional): Typed metadata to apply.\n"
     for arg in extra:
         doc += f"{indent}{arg}\n"
     func.__doc__ = doc
@@ -740,6 +759,7 @@ def Attribute(
     metadata: Optional[Dict[str, str]] = None,
     title="",
     status="",
+    options: Optional[AttributeOptions] = None,
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
@@ -753,6 +773,7 @@ def Attribute(
         title,
         status,
         constraints=constraints,
+        options=options,
     )
     return field
 
@@ -767,8 +788,9 @@ def Property(
     name: str = "",
     constraints: Optional[List[DataConstraint]] = None,
     metadata: Optional[Dict[str, str]] = None,
-    title="",
-    status="",
+    title: str = "",
+    status: str = "",
+    options: Optional[PropertyOptions] = None,
     attribute: bool = False,
 ) -> Any:
     field = _Tosca_Field(
@@ -780,6 +802,7 @@ def Property(
         title=title,
         status=status,
         constraints=constraints,
+        options=options,
         declare_attribute=attribute,
     )
     return field
@@ -853,22 +876,20 @@ _make_field_doc(Artifact)
 
 
 class _Ref:
-    def __init__(self, expr):
-        self.expr = expr
+    def __init__(self, expr: Optional[Dict[str, Any]]):
+        self.expr: Optional[Dict[str, Any]] = expr
 
     def set_source(self):
-        expr = self.expr.get("eval")
-        if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
-            self.expr["eval"] = "$SOURCE::" + expr
+        if self.expr:
+            expr = self.expr.get("eval")
+            if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
+                self.expr["eval"] = "$SOURCE::" + expr
 
     def __repr__(self):
         return f"_Ref({self.expr})"
 
     def to_yaml(self, dict_cls=dict):
         return self.expr
-
-    def __hash__(self) -> int:
-        return hash(self.expr)
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, type(self.expr)):

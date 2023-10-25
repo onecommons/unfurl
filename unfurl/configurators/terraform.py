@@ -11,7 +11,7 @@ import json
 import os
 import os.path
 import re
-
+import tosca
 
 class TerraformInputs(ShellInputs):
     main: Union[None, str, Dict[str, Any]] = None
@@ -21,6 +21,8 @@ class TerraformInputs(ShellInputs):
     dryrun_mode: Literal["plan", "real"] = "plan"
     dryrun_output: Union[None, str, Dict[str, Any]] = None
 
+tfvar = tosca.PropertyOptions(["tfvar"])
+tfoutput = tosca.AttributeOptions(["tfoutput"])
 
 def _get_env(env, verbose, dataDir):
     env["TF_IN_AUTOMATION"] = "1"

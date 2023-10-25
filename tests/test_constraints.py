@@ -49,7 +49,7 @@ def test_constraints():
                 },
             },
         }
-    }
+    }, service_template["topology_template"]
     assert service_template["node_types"] == {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
@@ -103,7 +103,7 @@ def test_constraints():
                 },
             ],
         },
-    }
+    }, service_template["node_types"]
 
     root = manifest.tosca.topology.get_node_template("myapp")
     assert root
