@@ -919,6 +919,10 @@ class _Ref:
     def to_yaml(self, dict_cls=dict):
         return self.expr
 
+    # note: we need this to prevent dataclasses error on 3.11+: mutable default for field
+    def __hash__(self) -> int:
+        return hash(str(self.expr))
+
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, type(self.expr)):
             return self.expr == __value
@@ -966,7 +970,7 @@ class FieldProjection(_Ref):
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
         expr = field.as_ref_expr()
-        if parent:
+        if parent and parent.expr:
             # XXX map to tosca name but we can't do this now because it might be too early to resolve the attribute's type
             expr = parent.expr["eval"] + "::" + expr
         super().__init__(dict(eval=expr))

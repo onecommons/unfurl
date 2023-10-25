@@ -584,9 +584,9 @@ def restricted_exec(
         namespace["__package__"] = package
     policy = SafeToscaDslNodeTransformer if safe_mode else ToscaDslNodeTransformer
     result = compile_restricted_exec(python_src, policy=policy)
-    if PRINT_AST_SRC:
+    if PRINT_AST_SRC and sys.version_info.minor >= 9:
         c_ast = result.used_names[":top"]
-        print(ast.unparse(c_ast))
+        print(ast.unparse(c_ast))  # type: ignore
     if result.errors:
         raise SyntaxError("\n".join(result.errors))
     temp_module = None
