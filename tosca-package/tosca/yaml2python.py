@@ -525,13 +525,13 @@ class Convert:
             )
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
-        return self._get_typed_value_repr(schema.type, schema.entry_schema, value)
+        return self._get_typed_value_repr(schema.type, schema.entry_schema, value)[0]
 
-    def _get_typed_value_repr(self, datatype: str, entry_schema, value: Any) -> str:
+    def _get_typed_value_repr(self, datatype: str, entry_schema, value: Any) -> Tuple[str, bool]:
         if value is None:
-            return "None"
+            return "None", False
         if has_function(value):
-            return value2python_repr(value)
+            return value2python_repr(value), False
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
         if entry_schema:
             entry_schema = Schema(None, entry_schema)
@@ -540,28 +540,28 @@ class Convert:
                     f"{k}: {self._get_prop_value_repr(entry_schema, item)}"
                     for k, item in value.items()
                 ]
-                return "{" + ", ".join(items) + "}"
+                return "{" + ", ".join(items) + "}", True
             else:
                 assert typename == "List"
                 items = [
                     self._get_prop_value_repr(entry_schema, item) for item in value
                 ]
-                return "[" + ", ".join(items) + "]"
+                return "[" + ", ".join(items) + "]", True
         else:
             if datatype.startswith("scalar-unit."):
                 if isinstance(value, (list, tuple)):
                     # for in_range constraints
                     return self._get_typed_value_repr(
                         "list", dict(type=datatype), value
-                    )
+                    )[0], False
                 scalar_unit_class = get_scalarunit_class(datatype)
                 assert scalar_unit_class
                 canonical = scalar_unit_class(value).validate_scalar_unit()
                 # XXX add unit to imports
-                return canonical.strip().replace(" ", "*")  # value * unit
+                return canonical.strip().replace(" ", "*"), False  # value * unit
             if typename:
                 # simple value type
-                return value2python_repr(value)
+                return value2python_repr(value), False
             else:
                 # its a tosca datatype
                 typename, cls = self.imports.get_type_ref(datatype)
@@ -576,22 +576,22 @@ class Convert:
                     cls = None
                 if dt.value_type:
                     # its a simple value type
-                    return value2python_repr(value)
+                    return value2python_repr(value), False
                 if not isinstance(value, dict):
                     logger.error(
                         "expected a dict value for %s, got: %s", datatype, value
                     )
-                    return str(value)
-                return self.convert_datatype_value(typename, cls, dt, value)
+                    return str(value), False
+                return self.convert_datatype_value(typename, cls, dt, value), True
 
     def _constraint_args(self, c) -> str:
         if c.constraint_key == "in_range":
             min, max = c.constraint_value_msg
-            return f"{self._get_typed_value_repr(c.property_type, None, min)},{self._get_typed_value_repr(c.property_type, None, max)}"
+            return f"{self._get_typed_value_repr(c.property_type, None, min)[0]},{self._get_typed_value_repr(c.property_type, None, max)[0]}"
         else:
             return self._get_typed_value_repr(
                 c.property_type, None, c.constraint_value_msg
-            )
+            )[0]
 
     def to_constraints(self, constraints):
         # note: c.constraint_value_msg is unconverted value
@@ -656,8 +656,8 @@ class Convert:
             fieldparams.append(f"attribute=True")
 
         if default_value is not MISSING:
-            value_repr = self._get_prop_value_repr(prop.schema, default_value)
-            if value_repr[0] in ("{", "["):
+            value_repr, mutable = self._get_typed_value_repr(prop.schema.type, prop.schema.entry_schema, default_value)
+            if mutable or value_repr[0] in ("{", "["):
                 fieldparams.append(f"factory=lambda:({value_repr})")
             elif fieldparams:
                 fieldparams.append(f"default={value_repr}")
