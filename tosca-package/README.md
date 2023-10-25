@@ -363,3 +363,7 @@ To enable untrusted Python service templates to be safely parsed in the same con
 * All other modules imported have their contents executed in the same sandbox.
 * Disallowed imports will only raise `ImportError` when an imported module's attribute is accessed.
 * In safe mode, `python_to_yaml` will not invoke Python methods when convert operations to YAML. Since `ImportError`s are deferred until the imported module's attributes are accessed, this allows safe mode to parse Python code with unsafe imports in global scope as long as they aren't accessed while declaring types and templates in global scope.
+
+## API Documentation
+
+API Documentation can be found [here](https://docs.unfurl.run/api.html#api-for-writing-service-templates).
