@@ -2,7 +2,7 @@
 Configurators
 ===============
 
-To use a configurator, set it as the ``implementation`` field of an `operation`
+To use a configurator, set it in the ``implementation`` field of an :std:ref:`Operation`
 and set its inputs as documented below. Configurator names are case-sensitive;
 if a configurator name isn't found it is treated as an external command.
 

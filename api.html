@@ -158,7 +158,7 @@
 
 <dl class="py function">
 <dt class="sig sig-object py" id="tosca.Attribute">
-<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Attribute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Attribute" title="Permalink to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Attribute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">options=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Attribute" title="Permalink to this definition"></a></dt>
 <dd><p>Field specifier for declaring a TOSCA attribute.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -169,6 +169,7 @@
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the attribute.</p></li>
 <li><p><strong>constraints</strong> (<em>List</em><em>[</em><em>DataConstraints</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA property constraints to apply to the attribute.</p></li>
 <li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the attribute.</p></li>
+<li><p><strong>options</strong> (<em>AttributeOptions</em><em>, </em><em>optional</em>) – Typed metadata to apply.</p></li>
 <li><p><strong>init</strong> (<em>Literal</em><em>[</em><em>False</em><em>]</em>) – </p></li>
 </ul>
 </dd>
@@ -200,7 +201,7 @@
 
 <dl class="py function">
 <dt class="sig sig-object py" id="tosca.Property">
-<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Property</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attribute=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Property" title="Permalink to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Property</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">factory=&lt;dataclasses._MISSING_TYPE</span> <span class="pre">object&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">options=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attribute=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Property" title="Permalink to this definition"></a></dt>
 <dd><p>Field specifier for declaring a TOSCA property.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -211,7 +212,9 @@
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the property.</p></li>
 <li><p><strong>constraints</strong> (<em>List</em><em>[</em><em>DataConstraints</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA property constraints to apply to the property.</p></li>
 <li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the property.</p></li>
+<li><p><strong>options</strong> (<em>PropertyOptions</em><em>, </em><em>optional</em>) – Typed metadata to apply.</p></li>
 <li><p><strong>attribute</strong> (<em>bool</em><em>, </em><em>optional</em>) – Indicate that the property is also a TOSCA attribute. Defaults to False.</p></li>
+<li><p><strong>title</strong> (<em>str</em>) – </p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
@@ -238,6 +241,32 @@
 <dd class="field-even"><p><em>Any</em></p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.operation">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">operation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">apply_to</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">operation_host</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">environment</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.operation" title="Permalink to this definition"></a></dt>
+<dd><p>Function decorator that marks a function or methods as a TOSCA operation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – Name of the TOSCA operation. Defaults to the name of the function.</p></li>
+<li><p><strong>apply_to</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA operations to apply this method to. If omitted, match by the operation name.</p></li>
+<li><p><strong>timeout</strong> (<em>Optional</em><em>[</em><em>float</em><em>]</em><em>, </em><em>optional</em>) – Timeout for the operation (in seconds). Defaults to None.</p></li>
+<li><p><strong>operation_host</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em><em>, </em><em>optional</em>) – The name of host where this operation will be executed. Defaults to None.</p></li>
+<li><p><strong>environment</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>]</em><em>, </em><em>optional</em>) – A map of environment variables to use while executing the operation. Defaults to None.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Callable</em></p>
+</dd>
+</dl>
+<p>This example marks a method a implementing the <code class="docutils literal notranslate"><span class="pre">create</span></code> and <code class="docutils literal notranslate"><span class="pre">delete</span></code> operations on the <code class="docutils literal notranslate"><span class="pre">Standard</span></code> TOSCA interface.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">apply_to</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Standard.create&quot;</span><span class="p">,</span><span class="s2">&quot;Standard.delete&quot;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">my_artifact</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>

@@ -1,5 +1,70 @@
 # Changelog for Unfurl
 
+## v0.9.1 - 2023-10-25
+
+<small>[Compare with 0.9.0](https://github.com/onecommons/unfurl/compare/v0.9.0...v0.9.1) </small>
+
+### Features
+
+#### TOSCA and Python DSL
+
+* Add `ToscaInputs` classes for Unfurl's built-in configurators to enable static type checking of configurator inputs.
+
+* Introduce the `Options` class to enable typed metadata for TOSCA fields and have the Terraform configurator add `tfvar` and `tfoutput` options to automatically map properties and attributes to Terraform variables and outputs, respectively.
+
+This example uses the above features to integrate a Terraform module.
+
+```python
+from unfurl.configurators.terraform import TerraformConfigurator, TerraformInputs, tfvar, tfoutput
+
+class GenericTerraformManagedResource(tosca.nodes.Root):
+    example_terraform_var: str = Property(options=tfvar)
+    example_terraform_output: str = Attribute(options=tfoutput)
+
+    @operation(apply_to=["Install.check", "Standard.configure", "Standard.delete"])
+    def default(self, **kw):
+        return TerraformConfigurator(TerraformInputs(main="terraform_dir"))
+```
+
+* Introduce `unfurl.datatypes.EnvironmentVariables`, a TOSCA datatype that converts to map of environment variables. Subclass this type to enable statically typed environment variables.
+
+* Allow TOSCA data types to declare a "transform" in metadata that is applied as a property transform.
+
+* `node_filter` improvements:
+   - Recursively merge `requirements` keys in node filters when determining the node_filter for a requirement.
+   - Allow `get_nodes_of_type` TOSCA function in node_filter `match` expressions.
+
+* Release 0.0.5 version of the Python tosca package.
+
+#### Packages
+
+* Allow service templates to declare the unfurl version they are compatible with.
+
+They can do this be declaring a repository for the unfurl package like so:
+
+```yaml
+        repositories:
+          unfurl:
+            url: https://github.com/onecommons/unfurl
+            revision: v0.9.1
+```
+
+Unfurl will still resolve imports in the unfurl package using the local installed version of unfurl but it will raise an error if it isn't compatible with the version declared here.
+
+* Do semver compatibility check for 0.* versions.
+
+Even though pre 1.0 versions aren't expected to provide semver guarantees the alternative to doing the semver check is to treat every version as incompatible with another thus requiring every version reference to a package to be updated with each package update. This isn't very useful, especially when developing against an unstable package.
+
+* Support file URLs in package rules.
+
+### Minor Enhancements and Notable Bug Fixes
+
+* **parser** allow merge keys to be optional, e.g. "+?/a/d"
+* **loader**: Add a `UNFURL_OVERWRITE_POLICY` environment variable to guide the loader's python to yaml converter.
+* **loader**: Relax restrictions on `from foo import *` and other bug fixes with the DSL sandbox's Python import loader.
+* **init**: apply `UNFURL_SEARCH_ROOT` to unfurl project search.
+* **packages**: If a package rule specifies a full url, preserve it when applying the rule.
+
 ## v0.9.0 - Friday 10-13-23
 
 <small>[Compare with 0.8.0](https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0) </small>
