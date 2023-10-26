@@ -28,6 +28,7 @@ import urllib.request
 from urllib.parse import urljoin, urlsplit
 import ssl
 import certifi
+import git
 from jsonschema import RefResolver
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -534,10 +535,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return memoized_remote_tags(url, pattern="*")
 
     def _find_repository_root(self, base):
+        assert base
         for repo_view in self.manifest.repositories.values():
             if is_relative_to(base, repo_view.working_dir):
                 return repo_view.working_dir
-        return base
+        try:
+            repo = git.Repo(base, search_parent_directories=True)
+            return repo.working_dir
+        except:
+            return base
 
     def resolve_url(
         self,
@@ -563,6 +569,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = base
             else:
                 # url is a local path
+                assert base
                 url = os.path.join(base, file_name)
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:
