@@ -760,9 +760,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     repo_view.working_dir
                 )
                 relpath = str(package_path).strip("/").replace("/", ".")
-                # make sure tosca_repository symlink exists
-                name = repo_view.get_link(base_dir)[0]
-                package = "tosca_repository." + name
+                if repo_view.repository.name == "unfurl":
+                    package = "unfurl."
+                else:
+                    # make sure tosca_repository symlink exists
+                    name = repo_view.get_link(base_dir)[0]
+                    package = "tosca_repository." + name
             else:
                 package_path = Path(get_base_dir(path)).relative_to(base_dir)
                 relpath = str(package_path).replace("/", ".").strip(".")
