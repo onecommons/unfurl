@@ -160,24 +160,31 @@ def operation(
     timeout: Optional[float] = None,
     operation_host: Optional[str] = None,
     environment: Optional[Dict[str, str]] = None,
+    dependencies: Optional[List[Union[str, Dict[str, Any]]]] = None,
+    outputs: Optional[Dict[str, str]] = None,
+    entry_state: Optional[str] = None,
+    invoke: Optional[str] = None,
 ) -> Callable:
     """Function decorator that marks a function or methods as a TOSCA operation.
 
     Args:
-        name (str, optional): Name of the TOSCA operation. Defaults to the name of the function.
+        name (str, optional): Name of the TOSCA operation. Defaults to the name of the method.
         apply_to (Sequence[str], optional): List of TOSCA operations to apply this method to. If omitted, match by the operation name.
-        timeout (Optional[float], optional): Timeout for the operation (in seconds). Defaults to None.
-        operation_host (Optional[str], optional): The name of host where this operation will be executed. Defaults to None.
-        environment (Optional[Dict[str, str]], optional): A map of environment variables to use while executing the operation. Defaults to None.
+        timeout (float, optional): Timeout for the operation (in seconds). Defaults to None.
+        operation_host (str, optional): The name of host where this operation will be executed. Defaults to None.
+        environment (Dict[str, str], optional): A map of environment variables to use while executing the operation. Defaults to None.
+        dependencies (List[Union[str, Dict[str, Any]]], optional): List of artifacts this operation depends on. Defaults to None.
+        outputs (Dict[str, str], optional): TOSCA outputs mapping. Defaults to None.
+        entry_state (str, optional): Node state required to invoke this operation. Defaults to None.
+        invoke (str, optional): Name of operation to delegate this operation to. Defaults to None.
 
     This example marks a method a implementing the ``create`` and ``delete`` operations on the ``Standard`` TOSCA interface.
 
     .. code-block:: python
 
-        @operation(apply_to=["Standard.create","Standard.delete"])
+        @operation(apply_to=["Standard.create", "Standard.delete"])
         def default(self):
             return self.my_artifact.execute()
-
     """
 
     def decorator_operation(func):
@@ -186,6 +193,10 @@ def operation(
         func.timeout = timeout
         func.operation_host = operation_host
         func.environment = environment
+        func.dependencies = dependencies
+        func.outputs = outputs
+        func.entry_state = entry_state
+        func.invoke = invoke
         return func
 
     return decorator_operation
@@ -1497,13 +1508,15 @@ class ToscaType(_ToscaType):
         result = operation(_ToscaTypeProxy(cls_or_self))
         if result is None:
             return result
+        if result is ...:
+            return "not_implemented"
         if isinstance(result, _ArtifactProxy):
             implementation = dict_cls(primary=result.name_or_tpl)
         else:
             className = f"{result.__class__.__module__}.{result.__class__.__name__}"
             implementation = dict_cls(className=className)
-        # XXX add to implementation: dependencies, invoke, preConditions
-        for key in ("operation_host", "environment", "timeout"):
+        # XXX add to implementation: preConditions
+        for key in ("operation_host", "environment", "timeout", "dependencies"):
             impl_val = getattr(operation, key, None)
             if impl_val is not None:
                 implementation[key] = impl_val
@@ -1515,7 +1528,10 @@ class ToscaType(_ToscaType):
         description = getattr(operation, "__doc__", "")
         if description and description.strip():
             op_def["description"] = description.strip()
-        # XXX add to op_def: outputs, entry_state
+        for key in ("outputs", "entry_state", "invoke"):
+            impl_val = getattr(operation, key, None)
+            if impl_val is not None:
+                op_def[key] = impl_val
         return op_def
 
     @classmethod
@@ -1783,6 +1799,8 @@ class ArtifactType(_OwnedToscaType):
     # version
     # checksum
     # checksum_algorithm
+    # permissions
+    # intent
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
