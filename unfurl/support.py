@@ -528,6 +528,8 @@ def _template_func(args, ctx):
         path = args["path"]
         if is_template(path, ctx):  # path could be a template expression
             path = apply_template(path, ctx)
+        if not os.path.isabs(path):
+            path = get_path(ctx, path, "src")
         with open(path) as f:
             value = f.read()
     else:
