@@ -984,7 +984,7 @@ def _find_implementation(
     return default
 
 
-def find_resources_from_template_name(root: HasInstancesInstance, name: str):
+def find_resources_from_template_name(root: HasInstancesInstance, name: str) -> Iterator[HasInstancesInstance]:
     # XXX make faster
     for resource in root.get_self_and_descendants():
         if resource.template.name == name:

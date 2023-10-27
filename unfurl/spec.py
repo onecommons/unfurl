@@ -5,7 +5,6 @@ TOSCA implementation
 """
 import copy
 import sys
-
 from toscaparser.elements.interfaces import OperationDef
 
 from .tosca_plugins import TOSCA_VERSION
@@ -40,6 +39,7 @@ from .logs import getLogger
 import logging
 import re
 from typing import (
+    TYPE_CHECKING,
     Dict,
     Iterator,
     List,
@@ -58,6 +58,9 @@ from ruamel.yaml.comments import CommentedMap
 logger = getLogger("unfurl")
 
 from toscaparser import functions
+
+if TYPE_CHECKING:
+    from .runtime import EntityInstance, HasInstancesInstance
 
 
 class RefFunc(functions.Function):
@@ -1676,9 +1679,11 @@ class Workflow:
             return all(filter.evaluate(resource.attributes) for filter in step.filter)
         return None
 
-    def match_preconditions(self, resource):
+    def match_preconditions(self, resource: "EntityInstance") -> bool:
         for precondition in self.workflow.preconditions:
-            target = resource.root.find_resource(precondition.target)
+            target = cast("HasInstancesInstance", resource).root.find_instance(
+                precondition.target
+            )
             # XXX if precondition.target_relationship
             if not target:
                 # XXX target can be a group

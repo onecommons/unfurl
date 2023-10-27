@@ -1,11 +1,18 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Dict, Iterator, List, Optional, TYPE_CHECKING, Set, cast
+from typing import Callable, Dict, Iterator, List, Optional, TYPE_CHECKING, Set, Union, cast
+from typing_extensions import Literal
 
 if TYPE_CHECKING:
     from .job import JobOptions
 
-from .runtime import InstanceKey, NodeInstance, EntityInstance, TopologyInstance
+from .runtime import (
+    InstanceKey,
+    NodeInstance,
+    EntityInstance,
+    Operational,
+    TopologyInstance,
+)
 from .util import UnfurlError
 from .result import ChangeRecord
 from .support import Status, NodeState, Reason
@@ -72,7 +79,7 @@ class Plan:
 
     def __init__(
         self, root: TopologyInstance, toscaSpec: ToscaSpec, jobOptions: "JobOptions"
-    ):
+    ) -> None:
         self.jobOptions = jobOptions
         self.workflow = jobOptions.workflow
         self.root = root
@@ -91,7 +98,7 @@ class Plan:
 
     def find_shadow_instance(
         self, template: EntitySpec, match=is_external_template_compatible
-    ):
+    ) -> Optional[EntityInstance]:
         imported = template.tpl.get("imported")
         assert self.root.imports is not None
         if imported:
@@ -152,13 +159,15 @@ class Plan:
         self.root.imports.set_shadow(name, shadowInstance, external)
         return shadowInstance
 
-    def find_resources_from_template(self, template: EntitySpec):
+    def find_resources_from_template(
+        self, template: NodeSpec
+    ) -> Iterator[NodeInstance]:
         if template.abstract == "select":
             # XXX also match node_filter if present
             shadowInstance = self.find_shadow_instance(template)
             if shadowInstance:
                 logger.debug('found imported instance "%s"', shadowInstance.name)
-                yield shadowInstance
+                yield cast(NodeInstance, shadowInstance)
             else:
                 logger.warning(
                     "could not find external instance for template %s", template.name
@@ -175,7 +184,7 @@ class Plan:
             else:
                 root = self.root
             for resource in find_resources_from_template_name(root, template.name):
-                yield resource
+                yield cast(NodeInstance, resource)
 
     def create_resource(self, template: NodeSpec) -> NodeInstance:
         parent = find_parent_resource(self.root, template)
@@ -204,19 +213,22 @@ class Plan:
             self.root.imports.set_shadow(instance.imported, instance, inner)
         return instance
 
-    def _run_operation(self, startState, op, resource, reason=None, inputs=None):
+    def _run_operation(self, startState: Optional[NodeState], op: str, resource, reason=None, inputs=None) -> Iterator[TaskRequest]:
         req = create_task_request(
             self.jobOptions, op, resource, reason, inputs, startState
         )
         if req:
             yield req
 
-    def _execute_default_configure(self, resource, reason=None, inputs=None):
+    def _execute_default_configure(
+        self, resource: NodeInstance, reason: Optional[str] = None, inputs=None
+    ):
         # 5.8.5.4 Node-Relationship configuration sequence p. 229
         # Depending on which side (i.e., source or target) of a relationship a node is on, the orchestrator will:
         # Invoke either the pre_configure_source or pre_configure_target operation as supplied by the relationship on the node.
 
-        targetConfigOps = resource.template.get_capability_interfaces()
+        template = cast(NodeSpec, resource.template)
+        targetConfigOps = template.get_capability_interfaces()
         # test for targetConfigOps to avoid creating unnecessary instances
         if targetConfigOps:
             for capability in resource.capabilities:
@@ -231,9 +243,9 @@ class Plan:
                     )
 
         # we're the source, target has already started
-        sourceConfigOps = resource.template.get_requirement_interfaces()
+        sourceConfigOps = template.get_requirement_interfaces()
         if sourceConfigOps:
-            if resource.template.get_requirement_interfaces():
+            if template.get_requirement_interfaces():
                 # Operation to pre-configure the target endpoint
                 for relationship in resource.requirements:
                     yield from self._run_operation(
@@ -270,7 +282,9 @@ class Plan:
                         reason,
                     )
 
-    def execute_default_deploy(self, resource, reason=None, inputs=None):
+    def execute_default_deploy(
+        self, resource: NodeInstance, reason: Optional[str] = None, inputs=None
+    ):
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
         missing = (
@@ -300,6 +314,7 @@ class Plan:
 
         if (
             initialState
+            or resource.state is None
             or resource.state < NodeState.configured
             or (self.jobOptions.force and resource.state != NodeState.started)
             or resource.status == Status.error
@@ -321,7 +336,9 @@ class Plan:
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
         # add_target: Operation to notify source some property or attribute of the target changed
 
-    def execute_default_undeploy(self, resource, reason=None, inputs=None):
+    def execute_default_undeploy(
+        self, resource: NodeInstance, reason: Optional[str] = None, inputs=None
+    ):
         # XXX run check if joboption set?
         # XXX don't delete if dirty
         if (
@@ -336,7 +353,8 @@ class Plan:
         if self.workflow == "stop":
             return
 
-        targetConfigOps = resource.template.get_capability_interfaces()
+        template = cast(NodeSpec, resource.template)
+        targetConfigOps = template.get_capability_interfaces()
         # test for targetConfigOps to avoid creating unnecessary instances
         if targetConfigOps:
             # if there are relationships targeting us we need to remove them first
@@ -350,10 +368,10 @@ class Plan:
                         reason,
                     )
 
-        sourceConfigOps = resource.template.get_requirement_interfaces()
+        sourceConfigOps = template.get_requirement_interfaces()
         if sourceConfigOps:
             # before we are deleted, remove any relationships we have
-            if resource.template.get_requirement_interfaces():
+            if template.get_requirement_interfaces():
                 for relationship in resource.requirements:
                     yield from self._run_operation(
                         NodeState.configuring,
@@ -371,7 +389,13 @@ class Plan:
 
         yield from self._run_operation(nodeState, op, resource, reason, inputs)
 
-    def execute_default_install_op(self, operation, resource, reason=None, inputs=None):
+    def execute_default_install_op(
+        self,
+        operation: str,
+        resource: NodeInstance,
+        reason: Optional[str] = None,
+        inputs=None,
+    ) -> Iterator[TaskRequest]:
         # add target or add source
         req = create_task_request(
             self.jobOptions, "Install." + operation, resource, reason, inputs
@@ -379,11 +403,12 @@ class Plan:
         if req:
             yield req
 
+        template = cast(NodeSpec, resource.template)
         if operation != "check":
             # we're the source, target has already started
-            sourceConfigOps = resource.template.get_requirement_interfaces()
+            sourceConfigOps = template.get_requirement_interfaces()
             if sourceConfigOps:
-                if resource.template.get_requirement_interfaces():
+                if template.get_requirement_interfaces():
                     # we're the source
                     for relationship in resource.requirements:
                         req = create_task_request(
@@ -396,7 +421,7 @@ class Plan:
                         if req:
                             yield req
 
-            targetConfigOps = resource.template.get_capability_interfaces()
+            targetConfigOps = template.get_capability_interfaces()
             # test for targetConfigOps to avoid creating unnecessary instances
             if targetConfigOps:
                 for capability in resource.capabilities:
@@ -412,7 +437,9 @@ class Plan:
                         if req:
                             yield req
 
-    def generate_delete_configurations(self, include):
+    def generate_delete_configurations(
+        self, include: Callable
+    ) -> Iterator[Union[TaskRequest, TaskRequestGroup, JobRequest]]:
         for resource in get_operational_dependents(self.root):
             # reverse to teardown leaf nodes first
             skip = None
@@ -445,10 +472,17 @@ class Plan:
                     resource._localStatus = Status.absent
 
                 logger.debug("%s instance %s", reason, resource.name)
-                workflow = "undeploy" if reason == Reason.prune else self.workflow
-                yield from self._generate_configurations(resource, reason, workflow)
+                if isinstance(resource, NodeInstance):
+                    workflow = "undeploy" if reason == Reason.prune else self.workflow
+                    yield from self._generate_configurations(resource, reason, workflow)
 
-    def _get_default_generator(self, workflow, resource, reason=None, inputs=None):
+    def _get_default_generator(
+        self,
+        workflow: str,
+        resource: NodeInstance,
+        reason: Optional[str] = None,
+        inputs=None,
+    ):
         if workflow == "deploy":
             return self.execute_default_deploy(resource, reason, inputs)
         elif workflow == "undeploy" or workflow == "stop":
@@ -463,13 +497,15 @@ class Plan:
             if self.tosca.topology and self.tosca.topology.primary_provider:
                 for rel in self.root.requirements:
                     if rel.name == "primary_provider":
-                        yield from self.execute_default_install_op("check", rel)
+                        req = create_task_request(self.jobOptions, "Install.check", rel)
+                        if req:
+                            yield req
                         return
                 assert False, self.root.requirements
 
     def _generate_configurations(
-        self, resource: "EntityInstance", reason: str, workflow: Optional[str] = None
-    ):
+        self, resource: "NodeInstance", reason: str, workflow: Optional[str] = None
+    ) -> Iterator[Union[TaskRequest, TaskRequestGroup, JobRequest]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
@@ -531,7 +567,7 @@ class Plan:
         finally:
             pass  # pop _workflow_inputs
 
-    def execute_steps(self, workflow: Workflow, steps: list, resource: EntityInstance):
+    def execute_steps(self, workflow: Workflow, steps: list, resource: NodeInstance):
         queue = steps[:]
         while queue:
             step = queue.pop()
@@ -553,7 +589,7 @@ class Plan:
             except StopIteration:
                 pass
 
-    def execute_step(self, step, resource: EntityInstance, workflow: Workflow):
+    def execute_step(self, step, resource: NodeInstance, workflow: Workflow):
         logger.debug("executing step %s for %s", step.name, resource.name)
         reqGroup = TaskRequestGroup(resource, workflow.workflow.name)
         for activity in step.activities:
@@ -611,7 +647,9 @@ class Plan:
     def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
         return ""
 
-    def _generate_workflow_configurations(self, instance, oldTemplate):
+    def _generate_workflow_configurations(
+        self, instance: NodeInstance, oldTemplate: Optional[NodeSpec]
+    ):
         yield from self._generate_configurations(instance, self.workflow)
 
     def execute_plan(self):
@@ -704,7 +742,7 @@ class DeployPlan(Plan):
                 instance.local_status = Status.unknown
                 return Reason.check
             if jobOptions.change_detection != "skip" and instance.last_change:
-            # XXX distinguish between "spec" and "evaluate" change_detection
+                # XXX distinguish between "spec" and "evaluate" change_detection
                 return Reason.reconfigure
         return reason
 
@@ -739,7 +777,9 @@ class DeployPlan(Plan):
     def is_instance_read_only(self, instance):
         return instance.shadow or "discover" in instance.template.directives
 
-    def _generate_workflow_configurations(self, instance, oldTemplate):
+    def _generate_workflow_configurations(
+        self, instance: NodeInstance, oldTemplate: Optional[NodeSpec]
+    ):
         # if oldTemplate is not None this is an existing instance, so check if we should include
         if instance.shadow:
             reason = "connect"
@@ -1052,12 +1092,15 @@ def get_ancestor_templates(
     yield source
 
 
-def get_operational_dependents(resource, seen=None):
+def get_operational_dependents(
+    resource: EntityInstance, seen=None
+) -> Iterator[EntityInstance]:
     if seen is None:
         seen = set()
     for dep in resource.get_operational_dependents():
         if id(dep) not in seen:
             seen.add(id(dep))
+            assert isinstance(dep, EntityInstance)
             for child in get_operational_dependents(dep, seen):
                 yield child
             yield dep
