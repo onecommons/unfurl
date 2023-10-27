@@ -27,7 +27,6 @@ from . import TemplateConfigurator, TemplateInputs
 import os
 import sys
 import shlex
-import six
 import re
 from typing import (
     Any,
@@ -270,7 +269,7 @@ class ShellConfigurator(TemplateConfigurator):
         cwd = params.get("cwd")
         if cwd:
             # if cwd is relative, make it relative to task.cwd
-            assert isinstance(cwd, six.string_types)
+            assert isinstance(cwd, str)
             cwd = os.path.abspath(os.path.join(task.cwd, cwd))
         else:
             cwd = task.cwd
@@ -303,7 +302,7 @@ class ShellConfigurator(TemplateConfigurator):
     def resolve_dry_run(self, cmd, task):
         is_string = isinstance(cmd, str)
         dry_run_arg = task.inputs.get("dryrun", self._default_dryrun_arg)
-        if task.dry_run and isinstance(dry_run_arg, six.string_types):
+        if task.dry_run and isinstance(dry_run_arg, str):
             if "%dryrun%" in cmd:  # replace %dryrun%
                 if is_string:
                     cmd = cmd.replace("%dryrun%", dry_run_arg)

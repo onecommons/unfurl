@@ -28,7 +28,6 @@ from typing import (
     TYPE_CHECKING,
 )
 from typing import Mapping as MappingType
-import six
 import re
 import operator
 import sys
@@ -731,7 +730,7 @@ def eval_ref(
                 else:
                     msg = f"Function missing in {dict(val)}"
                 raise UnfurlEvalError(msg)
-    elif isinstance(val, six.string_types):
+    elif isinstance(val, str):
         if is_template(val, ctx):
             return [Result(apply_template(val, ctx))]
         else:
@@ -770,7 +769,7 @@ def eval_test(value, test, context) -> bool:
     comparor = test[0]
     key = test[1]
     try:
-        if context and isinstance(key, six.string_types) and key.startswith("$"):
+        if context and isinstance(key, str) and key.startswith("$"):
             compare = context.resolve_var(key)
         else:
             # try to coerce string to value type
@@ -854,7 +853,7 @@ def _treat_as_singular(result, seg):
     return (
         result.external
         or not isinstance(result.resolved, MutableSequence)
-        or isinstance(seg.key, six.integer_types)
+        or isinstance(seg.key, int)
     )
 
 

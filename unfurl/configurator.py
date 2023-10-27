@@ -15,7 +15,6 @@ from typing import (
     MutableSequence,
 )
 from typing_extensions import TypedDict
-import six
 from collections.abc import Mapping
 import os
 import copy
@@ -131,8 +130,7 @@ class AutoRegisterClass(type):
         return cls
 
 
-@six.add_metaclass(AutoRegisterClass)
-class Configurator:
+class Configurator(metaclass=AutoRegisterClass):
     """
     Base class for implementing `Configurators`.
     Subclasses should at least implement a :py:meth:`~Configurator.run`, for example:
@@ -923,7 +921,7 @@ class TaskView:
         return None
 
     # def createConfigurationSpec(self, name, configSpec):
-    #     if isinstance(configSpec, six.string_types):
+    #     if isinstance(configSpec, str):
     #         configSpec = yaml.load(configSpec)
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
@@ -1045,7 +1043,7 @@ class TaskView:
     def _parse_instances_tpl(
         self, instances: Union[str, Mapping, MutableSequence]
     ) -> Tuple[Optional[MutableSequence[Mapping]], Optional[UnfurlTaskError]]:
-        if isinstance(instances, six.string_types):
+        if isinstance(instances, str):
             try:
                 instances = yaml.load(instances)
             except:
