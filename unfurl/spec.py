@@ -6,6 +6,7 @@ TOSCA implementation
 import copy
 import sys
 from toscaparser.elements.interfaces import OperationDef
+from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
 from .util import (
@@ -1705,6 +1706,8 @@ class ArtifactSpec(EntitySpec):
         "checksum_algorithm",
         "mime_type",
         "file_extensions",
+        "permissions",
+        "intent",
     )
 
     def __init__(
@@ -1788,7 +1791,14 @@ class ArtifactSpec(EntitySpec):
                     kw["username"] = self.repository.credential.get("user")
                     kw["password"] = self.repository.credential.get("token")
             return ContainerImage(artifactDef.file, **kw)
-        # XXX return File or FilePath
+        else:
+            path = self.get_path()
+            if path:
+              if os.path.isfile(path):
+                  # XXX get loader and yaml from self.spec.template.import_resolver
+                  return File(path)
+              else:
+                  return FilePath(path)
         return None
 
 

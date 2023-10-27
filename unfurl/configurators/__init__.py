@@ -129,6 +129,7 @@ class TemplateConfigurator(Configurator):
                 runResult = task.inputs.get("run")
         else:
             runResult = task.inputs.get("run")
+        task.logger.trace("render run template with %s", runResult)
         return runResult
 
     def done(self, task: "TaskView", **kw):

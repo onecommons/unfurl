@@ -26,6 +26,8 @@ from collections.abc import Mapping
 
 from ansible.parsing.dataloader import DataLoader
 
+from .projectpaths import File
+
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
 from .result import ResourceRef, ChangeAware, ResultsMap
 
@@ -866,6 +868,26 @@ class ArtifactInstance(EntityInstance):
     @property
     def file(self):
         return self.template.file
+
+    @property
+    def deploy_path(self) -> str:
+        return self.template.toscaEntityTemplate.deploy_path or ""
+
+    @property
+    def intent(self) -> str:
+        return self.template.toscaEntityTemplate.intent or ""
+
+    @property
+    def permissions(self) -> str:
+        return self.template.toscaEntityTemplate.permissions or ""
+
+    @property
+    def contents(self) -> str:
+        external_val = cast(ArtifactSpec, self.template).as_value()
+        if isinstance(external_val, File):
+            return external_val.get_contents()
+        else:
+            return ""
 
     @property
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
