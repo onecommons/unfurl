@@ -14,7 +14,7 @@ Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or interna
 
 * Reduced learning curve. By mapping to TOSCA syntax to existing language constructs like classes and methods and by rely on type inference we can present a simpler and more intuitive mental model to developers. For example, TOSCA's notions of requirements, capabilities, properties, and artifacts are all represented the same way as regular Python attributes assigned to a Python class.
 
-* IDE and tooling integration. You can take of all of the existing IDE and tooling integrations for the host language.
+* IDE and tooling integration. You can take advantage of all of the existing IDE and tooling integrations for the host language (ie. Python).
 
 ![VS Code displaying tooltip](https://github.com/onecommons/unfurl/raw/main/tosca-package/vs-tosca-python-error-tooltip.png)
 
