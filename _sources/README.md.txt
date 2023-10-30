@@ -187,4 +187,4 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 ## Get Started
 
-Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/quickstart.html). Release notes can be found [here](CHANGELOG.md).
+Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/quickstart.html). Release notes can be found [here](https://github.com/onecommons/unfurl/blob/main/CHANGELOG.md).
