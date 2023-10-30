@@ -51,7 +51,7 @@ from .util import (
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
-from .runtime import EntityInstance, NodeInstance, RelationshipInstance, Operational
+from .runtime import ArtifactInstance, EntityInstance, NodeInstance, RelationshipInstance, Operational
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
 from .planrequests import (
@@ -1014,6 +1014,10 @@ class TaskView:
                 )
             updated = True
 
+        if resourceSpec.get("artifacts"):
+            for key, val in resourceSpec["artifacts"].items():
+                self._manifest._create_entity_instance(ArtifactInstance, key, val, existingResource)
+
         template = resourceSpec.get("template")
         if template:
             assert self._manifest.tosca
@@ -1104,10 +1108,12 @@ class TaskView:
             # XXX deepcopy fails in test_terraform
             # originalResourceSpec = copy.deepcopy(resourceSpec)
             originalResourceSpec = copy.copy(resourceSpec)
-            rname = resourceSpec.get("name", "SELF")
+            rname = map_value(resourceSpec.get("name", "SELF"), self.inputs.context)
             if rname == ".self" or rname == "SELF":
                 existingResource = self.target
                 rname = existingResource.name
+            elif rname == "HOST":
+                existingResource = self.target.parent or self.target.root
             else:
                 existingResource = self.find_instance(rname)
 

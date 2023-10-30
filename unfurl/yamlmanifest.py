@@ -703,6 +703,16 @@ class YamlManifest(ReadOnlyManifest):
             status["protected"] = resource.protected
         return (resource.name, status)
 
+    def save_artifact(self, resource: EntityInstance) -> Optional[Tuple[str, Dict]]:
+        if resource.parent and resource.name not in resource.parent.template.artifacts:
+            name, status = self.save_entity_instance(resource)
+            # this artifact was dynamically added and is not part of the node template
+            # so add the template spec inline
+            status["template"] = resource.template.toscaEntityTemplate.entity_tpl
+            return name, status
+        else:
+            return self._save_entity_if_instantiated(resource)
+
     def save_requirement(self, resource) -> Optional[Dict[str, Dict]]:
         if not resource.last_change and (
             not resource.local_status
@@ -772,7 +782,7 @@ class YamlManifest(ReadOnlyManifest):
             # assumes names are unique!
             artifacts = list(
                 filter(
-                    None, map(self._save_entity_if_instantiated, resource._artifacts)
+                    None, map(self.save_artifact, resource._artifacts)
                 )
             )
             if artifacts:

@@ -69,7 +69,7 @@ from .util import (
     get_random_password,
 )
 from .merge import intersect_dict, merge_dicts
-from unfurl.projectpaths import get_path
+from unfurl.projectpaths import FilePath, get_path
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils import unsafe_proxy
@@ -528,6 +528,10 @@ def _template_func(args, ctx):
         path = args["path"]
         if is_template(path, ctx):  # path could be a template expression
             path = apply_template(path, ctx)
+        if isinstance(path, FilePath):
+            path = path.get()
+        if not os.path.isabs(path):
+            path = get_path(ctx, path, "src")
         with open(path) as f:
             value = f.read()
     else:

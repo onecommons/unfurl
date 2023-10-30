@@ -499,7 +499,14 @@ class Manifest(AttributeManager):
             operational = self.load_status(dict(readyState=imported.local_status))
         else:
             operational = self.load_status(status)
-        template = self.load_template(templateName, parent)
+        if isinstance(templateName, str):
+            template = self.load_template(templateName, parent)
+        else:
+            # special case inline artifact template
+            assert isinstance(templateName, dict)
+            assert ctor is ArtifactInstance
+            template = ArtifactSpec(templateName, parent.template)
+
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:

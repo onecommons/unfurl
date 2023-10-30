@@ -468,6 +468,8 @@ class TaskRequest(PlanRequest):
                 else:
                     template = name
 
+                # Artifacts can't be standalone so create an ArtifactInstaller node to "hold" the artifact
+                # then Job.create_plan() will create this instance and its artifact via Job._update_joboption_instances()
                 return JobRequest(
                     [operation_host],
                     update=dict(

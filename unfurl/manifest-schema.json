@@ -182,7 +182,14 @@
         {
           "properties": {
             "template": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "string"
+                }
+              ]
             },
             "attributes": {
               "$ref": "#/definitions/attributes",
