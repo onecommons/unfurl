@@ -3,7 +3,7 @@ FROM python:3.11-slim
 ENV UNFURL_HOME=""
 
 RUN apt-get -qq update && \
-    apt-get -qq install -y git curl unzip wget expect && \
+    apt-get -qq --no-install-recommends install -y git curl unzip wget expect && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --user-group unfurl

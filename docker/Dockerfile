@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 RUN apt-get -qq update && \
-    apt-get -qq install -y git curl unzip wget expect && \
+    apt-get -qq install -y --no-install-recommends git curl unzip wget expect && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 ARG TERRAFORM_VERSION=1.1.4
