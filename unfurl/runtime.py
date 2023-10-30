@@ -870,28 +870,31 @@ class ArtifactInstance(EntityInstance):
         return self.template.file
 
     @property
+    def repository(self) -> Optional["toscaparser.repositories.Repository"]:
+        # XXX add specially handling for this and file if contents is set?
+        return self.template.repository
+
+    @property
     def deploy_path(self) -> str:
-        return self.template.toscaEntityTemplate.deploy_path or ""
+        return self.attributes.get("deploy_path") or ""
 
     @property
     def intent(self) -> str:
-        return self.template.toscaEntityTemplate.intent or ""
+        return self.attributes.get("intent") or ""
 
     @property
     def permissions(self) -> str:
-        return self.template.toscaEntityTemplate.permissions or ""
+        return self.attributes.get("permissions") or ""
 
     @property
     def contents(self) -> str:
+        if "contents" in self.attributes:
+            return self.attributes["contents"]
         external_val = cast(ArtifactSpec, self.template).as_value()
         if isinstance(external_val, File):
             return external_val.get_contents()
         else:
             return ""
-
-    @property
-    def repository(self) -> Optional["toscaparser.repositories.Repository"]:
-        return self.template.repository
 
     def as_import_spec(self):
         return self.template.as_import_spec()
@@ -1019,20 +1022,19 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def artifacts(self) -> dict:
-        # only include named artifacts
         if self._named_artifacts is None:
             self._named_artifacts = {}
             if self.template:
-                instantiated = {a.name: a for a in self._artifacts}
+                instantiated = {a.name: a for a in self._artifacts if a.name}
                 for name, template in self.template.artifacts.items():
-                    artifact = instantiated.get(name)
+                    artifact = instantiated.pop(name, None)
                     if not artifact:
                         artifact = ArtifactInstance(
                             template.name, parent=self, template=template
                         )
                         assert artifact in self._artifacts
-
                     self._named_artifacts[template.name] = artifact
+                self._named_artifacts.update(instantiated)
         return self._named_artifacts
 
     @property

@@ -1794,13 +1794,14 @@ class ArtifactType(_OwnedToscaType):
     _file_ext: ClassVar[Optional[List[str]]] = None
     file: str = field(default=REQUIRED)
     repository: Optional[str] = field(default=None)
-    # XXX
-    # deploy_path
-    # version
-    # checksum
-    # checksum_algorithm
-    # permissions
-    # intent
+    deploy_path: Optional[str] = field(default=None)
+    version: Optional[str] = field(default=None)
+    checksum: Optional[str] = field(default=None)
+    checksum_algorithm: Optional[str] = field(default=None)
+    permissions: Optional[str] = field(default=None)
+    intent: Optional[str] = field(default=None)
+    target: Optional[str] = field(default=None)
+    contents: Optional[str] = field(default=None)
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
@@ -1814,8 +1815,20 @@ class ArtifactType(_OwnedToscaType):
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
         tpl["file"] = self.file
-        if self.repository:
-            tpl["repository"] = self.repository
+        for field in (
+            "repository",
+            "deploy_path",
+            "version",
+            "checksum",
+            "checksum_algorithm",
+            "permissions",
+            "intent",
+            "target",
+            "contents",
+        ):
+            val = getattr(self, field, None)
+            if val is not None:
+                tpl[field] = val
         return tpl
 
     def execute(self, *args: ToscaInputs, **kw):

@@ -1708,11 +1708,13 @@ class ArtifactSpec(EntitySpec):
         "file_extensions",
         "permissions",
         "intent",
+        "target",
+        "contents",
     )
 
     def __init__(
         self,
-        artifact_tpl,
+        artifact_tpl: Union[toscaparser.artifacts.Artifact, Dict[str, Any]],
         template: Optional[EntitySpec] = None,
         topology: Optional[TopologySpec] = None,
         path=None,
