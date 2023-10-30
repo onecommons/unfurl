@@ -532,6 +532,8 @@ def _template_func(args, ctx):
             path = path.get()
         if not os.path.isabs(path):
             path = get_path(ctx, path, "src")
+        if not os.path.isabs(path):
+            path = get_path(ctx, path, "src")
         with open(path) as f:
             value = f.read()
     else:
