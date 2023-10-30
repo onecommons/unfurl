@@ -1,7 +1,8 @@
 from pathlib import Path
+
 from .utils import isolated_lifecycle
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner
+from unfurl.job import Runner, run_job
 
 ensemble = """
 apiVersion: unfurl/v1alpha1
@@ -108,3 +109,9 @@ def test_lifecycle_no_home():
                 "skipped": 0,
                 "changed": 1,
             }
+
+
+def test_target_and_intent():
+    src_path = str(Path(__file__).parent / "examples" / "deploy_artifact.yaml")
+    job = run_job(src_path, dict(skip_save=True))
+    assert job.get_outputs()["outputVar"].strip() == "Artifact: deploy_artifact intent deploy contents of deploy_artifact parent: configuration"

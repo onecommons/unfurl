@@ -1,0 +1,62 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      outputs:
+        outputVar:
+          value:
+            eval: ::compute::outputVar
+
+      node_templates:
+        configuration:
+          type: unfurl.nodes.Generic
+          artifacts:
+            ignored:
+              file: another.txt
+            deploy_artifact:
+              file: generated.txt
+              intent: deploy
+              target: HOST
+              contents: "contents of {{ '.name' | eval }} parent: {{ '.parent::.name'\
+                \ | eval }}"
+          requirements:
+          - host:
+              node: compute
+              relationship: unfurl.relationships.ConfiguringHostedOn
+
+        compute:
+          type: unfurl.nodes.Generic
+          artifacts:
+            deploy_artifact:
+              file: ansible-ensemble.yaml
+              repository: self
+              intent: deploy
+          properties:
+            outputVar:
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: Template
+                  inputs:
+                    dryrun: true
+                    run:
+                      outputVar:
+                        eval:
+                          # intent, permissions, deploy_path, contents
+                          template: >
+                            {% for a in artifacts %}
+                            Artifact: {{a.name}} intent {{a.intent}}
+                                      {{a.contents}}
+                            {% endfor %}
+                        vars:
+                          artifacts: "{{ '.configured_by::.artifacts::*::[target=HOST]'\
+                            \ | eval(wantList=true) }}"
+                    done:
+                      status: ok
+                    resultTemplate: |
+                      - name: .self
+                        attributes:
+                          outputVar: "{{ outputVar }}"
+changes: []

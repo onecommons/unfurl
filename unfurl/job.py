@@ -153,6 +153,7 @@ class JobOptions:
     destroyunmanaged: bool = False
     upgrade: bool = False
     dryrun: bool = False
+    skip_save: bool = False
 
     defaults = dict(
         global_defaults,
@@ -185,6 +186,8 @@ class JobOptions:
             options["add"] = False
         if kw.get("change_detection") == "skip":
             options["update"] = False
+        if "skip_save" not in kw and os.getenv("UNFURL_SKIP_SAVE"):
+            kw["skip_save"] = True
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
@@ -815,7 +818,7 @@ class Job(ConfigChange):
                             )
                             return None
                 self._run(ready, notReady, errors)
-                if not os.getenv("UNFURL_SKIP_SAVE"):
+                if not jobOptions.skip_save:
                     manifest.commit_job(self)
             finally:
                 self.timeElapsed = perf_counter() - startTime
