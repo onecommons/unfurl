@@ -11,6 +11,7 @@ import os
 import os.path
 from pathlib import Path
 import re
+import traceback
 from typing import (
     Any,
     Callable,
@@ -1437,10 +1438,13 @@ class LocalEnv:
 
     def get_paths(self) -> List[str]:
         """
-        If asdf is installed, build a PATH list from .toolversions
+        Return a list of directories for $PATH.
+        Includes the directory the ``unfurl`` script is installed in and,
+        if asdf is installed, appends a PATH list from the ``.toolversions``
         found in the current project and the home project.
         """
-        paths: List[str] = []
+        install_path = os.path.dirname(traceback.extract_stack()[0].filename)
+        paths: List[str] = [install_path]
         # check if asdf is installed
         asdfDataDir = os.getenv("ASDF_DATA_DIR")
         if not asdfDataDir:

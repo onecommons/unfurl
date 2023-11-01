@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     )
     from .configurator import Dependency
 
+from .logs import getLogger
 from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
 from .result import (
     Results,
@@ -69,7 +70,8 @@ from .util import (
     get_random_password,
 )
 from .merge import intersect_dict, merge_dicts
-from unfurl.projectpaths import FilePath, get_path
+from .projectpaths import FilePath, get_path
+
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils import unsafe_proxy
@@ -77,9 +79,7 @@ from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsaf
 from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 
-import logging
-
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 
 class Status(int, Enum):
@@ -348,9 +348,9 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
             return f"<<{msg}>>"
     value = value.strip()
     if ctx.task:
-        logger = ctx.task.logger
+        log = ctx.task.logger
     else:
-        logger = logging.getLogger("unfurl")  # type: ignore
+        log = logger  # type: ignore
 
     # local class to bind with logger and ctx
     class _UnfurlUndefined(DebugUndefined):
@@ -363,7 +363,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                 super()._fail_with_undefined_error(*args, **kwargs)
             except self._undefined_exception as e:
                 msg = "Template: %s" % self._undefined_message
-                logger.warning(msg)
+                log.warning(msg)
                 if ctx.task:  # already logged, so don't log
                     UnfurlTaskError(ctx.task, msg, False)
                 raise e
@@ -394,7 +394,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
         def _log_message(self) -> None:
             msg = "Template: %s" % self._undefined_message
             # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
-            logger.warning(msg)
+            log.warning(msg)
             if ctx.task:  # already logged, so don't log
                 UnfurlTaskError(ctx.task, msg, False)
 
@@ -442,12 +442,14 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
         templar.environment.undefined = _UnfurlUndefined
 
     vars = _VarTrackerDict(
-        __unfurl=ctx, __python_executable=sys.executable, __now=time.time()
+        __unfurl=ctx,
+        __python_executable=sys.executable,
+        __now=time.time(),
     )
     if hasattr(ctx.currentResource, "attributes"):
         vars["SELF"] = ctx.currentResource.attributes  # type: ignore
     if os.getenv("UNFURL_TEST_DEBUG_EX"):
-        logger.debug("template vars for %s: %s", value[:300], list(ctx.vars))
+        log.debug("template vars for %s: %s", value[:300], list(ctx.vars))
     vars.update(ctx.vars)
     vars.ctx = ctx
 
@@ -480,11 +482,11 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                     msg = f'missing variable: "{match.group(1)}"'
             value = f"<<Error rendering template: {msg}>>"
             if ctx.strict:
-                logger.debug(value, exc_info=True)
+                log.debug(value, exc_info=True)
                 raise UnfurlError(value)
             else:
-                logger.warning(value[2:100] + "... see debug log for full report")
-                logger.debug(value, exc_info=True)
+                log.warning(value[2:100] + "... see debug log for full report")
+                log.debug(value, exc_info=True)
                 if ctx.task:
                     UnfurlTaskError(ctx.task, msg)
         else:
