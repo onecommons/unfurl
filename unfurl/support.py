@@ -817,11 +817,18 @@ _label_defaults = dict(
     replace="",
     start="a-zA-Z",
     start_prepend="x",
-    end=r"\w",
     sep="",
     digest=None,
     digestlen=-1,
 )
+
+
+def _validate_allowed(chars):
+    # avoid common footgun
+    if chars and chars[0] == "[" and chars[-1] == "]":
+        return chars[1:-1]
+    else:
+        return chars
 
 
 def to_label(arg, **kw):
@@ -838,7 +845,7 @@ def to_label(arg, **kw):
                                Defaults to "a-zA-Z"
         start_prepend (str, optional): If the start character is invalid, prepend with this string (Default: "x")
         end (str, optional): Allowed trailing characters. Regex character ranges and character classes.
-                            Invalid characters are stripped. Defaults to "\w"  (equivalent to [a-zA-Z0-9_])
+                            If set, invalid characters are stripped.
         max (int, optional): max length of label. Defaults to 63 (the maximum for a DNS name).
         case (str, optional): "upper", "lower" or "any" (no conversion). Defaults to "any".
         sep (str, optional): Separator to use when concatenating a list. Defaults to ""
@@ -895,10 +902,10 @@ def to_label(arg, **kw):
                 return sep.join(labels)[:trunc] + sep + hash
         return sep.join(labels)[:trunc]
     elif isinstance(arg, str):
-        start: str = kw.get("start", _label_defaults["start"])
+        start: str = _validate_allowed(kw.get("start", _label_defaults["start"]))
         start_prepend: str = kw.get("start_prepend", _label_defaults["start_prepend"])
-        allowed: str = kw.get("allowed", _label_defaults["allowed"])
-        end: str = kw.get("end", _label_defaults["end"])
+        allowed: str = _validate_allowed(kw.get("allowed", _label_defaults["allowed"]))
+        end: Optional[str] = kw.get("end")
 
         if arg and re.match(rf"[^{start}]", arg[0]):
             val = start_prepend + arg
@@ -908,8 +915,9 @@ def to_label(arg, **kw):
             # heuristic: if we need to truncate, just remove the invalid characters
             replace = ""
         val = re.sub(rf"[^{allowed}]", replace, val)
-        while val and re.match(rf"[^{end}]", val[-1]):
-            val = val[:-1]
+        if end is not None:
+            while val and re.match(rf"[^{_validate_allowed(end)}]", val[-1]):
+                val = val[:-1]
         if case == "lower":
             val = val.lower()
         elif case == "upper":
@@ -935,7 +943,14 @@ set_eval_func(
 
 
 def to_dns_label(
-    arg, allowed=r"\w-", start=r"\w", replace="--", case="lower", max=63, **kw
+    arg,
+    allowed=r"\w-",
+    start=r"\w",
+    replace="--",
+    case="lower",
+    end=r"\w",
+    max=63,
+    **kw,
 ):
     """
     Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
@@ -945,7 +960,14 @@ def to_dns_label(
     Invalid characters are replaced with "--".
     """
     return to_label(
-        arg, allowed=allowed, start=start, replace=replace, case=case, max=max, **kw
+        arg,
+        allowed=allowed,
+        start=start,
+        replace=replace,
+        case=case,
+        end=end,
+        max=max,
+        **kw,
     )
 
 
@@ -956,13 +978,13 @@ set_eval_func(
 )
 
 
-def to_kubernetes_label(arg, allowed=r"\w_.-", replace="__", **kw):
+def to_kubernetes_label(arg, allowed=r"\w_.-", replace="__", end=r"\w", **kw):
     """
     See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
 
     Invalid characters are replaced with "__".
     """
-    return to_label(arg, allowed=allowed, replace=replace, **kw)
+    return to_label(arg, allowed=allowed, replace=replace, end=end, **kw)
 
 
 set_eval_func(
@@ -976,7 +998,7 @@ def to_googlecloud_label(
     arg, allowed=r"\w_-", case="lower", replace="__", max=63, **kw
 ):
     """
-    See https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
+    See https://cloud.google.com/resource-manager/docs/labels-overview
 
     Invalid characters are replaced with "__".
     """

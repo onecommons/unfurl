@@ -470,7 +470,7 @@ allowed       Allowed characters. Regex character ranges and character classes. 
 replace       String Invalidate. Defaults to "" (remove the characters).
 start         Allowed characters for the first character. Regex character ranges and character classes. Defaults to "a-zA-Z"
 start_prepend If the start character is invalid, prepend with this string (Default: "x")
-end           Allowed trailing characters. Regex character ranges and character classes. Invalid characters are removed. Defaults to "\w" (equivalent to ``a-zA-Z0-9_``)
+end           Allowed trailing characters. Regex character ranges and character classes. Invalid characters are removed if set.
 max           Maximum length of label (Default: 63 (the maximum for a DNS name))
 case          Case for label, one of "lower", "upper", "any" (no conversion) (Default: "any")
 sep           Separator to use when concatenating a list. (Default: "")

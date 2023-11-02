@@ -12,7 +12,6 @@ from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_li
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
-
 class EvalTest(unittest.TestCase):
     longMessage = True
 
@@ -775,6 +774,20 @@ SUB: '1'
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
         assert label == "R"
+
+        # allow [...] since users might expect that to work
+        src = r"""
+            eval:
+              to_googlecloud_label:
+                eval: .name
+              allowed: "[a-zA-Z0-9-]"
+              replace: "--"
+          """
+        yaml = make_yaml()
+        expr = yaml.load(io.StringIO(src))
+        ctx = SafeRefContext(NodeInstance("test_nodash-yeshyphen"))
+        label = map_value(expr, ctx)
+        assert label == "test--nodash-yeshyphen"
 
     def test_urljoin(self):
         resource = self._getTestResource()
