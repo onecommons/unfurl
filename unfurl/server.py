@@ -180,6 +180,26 @@ if os.environ.get("CACHE_CLEAR_ON_START"):
 DEFAULT_BRANCH = "main"
 
 
+def set_local_projects(repo_views):
+    server_url = app.config["UNFURL_CLOUD_SERVER"]
+    server_host = urlparse(server_url).hostname
+    local_projects = {}
+    for repo_view in repo_views:
+        remote = repo_view.repo.find_remote(host=server_host)
+        if remote:
+            parts = urlparse(remote.url)
+            project_id = parts.path.strip("/")
+            if project_id.endswith(".git"):
+                project_id = project_id[:-4]
+            logger.debug(
+                "found local project at %s for %s",
+                repo_view.repo.working_dir,
+                project_id,
+            )
+            local_projects[project_id] = repo_view.repo.working_dir
+    return local_projects
+
+
 def set_current_ensemble_git_url():
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
     if not project_or_ensemble_path:
@@ -204,6 +224,18 @@ def set_current_ensemble_git_url():
             else:
                 remote_url = local_env.project.project_repoview.url
             app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
+
+        if local_env.homeProject:
+            local_projects = set_local_projects(
+                local_env.homeProject.workingDirs.values()
+            )
+        else:
+            local_projects = {}
+        if local_env.project:
+            local_projects.update(
+                set_local_projects(local_env.project.workingDirs.values())
+            )
+        app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
@@ -235,11 +267,19 @@ def get_current_project_id() -> str:
     return project_id
 
 
+def _get_local_project_dir(project_id) -> str:
+    local_projects = app.config.get("UNFURL_LOCAL_PROJECTS")
+    if local_projects:
+        return local_projects.get(project_id, "")
+    return ""
+
+
 def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) -> str:
     if not project_id:
         return app.config.get("UNFURL_CURRENT_WORKING_DIR", ".")
-    if get_current_project_id() == project_id:
-        return app.config["UNFURL_CURRENT_WORKING_DIR"]
+    local_dir = _get_local_project_dir(project_id)
+    if local_dir:
+        return local_dir
     base = "public"
     if args:
         if (
@@ -1930,15 +1970,14 @@ def _fetch_working_dir(
     project_path: str, branch: str, args: dict, pull: bool
 ) -> Optional[str]:
     # if successful, returns the repository's working directory or None if clone failed
-    current_working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
     if not project_path or project_path == ".":
-        clone_location = current_working_dir
+        clone_location = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
     else:
-        current_git_url = current_app.config.get("UNFURL_CURRENT_GIT_URL")
-        if current_git_url and get_current_project_id() == project_path:
+        local_dir = _get_local_project_dir(project_path)
+        if local_dir:
             # developer mode: use the project we are serving from if the project_path matches
-            logger.debug("exporting from local repo %s", current_git_url)
-            clone_location = current_working_dir
+            logger.debug("exporting from local repo %s", project_path)
+            clone_location = local_dir
         else:
             # otherwise clone the project if necessary
             # root of repo not necessarily unfurl project
