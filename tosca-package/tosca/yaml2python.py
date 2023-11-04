@@ -1418,8 +1418,7 @@ class Convert:
             package = "tosca_repository." + os.path.basename(os.path.dirname(path))
         return package
 
-    def execute_source(self, src: str):
-        namespace: Dict[str, Any] = {}
+    def execute_source(self, src: str, namespace: Dict[str, Any]):
         package = self.get_package_name()
         assert self.template.path
         full_name = package + "." + re.sub(r"\W", "_", Path(self.template.path).stem)
@@ -1547,6 +1546,7 @@ def convert_service_template(
                     logger.error(f"error importing {module_name}", exc_info=True)
             src += import_src
 
+    namespace: Dict[str, Any] = {}
     # interface_types needs to go first because they will be base classes for types that implement them
     # data_types and capability_types can be set as defaults so they also need to be defined early
     # see EntityType.TOSCA_DEF_SECTIONS for list
@@ -1578,10 +1578,9 @@ def convert_service_template(
             class_src = converter.convert_types(type_tpls, section, ns_prefix, indent)
             if class_src:
                 if ns_prefix:
-                    src += f"class {tosca_type}(Namespace):\n" + class_src
-                else:
-                    src += class_src + "\n"
-    converter.execute_source(src)
+                    class_src = f"class {tosca_type}(Namespace):\n" + class_src
+                converter.execute_source(class_src, namespace)
+                src += class_src + "\n"
     topology = template.topology_template
     if topology:
         for node_template in topology.nodetemplates:
