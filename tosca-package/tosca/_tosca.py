@@ -153,7 +153,6 @@ class Namespace(types.SimpleNamespace):
     location: str
 
 
-# XXX dependencies, invoke, preConditions
 def operation(
     name="",
     apply_to: Sequence[str] = (),
@@ -646,7 +645,11 @@ class _Tosca_Field(dataclasses.Field):
             req_def["node_filter"] = to_tosca_value(self.node_filter)
         if converter:
             # set node or relationship name if default value is a node or relationship template
-            converter.set_requirement_value(req_def, self.default, self.name)
+            if self.default_factory and self.default_factory is not dataclasses.MISSING:
+                default = self.default_factory()
+            else:
+                default = self.default
+            converter.set_requirement_value(req_def, default, self.name)
         self._add_occurrences(req_def, info)
         return req_def
 
@@ -659,7 +662,7 @@ class _Tosca_Field(dataclasses.Field):
         assert issubclass(_type, _ToscaType), (self, _type)
         cap_def: dict = yaml_cls(type=_type.tosca_type_name())
         self._add_occurrences(cap_def, info)
-
+        # XXX if self.default or self.default_factory: save properties
         if self.valid_source_types:  # is not None: XXX only set to [] if declared
             cap_def["valid_source_types"] = self.valid_source_types
         return cap_def
@@ -667,6 +670,8 @@ class _Tosca_Field(dataclasses.Field):
     def _to_artifact_yaml(self, converter: Optional["PythonToYaml"]) -> Dict[str, Any]:
         if self.default and self.default is not dataclasses.MISSING:
             return self.default.to_template_yaml(converter)
+        elif self.default_factory and self.default_factory is not dataclasses.MISSING:
+            return self.default_factory().to_template_yaml(converter)
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
@@ -1501,14 +1506,10 @@ class ToscaType(_ToscaType):
 
     @staticmethod
     def _operation2yaml(cls_or_self, operation, dict_cls):
-        # XXX
-        # signature = inspect.signature(operation)
-        # for name, param in signature.parameters.items():
-        #     inputs[name] = parameter_to_tosca(param)
         result = operation(_ToscaTypeProxy(cls_or_self))
         if result is None:
             return result
-        if result is ...:
+        if result is NotImplemented:
             return "not_implemented"
         if isinstance(result, _ArtifactProxy):
             implementation = dict_cls(primary=result.name_or_tpl)
@@ -1678,8 +1679,13 @@ class NodeType(ToscaType):
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         yaml = cls._shared_cls_to_yaml(converter)
-        # XXX add artifacts
         return yaml
+
+    def to_template_yaml(self, converter: "PythonToYaml") -> dict:
+        tpl = super().to_template_yaml(converter)
+        if self._directives:
+            tpl["directives"] = self._directives
+        return tpl
 
     def find_artifact(self, name_or_tpl) -> Optional["ArtifactType"]:
         # XXX
