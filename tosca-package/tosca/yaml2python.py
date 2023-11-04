@@ -42,6 +42,7 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.interfaces import OperationDef, _create_operations
 from toscaparser.tosca_template import ToscaTemplate
@@ -527,7 +528,9 @@ class Convert:
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
         return self._get_typed_value_repr(schema.type, schema.entry_schema, value)[0]
 
-    def _get_typed_value_repr(self, datatype: str, entry_schema, value: Any) -> Tuple[str, bool]:
+    def _get_typed_value_repr(
+        self, datatype: str, entry_schema, value: Any
+    ) -> Tuple[str, bool]:
         if value is None:
             return "None", False
         if has_function(value):
@@ -551,9 +554,12 @@ class Convert:
             if datatype.startswith("scalar-unit."):
                 if isinstance(value, (list, tuple)):
                     # for in_range constraints
-                    return self._get_typed_value_repr(
-                        "list", dict(type=datatype), value
-                    )[0], False
+                    return (
+                        self._get_typed_value_repr("list", dict(type=datatype), value)[
+                            0
+                        ],
+                        False,
+                    )
                 scalar_unit_class = get_scalarunit_class(datatype)
                 assert scalar_unit_class
                 canonical = scalar_unit_class(value).validate_scalar_unit()
@@ -656,7 +662,9 @@ class Convert:
             fieldparams.append(f"attribute=True")
 
         if default_value is not MISSING:
-            value_repr, mutable = self._get_typed_value_repr(prop.schema.type, prop.schema.entry_schema, default_value)
+            value_repr, mutable = self._get_typed_value_repr(
+                prop.schema.type, prop.schema.entry_schema, default_value
+            )
             if mutable or value_repr[0] in ("{", "["):
                 fieldparams.append(f"factory=lambda:({value_repr})")
             elif fieldparams:
@@ -766,7 +774,7 @@ class Convert:
                 assert tpl, tpl
                 req_name, req = list(tpl.items())[0]
                 # get the full req including inherited values
-                src += self.add_req(req_name, reqs[req_name], indent)
+                src += self.add_req(req_name, reqs[req_name], indent, cls_name)
 
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
@@ -869,12 +877,12 @@ class Convert:
         if _max == "UNBOUNDED" or _max > 1:
             typedecl = f"Sequence[{typedecl}]"  # use sequence for covariance
             if default:
-                default = f"=({default},)"
+                default = f"({default},)"
             elif _min == 0:
-                default = "=()"
+                default = "()"
         elif _min == 0:
             typedecl = self._make_union(typedecl, "None")
-            default = "=None"
+            default = "None"
         return typedecl, default
 
     def add_capability(self, name, tpl, indent) -> str:
@@ -885,12 +893,14 @@ class Convert:
             fieldparams.append(f'name="{toscaname}"')
         cap_type_name = self.python_name_from_type(tpl["type"])
         typedecl = self.maybe_forward_refs(cap_type_name)[0]
-        default = ""
+        default = (
+            ""  # XXX if properties, default is factory: lambda: CapabilityType(props)
+        )
         if "occurrences" in tpl:
             min, max = tpl["occurrences"]
             typedecl, default = self._set_arity(typedecl, min, max, default)
         if default:
-            fieldparams.append("default" + default)
+            fieldparams.append("default=" + default)
         else:
             # XXX only set this if capability doesn't have any required properties
             if typedecl.startswith("Sequence"):
@@ -914,43 +924,55 @@ class Convert:
         src += add_description(tpl, indent)
         return src
 
-    def _get_req_types(self, req: dict) -> Tuple[List[str], str, bool]:
+    def _get_req_types(self, req: dict, inline_name: str) -> Tuple[List[str], str, bool]:
         types: List[str] = []
         relationship = req.get("relationship")
+        default = ""
         if relationship:
             if isinstance(relationship, dict):
+                if len(relationship) > 1:
+                    default = self.template_reference(
+                        inline_name,
+                        "relationship",
+                        RelationshipTemplate(relationship, "", self.custom_defs),
+                    )
                 relationship = relationship["type"]
             elif relationship in self.topology.get("relationship_templates", {}):
                 reltpl = cast(
                     dict, self.topology["relationship_templates"][relationship]
                 )
+                default = self.template_reference(relationship, "relationship")
                 relationship = reltpl["type"]
             if relationship != "tosca.relationships.Root":
                 types.append(relationship)
 
-        match = ""
         nodetype = req.get("node")
         if nodetype:
             # req['node'] can be a node_template instead of a type
             if nodetype in self.topology["node_templates"]:
                 entity_tpl = cast(dict, self.topology["node_templates"][nodetype])
-                match = nodetype
+                match = self.template_reference(nodetype, "node")
+                if default:
+                    default += f"[{match}]"
+                else:
+                    default = match
                 nodetype = entity_tpl["type"]
             types.append(expand_prefix(nodetype))
 
         cap = req.get("capability")
         if cap:
-            # if no other types set flag to add requirement() to distinguish this from a capability
+            # if no other types then set flag to add requirement() in order to distinguish this from a capability
             explicit = not bool(types)
             types.append(cap)
         else:
             explicit = False
-        return types, match, explicit
+        return types, default, explicit
 
-    def add_req(self, req_name: str, req: dict, indent: str) -> str:
+    def add_req(self, req_name: str, req: dict, indent: str, typename: str) -> str:
         if isinstance(req, str):
             req = dict(node=req)
-        types, match, explicit = self._get_req_types(req)
+        name, toscaname = self._set_name(req_name, "requirement")
+        types, match, explicit = self._get_req_types(req, f"_inline_relationship_{typename}_{name}")
         # XXX add rel.valid_target_types
         types = self.import_types(types)
         if not types:
@@ -962,9 +984,6 @@ class Convert:
         else:
             typedecl = types[0]
 
-        if match:
-            # XXX because a node can't be created before its type definition, match needs to be a Eval()
-            match = f'="{match}"'
         if "occurrences" in req:
             min, max = req["occurrences"]
             typedecl, default = self._set_arity(typedecl, min, max, match)
@@ -972,7 +991,6 @@ class Convert:
             default = match
 
         fieldparams = []
-        name, toscaname = self._set_name(req_name, "requirement")
         if toscaname:
             fieldparams.append(f'name="{toscaname}"')
         node_filter = req.get("node_filter")
@@ -983,10 +1001,12 @@ class Convert:
             fieldparams.append(f"metadata={metadata_repr(metadata)}")
         if fieldparams or explicit:
             if default:
-                fieldparams.insert(0, "default" + default)
+                fieldparams.insert(0, "default=" + default)
             fielddecl = f"= Requirement({', '.join(fieldparams)})"
+        elif default:
+            fielddecl = "= " + default
         else:
-            fielddecl = default
+            fielddecl = ""
         src = f"{indent}{name}: {typedecl} {fielddecl}\n"
         src += add_description(req, indent)
         return src
@@ -1147,34 +1167,40 @@ class Convert:
             return src
         return ""
 
-    def template_reference(self, tosca_name: str, type: str, indent="") -> str:
+    def template_reference(self, tosca_name: str, type: str, template=None) -> str:
         localname = self.imports.get_local_ref(tosca_name)
         if not localname:
             assert self.template.topology_template
             if type == "node":
-                template = self.template.topology_template.node_templates.get(
-                    tosca_name
-                )
+                if not template:
+                    template = self.template.topology_template.node_templates.get(
+                        tosca_name
+                    )
                 if template:
                     localname, src = self.node_template2obj(template, indent="")
-                else:
+                if not template or not localname:
                     logger.warning(
                         f'Node template "{tosca_name}" not found in topology, using find_node("{tosca_name}") instead of converting to Python.'
                     )
                     return f'tosca.find_node("{tosca_name}")'
             elif type == "relationship":
-                logger.warning(
-                    f'Relationship template conversion not implemented, adding find_relationship("{tosca_name}") instead'
-                )
-                return f'tosca.find_relationship("{tosca_name}")'
-                # XXX
-                # template = self.template.topology_template.relationship_templates.get(
-                #     tosca_name
-                # )
-                # if template:
-                #     localname, src = self.relationship_template2obj(template, indent="")
-                # else:
-                #     logger.error(f'Could not generate {type} template, "{tosca_name}" not found in topology.').
+                if not template:
+                    template = (
+                        self.template.topology_template.relationship_templates.get(
+                            tosca_name
+                        )
+                    )
+                if template:
+                    localname, src = self.relationship_template2obj(template, indent="")
+                    if not localname:
+                        # template was inline and unnamed, use the given name as the variable name
+                        localname = tosca_name
+                        src = f"{localname} = {src}"
+                if not template or not localname:
+                    logger.warning(
+                        f'Relationship template conversion not found in topology, using find_relationship("{tosca_name}") instead of converting to Python.'
+                    )
+                    return f'tosca.find_relationship("{tosca_name}")'
             else:
                 logger.error(f"templates of type {type} not supported")
                 return tosca_name
@@ -1184,38 +1210,42 @@ class Convert:
         return localname
 
     def template2obj(
-        self, node_template: EntityTemplate, indent=""
+        self, entity_template: EntityTemplate, indent=""
     ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str]:
         self.init_names({})
-        assert node_template.type
-        cls_name, cls = self.imports.get_type_ref(node_template.type)
+        assert entity_template.type
+        cls_name, cls = self.imports.get_type_ref(entity_template.type)
         if not cls_name:
             logger.error(
-                f"could not convert node template {node_template.name}: {node_template.type} wasn't imported"
+                f"could not convert template {entity_template.name}: {entity_template.type} wasn't imported"
             )
             return None, "", ""
         elif not cls:
             logger.error(
-                f"could not convert node template {node_template.name}: defined in current file so the compiled class isn't available"
+                f"could not convert template {entity_template.name}: {entity_template.type} is defined in current file so the compiled class isn't available"
             )
             # XXX compile and exec the source code generated so far
             return None, "", ""
-        # XXX names should be from parent namespace (module or Namespace)
-        name = self.add_declaration(node_template.name, None)
-        logger.info("converting template %s to python", name)
-        src = f"{indent}{name} = {cls_name}("
+        if entity_template.name:
+            # XXX names should be from parent namespace (module or Namespace)
+            name = self.add_declaration(entity_template.name, None)
+            logger.info("converting template %s to python", name)
+            src = f"{indent}{name} = {cls_name}("
+        else:
+            name = ""
+            src = f"{cls_name}("
         # always add name because we might not have access to the name reference
-        src += f'"{node_template.name}", '
-        metadata = node_template.entity_tpl.get("metadata")
+        src += f'"{entity_template.name}", '
+        metadata = entity_template.entity_tpl.get("metadata")
         if metadata:
             src += f"_metadata={metadata_repr(metadata)},\n"
         # XXX version
-        if node_template.directives:
-            src += f"_directives={repr(node_template.directives)},\n"
-        assert node_template.type_definition
-        properties = node_template.entity_tpl.get("properties")
+        if entity_template.directives:
+            src += f"_directives={repr(entity_template.directives)},\n"
+        assert entity_template.type_definition
+        properties = entity_template.entity_tpl.get("properties")
         if properties:
-            prop_defs = node_template.type_definition.get_properties_def()
+            prop_defs = entity_template.type_definition.get_properties_def()
             src += self._get_prop_init_list(properties, prop_defs, cls, indent)
         return cls, name, src
 
@@ -1226,6 +1256,15 @@ class Convert:
         src += "file=" + value2python_repr(artifact.file)  # type: ignore
         src += ")"  # close ctor
         return src
+
+    def relationship_template2obj(
+        self, template: RelationshipTemplate, indent=""
+    ) -> Tuple[str, str]:
+        cls, name, src = self.template2obj(template, indent)
+        if not cls:
+            return "", ""
+        src += ")"  # close ctor
+        return name, src
 
     def node_template2obj(
         self, node_template: NodeTemplate, indent=""

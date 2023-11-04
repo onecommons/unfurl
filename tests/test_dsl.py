@@ -5,6 +5,7 @@ import time
 from typing import Optional
 from unittest.mock import MagicMock, patch
 import pytest
+from pprint import pprint
 from unfurl.merge import diff_dicts
 import sys
 from click.testing import CliRunner
@@ -664,6 +665,71 @@ def test_envvar_type():
     # yaml.dump(yaml_dict, sys.stdout)
     assert tosca_yaml == yaml_dict
 
+test_relationship_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+relationship_types:
+  DNSRecords:
+    derived_from: tosca.relationships.Root
+    properties:
+      records:
+        type: map
+        entry_schema: 
+          type: any
+
+node_types:
+  HasDNS:
+    derived_from: tosca.nodes.Root
+    requirements:
+      - dns:
+          metadata:
+            title: DNS
+          node: HasDNS
+          description: "DNS provider for domain name configuration"
+          relationship:
+            type: DNSRecords
+            properties:
+              records:
+                "{{ '.source::.configured_by::subdomain' | eval }}":
+                  type: A
+                  value:
+                    eval: .source::.instances::apiResource[kind=Ingress]::status::loadBalancer::ingress::0::ip
+"""
+
+test_relationship_python = '''
+import tosca
+from typing import Dict, Any
+
+class DNSRecords(tosca.relationships.Root):
+    records: Dict[str, Any]
+
+_inline = DNSRecords(
+    records=tosca.Eval(
+        {
+            "{{ '.source::.configured_by::subdomain' | eval }}": {
+                "type": "A",
+                "value": {
+                    "eval": ".source::.instances::apiResource[kind=Ingress]::status::loadBalancer::ingress::0::ip"
+                },
+            }
+        }
+    ),
+)
+
+class HasDNS(tosca.nodes.Root):
+    dns: "DNSRecords | HasDNS" = tosca.Requirement(
+        default=_inline, metadata={"title": "DNS"}
+    )
+    """DNS provider for domain name configuration"""
+'''
+
+def test_relationship():
+    python_src, parsed_yaml = _to_python(test_relationship_yaml)
+    # print(python_src)
+    assert parsed_yaml == _to_yaml(python_src, True)
+    tosca_tpl2 = _to_yaml(test_relationship_python, True)
+    # pprint(tosca_tpl2)
+    assert parsed_yaml == tosca_tpl2
 
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",

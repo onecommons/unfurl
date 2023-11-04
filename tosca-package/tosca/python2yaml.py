@@ -148,7 +148,7 @@ class PythonToYaml:
                 rel: Union[str, dict] = self.add_template(value)
             else:  # inline
                 rel = value.to_template_yaml(self)
-            req = self.yaml_cls(relationship=rel)
+            req["relationship"] = rel
             if isinstance(value._target, NodeType):
                 node = value._target
             elif isinstance(value._target, CapabilityType):
@@ -264,7 +264,10 @@ class PythonToYaml:
                 self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
-                self.add_template(obj, name)
+                if (
+                    isinstance(obj, NodeType) or obj._name
+                ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
+                    self.add_template(obj, name)
             else:
                 section = getattr(obj, "_template_section", "")
                 to_yaml = getattr(obj, "to_yaml", None)
