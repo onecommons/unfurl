@@ -32,6 +32,7 @@ from .repo import (
     GitRepo,
     Repo,
     add_user_to_url,
+    normalize_git_url,
     split_git_url,
     RepoView,
     normalize_git_url_hard,
@@ -790,7 +791,7 @@ class LocalConfig:
         return name
 
     def register_project(
-        self, project, for_context=None, changed=False, save_project=True
+        self, project: Project, for_context=None, changed=False, save_project=True
     ):
         """
         Register an external project with current project.
@@ -816,7 +817,7 @@ class LocalConfig:
             changed = True
 
         externalProject = dict(
-            url=repo.url,
+            url=normalize_git_url(repo.url, 1),
             initial=repo.get_initial_revision(),
         )
         file = os.path.relpath(project.projectRoot, repo.working_dir)

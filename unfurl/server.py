@@ -180,10 +180,9 @@ if os.environ.get("CACHE_CLEAR_ON_START"):
 DEFAULT_BRANCH = "main"
 
 
-def set_local_projects(repo_views):
+def _set_local_projects(repo_views, local_projects, clone_root):
     server_url = app.config["UNFURL_CLOUD_SERVER"]
     server_host = urlparse(server_url).hostname
-    local_projects = {}
     for repo_view in repo_views:
         remote = repo_view.repo.find_remote(host=server_host)
         if remote:
@@ -191,19 +190,36 @@ def set_local_projects(repo_views):
             project_id = parts.path.strip("/")
             if project_id.endswith(".git"):
                 project_id = project_id[:-4]
+            if project_id in local_projects:
+                # unless the existing one is inside the clone_root
+                if not is_relative_to(local_projects[project_id], clone_root):
+                    continue  #  don't replace an existing local project
             logger.debug(
                 "found local project at %s for %s",
                 repo_view.repo.working_dir,
                 project_id,
             )
             local_projects[project_id] = repo_view.repo.working_dir
-    return local_projects
+
+
+def set_local_projects(local_env, clone_root):
+    clone_root = os.path.abspath(clone_root)
+    local_projects: Dict[str, str] = {}
+    if local_env.project:
+        _set_local_projects(
+            local_env.project.workingDirs.values(), local_projects, clone_root
+        )
+    if local_env.homeProject:
+        _set_local_projects(
+            local_env.homeProject.workingDirs.values(), local_projects, clone_root
+        )
+    app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
 
 
 def set_current_ensemble_git_url():
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
     if not project_or_ensemble_path:
-        return
+        return None
     try:
         local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
         if (
@@ -224,22 +240,12 @@ def set_current_ensemble_git_url():
             else:
                 remote_url = local_env.project.project_repoview.url
             app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
-
-        if local_env.homeProject:
-            local_projects = set_local_projects(
-                local_env.homeProject.workingDirs.values()
-            )
-        else:
-            local_projects = {}
-        if local_env.project:
-            local_projects.update(
-                set_local_projects(local_env.project.workingDirs.values())
-            )
-        app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
+            return local_env
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
         )
+    return None
 
 
 set_current_ensemble_git_url()
@@ -1213,21 +1219,26 @@ def _clear_project(project_id):
     return f"{len(cleared)}"
 
 
-def _make_readonly_localenv(clone_location, parent_localenv=None):
+def _make_readonly_localenv(
+    clone_root: str, deployment_path: str, parent_localenv=None
+):
     try:
         # we don't want to decrypt secrets because the export is cached and shared
-        overrides = dict(
+        overrides: Dict[str, Any] = dict(
             UNFURL_SKIP_VAULT_DECRYPT=True,
             # XXX enable skipping when deps support private repositories
             UNFURL_SKIP_UPSTREAM_CHECK=False,
             apply_url_credentials=True,
         )
-        clone_root = os.path.abspath(current_app.config.get("UNFURL_CLONE_ROOT", "."))
-        if is_relative_to(clone_location, clone_root):
-            overrides["UNFURL_SEARCH_ROOT"] = clone_root
+        overrides["UNFURL_SEARCH_ROOT"] = clone_root
+        clone_location = os.path.join(clone_root, deployment_path)
+        # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
+        home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
+        if not home_dir:
+            home_dir = current_app.config["UNFURL_OPTIONS"].get("home")
         local_env = LocalEnv(
             clone_location,
-            current_app.config["UNFURL_OPTIONS"].get("home"),
+            home_dir,
             can_be_empty=True,
             parent=parent_localenv,
             readonly=True,
@@ -1267,8 +1278,7 @@ def _localenv_from_cache(
                 None,
                 False,
             )
-        clone_location = os.path.join(clone_location, deployment_path)
-        err, local_env = _make_readonly_localenv(clone_location)
+        err, local_env = _make_readonly_localenv(clone_location, deployment_path)
         return err, local_env, True
 
     repo = _get_project_repo(project_id, branch, args)
@@ -1306,7 +1316,12 @@ def _localenv_from_cache_checked(
     assert readonly_localEnv.project
     repo = readonly_localEnv.project.project_repoview.repo
     assert repo
-    if check_lastcommit and latest_commit and repo.revision != latest_commit:
+    if (
+        not _get_local_project_dir(project_id)
+        and check_lastcommit
+        and latest_commit
+        and repo.revision != latest_commit
+    ):
         logger.warning(f"Conflict in {project_id}: {latest_commit} != {repo.revision}")
         err = create_error_response("CONFLICT", "Repository at wrong revision")
         return err, readonly_localEnv
@@ -1333,8 +1348,9 @@ def _do_export(
     else:
         repo = parent_localenv.instanceRepo
     assert repo
-    clone_location = os.path.join(repo.working_dir, deployment_path)
-    err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
+    err, local_env = _make_readonly_localenv(
+        repo.working_dir, deployment_path, parent_localenv
+    )
     if err:
         return (
             create_error_response("INTERNAL_ERROR", "An internal error occurred", err),
@@ -1667,7 +1683,13 @@ def _patch_environment(body: dict, project_id: str):
         return err
     assert readonly_localEnv and readonly_localEnv.project
     invalidate_cache(body, "environments", project_id)
-    localEnv = LocalEnv(readonly_localEnv.project.projectRoot, can_be_empty=True)
+    # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
+    home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
+        "UNFURL_OPTIONS"
+    ].get("home")
+    localEnv = LocalEnv(
+        readonly_localEnv.project.projectRoot, home_dir, can_be_empty=True
+    )
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
     assert repo
@@ -1815,6 +1837,7 @@ def _patch_ensemble(
     was_dirty = existing_repo and existing_repo.is_dirty()
     starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
+    current_working_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
     if create:
         blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
         logger.info(
@@ -1822,6 +1845,7 @@ def _patch_ensemble(
             clone_location,
             sanitize_url(blueprint_url, True),
         )
+        # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so clone uses the local repository if available
         msg = init.clone(
             blueprint_url,
             clone_location,
@@ -1830,6 +1854,7 @@ def _patch_ensemble(
             skeleton="dashboard",
             use_environment=environment,
             use_deployment_blueprint=deployment_blueprint,
+            home=current_working_dir,
         )
         logger.info(msg)
     # elif clone:
@@ -1847,7 +1872,7 @@ def _patch_ensemble(
         apply_url_credentials=True,
     )
     ensure_local_config(parent_localenv.project.projectRoot)
-    local_env = LocalEnv(clone_location, overrides=overrides)
+    local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
     local_env.make_resolver = ServerCacheResolver.make_factory(
         None, dict(username=username, password=password)
     )
@@ -1864,7 +1889,7 @@ def _patch_ensemble(
     else:
         commit_msg = _get_commit_msg(body, "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
-        committed = manifest.commit(commit_msg, True)
+        committed = manifest.commit(commit_msg, True, True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
             if manifest.repo:
@@ -2032,13 +2057,16 @@ def serve(
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
-    app.config["UNFURL_CLOUD_SERVER"] = (
-        cloud_server or os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
-    )
     if os.getenv("UNFURL_SERVE_PATH") != project_path:
         # this happens in the unit tests
         os.environ["UNFURL_SERVE_PATH"] = project_path
-    set_current_ensemble_git_url()
+    if cloud_server and app.config["UNFURL_CLOUD_SERVER"] != cloud_server:
+        app.config["UNFURL_CLOUD_SERVER"] = (
+            cloud_server or os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
+        )
+    local_env = set_current_ensemble_git_url()
+    if local_env:
+        set_local_projects(local_env, clone_root)
 
     current_project_id = get_current_project_id()
     if current_project_id:

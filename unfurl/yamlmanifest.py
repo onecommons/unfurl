@@ -970,17 +970,18 @@ class YamlManifest(ReadOnlyManifest):
             if not repository.read_only and repository.is_dirty():
                 repository.add_all()
 
-    def commit(self, msg: str, add_all: bool = False) -> int:
+    def commit(self, msg: str, add_all: bool = False, ensemble_only=False) -> int:
         committed = 0
-        for repository in self.repositories.values():
-            if repository.repo == self.repo:
-                continue
-            if not repository.read_only and repository.is_dirty():
-                retVal = repository.commit(msg, add_all)
-                committed += 1
-                logger.info(
-                    "committed %s to %s: %s", retVal, repository.working_dir, msg
-                )
+        if not ensemble_only:
+            for repository in self.repositories.values():
+                if repository.repo == self.repo:
+                    continue
+                if not repository.read_only and repository.is_dirty():
+                    retVal = repository.commit(msg, add_all)
+                    committed += 1
+                    logger.info(
+                        "committed %s to %s: %s", retVal, repository.working_dir, msg
+                    )
         # if manifest was changed: # e.g. calling commit after a job was run
         #    if commits were made writeLock and save updated manifest??
         #    (note: endCommit will be omitted as changes.yaml isn't updated)
