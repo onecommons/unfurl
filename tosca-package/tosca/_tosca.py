@@ -770,9 +770,7 @@ class _Tosca_Field(dataclasses.Field):
             field._tosca_field_type = value.field._tosca_field_type
         else:
             field.type = type(value)
-        if field.tosca_field_type != ToscaFieldType.property:
-            return field
-        return None
+        return field
 
 
 def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
@@ -1134,26 +1132,36 @@ def _make_dataclass(cls):
     # missing a _Tosca_Fields, set one before calling _process_class()
     global_state._in_process_class = True
     try:
-        annotations = cls.__dict__.get("__annotations__", {})
-        for name, type in annotations.items():
-            if name[0] != "_":
-                field = None
-                default = getattr(cls, name, REQUIRED)
-                if not isinstance(default, dataclasses.Field):
-                    # XXX or not InitVar or ClassVar
-                    field = _Tosca_Field(None, default, owner=cls)
-                    setattr(cls, name, field)
-                elif isinstance(default, _Tosca_Field):
-                    default.owner = cls
-                    field = default
-                if field:
-                    field.name = name
-                    field.type = type
+        annotations = cls.__dict__.get("__annotations__")
+        if annotations:
+            for name, annotation in annotations.items():
+                if name[0] != "_":
+                    field = None
+                    default = getattr(cls, name, REQUIRED)
+                    if not isinstance(default, dataclasses.Field):
+                        # XXX or not InitVar or ClassVar
+                        field = _Tosca_Field(None, default, owner=cls)
+                        setattr(cls, name, field)
+                    elif isinstance(default, _Tosca_Field):
+                        default.owner = cls
+                        field = default
+                    if field:
+                        field.name = name
+                        field.type = annotation
+        else:
+            annotations = {}
+            cls.__annotations__ = annotations
         if cls.__module__ != __name__:
             for name, value in cls.__dict__.items():
                 if name[0] != "_" and name not in annotations and not callable(value):
-                    # for unannotated class attributes try to infer if they are TOSCA fields
-                    field = _Tosca_Field.infer_field(cls, name, value)
+                    base_field = cls.__dataclass_fields__.get(name)
+                    if base_field:
+                        field = _Tosca_Field(base_field._tosca_field_type, value, owner=cls)
+                        # avoid type(None) or type(())
+                        field.type = base_field.type if not value else type(value)
+                    else:
+                        # for unannotated class attributes try to infer if they are TOSCA fields
+                        field = _Tosca_Field.infer_field(cls, name, value)
                     if field:
                         annotations[name] = field.type
                         setattr(cls, name, field)
@@ -1598,7 +1606,7 @@ class ToscaType(_ToscaType):
             elif not field and name[0] != "_" and not callable(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
-                if not field:
+                if field.tosca_field_type != ToscaFieldType.property:
                     # the value was a data value or unrecognized, nothing to convert
                     continue
                 yield field, value
