@@ -1233,8 +1233,9 @@ def _make_readonly_localenv(
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
         clone_location = os.path.join(clone_root, deployment_path)
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
-        home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
-        if not home_dir:
+        if app.config.get("UNFURL_CURRENT_WORKING_DIR") != clone_root:
+            home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
+        else:
             home_dir = current_app.config["UNFURL_OPTIONS"].get("home")
         local_env = LocalEnv(
             clone_location,
@@ -1838,6 +1839,9 @@ def _patch_ensemble(
     starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
     current_working_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
+    if current_working_dir == parent_localenv.project.project_repoview.repo.working_dir:
+        # don't set home if its current project
+        current_working_dir = None
     if create:
         blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
         logger.info(
