@@ -1709,6 +1709,7 @@ class ArtifactSpec(EntitySpec):
         "permissions",
         "intent",
         "target",
+        "order",
         "contents",
     )
 

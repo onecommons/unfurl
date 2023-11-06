@@ -887,6 +887,14 @@ class ArtifactInstance(EntityInstance):
         return self.attributes.get("permissions") or ""
 
     @property
+    def target(self) -> str:
+        return self.attributes.get("target") or ""
+
+    @property
+    def order(self) -> int:
+        return self.attributes.get("order") or 0
+
+    @property
     def contents(self) -> str:
         if "contents" in self.attributes:
             return self.attributes["contents"]
