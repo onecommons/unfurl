@@ -69,6 +69,8 @@ spec:
           badge: Database
         interfaces:
           Install:
+            requirements:
+              - unfurl.relationships.ConnectsTo.AWSAccount
             operations:
               connect: dummy
         requirements:
@@ -87,15 +89,15 @@ spec:
         requirements:
         - host:
             occurrences: [0, 0]
+        interfaces:
+          Install:
+            operations:
+              connect: not_implemented
 
       SelfHostedMongoDb:
         derived_from: MongoDb
         requirements:
         - host: Compute
-        interfaces:
-          Install:
-            operations:
-              connect: not_implemented
 
       DNS:
         derived_from: Base

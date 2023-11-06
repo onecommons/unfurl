@@ -20,15 +20,16 @@ def test_jsonexport():
     # verify to_graphql is working as expected
     jsonExport = to_deployment(local)
 
-    # check that subtypes can remove inherited operations
-    assert jsonExport["ResourceType"]["Atlas"]["implementations"] == [
-        "configure",
-        "connect",
-    ]
+    # check that subtypes can remove inherited operations if marked not_implemented
+    assert jsonExport["ResourceType"]["Atlas"]['implementations'] == ['configure']
+    # check the types aren't exported if not referenced by a template
     assert (
         "SelfHostedMongoDb" not in jsonExport["ResourceType"]
-    )  # not referenced by a template
-    # assert jsonExport["ResourceType"]["SelfHostedMongoDb"]['implementations'] == ['configure']
+    )
+    # check that subtypes inherit interface requirements
+    assert jsonExport["ResourceType"]["Atlas"]["implementation_requirements"] == [
+        "unfurl.relationships.ConnectsTo.AWSAccount"
+    ]
 
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
