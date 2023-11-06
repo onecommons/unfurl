@@ -2,8 +2,16 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 
-from octodns.manager import Manager
-from octodns.zone import Zone
+try:
+  from octodns.manager import Manager
+  from octodns.zone import Zone
+
+  # octodns installs natsort_keygen
+  from natsort import natsort_keygen
+
+  _natsort_key = natsort_keygen()
+except ImportError:
+    _natsort_key = None  # type: ignore
 
 from ..configurator import Configurator, TaskView
 from ..projectpaths import WorkFolder
@@ -14,13 +22,10 @@ from ..util import change_cwd
 from ..eval import map_value
 from toscaparser.properties import Property
 
-# octodns installs natsort_keygen
-from natsort import natsort_keygen
-
-_natsort_key = natsort_keygen()
 
 # octodns requires keys in its yaml config to be sorted this way
 def sort_dict(d):
+    assert _natsort_key  # type: ignore
     keys_sorted = sorted(d.keys(), key=_natsort_key)
     return dict((k, d[k]) for k in keys_sorted)
 
@@ -87,6 +92,14 @@ class DNSConfigurator(Configurator):
 
     def can_dry_run(self, task):
         return True
+
+    @classmethod
+    def set_config_spec_args(cls, kw: dict, template):
+        if _natsort_key is None:
+            artifact = template.find_or_create_artifact("octodns", predefined=True)
+            if artifact:
+                kw["dependencies"].append(artifact)
+        return kw
 
     def _update_zone(self, attributes, op, managed):
         records = attributes.get_copy("zone") or {}

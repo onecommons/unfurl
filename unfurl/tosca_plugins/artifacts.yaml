@@ -167,6 +167,12 @@ topology_template:
           type: artifact.PythonPackage
           file: google-auth
 
+        octodns:
+          type: artifact.PythonPackage
+          file: octodns
+          properties:
+            version: "==0.9.14"
+
         kubernetes.core:
           type: artifact.AnsibleCollection
           file: kubernetes.core
