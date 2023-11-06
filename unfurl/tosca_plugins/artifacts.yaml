@@ -51,7 +51,8 @@ artifact_types:
     properties:
       version:
         type: string
-        required: false
+        description: Full version specifier (e.g. "==1.0")
+        default: ""
     interfaces:
       Install:
         check: unfurl.configurators.PythonPackageCheckConfigurator
@@ -61,11 +62,11 @@ artifact_types:
           implementation: Cmd
           inputs:
             # XXX add version if specified
-            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} install {{SELF.file}}"
+            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} install '{{SELF.file}}{{SELF.version}}'"
         delete:
           implementation: Cmd
           inputs:
-            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} uninstall {{SELF.file}}"
+            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} uninstall '{{SELF.file}}{{SELF.version}}'"
 
 # https://docs.ansible.com/ansible/latest/collections_guide/index.html
 # https://docs.ansible.com/ansible/latest/reference_appendices/config.html#collections-paths
