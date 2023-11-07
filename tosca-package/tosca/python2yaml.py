@@ -28,6 +28,7 @@ from ._tosca import (
     CapabilityType,
     global_state,
     WritePolicy,
+    InstanceProxy,
 )
 from .loader import restricted_exec, get_module_path
 
@@ -96,6 +97,7 @@ class PythonToYaml:
         return repo_name, path.relative_to(repo_path)
 
     def module2yaml(self) -> dict:
+        # module contents will have been set to self.globals
         mode = global_state.mode
         try:
             global_state.mode = "yaml"
@@ -169,6 +171,10 @@ class PythonToYaml:
 
         path = Path(get_module_path(module))
         yaml_path = path.parent / (path.stem + ".yaml")
+        if not self.safe_mode and self.import_resolver:
+            # register this even if we don't need to convert
+            self.import_resolver.register_import(module.__name__, yaml_path)
+        assert module.__file__
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
             logger.info(
                 "skipping saving imported python module as YAML %s: %s",
@@ -191,14 +197,8 @@ class PythonToYaml:
             self.write_policy,
             self.import_resolver,
         )
-        # if self.import_resolver:
-        #     yaml = self.import_resolver.manifest.config.yaml
         with open(yaml_path, "w") as yo:
-            logger.info(
-                "saving imported python module as YAML at %s %s",
-                yaml_path,
-                type(yaml_dict),
-            )
+            logger.info("saving imported python module as YAML at %s", yaml_path)
             yaml.dump(yaml_dict, yo)
         return yaml_path
 
@@ -264,10 +264,12 @@ class PythonToYaml:
                 self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
-                if (
-                    isinstance(obj, NodeType) or obj._name
+                if (isinstance(obj, NodeType) or obj._name) and not isinstance(
+                    obj, InstanceProxy
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                     self.add_template(obj, name)
+                    if not self.safe_mode:
+                        obj.register_template(current_module, name)
             else:
                 section = getattr(obj, "_template_section", "")
                 to_yaml = getattr(obj, "to_yaml", None)

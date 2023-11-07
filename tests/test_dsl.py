@@ -658,6 +658,19 @@ def test_envvar_type():
 
     test = Example()
 
+    class pcls(tosca.InstanceProxy):
+        _cls = Example
+
+    assert issubclass(pcls, Example)
+    assert issubclass(Example, Example)
+
+    p = pcls()
+    assert isinstance(p, Example)
+    assert isinstance(p, tosca.InstanceProxy)
+    assert issubclass(type(p), Example)
+    assert isinstance(test, Example)
+    assert not isinstance(test, tosca.InstanceProxy)
+
     __name__ = "tests.test_dsl"
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()

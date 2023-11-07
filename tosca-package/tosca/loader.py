@@ -21,7 +21,7 @@ from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
 from RestrictedPython import safe_builtins, PrintCollector
 from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAMES
-from . import Namespace
+from . import Namespace, global_state
 
 logger = logging.getLogger("tosca")
 
@@ -596,12 +596,16 @@ def restricted_exec(
         temp_module = ModuleType(full_name)
         temp_module.__dict__.update(namespace)
         sys.modules[full_name] = temp_module
-    if temp_module:
-        try:
+    previous_safe_mode = global_state.safe_mode
+    try:
+        global_state.safe_mode = safe_mode
+        if temp_module:
             exec(result.code, temp_module.__dict__)
             namespace.update(temp_module.__dict__)
-        finally:
+        else:
+            exec(result.code, namespace)
+    finally:
+        global_state.safe_mode = previous_safe_mode
+        if temp_module:
             del sys.modules[full_name]
-    else:
-        exec(result.code, namespace)
     return result

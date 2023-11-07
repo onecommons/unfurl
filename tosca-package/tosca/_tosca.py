@@ -26,8 +26,6 @@ from typing import (
     Optional,
     Type,
     TypeVar,
-    cast,
-    overload,
     Tuple,
 )
 import types
@@ -56,6 +54,7 @@ class _LocalState(threading.local):
     def __init__(self, **kw):
         self.mode = "spec"
         self._in_process_class = False
+        self.safe_mode = False
         self.__dict__.update(kw)
 
 
@@ -1156,7 +1155,9 @@ def _make_dataclass(cls):
                 if name[0] != "_" and name not in annotations and not callable(value):
                     base_field = cls.__dataclass_fields__.get(name)
                     if base_field:
-                        field = _Tosca_Field(base_field._tosca_field_type, value, owner=cls)
+                        field = _Tosca_Field(
+                            base_field._tosca_field_type, value, owner=cls
+                        )
                         # avoid type(None) or type(())
                         field.type = base_field.type if not value else type(value)
                     else:
@@ -1189,6 +1190,18 @@ def _make_dataclass(cls):
     return cls
 
 
+_PT = TypeVar("_PT", bound="ToscaType")
+
+
+class InstanceProxy(Generic[_PT]):
+    """
+    Base class for integrating with an TOSCA orchestrator.
+    Subclasses of this class can impersonate ToscaTypes and proxy values from the equivalent instances managed by the orchestrator.
+    """
+
+    _cls: Type[_PT]
+
+
 class _DataclassType(type):
     def __set_name__(self, owner, name):
         if issubclass(owner, Namespace):
@@ -1197,7 +1210,22 @@ class _DataclassType(type):
 
     def __new__(cls, name, bases, dct):
         x = super().__new__(cls, name, bases, dct)
-        return _make_dataclass(x)
+        x = _make_dataclass(x)
+        if not global_state.safe_mode:
+            x.register_type(dct.get("_type_name", name))  # type: ignore
+        return x
+
+    def __instancecheck__(cls, inst):
+        """Implement isinstance(inst, cls)."""
+        if isinstance(inst, InstanceProxy):
+            return issubclass(inst._cls, cls)
+        return type.__instancecheck__(cls, inst)
+
+    def __subclasscheck__(cls, sub):
+        """Implement issubclass(sub, cls)."""
+        if issubclass(sub, InstanceProxy):
+            sub = sub._cls
+        return type.__subclasscheck__(cls, sub)
 
 
 class _Tosca_Fields_Getter:
@@ -1268,6 +1296,16 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     explicit_tosca_fields = _Tosca_Fields_Getter()  # list of _ToscaFields
     set_config_spec_args = _Set_ConfigSpec_Method()
+
+    # subtypes can registry themselves, so we can map TOSCA type names to a class
+    _all_types: ClassVar[Dict[str, Type["_ToscaType"]]] = {}
+    # subtypes can registry themselves, so we can map TOSCA template names to instances
+    # section_name => Map((module_name, template_name) => instance)
+    _all_templates: ClassVar[Dict[str, Dict[Tuple[str, str], "_ToscaType"]]] = {}
+
+    @classmethod
+    def register_type(cls, type_name):
+        cls._all_types[type_name] = cls
 
     @classmethod
     def get_field_from_tosca_name(
@@ -1412,6 +1450,11 @@ class ToscaType(_ToscaType):
 
     # XXX version (type and template?)
 
+    def register_template(self, current_module, name):
+        self._all_templates.setdefault(self._template_section, {})[
+            (current_module, self._name or name)
+        ] = self
+
     def __set_name__(self, owner, name):
         # called when a template is declared as a default value (owner will be class)
         if not self._name:
@@ -1443,8 +1486,11 @@ class ToscaType(_ToscaType):
         )
 
     @staticmethod
-    def _interfaces_yaml(cls_or_self, cls, dict_cls) -> Dict[str, dict]:
+    def _interfaces_yaml(
+        cls_or_self, cls, converter: Optional["PythonToYaml"]
+    ) -> Dict[str, dict]:
         # interfaces are inherited
+        dict_cls = converter and converter.yaml_cls or yaml_cls
         interfaces = {}
         interface_ops = {}
         direct_bases = []
@@ -1471,7 +1517,7 @@ class ToscaType(_ToscaType):
                     continue
                 interface_ops[methodname] = i_def
                 interface_ops[shortname + "." + methodname] = i_def
-        cls_or_self._find_operations(cls_or_self, interface_ops, interfaces, dict_cls)
+        cls_or_self._find_operations(cls_or_self, interface_ops, interfaces, converter)
         # filter out interfaces with no operations declared unless inheriting the interface directly
         return dict_cls(
             (k, v)
@@ -1485,7 +1531,9 @@ class ToscaType(_ToscaType):
         return callable(operation) and not isinstance(operation, _DataclassType)
 
     @staticmethod
-    def _find_operations(cls_or_self, interface_ops, interfaces, dict_cls) -> None:
+    def _find_operations(
+        cls_or_self, interface_ops, interfaces, converter: Optional["PythonToYaml"]
+    ) -> None:
         for methodname, operation in cls_or_self.__dict__.items():
             if methodname[0] == "_":
                 continue
@@ -1500,7 +1548,7 @@ class ToscaType(_ToscaType):
                                 name.split(".")[-1]
                             ] = None
                     interfaces["defaults"] = cls_or_self._operation2yaml(
-                        cls_or_self, operation, dict_cls
+                        cls_or_self, operation, converter
                     )
                 else:
                     name = getattr(operation, "operation_name", methodname)
@@ -1509,11 +1557,12 @@ class ToscaType(_ToscaType):
                         interface.setdefault("operations", {})[
                             name
                         ] = cls_or_self._operation2yaml(
-                            cls_or_self, operation, dict_cls
+                            cls_or_self, operation, converter
                         )
 
     @staticmethod
-    def _operation2yaml(cls_or_self, operation, dict_cls):
+    def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
+        dict_cls = converter and converter.yaml_cls or yaml_cls
         result = operation(_ToscaTypeProxy(cls_or_self))
         if result is None:
             return result
@@ -1521,6 +1570,9 @@ class ToscaType(_ToscaType):
             return "not_implemented"
         if isinstance(result, _ArtifactProxy):
             implementation = dict_cls(primary=result.name_or_tpl)
+        elif isinstance(result, types.FunctionType):
+            className = f"{result.__module__}:{result.__qualname__}"
+            implementation = dict_cls(className=className)
         else:
             className = f"{result.__class__.__module__}.{result.__class__.__name__}"
             implementation = dict_cls(className=className)
@@ -1577,7 +1629,7 @@ class ToscaType(_ToscaType):
 
         if not converter or not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
-            interfaces = cls._interfaces_yaml(cls, cls, dict_cls)
+            interfaces = cls._interfaces_yaml(cls, cls, converter)
             if interfaces:
                 body["interfaces"] = interfaces
 
@@ -1661,7 +1713,7 @@ class ToscaType(_ToscaType):
         if not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
             # this only adds interfaces defined directly on this object
-            interfaces = self._interfaces_yaml(self, self.__class__, converter.yaml_cls)
+            interfaces = self._interfaces_yaml(self, self.__class__, converter)
             if interfaces:
                 body["interfaces"] = interfaces
 
