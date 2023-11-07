@@ -1253,7 +1253,11 @@ class Convert:
         cls, name, src = self.template2obj(artifact, indent)
         if not cls:
             return ""
-        src += "file=" + value2python_repr(artifact.file)  # type: ignore
+        src += "file=" + value2python_repr(artifact.file) + ", "  # type: ignore
+        for field in _tosca.ArtifactType._builtin_fields[1:]:
+            val = getattr(artifact, field)
+            if val:
+                src += f"{field}={value2python_repr(val)},\n"
         src += ")"  # close ctor
         return src
 

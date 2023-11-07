@@ -1806,6 +1806,19 @@ class ArtifactType(_OwnedToscaType):
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
+    _builtin_fields: ClassVar[Sequence[str]] = (
+        "file",
+        "repository",
+        "deploy_path",
+        "version",
+        "checksum",
+        "checksum_algorithm",
+        "permissions",
+        "intent",
+        "target",
+        "order",
+        "contents",
+    )
     file: str = field(default=REQUIRED)
     repository: Optional[str] = field(default=None)
     deploy_path: Optional[str] = field(default=None)
@@ -1815,6 +1828,7 @@ class ArtifactType(_OwnedToscaType):
     permissions: Optional[str] = field(default=None)
     intent: Optional[str] = field(default=None)
     target: Optional[str] = field(default=None)
+    order: Optional[int] = field(default=None)
     contents: Optional[str] = field(default=None)
 
     @classmethod
@@ -1828,18 +1842,7 @@ class ArtifactType(_OwnedToscaType):
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
-        tpl["file"] = self.file
-        for field in (
-            "repository",
-            "deploy_path",
-            "version",
-            "checksum",
-            "checksum_algorithm",
-            "permissions",
-            "intent",
-            "target",
-            "contents",
-        ):
+        for field in self._builtin_fields:
             val = getattr(self, field, None)
             if val is not None:
                 tpl[field] = val
