@@ -79,7 +79,11 @@ artifact_types:
     interfaces:
       Install:
         check:
-          implementation: Cmd
+          implementation: 
+            environment:
+              # XXX make this conditional only for ansible 2.11 / python 3.7
+              ANSIBLE_GALAXY_SERVER: https://old-galaxy.ansible.com/
+            className: Cmd
           inputs:
             cmd: "ansible-galaxy collection list --format json {{SELF.file}}"
             done:
@@ -94,7 +98,11 @@ artifact_types:
               {% endif %} 
       Standard:
         create:
-          implementation: Cmd
+          implementation: 
+            environment:
+              # XXX make this conditional only for ansible 2.11 / python 3.7
+              ANSIBLE_GALAXY_SERVER: https://old-galaxy.ansible.com/
+            className: Cmd
           inputs:
             # XXX add version if specified
             cmd: "ansible-galaxy collection install {{SELF.file}}"
