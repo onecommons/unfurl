@@ -13,7 +13,7 @@ Instances are represented as a dictionary containing its properties and attribut
   :SELF: The current task's target instance.
   :HOST: The host of SELF.
   :ORCHESTRATOR: The instance Unfurl is running on (``localhost``)
-  :ORCHESTRATOR_HOST: Current task's ``operation_host``. If it is not declared, defaults to ``localhost``.
+  :OPERATION_HOST: Current task's ``operation_host``. If it is not declared, defaults to ``localhost``.
   :SOURCE: If the task's target instance is a relationship, its source instance
   :TARGET: If the task's target instance is a relationship, its target instance
   :task: A dictionary containing the current task's settings. Its keys include:

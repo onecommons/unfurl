@@ -1,6 +1,8 @@
+import os
 from pathlib import Path
+from click.testing import CliRunner, Result
 
-from .utils import isolated_lifecycle
+from .utils import DEFAULT_STEPS, isolated_lifecycle, lifecycle
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, run_job
 
@@ -115,3 +117,58 @@ def test_target_and_intent():
     src_path = str(Path(__file__).parent / "examples" / "deploy_artifact.yaml")
     job = run_job(src_path, dict(skip_save=True))
     assert job.get_outputs()["outputVar"].strip() == "Artifact: deploy_artifact intent deploy contents of deploy_artifact parent: configuration"
+
+
+collection_ensemble = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/artifacts.yaml
+
+    topology_template:
+      node_templates:
+        test:
+          type: unfurl.nodes.Generic
+          artifacts:
+            ansible.netcommon:
+              type: artifact.AnsibleCollection
+              file: ansible.netcommon
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: Template
+                    dependencies:
+                      - ansible.netcommon  # a (smallish) collection not currently installed
+                  inputs:
+                      done:
+                        status: ok
+changes: []
+"""
+
+def test_collection_artifact():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem(
+        os.getenv("UNFURL_TEST_TMPDIR")
+    ) as tmp_path:
+        os.environ["ANSIBLE_COLLECTIONS_PATH"] = tmp_path
+        runner = Runner(YamlManifest(collection_ensemble))
+        run1 = runner.run()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+        assert len(run1.workDone) == 1, run1.summary()
+        # print ( run1.json_summary(True) )
+        assert run1.json_summary()["external_jobs"][0]["job"]["ok"] == 4, run1.summary()
+
+        coll_path = os.path.join(tmp_path, "ansible_collections", 'ansible')
+        assert os.listdir(coll_path) == ['netcommon', 'utils']
+
+        runner = Runner(YamlManifest(collection_ensemble))
+        run1 = runner.run()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+        assert len(run1.workDone) == 1, run1.summary()
+        assert run1.json_summary()["external_jobs"][0]["job"]["ok"] == 2, run1.summary()
+        # print ( run1.json_summary(True) )

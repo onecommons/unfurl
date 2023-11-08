@@ -70,8 +70,6 @@ artifact_types:
 
 # https://docs.ansible.com/ansible/latest/collections_guide/index.html
 # https://docs.ansible.com/ansible/latest/reference_appendices/config.html#collections-paths
-# preinstalled (on container), install on localhost, in ensemble/spec
- # COLLECTIONS_PATHS
   artifact.AnsibleCollection:
     derived_from: tosca.artifacts.Root
     properties:
@@ -100,13 +98,9 @@ artifact_types:
           inputs:
             # XXX add version if specified
             cmd: "ansible-galaxy collection install {{SELF.file}}"
-        delete:
-          implementation: Cmd
-          inputs:
-            # first directory in the collections path
-            cmd: "rm -rf {{ lookup('env', 'COLLECTIONS_PATHS' }.split(':')[0] }}/{{ SELF.file.replace('.', '/') }}"
-
-
+            resultTemplate:
+              eval:
+                python: unfurl.configurators.ansible.reload_collections
 
   # XXX update TerraformConfigurator to read from artifact
   # unfurl.artifacts.TerraformModule:

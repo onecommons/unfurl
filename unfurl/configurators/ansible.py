@@ -438,8 +438,7 @@ def _render_playbook(playbook, _inventory, args):
     return args
 
 
-def _run_playbooks(args, params=None, vault_secrets=None):
-    logger.info("running " + " ".join(args))
+def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
     from ansible.plugins.loader import _configure_collection_loader
     from ansible.utils.collection_loader._collection_finder import (
@@ -448,6 +447,11 @@ def _run_playbooks(args, params=None, vault_secrets=None):
 
     AnsibleCollectionConfig._collection_finder = None
     _configure_collection_loader()
+
+
+def _run_playbooks(args, params=None, vault_secrets=None):
+    logger.info("running " + " ".join(args))
+    reload_collections()
     cli = PlaybookCLI(args)
 
     context._init_global_context = _init_global_context
