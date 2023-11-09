@@ -133,9 +133,9 @@ spec:
         test:
           type: unfurl.nodes.Generic
           artifacts:
-            ansible.netcommon:
+            mdellweg.filters:
               type: artifact.AnsibleCollection
-              file: ansible.netcommon
+              file: mdellweg.filters
           interfaces:
             Standard:
               operations:
@@ -143,8 +143,12 @@ spec:
                   implementation:
                     className: Template
                     dependencies:
-                      - ansible.netcommon  # a (smallish) collection not currently installed
+                      - mdellweg.filters  # a small collection not currently installed
                   inputs:
+                      run:
+                        - eval:
+                            python: unfurl.configurators.ansible.reload_collections
+                        - "{{ 'test' | mdellweg.filters.repr }}"
                       done:
                         status: ok
 changes: []
@@ -156,6 +160,7 @@ def test_collection_artifact():
         os.getenv("UNFURL_TEST_TMPDIR")
     ) as tmp_path:
         os.environ["ANSIBLE_COLLECTIONS_PATH"] = tmp_path
+        os.mkdir(os.path.join(tmp_path, "ansible_collections"))
         runner = Runner(YamlManifest(collection_ensemble))
         run1 = runner.run()
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
@@ -163,8 +168,8 @@ def test_collection_artifact():
         # print ( run1.json_summary(True) )
         assert run1.json_summary()["external_jobs"][0]["job"]["ok"] == 4, run1.summary()
 
-        coll_path = os.path.join(tmp_path, "ansible_collections", 'ansible')
-        assert os.listdir(coll_path) == ['netcommon', 'utils']
+        coll_path = os.path.join(tmp_path, "ansible_collections")
+        assert os.listdir(coll_path) == ['mdellweg']
 
         runner = Runner(YamlManifest(collection_ensemble))
         run1 = runner.run()

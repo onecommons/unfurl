@@ -19,11 +19,12 @@ from . import TemplateConfigurator, TemplateInputs
 from ..configurator import Status
 from ..result import serialize_value
 from ..util import assert_form
+from ..logs import getLogger
 
+logger = getLogger("unfurl")
 
 display = Display()
 
-logger = logging.getLogger("unfurl")
 
 
 class AnsibleInputs(TemplateInputs):
@@ -444,9 +445,11 @@ def reload_collections(ctx=None):
     from ansible.utils.collection_loader._collection_finder import (
         AnsibleCollectionConfig,
     )
-
+    for pkg in ['ansible_collections', 'ansible_collections.ansible']:
+        AnsibleCollectionConfig._collection_finder._reload_hack(pkg)
     AnsibleCollectionConfig._collection_finder = None
     _configure_collection_loader()
+    logger.trace("reloaded ansible collections finder")
 
 
 def _run_playbooks(args, params=None, vault_secrets=None):
