@@ -442,13 +442,15 @@ def _render_playbook(playbook, _inventory, args):
 def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
     from ansible.plugins.loader import _configure_collection_loader
-    from ansible.utils.collection_loader._collection_finder import (
-        AnsibleCollectionConfig,
-    )
-    for pkg in ['ansible_collections', 'ansible_collections.ansible']:
-        AnsibleCollectionConfig._collection_finder._reload_hack(pkg)
+    import ansible.utils.collection_loader._collection_finder
+    import ansible.template
+    AnsibleCollectionConfig = ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
     AnsibleCollectionConfig._collection_finder = None
     _configure_collection_loader()
+    for pkg in ['ansible_collections', 'ansible_collections.ansible']:
+        AnsibleCollectionConfig._collection_finder._reload_hack(pkg)  # type: ignore
+    # jinja2 templates won't get the updated collection finder without this:
+    ansible.template._get_collection_metadata = ansible.utils.collection_loader._collection_finder._get_collection_metadata
     logger.trace("reloaded ansible collections finder")
 
 

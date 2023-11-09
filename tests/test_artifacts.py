@@ -146,8 +146,6 @@ spec:
                       - mdellweg.filters  # a small collection not currently installed
                   inputs:
                       run:
-                        - eval:
-                            python: unfurl.configurators.ansible.reload_collections
                         - "{{ 'test' | mdellweg.filters.repr }}"
                       done:
                         status: ok
@@ -160,7 +158,6 @@ def test_collection_artifact():
         os.getenv("UNFURL_TEST_TMPDIR")
     ) as tmp_path:
         os.environ["ANSIBLE_COLLECTIONS_PATH"] = tmp_path
-        os.mkdir(os.path.join(tmp_path, "ansible_collections"))
         runner = Runner(YamlManifest(collection_ensemble))
         run1 = runner.run()
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
