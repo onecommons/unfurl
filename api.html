@@ -1558,7 +1558,9 @@ return that repository and a path relative to it</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_paths">
 <span class="sig-name descname"><span class="pre">get_paths</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_paths" title="Permalink to this definition"></a></dt>
-<dd><p>If asdf is installed, build a PATH list from .toolversions
+<dd><p>Return a list of directories for $PATH.
+Includes the directory the <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> script is installed in and,
+if asdf is installed, appends a PATH list from the <code class="docutils literal notranslate"><span class="pre">.toolversions</span></code>
 found in the current project and the home project.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type</dt>
