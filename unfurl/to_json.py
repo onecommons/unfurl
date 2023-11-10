@@ -725,6 +725,7 @@ def node_type_to_graphql(
       requirements: [RequirementConstraint!]
       implementations: [String]
       implementation_requirements: [String]
+      metadata: JSON
       _sourceinfo: JSON
     }
     """
@@ -751,10 +752,12 @@ def node_type_to_graphql(
         if "details_url" in inherited_metadata:
             jsontype["details_url"] = inherited_metadata["details_url"]
     if metadata:
+        # we don't want the inherited values for these
         if "title" in metadata:
             jsontype["title"] = metadata["title"]
         if metadata.get("internal"):
             visibility = "hidden"
+        jsontype["metadata"] = metadata
 
     if typename in custom_defs:
         _source = custom_defs[typename].get("_source")
