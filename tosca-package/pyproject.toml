@@ -1,6 +1,6 @@
 [project]
 name = "tosca"
-version = "0.0.5"
+version = "0.0.6"
 requires-python = ">=3.7"
 authors = [
   { name="Adam Souzis", email="adam@onecommons.org" },
@@ -17,6 +17,13 @@ dependencies = [
   "typing_extensions>=4.7.1",
   "RestrictedPython==6.2",
 ]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+"tosca.vendor.toscaparser.elements" = ["*.yaml"]
 
 [project.urls]
 Homepage = "https://www.unfurl.cloud"
