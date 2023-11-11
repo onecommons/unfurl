@@ -513,7 +513,7 @@ def test_set_constraints() -> None:
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
             cls.set_source(cls.host, cls.prop1)
 
-        def create(self) -> tosca.artifacts.Root:
+        def create(self, **kw) -> tosca.artifacts.Root:
             return self.shellScript.execute(input1=self.prop1)
 
     # print( str(inspect.signature(Example.__init__)) )
@@ -646,16 +646,19 @@ topology_template:
 
 def test_envvar_type():
     import tosca
-    from tosca import Property
+    from tosca import Property, DEFAULT
     import unfurl
-    class MyDataType(unfurl.datatypes.EnvironmentVariables):
-        name: str = "default_name"
 
-    class Example(tosca.nodes.Root):
-        # data = MyDataType() # XXX support type inference
-        # data: MyDataType # XXX don't require if the type can be constructed automatically
-        data: MyDataType = Property(factory=MyDataType)
+    class Namespace(tosca.Namespace):
+        # we can't resolve forward references to classes defined in local scope
+        # (like "MyDataType" below) so we need to place them in a namespace
+        class Example(tosca.nodes.Root):
+            data: "MyDataType" = DEFAULT
 
+        class MyDataType(unfurl.datatypes.EnvironmentVariables):
+            name: str = "default_name"
+
+    Example = Namespace.Example
     test = Example()
 
     class pcls(tosca.InstanceProxy):

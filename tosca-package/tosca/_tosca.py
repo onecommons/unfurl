@@ -366,6 +366,18 @@ REQUIRED = _REQUIRED_TYPE()
 MISSING = dataclasses.MISSING
 
 
+class _DEFAULT_TYPE:
+    pass
+
+
+DEFAULT: Any = _DEFAULT_TYPE()
+
+
+class _CONSTRAINED_TYPE:
+    pass
+
+CONSTRAINED: Any = _CONSTRAINED_TYPE()
+
 class Options(frozenset):
     def asdict(self):
         return {n: True for n in self}
@@ -422,9 +434,9 @@ class _Tosca_Field(dataclasses.Field):
             # we have to have all fields have a default value
             # because the ToscaType base classes have init fields with default values
             # and python < 3.10 dataclasses will raise an error
-            # XXX add  __post_init that raises error if value is REQUIRED (i.e. keyword argument was missing)
             args[1] = REQUIRED  # set default
         dataclasses.Field.__init__(*args)
+        self.owner = owner
         self._tosca_field_type = field_type
         self._tosca_name = name
         # note self.name and self.type are set later (in dataclasses._get_field)
@@ -433,7 +445,7 @@ class _Tosca_Field(dataclasses.Field):
         self.status = status
         self.declare_attribute = declare_attribute
         self.constraints: List[DataConstraint] = constraints or []
-        self.owner = owner
+        self.deferred_property_assignments: Dict[str, Any] = {}
 
     def set_constraint(self, val):
         # this called via _set_constraints
@@ -464,14 +476,16 @@ class _Tosca_Field(dataclasses.Field):
         # if self is a capability or artifact, name is a property on the capability or artifact
         # if self is property or attribute, name is a field on the value (which must be a datatype or map)
         if (
-            self.default is dataclasses.MISSING
-            or self.default is None
+            (self.default is MISSING and self.default_factory is MISSING)
             or isinstance(self.default, _Ref)
         ):
             # there's no value to set the attribute on!
             raise AttributeError(
-                "can not set {name} on {self}: property constraints require a concrete default value"
+                "can not set value for {name} on {self}: property constraints require a concrete default value"
             )
+        elif self.default_factory is not MISSING:
+            # default exists but not created until object initialization
+            self.deferred_property_assignments[name] = val
         else:
             # XXX validate name is valid property and that val is compatible type
             # XXX mark default as a constraint
@@ -757,8 +771,8 @@ class _Tosca_Field(dataclasses.Field):
             value.name = name
             if (
                 not value.type
-                and value.default is not dataclasses.MISSING
-                and value.default is not REQUIRED
+                and value.default not in [dataclasses.MISSING, REQUIRED, DEFAULT, CONSTRAINED]
+                and not isinstance(value, (_Ref, _TemplateRef))
             ):
                 value.type = type(value)
             return value
@@ -978,7 +992,7 @@ def find_relationship(name: str) -> Any:
 
 class FieldProjection(_Ref):
     "A reference to a tosca field or projection off a tosca field"
-    # created by _DataclassTypeProxy, invoked via _set_constraint
+    # created by _DataclassTypeProxy, invoked via _set_constraints
 
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
@@ -996,6 +1010,8 @@ class FieldProjection(_Ref):
         # cls = self._resolve_class(self.field.type)
         try:
             ti = self.field.get_type_info()
+            if not issubclass(ti.types[0], ToscaType):
+                return self.field.default
             field = ti.types[0].__dataclass_fields__[name]
             return FieldProjection(field, self)
         except:
@@ -1013,25 +1029,30 @@ class FieldProjection(_Ref):
             raise ValueError(
                 f"Can't set {name} on {self}: Only one level of field projection currently supported"
             )
-        try:
-            ti = self.field.get_type_info()
-            field = ti.types[0].__dataclass_fields__[name]
-        except:
-            # couldn't resolve the type
-            # XXX if current field type isn't a requirement we can assume name is property
-            raise AttributeError(
-                f"Can't project {name} from {self}: Only one level of field projection currently supported"
-            )
-        else:
-            if field.tosca_field_type in [
-                ToscaFieldType.property,
-                ToscaFieldType.attribute,
-            ]:
-                self.field.set_property_constraint(name, val)
-            else:
-                raise ValueError(
-                    f'{ti.types} Can not set "{name}" on {self}: "{name}" is a {field.tosca_field_type.name}, not a TOSCA property'
+        if self.field.tosca_field_type == ToscaFieldType.requirement:
+            # this will create a property node_filter so we need to figure out what name
+            # XXX supporting match filters for name is a requirement
+            try:
+                ti = self.field.get_type_info()
+                field = ti.types[0].__dataclass_fields__[name]
+            except:
+                # couldn't resolve the type
+                # XXX if current field type isn't a requirement we can assume name is property
+                raise AttributeError(
+                    f"Can't project {name} from {self}: Only one level of field projection currently supported"
                 )
+            else:
+                if field.tosca_field_type in [
+                    ToscaFieldType.property,
+                    ToscaFieldType.attribute,
+                ]:
+                    self.field.set_property_constraint(name, val)
+                else:
+                    raise ValueError(
+                        f'{ti.types} Can not set "{name}" on {self}: "{name}" is a {field.tosca_field_type.name}, not a TOSCA property'
+                    )
+        else:
+            self.field.set_property_constraint(name, val)
 
     def __delattr__(self, name):
         raise AttributeError(name)
@@ -1080,7 +1101,7 @@ def get_annotations(o):
 
 
 class _DataclassTypeProxy:
-    # this is wraps the data type class passed to _set_constraint
+    # this is wraps the data type class passed to _set_constraints
     # we need this to because __setattr__ and __set__ descriptors don't work on cls attributes
     # (and __set_name__ isn't called after class initialization)
 
@@ -1147,6 +1168,9 @@ def _make_dataclass(cls):
                     if field:
                         field.name = name
                         field.type = annotation
+                        if default is DEFAULT:
+                            field.default = MISSING
+                            field.default_factory = lambda: field.get_type_info().types[0]()
         else:
             annotations = {}
             cls.__annotations__ = annotations
@@ -1178,7 +1202,7 @@ def _make_dataclass(cls):
             cls.__module__ in sys.modules
         ), cls.__module__  # _process_class checks this
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
-        # note: _process_class replaces each field with its default value (or delete the attribute)
+        # note: _process_class replaces each field with its default value (or deletes the attribute)
         # replace those with _FieldDescriptors to allow class level attribute access to be customized
         for name in annotations:
             if name[0] != "_":
@@ -1448,6 +1472,19 @@ class ToscaType(_ToscaType):
         default=None, init=False, repr=False
     )
 
+    def __post_init__(self):
+        # internal bookkeeping
+        self._instance_fields: Optional[Dict[str, Tuple[_Tosca_Field, Any]]] = None
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        for field in fields.values():
+            if getattr(self, field.name) is REQUIRED:
+                # on Python < 3.10 we set this to workaround lack of keyword only fields
+                raise ValueError(f'Keyword argument was missing: {field.name} on "{self}".')
+            elif getattr(field, "deferred_property_assignments", None):
+                target = getattr(self, field.name)
+                for name, value in field.deferred_property_assignments.items():
+                    setattr(target, name, value)
+
     # XXX version (type and template?)
 
     def register_template(self, current_module, name):
@@ -1648,10 +1685,10 @@ class ToscaType(_ToscaType):
             if isinstance(value, _Tosca_Field):
                 # field assigned directly to the object
                 field = value
-                if field.default_factory is not dataclasses.MISSING:
-                    value = field.default_factory()
-                elif field.default is not dataclasses.MISSING:
+                if field.default is not dataclasses.MISSING:
                     value = field.default
+                elif field.default_factory is not dataclasses.MISSING:
+                    value = field.default_factory()
                 else:
                     continue
                 yield field, value
