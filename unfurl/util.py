@@ -47,25 +47,9 @@ import string
 import random
 from click.termui import unstyle
 
-try:
-    from shutil import which
-except ImportError:
-    from distutils import spawn
-
-    def which(executable, mode=os.F_OK | os.X_OK, path=None):  # type: ignore
-        executable = spawn.find_executable(executable, path)
-        if executable:
-            if os.access(executable, mode):
-                return executable
-        return None
-
-
-try:
-    import importlib.util
-
-    imp = None
-except ImportError:
-    import imp  # type: ignore
+from shutil import which
+import importlib
+import importlib.util
 from .logs import LogExtraLevels, sensitive, is_sensitive
 import logging
 
@@ -264,26 +248,17 @@ def load_module(path: str, full_name: str = None) -> ModuleType:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        if imp is None:  # Python 3
-            spec = importlib.util.spec_from_file_location(
-                full_name, os.path.abspath(path)
-            )
-            # XXX: spec might be None
-            module = importlib.util.module_from_spec(spec)  # type: ignore
-            spec.loader.exec_module(module)  # type: ignore
-            sys.modules[full_name] = module
-        else:
-            with open(to_bytes(path), "rb") as module_file:
-                # to_native is used here because imp.load_source's path is for tracebacks and python's traceback formatting uses native strings
-                module = imp.load_source(
-                    to_native(full_name), to_native(path), module_file
-                )
+        spec = importlib.util.spec_from_file_location(
+            full_name, os.path.abspath(path)
+        )
+        # XXX: spec might be None
+        module = importlib.util.module_from_spec(spec)  # type: ignore
+        spec.loader.exec_module(module)  # type: ignore
+        sys.modules[full_name] = module
     return module
 
 
 def load_class(klass: str, defaultModule: str = "__main__") -> object:
-    import importlib
-
     prefix, sep, suffix = klass.rpartition(".")
     module = importlib.import_module(prefix or defaultModule)
     return getattr(module, suffix, None)
