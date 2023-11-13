@@ -125,7 +125,7 @@ class PythonToYaml:
         if imports:
             self.sections.setdefault("imports", []).extend(imports)
 
-    def add_template(self, obj: ToscaType, name: str = "") -> str:
+    def add_template(self, obj: ToscaType, name: str = "", module_name="") -> str:
         section = self.sections["topology_template"].setdefault(
             obj._template_section, self.yaml_cls()
         )
@@ -133,6 +133,9 @@ class PythonToYaml:
         if name not in section:
             section[name] = obj  # placeholder to prevent circular references
             section[name] = obj.to_template_yaml(self)
+            if module_name:
+                section[name].setdefault("metadata", {})["module"] = module_name
+                obj.register_template(module_name, name)
         return name
 
     def set_requirement_value(self, req: dict, value, default_node_name: str):
@@ -171,9 +174,6 @@ class PythonToYaml:
 
         path = Path(get_module_path(module))
         yaml_path = path.parent / (path.stem + ".yaml")
-        if not self.safe_mode and self.import_resolver:
-            # register this even if we don't need to convert
-            self.import_resolver.register_import(module.__name__, yaml_path)
         assert module.__file__
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
             logger.info(
@@ -267,9 +267,7 @@ class PythonToYaml:
                 if (isinstance(obj, NodeType) or obj._name) and not isinstance(
                     obj, InstanceProxy
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
-                    self.add_template(obj, name)
-                    if not self.safe_mode:
-                        obj.register_template(current_module, name)
+                    self.add_template(obj, name, current_module)
             else:
                 section = getattr(obj, "_template_section", "")
                 to_yaml = getattr(obj, "to_yaml", None)

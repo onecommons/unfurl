@@ -156,6 +156,7 @@ class Manifest(AttributeManager):
             spec, self.path, repositories, more_spec, skip_validation, fragment
         )
         self.specDigest = self.get_spec_digest(spec)
+        tosca.global_state.mode = "runtime"
 
     def _find_repo(self) -> Optional["GitRepo"]:
         # check if this path exists in the repo

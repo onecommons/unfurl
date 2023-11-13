@@ -1,6 +1,8 @@
-from typing import Optional
+from typing import List, Optional
 import unittest
+
 import unfurl
+from .utils import init_project, run_job_cmd
 from mypy import api
 import tosca
 from unfurl.localenv import LocalEnv
@@ -9,6 +11,7 @@ import os
 import sys
 from unfurl.yamlloader import yaml, load_yaml
 from tosca.python2yaml import PythonToYaml
+from click.testing import CliRunner
 
 
 def _verify_mypy(path):
@@ -27,6 +30,7 @@ def test_constraints():
         "node_templates": {
             "myapp": {
                 "type": "App",
+                "metadata": {"module": "service_template.constraints"},
                 "requirements": [
                     {"container": "container_service"},
                     {"proxy": "myapp_proxy"},
@@ -49,7 +53,7 @@ def test_constraints():
                 },
             },
         }
-    }, service_template["topology_template"]
+    }
     assert service_template["node_types"] == {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
@@ -103,7 +107,7 @@ def test_constraints():
                 },
             ],
         },
-    }, service_template["node_types"]
+    }
 
     root = manifest.tosca.topology.get_node_template("myapp")
     assert root
@@ -175,3 +179,117 @@ def test_set_constraints() -> None:
     tosca_yaml = load_yaml(yaml, constraints_yaml)
     # yaml.dump(yaml_dict, sys.stdout)
     assert tosca_yaml == yaml_dict
+
+
+attribute_access_ensemble = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    +include: types.py
+    topology_template:
+      outputs:
+        computed:
+          value:
+            eval: ::test::computed
+        url:
+          value:
+            eval: ::test::url
+        ports:
+          value:
+            eval: ::test::data::ports
+        a_list:
+          value:
+            eval: ::test::int_list
+        extra:
+          value:
+            eval: ::generic::copy_of_extra
+"""
+
+attribute_access_import = """
+import tosca
+import unfurl
+from typing import List, Optional
+
+class Test(tosca.nodes.Root):
+    url_scheme: str
+    host: str
+    computed: str = tosca.Attribute()
+    data: "MyDataType" = tosca.DEFAULT
+    int_list: List[int] = tosca.DEFAULT
+    data_list: List["MyDataType"] = tosca.DEFAULT
+    a_requirement: unfurl.nodes.Generic
+
+    @tosca.computed(
+        title="URL",
+        metadata={"sensitive": True},
+    )
+    def url(self) -> str:
+        return f"{ self.url_scheme }://{self.host }"
+
+    def run(self, task):
+        self.computed = self.url()
+        self.data.ports.source = 80
+        self.data.ports.target = 8080
+        self.int_list.append(1)
+        extra = self.a_requirement.extra
+        self.a_requirement.copy_of_extra = extra
+
+        # XXX make this work:
+        # self.data_list.append(MyDataType())
+        # self.data_list[0].ports.source = 80
+        # self.data_list[0].ports.target = 8080
+        return True
+
+    def create(self, **kw):
+        return self.run
+
+class MyDataType(tosca.DataType):
+    ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
+                factory=lambda: tosca.datatypes.NetworkPortSpec(**tosca.PortSpec.make(80))
+              )
+
+generic = unfurl.nodes.Generic("generic")
+generic.extra = "extra"
+test = Test(url_scheme="https", host="foo.com", a_requirement=generic)
+"""
+
+
+def test_computed_properties():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        init_project(
+            cli_runner,
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(attribute_access_ensemble)
+
+        with open("types.py", "w") as f:
+            f.write(attribute_access_import)
+
+        result, job, summary = run_job_cmd(cli_runner, print_result=True)
+        expected = {
+            "computed": "https://foo.com",
+            "url": "https://foo.com",
+            "ports": {
+                "protocol": None,
+                "target": 8080,
+                "target_range": None,
+                "source": 80,
+                "source_range": None,
+            },
+            "a_list": [1],
+            "extra": "extra",
+        }
+        assert job.get_outputs() == expected
+        assert job.json_summary()["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        }

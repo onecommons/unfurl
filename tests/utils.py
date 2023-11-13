@@ -217,7 +217,7 @@ def run_cmd(runner: CliRunner, args, print_result=False, env=None) -> Result:
     return result
 
 
-def run_job_cmd(runner: CliRunner, args=("deploy",), starttime=1, print_result=False, env=None) -> Tuple[Result, Job, dict]:
+def run_job_cmd(runner: CliRunner, args=("-vvv", "deploy",), starttime=1, print_result=False, env=None) -> Tuple[Result, Job, dict]:
     _args = list(args)
     if starttime:
         _args.append(f"--starttime={starttime}")

@@ -348,7 +348,7 @@ class ToscaSpec:
             self.template = toscaDef
             assert self.template.topology_template
             self.topology = TopologySpec(
-                self.template.topology_template, self, None, inputs
+                self.template.topology_template, self, None, inputs, path
             )
         else:
             self.template = None
@@ -1338,13 +1338,22 @@ class RequirementSpec:
         self.source = self.parentNode = parent
         self.spec = parent.spec
         self.name: str = name
-        self.entity_tpl: Dict[str, Any] = req
+        self.entity_tpl: Dict[str, Any] = req  # note: merged with type definition
         self.relationship: Optional[RelationshipSpec] = None
         self.type_tpl = type_tpl
         # entity_tpl may specify:
         # capability (definition name or type name), node (template name or type name), and node_filter,
         # relationship (template name or type name or inline relationship template)
         # occurrences
+
+    def has_relationship_template(self):
+        "Was a relationship template assigned to this requirement?"
+        declared_rel = self.entity_tpl.get("relationship")
+        if declared_rel:
+            if isinstance(declared_rel, dict):
+                return True
+            return not self.spec.is_type_name(declared_rel)
+        return False
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.name}'):{self.entity_tpl}"
@@ -1797,11 +1806,11 @@ class ArtifactSpec(EntitySpec):
         else:
             path = self.get_path()
             if path:
-              if os.path.isfile(path):
-                  # XXX get loader and yaml from self.spec.template.import_resolver
-                  return File(path)
-              else:
-                  return FilePath(path)
+                if os.path.isfile(path):
+                    # XXX get loader and yaml from self.spec.template.import_resolver
+                    return File(path)
+                else:
+                    return FilePath(path)
         return None
 
 

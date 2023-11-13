@@ -1,6 +1,7 @@
 # Copyright (c) 2021 Adam Souzis
 # SPDX-License-Identifier: MIT
 import collections
+import importlib
 import re
 from typing import (
     TYPE_CHECKING,
@@ -126,6 +127,14 @@ class ConfigurationSpec:
 
     def create(self):
         className = self.className
+        if ":" in className:
+            from .dsl import DslMethodConfigurator
+            module_name, sep, qualname = className.partition(":")
+            module = importlib.import_module(module_name)
+            cls_name, sep, func_name = qualname.rpartition(".")
+            cls = getattr(module, cls_name)
+            return DslMethodConfigurator(cls, getattr(cls, func_name))
+
         klass = lookup_class(className)
         if not klass:
             raise UnfurlError(f"Could not load configurator {self.className}")
@@ -425,7 +434,7 @@ class TaskRequest(PlanRequest):
         )
         task._finished_workflow(explicit_status, workflow)
 
-    def _get_artifact_plan(self, artifact):
+    def _get_artifact_plan(self, artifact: Optional[ArtifactSpec]):
         # the artifact has an interface so it needs to be installed on the operation_host
         if artifact and artifact.get_interfaces():
             # the same global artifact can have different local names when declared on a node template
@@ -444,6 +453,7 @@ class TaskRequest(PlanRequest):
                 else:
                     return JobRequest([existing])
             else:
+                # XXX what if there's another artifact with the same name?
                 if not operation_host.template.get_template(name):
                     # template isn't defined, define inline
                     artifact_tpl = artifact.toscaEntityTemplate.entity_tpl
@@ -986,7 +996,9 @@ def _find_implementation(
     return default
 
 
-def find_resources_from_template_name(root: HasInstancesInstance, name: str) -> Iterator[HasInstancesInstance]:
+def find_resources_from_template_name(
+    root: HasInstancesInstance, name: str
+) -> Iterator[HasInstancesInstance]:
     # XXX make faster
     for resource in root.get_self_and_descendants():
         if resource.template.name == name:
@@ -1234,6 +1246,20 @@ def _set_config_spec_args(
             fullpath = os.path.join(base_dir, path)
             mod = load_module(fullpath)
             klass = getattr(mod, fragment)  # raise if missing
+        elif ":" in className and len(shlex.split(className)) == 1:
+            # its a dsl method, handle in ConfigurationSpec.create
+            if dry_run and template:
+                mock_op = _find_implementation(
+                    "Mock", kw.get("operation") or "", template
+                )
+                if mock_op:
+                    return _get_config_spec_args_from_implementation(
+                        mock_op,
+                        mock_op.inputs or {},
+                        template,
+                        kw.get("operation_host"),
+                    )
+            return kw
         else:
             klass = lookup_class(className)
     except Exception:

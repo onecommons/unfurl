@@ -371,12 +371,16 @@ class ExternalValue(ChangeAware):
 
 
 class _Sentinal:
-    pass
+    def __init__(self, name):
+        self.name = name
+
+    def __str__(self):
+        return "<Sentinal: " + self.name + ">"
 
 
-_Deleted = _Sentinal()
-_Get = _Sentinal()
-_RecursionGuard = _Sentinal()
+_Deleted = _Sentinal("_Deleted")
+_Get = _Sentinal("_Get")
+_RecursionGuard = _Sentinal("_RecursionGuard")
 
 
 class Result(ChangeAware):
@@ -413,12 +417,11 @@ class Result(ChangeAware):
         return self.resolved
 
     def has_diff(self):
-        if self.original is not _Get:
-            # this Result is a new or modified
-            if isinstance(self.resolved, Results):
-                return self.resolved.has_diff()
-            else:
-                return self.original != self.resolved
+        if isinstance(self.resolved, Results):
+            return self.resolved.has_diff()
+        elif self.original is not _Get:
+            # this Result is new or modified
+            return self.original != self.resolved
         return False
 
     def get_diff(self):
@@ -541,7 +544,13 @@ class Results(ABC):
     def resolve_all(self):
         ...
 
-    def __init__(self, serializedOriginal, resourceOrCxt, validate=False, defs: Optional[Dict[str, Property]]=None):
+    def __init__(
+        self,
+        serializedOriginal,
+        resourceOrCxt,
+        validate=False,
+        defs: Optional[Dict[str, Property]] = None,
+    ):
         from .eval import RefContext
 
         assert not isinstance(serializedOriginal, Results), serializedOriginal
@@ -805,7 +814,6 @@ class ResultsMap(Results, MutableMapping):
 
         for key in self._deleted:
             diffDict[key] = {"+%": "delete"}
-
         return diffDict
 
 

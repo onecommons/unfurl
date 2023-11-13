@@ -65,7 +65,6 @@ def dump_yaml(namespace, out=sys.stdout):
         yaml.dump(doc, out)
     return doc
 
-
 def _generate_builtin(generate, builtin_path=None):
     import_resolver = ImportResolver(None)  # type: ignore
     python_src = generate(import_resolver, True)
@@ -295,6 +294,8 @@ topology_template:
   node_templates:
     db_server:
       type: tosca.nodes.Compute
+      metadata:
+        module: service_template
       capabilities:
         # Host container properties
         host:
@@ -354,6 +355,8 @@ topology_template:
   node_templates:
     wordpress_db:
       type: tosca.nodes.Database
+      metadata:
+        module: service_template
       properties:
         name: { get_input: wordpress_db_name }
         user: { get_input: wordpress_db_user }
@@ -364,6 +367,8 @@ topology_template:
 
     mysql:
       type: tosca.nodes.DBMS
+      metadata:
+        module: service_template
 """
 
 example_template_python = """
@@ -519,8 +524,9 @@ def test_set_constraints() -> None:
     # print( str(inspect.signature(Example.__init__)) )
 
     my_template = Example("my_template")
-
+    tosca.global_state.mode = "spec"
     assert my_template.prop1 == {"eval": "::my_template::prop1"}
+    tosca.global_state.mode = "runtime"  # test to make sure converter sets this back to spec
     __name__ = "tests.test_dsl"
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
@@ -585,6 +591,8 @@ topology_template:
   node_templates:
     test:
       type: Example
+      metadata:
+        module: tests.test_dsl
       properties:
         data:
           prop1: test
@@ -638,6 +646,8 @@ topology_template:
   node_templates:
     test:
       type: Example
+      metadata:
+        module: tests.test_dsl
       properties:
         data:
           name: default_name

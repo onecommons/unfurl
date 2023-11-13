@@ -42,6 +42,7 @@ import logging
 
 logger = logging.getLogger("tosca")
 
+from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements.datatype import DataType as ToscaDataType
 from .scalars import *
 
@@ -52,7 +53,7 @@ if typing.TYPE_CHECKING:
 
 class _LocalState(threading.local):
     def __init__(self, **kw):
-        self.mode = "spec"
+        self.mode = "spec"  # "yaml", "runtime"
         self._in_process_class = False
         self.safe_mode = False
         self.__dict__.update(kw)
@@ -195,6 +196,31 @@ def operation(
         func.outputs = outputs
         func.entry_state = entry_state
         func.invoke = invoke
+        return func
+
+    return decorator_operation
+
+
+def computed(
+    name="",
+    metadata: Optional[Dict[str, str]] = None,
+    title: str = "",
+    status: str = "",
+    options: Optional["PropertyOptions"] = None,
+) -> Callable:
+    def decorator_operation(func):
+        func.computed = _Tosca_Field(
+            ToscaFieldType.property,
+            default=_Ref(
+                {"eval": dict(computed=f"{func.__module__}:{func.__qualname__}")}
+            ),
+            name=name or func.__name__,
+            metadata=metadata,
+            title=title,
+            status=status,
+            options=options,
+        )
+        func.computed.type = inspect.signature(func).return_annotation
         return func
 
     return decorator_operation
@@ -376,7 +402,9 @@ DEFAULT: Any = _DEFAULT_TYPE()
 class _CONSTRAINED_TYPE:
     pass
 
+
 CONSTRAINED: Any = _CONSTRAINED_TYPE()
+
 
 class Options(frozenset):
     def asdict(self):
@@ -446,6 +474,7 @@ class _Tosca_Field(dataclasses.Field):
         self.declare_attribute = declare_attribute
         self.constraints: List[DataConstraint] = constraints or []
         self.deferred_property_assignments: Dict[str, Any] = {}
+        self._type_info: Optional[TypeInfo] = None
 
     def set_constraint(self, val):
         # this called via _set_constraints
@@ -475,9 +504,8 @@ class _Tosca_Field(dataclasses.Field):
 
         # if self is a capability or artifact, name is a property on the capability or artifact
         # if self is property or attribute, name is a field on the value (which must be a datatype or map)
-        if (
-            (self.default is MISSING and self.default_factory is MISSING)
-            or isinstance(self.default, _Ref)
+        if (self.default is MISSING and self.default_factory is MISSING) or isinstance(
+            self.default, _Ref
         ):
             # there's no value to set the attribute on!
             raise AttributeError(
@@ -565,9 +593,11 @@ class _Tosca_Field(dataclasses.Field):
         return self.owner._resolve_class(_type)
 
     def get_type_info(self) -> TypeInfo:
-        type_info = pytype_to_tosca_type(self.type)
-        types = tuple(self._resolve_class(t) for t in type_info.types)
-        return type_info._replace(types=types)
+        if not self._type_info:
+            type_info = pytype_to_tosca_type(self.type)
+            types = tuple(self._resolve_class(t) for t in type_info.types)
+            self._type_info = type_info._replace(types=types)
+        return self._type_info
 
     def get_type_info_checked(self) -> Optional[TypeInfo]:
         try:
@@ -609,6 +639,11 @@ class _Tosca_Field(dataclasses.Field):
     @property
     def section(self) -> str:
         return self.tosca_field_type.value
+
+    def make_default(self) -> Any:
+        return lambda: (
+            self.get_type_info().collection or self.get_type_info().types[0]
+        )()
 
     def to_yaml(self, converter: Optional["PythonToYaml"]) -> dict:
         if self.tosca_field_type == ToscaFieldType.property:
@@ -771,7 +806,8 @@ class _Tosca_Field(dataclasses.Field):
             value.name = name
             if (
                 not value.type
-                and value.default not in [dataclasses.MISSING, REQUIRED, DEFAULT, CONSTRAINED]
+                and value.default
+                not in [dataclasses.MISSING, REQUIRED, DEFAULT, CONSTRAINED]
                 and not isinstance(value, (_Ref, _TemplateRef))
             ):
                 value.type = type(value)
@@ -1170,7 +1206,7 @@ def _make_dataclass(cls):
                         field.type = annotation
                         if default is DEFAULT:
                             field.default = MISSING
-                            field.default_factory = lambda: field.get_type_info().types[0]()
+                            field.default_factory = field.make_default()
         else:
             annotations = {}
             cls.__annotations__ = annotations
@@ -1224,6 +1260,9 @@ class InstanceProxy(Generic[_PT]):
     """
 
     _cls: Type[_PT]
+
+    def __str__(self):
+        return f"<{self.__class__.__name__} of {self._cls} at {hex(id(self))}>"
 
 
 class _DataclassType(type):
@@ -1479,7 +1518,9 @@ class ToscaType(_ToscaType):
         for field in fields.values():
             if getattr(self, field.name) is REQUIRED:
                 # on Python < 3.10 we set this to workaround lack of keyword only fields
-                raise ValueError(f'Keyword argument was missing: {field.name} on "{self}".')
+                raise ValueError(
+                    f'Keyword argument was missing: {field.name} on "{self}".'
+                )
             elif getattr(field, "deferred_property_assignments", None):
                 target = getattr(self, field.name)
                 for name, value in field.deferred_property_assignments.items():
@@ -1597,6 +1638,18 @@ class ToscaType(_ToscaType):
                             cls_or_self, operation, converter
                         )
 
+    @classmethod
+    def _computed_yaml(cls, body, converter: Optional["PythonToYaml"]) -> None:
+        for methodname, operation in cls.__dict__.items():
+            if methodname[0] == "_":
+                continue
+            if cls.is_operation(operation):
+                computed = getattr(operation, "computed", None)
+                if computed:  # it's a computed property
+                    computed.owner = cls
+                    item = computed.to_yaml(converter)
+                    body.setdefault(computed.section, {}).update(item)
+
     @staticmethod
     def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
         dict_cls = converter and converter.yaml_cls or yaml_cls
@@ -1621,7 +1674,7 @@ class ToscaType(_ToscaType):
         op_def: Dict[str, Any] = dict_cls(
             implementation=to_tosca_value(implementation, dict_cls)
         )
-        if result.inputs:
+        if hasattr(result, "inputs"):
             op_def["inputs"] = to_tosca_value(result.inputs, dict_cls)
         description = getattr(operation, "__doc__", "")
         if description and description.strip():
@@ -1663,7 +1716,7 @@ class ToscaType(_ToscaType):
                     # a property that is also declared as an attribute
                     item = {field.tosca_name: field._to_attribute_yaml()}
                     body.setdefault("attributes", {}).update(item)
-
+        cls._computed_yaml(body, converter)
         if not converter or not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
             interfaces = cls._interfaces_yaml(cls, cls, converter)
@@ -1678,7 +1731,22 @@ class ToscaType(_ToscaType):
     def to_yaml(self, dict_cls=dict):
         return self._name
 
-    def get_fields(self):
+    def get_field(self, name) -> Optional[dataclasses.Field]:
+        field = object.__getattribute__(self, "__dataclass_fields__").get(name)
+        if field:
+            return field
+        field_and_value = self.get_instance_fields().get(name)
+        if field_and_value:
+            return field_and_value[0]
+        return None
+
+    def get_instance_fields(self):
+        if self._instance_fields is None:
+            # only do this once and save any generated values
+            self._instance_fields = dict(self._get_instance_fields())
+        return self._instance_fields
+
+    def _get_instance_fields(self):
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for name, value in self.__dict__.items():
             field = fields.get(name)
@@ -1691,24 +1759,27 @@ class ToscaType(_ToscaType):
                     value = field.default_factory()
                 else:
                     continue
-                yield field, value
+                yield name, (field, value)
+            # skip inference for methods and attributes starting with "_"
             elif not field and name[0] != "_" and not callable(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
                 if field.tosca_field_type != ToscaFieldType.property:
                     # the value was a data value or unrecognized, nothing to convert
                     continue
-                yield field, value
+                field.default = MISSING  # this whole field was missing
+                yield name, (field, value)
             elif isinstance(field, _Tosca_Field):
-                yield field, value
+                yield name, (field, value)
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
-        # XXX directives, metadata, everything else
         # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
         # so we need to look for _ToscaFields and operation function in the object's __dict__ and generate yaml for them too
         dict_cls = converter.yaml_cls
         body = dict_cls(type=self.tosca_type_name())
-        for field, value in self.get_fields():
+        if self._metadata:
+            body["metadata"] = metadata_to_yaml(self._metadata)
+        for field, value in self.get_instance_fields().values():
             if field.section == "requirements":
                 # XXX node_filter if value is ref
                 # XXX handle case where value is a type not an instance
@@ -1825,7 +1896,7 @@ class DataType(_OwnedToscaType):
 
     def to_yaml(self, dict_cls=dict):
         body = dict_cls()
-        for field, value in self.get_fields():
+        for field, value in self.get_instance_fields().values():
             body[field.tosca_name] = to_tosca_value(value, dict_cls)
         return body
 

@@ -759,44 +759,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         yaml_dict: type = dict,
     ):
         if path.endswith(".py"):
-            from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
+            from .dsl import convert_to_yaml
 
-            self.expand = False
-            namespace: Dict[str, Any] = {}
-            if repo_view and repo_view.repository:
-                package_path = Path(get_base_dir(path)).relative_to(
-                    repo_view.working_dir
-                )
-                relpath = str(package_path).strip("/").replace("/", ".")
-                if repo_view.repository.name == "unfurl":
-                    package = "unfurl."
-                else:
-                    # make sure tosca_repository symlink exists
-                    name = repo_view.get_link(base_dir)[0]
-                    package = "tosca_repository." + name
-            else:
-                package_path = Path(get_base_dir(path)).relative_to(base_dir)
-                relpath = str(package_path).replace("/", ".").strip(".")
-                package = "service_template"
-            if relpath:
-                package += "." + relpath
-            if self.modules is None:
-                self.modules = {}
-            safe_mode = (self.manifest and self.manifest.safe_mode) or self.safe_mode
-            write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
-            yaml_src = python_src_to_yaml_obj(
-                contents,
-                namespace,
-                base_dir,
-                package + "." + Path(path).stem,
-                # can't use readonly yaml since we might write out yaml files with it
-                yaml_dict_type(False),
-                safe_mode,
-                self.modules,
-                write_policy,
-                self,
-            )
-            return yaml_src
+            return convert_to_yaml(self, contents, path, repo_view, base_dir)
         else:
             return load_yaml(yaml, contents, path, self.readonly)
 
