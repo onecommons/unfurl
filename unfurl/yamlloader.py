@@ -287,13 +287,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
-        self.modules: Optional[Dict] = None
 
     def __getstate__(self):
         state = self.__dict__.copy()
         state["yamlloader"] = None
-        state["modules"] = None
         return state
+
+    def get_safe_mode(self):
+        return (self.manifest and self.manifest.safe_mode) or self.safe_mode
 
     def load_imports(
         self,

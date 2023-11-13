@@ -77,7 +77,7 @@ class RepositoryFinder(PathFinder):
                     # _NamespacePath missing __getitem__ on older Pythons
                     dir_path = path._path[0]  # type: ignore
             else:
-                dir_path = os.getcwd()
+                dir_path = service_template_basedir
             if len(names) == 1:
                 return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
             else:
@@ -121,8 +121,9 @@ class ToscaYamlLoader(Loader):
         else:
             with open(path) as f:
                 src = f.read()
+        safe_mode = import_resolver.get_safe_mode() if import_resolver else True
         restricted_exec(
-            src, vars(module), path.parent, self.full_name, self.modules, True
+            src, vars(module), path.parent, self.full_name, self.modules, safe_mode
         )
 
 
@@ -384,7 +385,7 @@ def default_guarded_write(ob):
     return ob
 
 
-def default_guarded_apply(func, args=(), kws={}):
+def default_guarded_apply(func, *args, **kws):
     return func(*args, **kws)
 
 
@@ -486,12 +487,18 @@ class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
 loader_details = ToscaYamlLoader, [".yaml", ".yml"]
 installed = False
 import_resolver: Optional[ImportResolver] = None
+service_template_basedir = ""
 
 
-def install(import_resolver_: Optional[ImportResolver]):
+def install(import_resolver_: Optional[ImportResolver], base_dir=None):
     # insert the path hook ahead of other path hooks
     global import_resolver
     import_resolver = import_resolver_
+    global service_template_basedir
+    if base_dir:
+        service_template_basedir = base_dir
+    else:
+        service_template_basedir = os.getcwd()
     global installed
     if installed:
         return
@@ -533,6 +540,7 @@ def restricted_exec(
     # "aiter", "anext", "breakpoint", "compile", "delattr", "dir", "eval", exec, exit, quite, print
     # "globals", "locals", "open", input, setattr, vars, license, copyright, help, credits
     for name in [
+        "NotImplemented",
         "all",
         "any",
         "ascii",
@@ -597,8 +605,10 @@ def restricted_exec(
         temp_module.__dict__.update(namespace)
         sys.modules[full_name] = temp_module
     previous_safe_mode = global_state.safe_mode
+    previous_mode = global_state.mode
     try:
         global_state.safe_mode = safe_mode
+        global_state.mode = "spec"
         if temp_module:
             exec(result.code, temp_module.__dict__)
             namespace.update(temp_module.__dict__)
@@ -606,6 +616,7 @@ def restricted_exec(
             exec(result.code, namespace)
     finally:
         global_state.safe_mode = previous_safe_mode
+        global_state.mode = previous_mode
         if temp_module:
             del sys.modules[full_name]
     return result

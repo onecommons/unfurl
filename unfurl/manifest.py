@@ -46,6 +46,7 @@ from .logs import getLogger
 from . import __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
+import tosca
 from tosca.loader import install
 
 if TYPE_CHECKING:
@@ -118,6 +119,7 @@ class Manifest(AttributeManager):
         self.imports.manifest = self
         self._importedManifests: Dict = {}
         self.cache: Dict[str, Any] = {}
+        self.modules: Optional[Dict] = None
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
@@ -140,6 +142,7 @@ class Manifest(AttributeManager):
         resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
+            assert toscaRepository
             self.repositories[name] = RepoView(toscaRepository, None)
 
     def _set_spec(self, spec, more_spec=None, skip_validation=False, fragment=""):
@@ -812,7 +815,7 @@ class Manifest(AttributeManager):
                 # this prevents visiting a parent directory but it is safe if we have gotten this far already
                 repository_root = base_dir
         try:
-            install(resolver)
+            install(resolver, repository_root)
             loader = toscaparser.imports.ImportsLoader(
                 None,
                 base_dir,
