@@ -181,7 +181,7 @@ def set_up_deployment(runner, deployment):
     os.makedirs("server")
     p = Process(
         target=server.serve,
-        args=("localhost", port, None, "server", ".", {"home": ""}, "remote.git"),
+        args=("localhost", port, None, "server", ".", {"home": ""}, os.path.abspath("remote.git")),
     )
     assert start_server_process(p, port)
 

@@ -222,29 +222,28 @@ def set_current_ensemble_git_url():
         return None
     try:
         local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
-        if (
-            local_env.project
-            and local_env.project.project_repoview
-            and local_env.project.project_repoview.repo
-        ):
-            app.config[
-                "UNFURL_CURRENT_WORKING_DIR"
-            ] = local_env.project.project_repoview.repo.working_dir
-            server_url = app.config["UNFURL_CLOUD_SERVER"]
-            server_host = urlparse(server_url).hostname
-            remote = local_env.project.project_repoview.repo.find_remote(
-                host=server_host
-            )
-            if remote:
-                remote_url = remote.url
-            else:
-                remote_url = local_env.project.project_repoview.url
-            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
-            return local_env
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
         )
+        return None
+    if (
+        local_env.project
+        and local_env.project.project_repoview
+        and local_env.project.project_repoview.repo
+    ):
+        app.config[
+            "UNFURL_CURRENT_WORKING_DIR"
+        ] = local_env.project.project_repoview.repo.working_dir
+        server_url = app.config["UNFURL_CLOUD_SERVER"]
+        server_host = urlparse(server_url).hostname
+        remote = local_env.project.project_repoview.repo.find_remote(host=server_host)
+        if remote:
+            remote_url = remote.url
+        else:
+            remote_url = local_env.project.project_repoview.url
+        app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
+        return local_env
     return None
 
 
@@ -2072,9 +2071,12 @@ def serve(
         # this happens in the unit tests
         os.environ["UNFURL_SERVE_PATH"] = project_path
     if cloud_server and app.config["UNFURL_CLOUD_SERVER"] != cloud_server:
-        app.config["UNFURL_CLOUD_SERVER"] = (
-            cloud_server or os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
-        )
+        if cloud_server[0] != "/":  # unit tests use local file paths
+            server_host = urlparse(cloud_server).hostname
+            if not server_host:
+                logger.info('Exiting, cloud server URL "%s" is invalid', cloud_server)
+                return
+        app.config["UNFURL_CLOUD_SERVER"] = cloud_server
     local_env = set_current_ensemble_git_url()
     if local_env:
         set_local_projects(local_env, clone_root)

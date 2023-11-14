@@ -194,7 +194,7 @@ class SensitiveFilter(logging.Filter):
 
     @staticmethod
     def sanitize_urls(value: str) -> str:
-        return re.sub(r"://(\S{1,100}):(\S{1,200})@", r"://\1:XXXXX@", value)
+        return re.sub(r"//(\S{1,100}):(\S{1,200})@", r"//\1:XXXXX@", value)
 
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
