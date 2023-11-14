@@ -237,6 +237,8 @@ def set_current_ensemble_git_url():
         ] = local_env.project.project_repoview.repo.working_dir
         server_url = app.config["UNFURL_CLOUD_SERVER"]
         server_host = urlparse(server_url).hostname
+        if not server_host:
+            return None
         remote = local_env.project.project_repoview.repo.find_remote(host=server_host)
         if remote:
             remote_url = remote.url
@@ -2070,11 +2072,11 @@ def serve(
     if os.getenv("UNFURL_SERVE_PATH") != project_path:
         # this happens in the unit tests
         os.environ["UNFURL_SERVE_PATH"] = project_path
-    if cloud_server and app.config["UNFURL_CLOUD_SERVER"] != cloud_server:
+    if cloud_server:
         if cloud_server[0] != "/":  # unit tests use local file paths
             server_host = urlparse(cloud_server).hostname
             if not server_host:
-                logger.info('Exiting, cloud server URL "%s" is invalid', cloud_server)
+                logger.info('Exiting, cloud server URL "%s" is not a valid absolute URL', cloud_server)
                 return
         app.config["UNFURL_CLOUD_SERVER"] = cloud_server
     local_env = set_current_ensemble_git_url()
