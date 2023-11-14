@@ -1869,6 +1869,8 @@ def mark_leaf_types(types) -> None:
     # treat leaf types that have requirements as having implementations
     counts: Counter = Counter()
     for rt in types.values():
+        if rt.get("metadata") and rt["metadata"].get("alias"):
+            continue  # exclude alias types from the count
         for name in rt["extends"]:
             counts[name] += 1
     for name, count in counts.most_common():
