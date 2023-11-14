@@ -980,10 +980,7 @@ def format_from_path(path):
 def _export_cache_work(
     cache_entry: CacheEntry, latest_commit: Optional[str]
 ) -> Tuple[Any, Any, bool]:
-    if cache_entry.key.endswith("+types"):
-        format = cache_entry.key[:-6]
-    else:
-        format = cache_entry.key
+    format, sep, extra = cache_entry.key.partition("+")
     err, val = _do_export(
         cache_entry.project_id,
         format,
@@ -1042,13 +1039,21 @@ def _export(
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
-    args["include_all"] = get_canonical_url(project_id) if include_all else ""
+    if include_all:
+        args["include_all"] = get_canonical_url(project_id)
+        extra = "+types"
+    else:
+        args["include_all"] = ""
+        if args.get("environment") and format == "environments":
+            extra = "+" + args["environment"]
+        else:
+            extra = ""
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
         project_id,
         branch,
         file_path,
-        requested_format + ("+types" if include_all else ""),
+        requested_format + extra,
         repo,
         args=args,
     )
@@ -1336,7 +1341,7 @@ def _do_export(
     cache_entry: CacheEntry,
     latest_commit: Optional[str],
     args: dict,
-) -> Tuple[Optional[Any], Optional[str]]:
+) -> Tuple[Optional[Any], Optional[Any]]:
     assert cache_entry.branch
     err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
         cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
@@ -1369,9 +1374,11 @@ def _do_export(
             local_env.manifest_context_name = "_export_types_placeholder"
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
-    exporter = getattr(to_json, "to_" + requested_format)
-    json_summary = exporter(local_env, args.get("include_all"))
-
+    if requested_format == "environments":
+        json_summary = to_json.to_environments(local_env, args.get("environment"))
+    else:
+        exporter = getattr(to_json, "to_" + requested_format)
+        json_summary = exporter(local_env, args.get("include_all"))
     return None, json_summary
 
 

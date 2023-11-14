@@ -1992,7 +1992,7 @@ def _set_shared_instances(instances):
 
 
 def to_environments(
-    localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None
+    localEnv: LocalEnv, environment_filter=None, *, file: Optional[str] = None
 ) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
@@ -2023,7 +2023,8 @@ def to_environments(
     deployment_paths = get_deploymentpaths(localEnv.project)
     env_deployments = {}
     for ensemble_info in deployment_paths.values():
-        env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
+        if not environment_filter or environment_filter == ensemble_info["environment"]:
+            env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
     assert localEnv.project
     defaults = localEnv.project.contexts.get("defaults")
     default_imported_instances = _set_shared_instances(
@@ -2031,6 +2032,8 @@ def to_environments(
     )
     default_manifest_path = localEnv.manifestPath
     for name in localEnv.project.contexts:
+        if environment_filter and environment_filter != name:
+            continue
         try:
             # we can reuse the localEnv if there's a distinct manifest that uses this environment
             localEnv.manifest_context_name = name
