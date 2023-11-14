@@ -47,7 +47,7 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
-from tosca._tosca import _Tosca_Field, _ToscaType
+from tosca._tosca import _Tosca_Field, _ToscaType, ComputedDescriptor
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .eval import set_eval_func
@@ -157,7 +157,6 @@ class DslMethodConfigurator(Configurator):
         obj = proxy_instance(task.target, self.cls)
         return self.fun(obj, task)
 
-
 def eval_computed(arg, ctx):
     """
     eval:
@@ -167,7 +166,11 @@ def eval_computed(arg, ctx):
     module = importlib.import_module(module_name)
     cls_name, sep, func_name = qualname.rpartition(".")
     cls = getattr(module, cls_name)
-    return getattr(cls, func_name)(proxy_instance(ctx.currentResource, cls))
+    func = getattr(cls, func_name)
+    proxy = proxy_instance(ctx.currentResource, cls)
+    if isinstance(func, ComputedDescriptor):
+        return func.func(proxy)
+    return func(proxy)
 
 
 set_eval_func("computed", eval_computed)
@@ -332,8 +335,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             setattr(self._obj, name, val)
         if isinstance(val, (DataTypeProxyBase, ProxyCollection)):
             val = val._values
-            self._cache[name] = val
         self._instance.attributes[name] = val
+        self._cache.pop(name, None)
 
     def _getattr(self, name):
         # if the attribute refers to a instance field, return the value from the instance
@@ -350,7 +353,13 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 #     self.instance.template.type_definition, name.lstrip("_")
                 # )
             elif hasattr(self._obj or self._cls, name):
-                val = getattr(self._obj or self._cls, name)
+                cls_val = getattr(self._cls, name, None)
+                if isinstance(cls_val, ComputedDescriptor):
+                    return cls_val.func(self)
+                elif self._obj:
+                    val = getattr(self._obj, name)
+                else:
+                    val = cls_val
                 if callable(val):
                     if isinstance(val, types.MethodType):
                         # so we can call with proxy as self
@@ -364,7 +373,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 ToscaFieldType.property,
                 ToscaFieldType.attribute,
             ):
-                return _proxy_prop(field, self._instance.attributes[name])
+                val = _proxy_prop(field, self._instance.attributes[name])
+                self._cache[name] = val
+                return val
             elif field.tosca_field_type == ToscaFieldType.requirement:
                 rels = [
                     rel

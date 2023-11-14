@@ -201,6 +201,17 @@ def operation(
     return decorator_operation
 
 
+class ComputedDescriptor:
+    def __init__(self, func, field: "_Tosca_Field"):
+        self.func = func
+        self.field = field
+
+    def __get__(self, obj, obj_type=None):
+        if obj is None:
+            return self
+        return self.func(obj)
+
+
 def computed(
     name="",
     metadata: Optional[Dict[str, str]] = None,
@@ -209,7 +220,7 @@ def computed(
     options: Optional["PropertyOptions"] = None,
 ) -> Callable:
     def decorator_operation(func):
-        func.computed = _Tosca_Field(
+        computed_field = _Tosca_Field(
             ToscaFieldType.property,
             default=_Ref(
                 {"eval": dict(computed=f"{func.__module__}:{func.__qualname__}")}
@@ -220,8 +231,10 @@ def computed(
             status=status,
             options=options,
         )
-        func.computed.type = inspect.signature(func).return_annotation
-        return func
+        computed_field.type = inspect.signature(func).return_annotation
+        if func.__doc__:
+            computed_field.description = func.__doc__
+        return ComputedDescriptor(func, computed_field)
 
     return decorator_operation
 
@@ -1168,6 +1181,15 @@ class _DataclassTypeProxy:
                 setattr(self.cls, name, val)
 
 
+def is_data_field(obj) -> bool:
+    # exclude Input and Output classes
+    return (
+        not callable(obj)
+        and not inspect.ismethoddescriptor(obj)
+        and not inspect.isdatadescriptor(object)
+    )
+
+
 def _make_dataclass(cls):
     kw = dict(
         init=True,
@@ -1212,7 +1234,7 @@ def _make_dataclass(cls):
             cls.__annotations__ = annotations
         if cls.__module__ != __name__:
             for name, value in cls.__dict__.items():
-                if name[0] != "_" and name not in annotations and not callable(value):
+                if name[0] != "_" and name not in annotations and is_data_field(value):
                     base_field = cls.__dataclass_fields__.get(name)
                     if base_field:
                         field = _Tosca_Field(
@@ -1643,12 +1665,11 @@ class ToscaType(_ToscaType):
         for methodname, operation in cls.__dict__.items():
             if methodname[0] == "_":
                 continue
-            if cls.is_operation(operation):
-                computed = getattr(operation, "computed", None)
-                if computed:  # it's a computed property
-                    computed.owner = cls
-                    item = computed.to_yaml(converter)
-                    body.setdefault(computed.section, {}).update(item)
+            if isinstance(operation, ComputedDescriptor):
+                computed = operation.field
+                computed.owner = cls
+                item = computed.to_yaml(converter)
+                body.setdefault(computed.section, {}).update(item)
 
     @staticmethod
     def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
@@ -1761,7 +1782,7 @@ class ToscaType(_ToscaType):
                     continue
                 yield name, (field, value)
             # skip inference for methods and attributes starting with "_"
-            elif not field and name[0] != "_" and not callable(value):
+            elif not field and name[0] != "_" and not is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
                 if field.tosca_field_type != ToscaFieldType.property:

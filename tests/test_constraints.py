@@ -228,7 +228,7 @@ class Test(tosca.nodes.Root):
         return f"{ self.url_scheme }://{self.host }"
 
     def run(self, task):
-        self.computed = self.url()
+        self.computed = self.url
         self.data.ports.source = 80
         self.data.ports.target = 8080
         self.int_list.append(1)
