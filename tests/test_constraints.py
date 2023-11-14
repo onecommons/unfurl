@@ -156,7 +156,7 @@ topology_template: {}
 """
 
 
-def test_set_constraints() -> None:
+def test_class_init() -> None:
     from tosca import min_length, max_length, in_range, gb
 
     class Example(tosca.nodes.Root):
@@ -164,7 +164,7 @@ def test_set_constraints() -> None:
         host: tosca.nodes.Compute
 
         @classmethod
-        def _set_constraints(cls) -> None:
+        def _class_init(cls) -> None:
             #
             min_length(2).apply_constraint(cls.name)
             # you can also but you lose static type checking:

@@ -19,7 +19,7 @@ class ProxyContainerHost(Proxy, ContainerHost):
     hosting: ContainerService = tosca.Eval() # XXX Constrained
 
     @classmethod
-    def _set_constraints(cls) -> None:
+    def _class_init(cls) -> None:
         # the backend is the container services url
         cls.backend_url = cls.hosting.url
         cls.set_source(cls.hosting, cls.backend_url)
@@ -31,7 +31,7 @@ class App(tosca.nodes.Root):
     proxy: Proxy
 
     @classmethod
-    def _set_constraints(cls) -> None:
+    def _class_init(cls) -> None:
         # the proxy's backend is set to the container's url
         cls.proxy.backend_url = cls.container.url
 

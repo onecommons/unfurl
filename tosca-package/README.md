@@ -234,9 +234,38 @@ node_types:
 
 It interesting to note that the readability improvements in this example stem not just from concision (18 lines vs. 37 lines) but also because of the syntax highlighting for Python -- something most Markdown processors support while none support that for TOSCA -- another illustration of the benefits of building a DSL on a widely supported language.
 
+### Orchestrator Integration
+
+As the example above shows, operations don't actually perform the work -- instead they return the implementation (e.g. artifacts and inputs) that the orchestrator will execute. That's about as much as you could expect from a pure Python-to-YAML converter.
+
+But if the DSL is integrated into the orchestrator's runtime, the operation's implementation can be defined in the class definition too. For example:
+
+```python
+import tosca
+
+class Integrated(tosca.nodes.Root):
+    hostname: str
+
+    @tosca.computed()
+    def url(self) -> str:
+        return f"https://{self.hostname}/"
+
+    def run(self, task):
+        # invoked by the orchestrator when the operation is executed
+        do_stuff(self.url)
+        return True
+
+    def create(self):
+        return self.run
+```
+
+Here the `create()` operation returns the `run()` method, which will be invoked by the orchestrator. This example also illustrates another mechanism for integrating with the orchestrator by using the `@computed()` method decorator to declare a TOSCA property whose value is computed by the decorated method at runtime.
+
+Unfurl provides this integration and other orchestrators can implement a callback interface to provide similar integration.
+
 ### Node Filters
 
-Tosca types can declared a special class-level method called `_set_constraints` that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
+Tosca types can declared a special class-level method called `_class_init` that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
 
 This example creates sets the `node_filter` on the declared `host` requirement:
 
@@ -248,7 +277,7 @@ This example creates sets the `node_filter` on the declared `host` requirement:
         host: tosca.nodes.Compute
 
         @classmethod
-        def _set_constraints(cls) -> None:
+        def _class_init(cls) -> None:
             in_range(2 * gb, 20 * gb).apply_constraint(cls.host.host.mem_size)
 ```
 
@@ -272,6 +301,10 @@ node_types:
 ```
 
 Note that your IDE's type checker will detect if the `mem_size`'s type was incompatible with the values passed to `in_range`.
+
+### Names and identifiers
+
+TOSCA's YAML syntax allows names that are not valid Python identifiers so the DSL's APIs let you provide an alternative name for types, templates, fields, and operations, etc. which will used when generating YAML -- whose those if the TOSCA name is not a valid [Python identifier](https://docs.python.org/3/reference/lexical_analysis.html#identifiers) or if the name starts with a `_`.  Names that starts with `_` are reserved for internal use by your DSL classes and are ignored when generating YAML. When converting YAML to Python the code generator will generate Python code that preserves non-conforming names as needed.
 
 ### Imports and repositories
 
@@ -305,7 +338,7 @@ from tosca_repositories.my_repo.bar.foo import *
 from tosca_repositories.my_repo.bar import foo
 ```
 
-`unfurl export` will resolve imports from repository by creating a`tosca_repository` directory with symlinks to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
+`unfurl export` will resolve imports from a repository by creating a`tosca_repository` directory with a symlink to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
 
 ## Usage
 

@@ -490,7 +490,7 @@ class _Tosca_Field(dataclasses.Field):
         self._type_info: Optional[TypeInfo] = None
 
     def set_constraint(self, val):
-        # this called via _set_constraints
+        # this called via _class_init
         if isinstance(val, _Ref):
             if self._tosca_field_type in [
                 ToscaFieldType.capability,
@@ -508,7 +508,7 @@ class _Tosca_Field(dataclasses.Field):
         self._set_default(val)
 
     def set_property_constraint(self, name: str, val: Any):
-        # this called via _set_constraints
+        # this called via _class_init
         # if self is a requirement, name is a property on the target node or the relationship
         if self._tosca_field_type == ToscaFieldType.requirement:
             # if requirement, set a node filter (val can be Ref or concrete value)
@@ -1041,7 +1041,7 @@ def find_relationship(name: str) -> Any:
 
 class FieldProjection(_Ref):
     "A reference to a tosca field or projection off a tosca field"
-    # created by _DataclassTypeProxy, invoked via _set_constraints
+    # created by _DataclassTypeProxy, invoked via _class_init
 
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
@@ -1054,7 +1054,7 @@ class FieldProjection(_Ref):
         self.parent = parent
 
     def __getattr__(self, name):
-        # unfortunately _set_constraints is called during class construction type
+        # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
         # cls = self._resolve_class(self.field.type)
         try:
@@ -1150,7 +1150,7 @@ def get_annotations(o):
 
 
 class _DataclassTypeProxy:
-    # this is wraps the data type class passed to _set_constraints
+    # this is wraps the data type class passed to _class_init
     # we need this to because __setattr__ and __set__ descriptors don't work on cls attributes
     # (and __set_name__ isn't called after class initialization)
 
@@ -1248,11 +1248,11 @@ def _make_dataclass(cls):
                     if field:
                         annotations[name] = field.type
                         setattr(cls, name, field)
-        _set_constraints = cls.__dict__.get("_set_constraints")
-        if _set_constraints:
+        _class_init = cls.__dict__.get("_class_init")
+        if _class_init:
             global_state._in_process_class = False
-            # _set_constraints should be a classmethod descriptor
-            _set_constraints.__get__(None, _DataclassTypeProxy(cls))()
+            # _class_init should be a classmethod descriptor
+            _class_init.__get__(None, _DataclassTypeProxy(cls))()
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
@@ -1565,7 +1565,7 @@ class ToscaType(_ToscaType):
         """
         Create a constraint that sets a requirement to the source of the property reference.
 
-        Should be called from ``_set_constraints(cls)``. For example,
+        Should be called from ``_class_init(cls)``. For example,
 
         ``cls._set_source(cls.requirement, cls.property)``
 
@@ -1582,7 +1582,7 @@ class ToscaType(_ToscaType):
                 raise ValueError(f"Field {requirement} isn't owned by {cls}")
             return requirement.set_constraint(reference)
         raise TypeError(
-            f"{requirement} isn't a TOSCA field -- this method should be called from _set_constraints()"
+            f"{requirement} isn't a TOSCA field -- this method should be called from _class_init()"
         )
 
     @staticmethod

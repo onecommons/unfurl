@@ -499,14 +499,14 @@ def test_custom_interface():
     assert yaml_dict == tosca_yaml
 
 
-def test_set_constraints() -> None:
+def test_class_init() -> None:
     class Example(tosca.nodes.Root):
         shellScript: tosca.artifacts.Root = tosca.artifacts.Root(file="example.sh")
         prop1: Optional[str] = tosca.Eval()
         host: tosca.nodes.Compute = tosca.Requirement(default=None)
 
         @classmethod
-        def _set_constraints(cls) -> None:
+        def _class_init(cls) -> None:
             cls.host.public_address = cls.prop1 or ""
 
             with pytest.raises(ValueError) as e_info1:
