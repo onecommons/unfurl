@@ -76,7 +76,7 @@ def get_package_digest() -> Union[git.Repo, str, object]:
 
     basedir = os.path.dirname(_basepath)
     if os.path.isdir(os.path.join(basedir, ".git")):
-        return Repo(basedir).git.describe("--dirty", "--always")
+        return Repo(basedir).git.describe("--dirty", "--always", "--match=v*")
 
     try:
         pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]  # type: ignore  # Ignored because of the try/except
