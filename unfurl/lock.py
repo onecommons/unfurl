@@ -4,8 +4,11 @@ from typing import TYPE_CHECKING, Dict
 from ruamel.yaml.comments import CommentedMap
 
 from . import __version__
-from .packages import PackageSpec, get_package_id_from_url
+from .packages import Package, PackagesType, get_package_id_from_url
 from .util import get_package_digest
+from .logs import getLogger
+
+logger = getLogger("unfurl")
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
@@ -16,26 +19,40 @@ class Lock:
         self.ensemble = ensemble
 
     @staticmethod
-    def apply_to_packages(locked: dict, package_specs: Dict[str, PackageSpec]):
+    def apply_to_packages(locked: dict, packages: PackagesType):
         for repo_dict in locked["repositories"]:
             package_id, url, revision = get_package_id_from_url(repo_dict["url"])
             if package_id:
                 commit = repo_dict.get("commit")
-                revision = repo_dict.get("revision")
+                revision = repo_dict.get("tag")
                 if not commit:  # old lock format
-                    commit = revision
+                    commit = repo_dict.get("revision")
                     revision = None
-                package_spec = package_specs.get(package_id)
-                if package_spec:
-                    if revision:
-                        # if not package_spec.is_compatible_with(revision):
-                        #     logger.warning("locking packages to a incompatible revision ")
-                        package_spec.revision = revision
-                else:
-                    package_spec = package_specs[package_id] = PackageSpec(
-                        package_id, url, revision
+                if revision:
+                    if repo_dict.get("name") in ("self", "project"):
+                        continue  # don't try to change the current revision
+                    package = Package(package_id, url, revision)
+                    existing_package = packages.get(package_id)
+                    if existing_package:
+                        if existing_package.revision == revision:
+                            continue
+                        if not package.is_compatible_with(existing_package):
+                            logger.warning(
+                                "locking packages to a incompatible revision % for %s",
+                                revision,
+                                existing_package,
+                            )
+                        existing_package.revision = revision
+                    else:
+                        packages[package_id] = Package(package_id, url, revision)
+                    logger.verbose(
+                        "setting package %s (%s) to revision %s from lock section",
+                        package_id,
+                        repo_dict.get("name"),
+                        revision,
                     )
-                package_spec.lock_to_commit = commit or ""
+                    # just set to tag or revision for now:
+                    # package_spec.lock_to_commit = commit or ""
 
     # XXX
     # def validate_runtime(self):

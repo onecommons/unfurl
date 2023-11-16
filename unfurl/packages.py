@@ -410,15 +410,14 @@ class Package:
         if not self.revision or not package.revision:
             # there aren't two revisions to compare so skip compatibility check
             return True
+        # if the revision wasn't specified, skip compatibility check
+        if self.discovered_revision or package.discovered_revision:
+            return True
         if not self.has_semver(True):
-            # if the revision wasn't specified, skip compatibility check
-            # otherwise, require an exact match for non-semver revisions
-            if self.discovered_revision or package.discovered_revision:
-                return True
+            # require an exact match for non-semver revisions
             return self.revision == package.revision
-        if not package.has_semver(True):  # doesn't have a semver and doesn't match
+        if not package.has_semver(True):  # the other package doesn't have a semver and doesn't match
             return False
-
         # # if given revision is newer than current packages we need to reload (error for now?)
         return TOSCAVersionProperty(package.revision).is_semver_compatible_with(
             TOSCAVersionProperty(self.revision)

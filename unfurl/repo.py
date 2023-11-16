@@ -576,9 +576,11 @@ class RepoView:
             [
                 ("url", normalize_git_url(self.url, 1)),
                 ("commit", self.get_current_commit()),
-                ("initial", self.get_initial_revision()),
             ]
         )
+        initial = self.repo and self.repo.resolve_rev_spec("INITIAL") or self.get_initial_revision()
+        if initial:
+            record["initial"] = initial
         if self.package and self.package.revision:
             # intended revision (branch or tag) declared by user
             record["revision"] = self.package.revision
@@ -721,11 +723,12 @@ class GitRepo(Repo):
     @property
     def current_tag(self) -> str:
         try:
-            return self.repo.git.describe(self.repo.heads[0].object, exact_match=True)
+            return self.repo.git.describe(exact_match=True)
         except Exception:
             # e.g.:
             # git.exc.GitCommandError: Cmd('git') failed due to: exit code(128)
-            #   stderr: 'fatal: no tag exactly matches 'ed915a383336a085eaabeb8f2a461e656ec8a5c9''
+            #    stderr: 'fatal: no tag exactly matches 'ed915a383336a085eaabeb8f2a461e656ec8a5c9''
+            # or stderr: 'fatal: No names found, cannot describe anything.'
             return ""
 
     def resolve_rev_spec(self, revision):
