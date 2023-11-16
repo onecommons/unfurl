@@ -38,6 +38,16 @@ spec:
             type: string
           domain:
             type: string
+          environment:
+            type: SomeEnvVars
+            default:
+              MARIADB_DATABASE:
+                eval: database_name
+            required: false
+            metadata:
+              user_settable: true
+              tab_title: Environment Variables
+
         requirements:
           - host:
               description: A compute instance to host this container on
@@ -54,6 +64,19 @@ spec:
             type: scalar-unit.size
             metadata:
               default_unit: MB
+
+    data_types:
+      SomeEnvVars:
+        derived_from: unfurl.datatypes.EnvironmentVariables
+        properties:
+          foo:
+            type: string
+            default: foo
+            metadata:
+              user_settable: True
+          bar:
+            type: string
+            default: default
 
     topology_template:
       root:

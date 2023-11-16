@@ -21,11 +21,9 @@ def test_jsonexport():
     jsonExport = to_deployment(local)
 
     # check that subtypes can remove inherited operations if marked not_implemented
-    assert jsonExport["ResourceType"]["Atlas"]['implementations'] == ['configure']
+    assert jsonExport["ResourceType"]["Atlas"]["implementations"] == ["configure"]
     # check the types aren't exported if not referenced by a template
-    assert (
-        "SelfHostedMongoDb" not in jsonExport["ResourceType"]
-    )
+    assert "SelfHostedMongoDb" not in jsonExport["ResourceType"]
     # check that subtypes inherit interface requirements
     assert jsonExport["ResourceType"]["Atlas"]["implementation_requirements"] == [
         "unfurl.relationships.ConnectsTo.AWSAccount"
@@ -70,13 +68,11 @@ def test_jsonexport():
     # XXX verify that saving the manifest preserves the json include
 
 
-@pytest.mark.parametrize(
-    "export_fn", [to_deployment, to_blueprint]
-)
+@pytest.mark.parametrize("export_fn", [to_deployment, to_blueprint])
 def test_jsonexport_requirement_visibility(export_fn):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
-    jsonExport =  export_fn(local)
+    jsonExport = export_fn(local)
     assert jsonExport["ResourceTemplate"]["template1"]["dependencies"], pprint.pformat(
         jsonExport["ResourceTemplate"]["template1"]
     )
@@ -87,6 +83,32 @@ def test_jsonexport_requirement_visibility(export_fn):
         == "visible"
     )
     app_type = jsonExport["ResourceType"]["App"]
+    env_prop = jsonExport["ResourceType"]["ContainerHost"]["inputsSchema"]["properties"][
+        "environment"
+    ]
+    # pprint.pprint(env_prop)
+    assert env_prop == {
+        "$toscatype": "SomeEnvVars",
+        "additionalProperties": {"required": True, "type": "string"},
+        # "bar": "default" is a user hidden property defined in SomeEnvVars
+        # make sure that it is deleted from the default:
+        "default": {"MARIADB_DATABASE": {"eval": "database_name"}, "foo": "foo"},
+        "properties": {
+            "$toscatype": {"const": "SomeEnvVars"},
+            "foo": {
+                "default": "foo",
+                "required": True,
+                "title": "foo",
+                "type": "string",
+                "user_settable": True,
+            },
+        },
+        "tab_title": "Environment " "Variables",
+        "title": "environment",
+        "type": "object",
+        "user_settable": True,
+    }, pprint.pformat(env_prop)
+
     hostRequirement = app_type["requirements"][0]
     assert hostRequirement["inputsSchema"] == {
         "properties": {"image": None, "domain": {"default": "foo.com"}}

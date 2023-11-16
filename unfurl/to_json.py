@@ -271,17 +271,23 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
             if valuetype_schema.constraints:  # merge constraints
                 constraints = valuetype_schema.constraints + constraints
         else:  # it's a complex type with properties:
-            propdefs = [
-                p
-                for p in dt.get_properties_def_objects()
-                if is_property_user_visible(p)
-            ]
+            propdefs = []
+            default_value = None
+            if schema.get("default"):
+                default_value = schema["default"].copy()
+            for p in dt.get_properties_def_objects():
+                if is_property_user_visible(p):
+                    propdefs.append(p)
+                elif default_value:
+                    default_value.pop(p.name, None)
+            if default_value and default_value != schema["default"]:
+                schema["default"] = default_value
             type_schema = tosca_type_to_jsonschema(custom_defs, propdefs, dt.type)
             metadata = dt.get_value('metadata', parent=True)
             if metadata and 'additionalProperties' in metadata:
                 schema["additionalProperties"] = dict(type="string", required=True)
                 if len(type_schema["properties"]) == 1 and "$toscatype" in type_schema["properties"]:
-                    del type_schema["properties"]  # XXX remove this temporary hack
+                    del type_schema["properties"]
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
     schema.update(type_schema)

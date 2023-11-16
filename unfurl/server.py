@@ -1045,7 +1045,7 @@ def _export(
         extra = "+types"
     else:
         args["include_all"] = ""
-        if args.get("environment") and format == "environments":
+        if args.get("environment") and requested_format == "environments":
             extra = "+" + args["environment"]
         else:
             extra = ""

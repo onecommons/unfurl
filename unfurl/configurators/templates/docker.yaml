@@ -15,9 +15,6 @@ data_types:
         type: unfurl.datatypes.EnvironmentVariables
         default: {}
         required: false
-        metadata:
-          user_settable: true
-          tab_title: Environment Variables
       container_name: # name
         type: string
         required: false
