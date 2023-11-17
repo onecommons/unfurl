@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
 from ruamel.yaml.comments import CommentedMap
 
+from .lock import Lock
+
 from .spec import EntitySpec, NodeSpec, ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
 from .support import (
@@ -659,6 +661,9 @@ class Manifest(AttributeManager):
                     "inline"
                 ] = True
         self._set_builtin_repositories()
+        locked = config.get("lock")
+        if locked:
+            Lock.apply_to_packages(locked, self)
 
     def _set_repository_links(self):
         if self.localEnv and not self.localEnv.readonly:

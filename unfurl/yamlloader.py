@@ -490,7 +490,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         base: str,
         file_name: str,
     ) -> str:
-        commit = repo_view.package.lock_to_commit if repo_view.package else ""
+        # XXX lock_to_commit not implemented, currently used to indicate the lock have a tag
+        # commit = repo_view.package.lock_to_commit if repo_view.package else ""
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
             repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(

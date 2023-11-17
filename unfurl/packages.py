@@ -113,7 +113,7 @@ class PackageSpec:
             self.package_id = None
             revision = None
         self.revision = minimum_version or revision
-        self.lock_to_commit: str = ""
+        self.lock_to_commit = False
         if ":" in self.package_spec or "#" in self.package_spec:
             raise UnfurlError(
                 f"Malformed package spec: {self.package_spec} must be a package id not an URL"
@@ -302,7 +302,7 @@ class Package:
             self.url = url
         self.repositories: List[RepoView] = []
         self.discovered_revision = False
-        self.lock_to_commit = ""
+        self.lock_to_commit = False
 
     @property
     def safe_url(self):
@@ -346,7 +346,13 @@ class Package:
         # guarantees so we don't want to treat the repository as pinned to a particular revision.
         tags = [vtag for vtag in vtags if is_semver(vtag, True)]
         if tags:
-            return tags[0]
+            if self.lock_to_commit:
+                # if this is set then there wasn't a version tag when the lock file saved
+                # so assume that the oldest tag is the best one to grab
+                return tags[-1]
+            else:
+                # otherwise return the latest version
+                return tags[0]
         return None
 
     def set_version_from_repo(self, get_remote_tags) -> bool:
@@ -376,7 +382,7 @@ class Package:
 
     def is_mutable_ref(self) -> bool:
         # is this package pointing to ref that could change?
-        return not self.lock_to_commit
+        return False
         # XXX if revision, see if its tag or branch
         # if self.discovered_revision: return True
         # treat tags immutable unless it looks like a non-exact semver tag:

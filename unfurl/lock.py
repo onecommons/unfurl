@@ -11,6 +11,7 @@ from .logs import getLogger
 logger = getLogger("unfurl")
 
 if TYPE_CHECKING:
+    from .manifest import Manifest
     from .yamlmanifest import YamlManifest
 
 
@@ -19,8 +20,13 @@ class Lock:
         self.ensemble = ensemble
 
     @staticmethod
-    def apply_to_packages(locked: dict, packages: PackagesType):
+    def apply_to_packages(locked: dict, manifest: "Manifest"):
         for repo_dict in locked["repositories"]:
+            if not repo_dict.get("name"):
+                continue
+            repository = manifest.repositories.get(repo_dict["name"])
+            if repository and repository.package is False:
+                continue
             package_id, url, revision = get_package_id_from_url(repo_dict["url"])
             if package_id:
                 commit = repo_dict.get("commit")
@@ -28,31 +34,31 @@ class Lock:
                 if not commit:  # old lock format
                     commit = repo_dict.get("revision")
                     revision = None
-                if revision:
-                    if repo_dict.get("name") in ("self", "project"):
-                        continue  # don't try to change the current revision
+                existing_package = manifest.packages.get(package_id)
+                if existing_package:
+                    if existing_package.lock_to_commit:
+                        continue
+                    if revision and existing_package.revision == revision:
+                        continue
+                    if not Package(package_id, url, revision).is_compatible_with(existing_package):
+                        logger.warning(
+                            "locking packages to a incompatible revision % for %s",
+                            revision,
+                            existing_package,
+                        )
+                    existing_package.revision = revision
+                    package = existing_package
+                else:
                     package = Package(package_id, url, revision)
-                    existing_package = packages.get(package_id)
-                    if existing_package:
-                        if existing_package.revision == revision:
-                            continue
-                        if not package.is_compatible_with(existing_package):
-                            logger.warning(
-                                "locking packages to a incompatible revision % for %s",
-                                revision,
-                                existing_package,
-                            )
-                        existing_package.revision = revision
-                    else:
-                        packages[package_id] = Package(package_id, url, revision)
-                    logger.verbose(
-                        "setting package %s (%s) to revision %s from lock section",
-                        package_id,
-                        repo_dict.get("name"),
-                        revision,
-                    )
-                    # just set to tag or revision for now:
-                    # package_spec.lock_to_commit = commit or ""
+                    manifest.packages[package_id] = package
+                if not revision:
+                    package.lock_to_commit = True
+                logger.verbose(
+                    "setting package %s (%s) to revision %s from lock section",
+                    package_id,
+                    repo_dict.get("name"),
+                    revision,
+                )
 
     # XXX
     # def validate_runtime(self):

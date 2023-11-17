@@ -218,9 +218,6 @@ class ReadOnlyManifest(Manifest):
         if context_inputs:
             inputs.update(context_inputs)
         spec["inputs"] = inputs
-        lock = manifest.get("lock")
-        if lock:
-            Lock.apply_to_packages(lock, self.packages)
         # _update_repositories might not have been called while parsing
         # call it now to make sure we set up the built-in repositories
         self._update_repositories(manifest)

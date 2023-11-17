@@ -2310,10 +2310,11 @@ class ServerCacheResolver(SimpleCacheResolver):
                 doc = self.get_cache(cache_entry.cache_key())  # check local cache
                 if doc is not None:
                     return doc, True
-
-            latest_commit = (
-                repo_view.package.lock_to_commit if repo_view.package else None
-            )
+            # XXX lock_to_commit not implemented, currently used to indicate the lock have a tag
+            # latest_commit = (
+            #     repo_view.package.lock_to_commit if repo_view.package else None
+            # )
+            latest_commit = None
             dep = None
             if is_cache_dep:
                 # this will add this cache_dep to the root_cache_request's value
