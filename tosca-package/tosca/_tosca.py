@@ -1979,24 +1979,26 @@ class RelationshipType(ToscaType):
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
 
-    _valid_target_types: ClassVar[Optional[List[str]]] = None
     _default_for: Optional[str] = field(default=None)
-    _target: Optional[Union[NodeType, CapabilityType]] = field(default=None)
+    _target: Union[NodeType, CapabilityType] = field(default=None)
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         yaml = cls._shared_cls_to_yaml(converter)
-        # don't include inherited declarations
-        _valid_target_types = cls.__dict__.get("_valid_target_types")
+        # only use _target if declared directly
+        annotations = cls.__dict__.get("__annotations__")
+        _valid_target_types = annotations and annotations.get("_target")
         if _valid_target_types:
+            # a derived class declared concrete types
             target_types = [
-                cls._resolve_class(t).tosca_type_name() for t in _valid_target_types
+                cls._resolve_class(t).tosca_type_name()
+                for t in pytype_to_tosca_type(_valid_target_types).types
             ]
             yaml[cls.tosca_type_name()]["valid_target_types"] = target_types
         return yaml
 
     def __set_name__(self, owner, name):
-        pass  # override super implementation -- we don't want to set the name, indicate this is inline
+        pass  # override super implementation -- we don't want to set the name, an empty name indicates template is inline
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)

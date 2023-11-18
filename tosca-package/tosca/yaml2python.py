@@ -759,26 +759,25 @@ class Convert:
         return names
 
     def toscatype2class(
-        self, nodetype: StatefulEntityType, baseclass_name: str, initial_indent=""
+        self, toscatype: StatefulEntityType, baseclass_name: str, initial_indent=""
     ) -> str:
         indent = "    "
-        self.init_names(self._get_type_names(nodetype))
+        self.init_names(self._get_type_names(toscatype))
         # XXX list of imports
-        toscaname = nodetype.type
+        toscaname = toscatype.type
         cls_name = self.python_name_from_type(toscaname, True)
         if not self._builtin_prefix:
             cls_name = self.add_declaration(toscaname, cls_name)
-        base_names = self._get_baseclass_names(nodetype, baseclass_name)
-
+        base_names = self._get_baseclass_names(toscatype, baseclass_name)
         class_decl = f"{initial_indent}class {cls_name}({base_names}):\n"
         src = ""
         indent = initial_indent + indent
         # XXX: 'version', 'artifacts'
-        assert nodetype.defs
-        src += add_description(nodetype.defs, indent)
+        assert toscatype.defs
+        src += add_description(toscatype.defs, indent)
         if toscaname != cls_name:
             src += f'{indent}_type_name = "{toscaname}"\n'
-        metadata = nodetype.defs.get("metadata")
+        metadata = toscatype.defs.get("metadata")
         if metadata:
             formatted = textwrap.indent(
                 metadata_repr(metadata),
@@ -786,17 +785,17 @@ class Convert:
             )
             src += f"{indent}_type_metadata = {formatted}\n"
 
-        src += self.add_properties_decl(nodetype, "properties", indent)
-        src += self.add_properties_decl(nodetype, "attributes", indent)
+        src += self.add_properties_decl(toscatype, "properties", indent)
+        src += self.add_properties_decl(toscatype, "attributes", indent)
 
-        caps = nodetype.get_value("capabilities")
+        caps = toscatype.get_value("capabilities")
         if caps:
             for name, tpl in caps.items():
                 src += self.add_capability(name, tpl, indent)
 
-        if isinstance(nodetype, NodeType):
-            reqs = nodetype.requirement_definitions
-            for tpl in nodetype.get_value("requirements") or []:
+        if isinstance(toscatype, NodeType):
+            reqs = toscatype.requirement_definitions
+            for tpl in toscatype.get_value("requirements") or []:
                 assert tpl, tpl
                 req_name, req = list(tpl.items())[0]
                 # get the full req including inherited values
@@ -804,19 +803,22 @@ class Convert:
 
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
-            for op in _create_operations({toscaname: nodetype.defs}, nodetype, None):
+            for op in _create_operations({toscaname: toscatype.defs}, toscatype, None):
                 src += self.operation2func(op, indent, []) + "\n"
         else:
             # 3.7.5.2 operation definitions.
-            src += self._add_operations(nodetype, indent)
+            src += self._add_operations(toscatype, indent)
 
-        target_types = nodetype.get_value("valid_target_types")
+        target_types = toscatype.get_value("valid_target_types")
         if target_types:
-            src += f'{indent}_valid_target_types = [{", ".join(self.import_types(target_types))}]\n'
+            if len(target_types) > 1:
+                src += f'{indent}_target: Union[{", ".join(self.import_types(target_types))}]\n'
+            else:
+                src += f"{indent}_target: {self.import_types(target_types)[0]}\n"
 
         # artifact, relationship and datatype special keys
         for key in ["file_ext", "mime_type", "type", "constraints", "default_for"]:
-            value = nodetype.get_value(key)
+            value = toscatype.get_value(key)
             if value:
                 src += f"{indent}_{key} = {value2python_repr(value, True)}\n"
 
