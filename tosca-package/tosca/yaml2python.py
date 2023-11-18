@@ -53,7 +53,7 @@ from toscaparser.elements.constraints import constraint_mapping, Schema
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from keyword import iskeyword
 import collections.abc
-from . import WritePolicy, _tosca, ToscaFieldType, loader
+from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__
 import black
 import black.mode
 import black.report
@@ -113,9 +113,6 @@ def has_function(obj: object, seen=None) -> bool:
     elif isinstance(obj, collections.abc.MutableSequence):
         return any(has_function(i, seen) for i in obj)
     return False
-
-
-DT = TypeVar("DT", bound=_tosca.DataType)
 
 
 def value2python_repr(value, quote=False) -> str:
@@ -182,6 +179,31 @@ class Imports:
         self._imports: Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]] = {}
         self._add_imports("", imports or {})
         self._import_statements = set()
+        self.from_tosca = set(
+            [
+                "Artifact",
+                "Attribute",
+                "Capability",
+                "Eval",
+                "Property",
+                "REQUIRED",
+                "MISSING",
+                "DEFAULT",
+                "CONSTRAINED",
+                "PortSpec",
+                "Requirement",
+                "ToscaInputs",
+                "ToscaOutputs",
+                "computed",
+                "operation",
+                "AttributeOptions",
+                "PropertyOptions",
+            ]
+        )
+
+    def add_tosca_from(self, name):
+        self.from_tosca.add(name)
+        return name
 
     def add_declaration(self, tosca_name: str, localname: str):
         # new obj is being declared in the current module in the global scope
@@ -223,15 +245,13 @@ class Imports:
             pass
 
     def prelude(self) -> str:
-        import tosca
-
         return (
             textwrap.dedent(
                 f"""
         import unfurl
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
-        from tosca import ({", ".join(tosca.__all__)})
+        from tosca import ({", ".join(self.from_tosca)})
         import tosca
         """
             )
@@ -397,6 +417,7 @@ class Convert:
                 toscatype = _make_typedef(name, self.custom_defs, True)
                 if toscatype:
                     baseclass_name = section2typename(section)
+                    self.imports.from_tosca.add(baseclass_name)
                     type_src = self.toscatype2class(toscatype, baseclass_name, indent)
                     src += self.flush_pending_defs()
                     src += type_src + "\n\n"
@@ -489,7 +510,7 @@ class Convert:
     def python_name_from_type(self, tosca_type: str, minimize=False) -> str:
         # we assume the tosca_type has already been imported or is declared in this file
         qname = self.imports.get_local_ref(tosca_type)
-        if qname:
+        if not self._builtin_prefix and qname:
             return qname
         if "." in tosca_type:
             parts = tosca_type.split(".")
@@ -563,8 +584,9 @@ class Convert:
                 scalar_unit_class = get_scalarunit_class(datatype)
                 assert scalar_unit_class
                 canonical = scalar_unit_class(value).validate_scalar_unit()
-                # XXX add unit to imports
-                return canonical.strip().replace(" ", "*"), False  # value * unit
+                value, sep, unit = canonical.strip().partition(" ")
+                self.imports.from_tosca.add(unit)
+                return value + "*" + unit, False
             if typename:
                 # simple value type
                 return value2python_repr(value), False
@@ -604,7 +626,8 @@ class Convert:
         # constraint_key will correspond to constraint class names
         c = constraints[0]
         src_list = [
-            f"{c.constraint_key}({self._constraint_args(c)})" for c in constraints
+            f"{self.imports.add_tosca_from(c.constraint_key)}({self._constraint_args(c)})"
+            for c in constraints
         ]
         if len(src_list) == 1:
             return f"({src_list[0]},)"
@@ -613,7 +636,10 @@ class Convert:
     def _prop_type(self, schema: Schema) -> str:
         datatype = schema.type
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
-        if not typename:
+        if typename:
+            if typename in __all__:
+                self.imports.from_tosca.add(typename)
+        else:
             # it's a tosca datatype
             datatype = _tosca.TOSCA_SHORT_NAMES.get(datatype, datatype)
             typename = self.python_name_from_type(datatype)
@@ -924,7 +950,9 @@ class Convert:
         src += add_description(tpl, indent)
         return src
 
-    def _get_req_types(self, req: dict, inline_name: str) -> Tuple[List[str], str, bool]:
+    def _get_req_types(
+        self, req: dict, inline_name: str
+    ) -> Tuple[List[str], str, bool]:
         types: List[str] = []
         relationship = req.get("relationship")
         default = ""
@@ -972,7 +1000,9 @@ class Convert:
         if isinstance(req, str):
             req = dict(node=req)
         name, toscaname = self._set_name(req_name, "requirement")
-        types, match, explicit = self._get_req_types(req, f"_inline_relationship_{typename}_{name}")
+        types, match, explicit = self._get_req_types(
+            req, f"_inline_relationship_{typename}_{name}"
+        )
         # XXX add rel.valid_target_types
         types = self.import_types(types)
         if not types:
@@ -1582,6 +1612,7 @@ def convert_service_template(
             class_src = converter.convert_types(type_tpls, section, ns_prefix, indent)
             if class_src:
                 if ns_prefix:
+                    imports.from_tosca.add("Namespace")
                     class_src = f"class {tosca_type}(Namespace):\n" + class_src
                 converter.execute_source(class_src, namespace)
                 src += class_src + "\n"
@@ -1598,6 +1629,7 @@ def convert_service_template(
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
     if builtin_prefix == "unfurl.":
+        imports.from_tosca.add("Namespace")
         src += """\nclass interfaces(Namespace):
         # this is already defined because tosca.nodes.Root needs to inherit from it
         Install = tosca.interfaces.Install
