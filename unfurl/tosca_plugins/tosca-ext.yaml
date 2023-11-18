@@ -254,7 +254,7 @@ capability_types:
         type: string
         default: ssh
       port:
-        type: tosca:PortDef
+        type: tosca.datatypes.network.PortDef
         default: 22
 
 relationship_types:

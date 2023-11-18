@@ -45,7 +45,7 @@ import logging
 logger = logging.getLogger("tosca")
 
 from toscaparser.elements.portspectype import PortSpec
-from toscaparser.elements.datatype import DataType as ToscaDataType
+from toscaparser.elements.datatype import DataType as ToscaParserDataType
 from .scalars import *
 
 
@@ -783,7 +783,7 @@ class _Tosca_Field(dataclasses.Field):
             _type = self._resolve_class(_type)
             tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
             if not tosca_type:  # it must be a datatype
-                assert issubclass(_type, DataType), _type
+                assert issubclass(_type, _BaseDataType), _type
                 tosca_type = _type.tosca_type_name()
                 metadata = _type._get_property_metadata()
                 if metadata:
@@ -1920,28 +1920,50 @@ class _OwnedToscaType(ToscaType):
             self._local_name = name
 
 
-class DataType(_OwnedToscaType):
-    _type_section: ClassVar[str] = "data_types"
+class _BaseDataType(ToscaObject):
+    @classmethod
+    def _get_property_metadata(cls) -> Optional[Dict[str, Any]]:
+        return None
+
+    @classmethod
+    def get_tosca_datatype(cls):
+        custom_defs = cls._cls_to_yaml(None)  # type: ignore
+        return ToscaParserDataType(cls.tosca_type_name(), custom_defs)
+
+
+class ValueType(_BaseDataType):
+    _template_section: ClassVar[str] = "data_types"
     _type: ClassVar[Optional[str]] = None
     _constraints: ClassVar[Optional[List[dict]]] = None
+
+    def to_yaml(self, dict_cls=dict):
+        # find the simple type this is derived from and convert value to that type
+        for c in self.__class__.__mro__:
+            if c.__name__ in PYTHON_TO_TOSCA_TYPES:
+                return c(self)
+
+    @classmethod
+    def _cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
+        dict_cls = converter and converter.yaml_cls or yaml_cls
+        body: Dict[str, Any] = dict_cls()
+        body[cls.tosca_type_name()] = dict_cls()
+        doc = cls.__doc__ and cls.__doc__.strip()
+        if doc:
+            body[cls.tosca_type_name()]["description"] = doc
+        if cls._type:
+            body[cls.tosca_type_name()]["type"] = cls._type
+        if cls._constraints:
+            body[cls.tosca_type_name()]["constraints"] = cls._constraints
+        return body
+
+
+class DataType(_BaseDataType, _OwnedToscaType):
+    _type_section: ClassVar[str] = "data_types"
 
     @classmethod
     def _cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
         yaml = cls._shared_cls_to_yaml(converter)
-        if cls._type:
-            yaml[cls.tosca_type_name()]["type"] = cls._type
-        if cls._constraints:
-            yaml[cls.tosca_type_name()]["constraints"] = cls._constraints
         return yaml
-
-    @classmethod
-    def get_tosca_datatype(cls):
-        custom_defs = cls._cls_to_yaml(None)
-        return ToscaDataType(cls.tosca_type_name(), custom_defs)
-
-    @classmethod
-    def _get_property_metadata(cls) -> Optional[Dict[str, Any]]:
-        return None
 
     def to_yaml(self, dict_cls=dict):
         body = dict_cls()

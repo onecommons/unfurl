@@ -448,6 +448,8 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
             self._cache[name] = val
         else:
             self._cache.pop(name, None)
+            if isinstance(val, tosca.ToscaObject):
+                val = val.to_yaml(tosca.yaml_cls)
         self._values[name] = val
 
     def _getattr(self, name):

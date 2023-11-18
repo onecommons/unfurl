@@ -594,7 +594,7 @@ class Convert:
                 # its a tosca datatype
                 typename, cls = self.imports.get_type_ref(datatype)
                 if typename:
-                    assert cls and issubclass(cls, _tosca.DataType)
+                    assert cls and issubclass(cls, _tosca._BaseDataType)
                     dt = cls.get_tosca_datatype()
                 else:
                     # hasn't been imported yet, must be declared in this file
@@ -604,7 +604,7 @@ class Convert:
                     cls = None
                 if dt.value_type:
                     # its a simple value type
-                    return value2python_repr(value), False
+                    return f"{typename}({value2python_repr(value)})", False
                 if not isinstance(value, dict):
                     logger.error(
                         "expected a dict value for %s, got: %s", datatype, value
@@ -769,6 +769,10 @@ class Convert:
         if not self._builtin_prefix:
             cls_name = self.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(toscatype, baseclass_name)
+        simple_type = cast(str, toscatype.get_value("type"))
+        if simple_type and simple_type in _tosca.TOSCA_SIMPLE_TYPES:
+            # its a value datatype
+            base_names = "tosca.ValueType, " + _tosca.TOSCA_SIMPLE_TYPES[simple_type]
         class_decl = f"{initial_indent}class {cls_name}({base_names}):\n"
         src = ""
         indent = initial_indent + indent
