@@ -1240,7 +1240,10 @@ class Convert:
         return localname
 
     def template2obj(
-        self, entity_template: EntityTemplate, indent=""
+        self,
+        entity_template: EntityTemplate,
+        indent="",
+        declare=True,
     ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str]:
         self.init_names({})
         assert entity_template.type
@@ -1256,13 +1259,13 @@ class Convert:
             )
             # XXX compile and exec the source code generated so far
             return None, "", ""
-        if entity_template.name:
+        if entity_template.name and declare:
             # XXX names should be from parent namespace (module or Namespace)
             name = self.add_declaration(entity_template.name, None)
             logger.info("converting template %s to python", name)
             src = f"{indent}{name} = {cls_name}("
         else:
-            name = ""
+            name, _ = self._get_name(entity_template.name)
             src = f"{cls_name}("
         # always add name because we might not have access to the name reference
         src += f'"{entity_template.name}", '
@@ -1279,17 +1282,17 @@ class Convert:
             src += self._get_prop_init_list(properties, prop_defs, cls, indent)
         return cls, name, src
 
-    def artifact2obj(self, artifact: Artifact, indent="") -> str:
-        cls, name, src = self.template2obj(artifact, indent)
+    def artifact2obj(self, artifact: Artifact, indent="") -> Tuple[str, str]:
+        cls, name, src = self.template2obj(artifact, indent, False)
         if not cls:
-            return ""
+            return "", ""
         src += "file=" + value2python_repr(artifact.file) + ", "  # type: ignore
         for field in _tosca.ArtifactType._builtin_fields[1:]:
             val = getattr(artifact, field)
             if val:
                 src += f"{field}={value2python_repr(val)},\n"
         src += ")"  # close ctor
-        return src
+        return name, src
 
     def relationship_template2obj(
         self, template: RelationshipTemplate, indent=""
@@ -1340,16 +1343,16 @@ class Convert:
             else:
                 src += f"{field.name}=[{', '.join(assignments)}],\n"
         artifacts = []
-        for artifact_name, artifact in node_template.artifacts.items():
-            artifact_src = self.artifact2obj(artifact)
+        for artifact_tosca_name, artifact in node_template.artifacts.items():
+            artifact_name, artifact_src = self.artifact2obj(artifact)
             if artifact_src:
                 field = cls.get_field_from_tosca_name(
-                    artifact_name, ToscaFieldType.artifact
+                    artifact_tosca_name, ToscaFieldType.artifact
                 )
                 if field:
                     src += f"{artifact_src},\n"
                 else:
-                    artifacts.append(artifact_src)
+                    artifacts.append((artifact_name, artifact_src))
         src += ")\n"  # close ctor
 
         description = node_template.entity_tpl.get("description")
@@ -1357,11 +1360,11 @@ class Convert:
             src += f"{indent}{name}._description = " + add_description(
                 node_template.entity_tpl, indent
             )
-        for artifact_src in artifacts:
-            # artifact_src looks like "name = Artifact(...)"
-            src += f"{indent}{name}.{artifact_src}\n"
+        # use setattr to avoid mypy complaints about attribute not defined
+        for artifact_name, artifact_src in artifacts:
+            src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
         for req_name, req_assignment in template_reqs:
-            src += f"{indent}{name}.{req_name} = {req_assignment}\n"
+            src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
         # add these as attribute statements:
         # XXX operations: declare than assign
         # f"{indent}{name}.{opname} = {opname}

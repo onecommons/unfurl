@@ -1,6 +1,8 @@
 from typing import List, Optional
 import unittest
 
+import pytest
+
 import unfurl
 from .utils import init_project, run_job_cmd
 from mypy import api
@@ -12,12 +14,15 @@ import sys
 from unfurl.yamlloader import yaml, load_yaml
 from tosca.python2yaml import PythonToYaml
 from click.testing import CliRunner
+from unfurl.util import change_cwd
 
 
 def _verify_mypy(path):
     stdout, stderr, return_code = api.run([path])
-    assert "no issues found in 1 source file" in stdout
-    assert return_code == 0, stderr
+    if stdout:
+        # print(stdout)
+        assert "no issues found in 1 source file" in stdout
+    assert return_code == 0, (stderr, stdout)
 
 
 def test_constraints():
@@ -124,10 +129,11 @@ def test_constraints():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_mypy():
+@pytest.mark.parametrize("path", ["constraints.py", "dsl_configurator.py"])
+def test_mypy(path):
     # assert mypy ok
-    basepath = os.path.join(os.path.dirname(__file__), "examples/")
-    _verify_mypy(basepath + "constraints.py")
+    basepath = os.path.join(os.path.dirname(__file__), "examples", path)
+    _verify_mypy(basepath)
 
 
 constraints_yaml = """
@@ -186,7 +192,7 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
-    +include: types.py
+    +include: mytypes.py
     topology_template:
       outputs:
         computed:
@@ -206,58 +212,14 @@ spec:
             eval: ::generic::copy_of_extra
 """
 
-attribute_access_import = """
-import tosca
-import unfurl
-from typing import List, Optional
 
-class Test(tosca.nodes.Root):
-    url_scheme: str
-    host: str
-    computed: str = tosca.Attribute()
-    data: "MyDataType" = tosca.DEFAULT
-    int_list: List[int] = tosca.DEFAULT
-    data_list: List["MyDataType"] = tosca.DEFAULT
-    a_requirement: unfurl.nodes.Generic
-
-    @tosca.computed(
-        title="URL",
-        metadata={"sensitive": True},
-    )
-    def url(self) -> str:
-        return f"{ self.url_scheme }://{self.host }"
-
-    def run(self, task):
-        self.computed = self.url
-        self.data.ports.source = 80
-        self.data.ports.target = 8080
-        self.int_list.append(1)
-        extra = self.a_requirement.extra
-        self.a_requirement.copy_of_extra = extra
-
-        # XXX make this work:
-        # self.data_list.append(MyDataType())
-        # self.data_list[0].ports.source = 80
-        # self.data_list[0].ports.target = 8080
-        return True
-
-    def create(self, **kw):
-        return self.run
-
-class MyDataType(tosca.DataType):
-    ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
-                factory=lambda: tosca.datatypes.NetworkPortSpec(**tosca.PortSpec.make(80))
-              )
-
-generic = unfurl.nodes.Generic("generic")
-generic.extra = "extra"
-test = Test(url_scheme="https", host="foo.com", a_requirement=generic)
-"""
+with open(os.path.join(os.path.dirname(__file__), "examples/dsl_configurator.py")) as f:
+    attribute_access_import = f.read()
 
 
 def test_computed_properties():
     cli_runner = CliRunner()
-    with cli_runner.isolated_filesystem():
+    with cli_runner.isolated_filesystem() as tmp:
         init_project(
             cli_runner,
             env=dict(UNFURL_HOME=""),
@@ -265,7 +227,7 @@ def test_computed_properties():
         with open("ensemble-template.yaml", "w") as f:
             f.write(attribute_access_ensemble)
 
-        with open("types.py", "w") as f:
+        with open("mytypes.py", "w") as f:
             f.write(attribute_access_import)
 
         result, job, summary = run_job_cmd(cli_runner, print_result=True)

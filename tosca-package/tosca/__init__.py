@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import os.path
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     import toscaparser
@@ -12,17 +12,16 @@ except ImportError:
     import toscaparser
 from ._tosca import *
 
-if TYPE_CHECKING:
-    from .builtin_types import nodes
-    from .builtin_types import interfaces
-    from .builtin_types import relationships
-    from .builtin_types import capabilities
-    from .builtin_types import datatypes
-    from .builtin_types import artifacts
-    from .builtin_types import policies
-    from .builtin_types import groups
+from .builtin_types import nodes
+from .builtin_types import interfaces
+from .builtin_types import relationships
+from .builtin_types import capabilities
+from .builtin_types import datatypes
+from .builtin_types import artifacts
+from .builtin_types import policies
+from .builtin_types import groups
 
-_tosca_types = [
+__all__ = [
     "nodes",
     "capabilities",
     "relationships",
@@ -31,9 +30,7 @@ _tosca_types = [
     "artifacts",
     "policies",
     "groups",
-]
-
-__all__ = [
+    "Artifact",
     "ArtifactType",
     "Attribute",
     "B",
@@ -79,6 +76,8 @@ __all__ = [
     "MiB",
     "Mibps",
     "NS",
+    "find_relationship",
+    "find_node",
     "AttributeOptions",
     "PropertyOptions",
     "Namespace",
@@ -103,10 +102,11 @@ __all__ = [
     "TiB",
     "Tibps",
     "Time",
-    "ToscaDataType",
+    "ToscaParserDataType",
     "ToscaInputs",
     "ToscaOutputs",
     "US",
+    "ValueType",
     "b",
     "bps",
     "computed",
@@ -133,7 +133,6 @@ __all__ = [
     "length",
     "less_or_equal",
     "less_than",
-    "loader",
     "m",
     "max_length",
     "mb",
@@ -158,12 +157,4 @@ __all__ = [
     "valid_values",
 ]
 
-__safe__ = _tosca_types + __all__
-
-
-def __getattr__(name):
-    if name in _tosca_types:
-        from . import builtin_types
-
-        return getattr(builtin_types, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+__safe__ = __all__

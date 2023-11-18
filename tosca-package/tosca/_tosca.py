@@ -27,9 +27,11 @@ from typing import (
     Type,
     TypeVar,
     Tuple,
+    cast,
 )
 import types
 from typing_extensions import (
+    Protocol,
     dataclass_transform,
     get_args,
     get_origin,
@@ -62,6 +64,8 @@ class _LocalState(threading.local):
 global_state = _LocalState()
 
 yaml_cls = dict
+
+JsonType = Union[None, int, str, bool, List["JsonType"], Dict[str, "JsonType"]]
 
 
 class ToscaObject:
@@ -146,11 +150,27 @@ class schema(DataConstraint):
 
 class Namespace(types.SimpleNamespace):
     @classmethod
-    def get_defs(cls):
+    def get_defs(cls) -> Dict[str, Any]:
         ignore = ("__doc__", "__module__", "__dict__", "__weakref__")
         return {k: v for k, v in cls.__dict__.items() if k not in ignore}
 
     location: str
+
+
+F = TypeVar("F", bound=Callable[..., Any], covariant=False)
+
+
+class OperationFunc(Protocol):
+    __name__: str
+    operation_name: str
+    apply_to: Sequence[str]
+    timeout: Optional[float]
+    operation_host: Optional[str]
+    environment: Optional[Dict[str, str]]
+    dependencies: Optional[List[Union[str, Dict[str, Any]]]]
+    outputs: Optional[Dict[str, str]]
+    entry_state: Optional[str]
+    invoke: Optional[str]
 
 
 def operation(
@@ -163,7 +183,7 @@ def operation(
     outputs: Optional[Dict[str, str]] = None,
     entry_state: Optional[str] = None,
     invoke: Optional[str] = None,
-) -> Callable:
+) -> Callable[[Callable], Callable]:
     """Function decorator that marks a function or methods as a TOSCA operation.
 
     Args:
@@ -186,7 +206,8 @@ def operation(
             return self.my_artifact.execute()
     """
 
-    def decorator_operation(func):
+    def decorator_operation(func_: Callable) -> Callable:
+        func = cast(OperationFunc, func_)
         func.operation_name = name or func.__name__
         func.apply_to = apply_to
         func.timeout = timeout
@@ -196,30 +217,36 @@ def operation(
         func.outputs = outputs
         func.entry_state = entry_state
         func.invoke = invoke
-        return func
+        return func_
 
     return decorator_operation
 
 
-class ComputedDescriptor:
+GT = TypeVar("GT")
+
+
+class ComputedDescriptor(Generic[GT]):
     def __init__(self, func, field: "_Tosca_Field"):
         self.func = func
         self.field = field
 
-    def __get__(self, obj, obj_type=None):
+    def __get__(self, obj: Any, cls: Any) -> GT:
         if obj is None:
-            return self
+            return self  # type: ignore
         return self.func(obj)
+
+
+FT = TypeVar("FT", bound=Callable)
 
 
 def computed(
     name="",
-    metadata: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
     title: str = "",
     status: str = "",
     options: Optional["PropertyOptions"] = None,
-) -> Callable:
-    def decorator_operation(func):
+) -> Callable[[FT], ComputedDescriptor[T]]:
+    def decorator_operation(func: Callable[..., T]) -> ComputedDescriptor[T]:
         computed_field = _Tosca_Field(
             ToscaFieldType.property,
             default=_Ref(
@@ -384,7 +411,7 @@ def to_tosca_value(obj, dict_cls=dict):
 
 
 def metadata_to_yaml(metadata: Mapping):
-    return dict(metadata)
+    return yaml_cls(metadata)
 
 
 class ToscaFieldType(Enum):
@@ -860,7 +887,7 @@ def Attribute(
     factory=MISSING,
     name: str = "",
     constraints: Optional[List[DataConstraint]] = None,
-    metadata: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
     options: Optional[AttributeOptions] = None,
@@ -891,7 +918,7 @@ def Property(
     factory=MISSING,
     name: str = "",
     constraints: Optional[List[DataConstraint]] = None,
-    metadata: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
     title: str = "",
     status: str = "",
     options: Optional[PropertyOptions] = None,
@@ -926,7 +953,7 @@ def Requirement(
     default=MISSING,
     factory=MISSING,
     name: str = "",
-    metadata: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> Any:
     field = _Tosca_Field(ToscaFieldType.requirement, default, factory, name, metadata)
@@ -948,7 +975,7 @@ def Capability(
     default=MISSING,
     factory=MISSING,
     name: str = "",
-    metadata: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
     valid_source_types: Optional[List[str]] = None,
 ) -> Any:
     field = _Tosca_Field(ToscaFieldType.capability, default, factory, name, metadata)
@@ -970,7 +997,7 @@ def Artifact(
     default=MISSING,
     factory=MISSING,
     name: str = "",
-    metadata: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
 ) -> Any:
     field = _Tosca_Field(ToscaFieldType.artifact, default, factory, name, metadata)
     return field
@@ -1142,6 +1169,7 @@ def get_annotations(o):
     # return __annotations__ (but not on base classes)
     # see https://docs.python.org/3/howto/annotations.html
     if hasattr(inspect, "get_annotations"):
+        # this calls eval
         return inspect.get_annotations(o)  # 3.10 and later
     if isinstance(o, type):  # < 3.10
         return o.__dict__.get("__annotations__", None)
@@ -1527,8 +1555,8 @@ class ToscaType(_ToscaType):
     _type_section: ClassVar[str] = ""
     _template_section: ClassVar[str] = ""
 
-    _type_metadata: ClassVar[Optional[Dict[str, str]]] = None
-    _metadata: Dict[str, str] = dataclasses.field(default_factory=dict)
+    _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
+    _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
     _interface_requirements: Optional[List[str]] = dataclasses.field(
         default=None, init=False, repr=False
     )
@@ -2037,8 +2065,6 @@ class ArtifactType(_OwnedToscaType):
 class InterfaceType(ToscaType):
     # "Note: Interface types are not derived from ToscaType"
     _type_section: ClassVar[str] = "interface_types"
-
-    _type_metadata: ClassVar[Optional[Dict[str, str]]] = None
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:

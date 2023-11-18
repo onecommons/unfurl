@@ -37,15 +37,6 @@ sys.path.insert(0, _vendor_dir)
 _vendor_dir2 = os.path.join(_vendor_dir, "tosca", "vendor")
 sys.path.insert(0, _vendor_dir2)
 
-if TYPE_CHECKING:
-    from .tosca_plugins.tosca_ext import nodes
-    from .tosca_plugins.tosca_ext import interfaces
-    from .tosca_plugins.tosca_ext import relationships
-    from .tosca_plugins.tosca_ext import capabilities
-    from .tosca_plugins.tosca_ext import datatypes
-    from .tosca_plugins.tosca_ext import artifacts
-    from .tosca_plugins.tosca_ext import groups
-
 _tosca_types = [
     "nodes",
     "capabilities",
@@ -57,13 +48,6 @@ _tosca_types = [
     "groups",
 ]
 __safe__ = _tosca_types
-
-def __getattr__(name):
-    if name in _tosca_types:
-        from .tosca_plugins import tosca_ext
-
-        return getattr(tosca_ext, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class DefaultNames:
@@ -105,7 +89,21 @@ def get_home_config_path(homepath: Union[None, str]) -> Union[None, str]:
             return os.path.abspath(homepath)
     return None
 
-__all__ = ["DefaultNames", "get_home_config_path", "is_version_unreleased", "version_tuple"]
+
+__all__ = [
+    "DefaultNames",
+    "get_home_config_path",
+    "is_version_unreleased",
+    "version_tuple",
+    "nodes",
+    "capabilities",
+    "relationships",
+    "interfaces",
+    "datatypes",
+    "artifacts",
+    "policies",
+    "groups",
+]
 
 ### Ansible initialization
 if "ANSIBLE_CONFIG" not in os.environ:
@@ -150,3 +148,13 @@ else:
 
     lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
     filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
+
+# these need to be imported after DEFAULT_JINJA2_NATIVE is set:
+
+from .tosca_plugins.tosca_ext import nodes
+from .tosca_plugins.tosca_ext import interfaces
+from .tosca_plugins.tosca_ext import relationships
+from .tosca_plugins.tosca_ext import capabilities
+from .tosca_plugins.tosca_ext import datatypes
+from .tosca_plugins.tosca_ext import artifacts
+from .tosca_plugins.tosca_ext import groups
