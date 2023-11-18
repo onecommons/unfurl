@@ -68,7 +68,7 @@ from tosca import (
     TiB,
     Tibps,
     Time,
-    ToscaDataType,
+    ToscaParserDataType,
     ToscaInputs,
     ToscaOutputs,
     US,
