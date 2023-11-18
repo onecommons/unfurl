@@ -20,8 +20,11 @@ topology_template:
             version: 1.25.3
 
 node_types:
-  unfurl.nodes.K8sCluster:
+  unfurl.nodes._K8sResourceHost:
     derived_from: tosca.nodes.Root
+
+  unfurl.nodes.K8sCluster:
+    derived_from: unfurl.nodes._K8sResourceHost
     capabilities:
       host:
         type: tosca.capabilities.Container
@@ -46,7 +49,7 @@ node_types:
     derived_from: tosca.nodes.Root
     requirements:
       - host:
-          node: unfurl.nodes.K8sCluster
+          node: unfurl.nodes._K8sResourceHost
           relationship: tosca.relationships.HostedOn
           occurrences: [0, 1]
     properties:
@@ -83,11 +86,7 @@ node_types:
           discover: unfurl.configurators.k8s.ResourceConfigurator
 
   unfurl.nodes.K8sNamespace:
-    derived_from: unfurl.nodes.K8sRawResource
-    capabilities:
-      host:
-        type: tosca.capabilities.Container
-        valid_source_types: [unfurl.nodes.K8sResource]
+    derived_from: [unfurl.nodes._K8sResourceHost, unfurl.nodes.K8sRawResource]
     properties:
       name:
         type: string
