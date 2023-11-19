@@ -207,6 +207,9 @@ spec:
         a_list:
           value:
             eval: ::test::int_list
+        data_list:
+          value:
+            eval: ::test::data_list
         extra:
           value:
             eval: ::generic::copy_of_extra
@@ -242,6 +245,17 @@ def test_computed_properties():
                 "source_range": None,
             },
             "a_list": [1],
+            "data_list": [
+                {
+                    "ports": {
+                        "protocol": None,
+                        "target": 8080,
+                        "target_range": None,
+                        "source": 80,
+                        "source_range": None,
+                    }
+                }
+            ],
             "extra": "extra",
         }
         assert job.get_outputs() == expected

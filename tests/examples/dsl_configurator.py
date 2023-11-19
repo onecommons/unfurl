@@ -25,13 +25,14 @@ class Test(tosca.nodes.Root):
         self.data.ports.source = tosca.datatypes.NetworkPortDef(80)
         self.data.ports.target = tosca.datatypes.NetworkPortDef(8080)
         self.int_list.append(1)
+        self.int_list.append(2)
+        del self.int_list[1]
         extra = self.a_requirement.extra  # type: ignore
         self.a_requirement.copy_of_extra = extra  # type: ignore
 
-        # XXX make this work:
-        # self.data_list.append(MyDataType())
-        # self.data_list[0].ports.source = 80
-        # self.data_list[0].ports.target = 8080
+        self.data_list.append(MyDataType())
+        self.data_list[0].ports.source = tosca.datatypes.NetworkPortDef(80)
+        self.data_list[0].ports.target = tosca.datatypes.NetworkPortDef(8080)
         return True
 
     def create(self, **kw: Any) -> Callable[[Any], Any]:

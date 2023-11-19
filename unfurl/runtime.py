@@ -399,6 +399,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     _baseDir = ""
     templateType = EntitySpec  # must defined by subtype
     parentRelation = ""
+    proxy = None
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=Status.ok

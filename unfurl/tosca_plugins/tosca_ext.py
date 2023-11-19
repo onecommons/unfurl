@@ -40,7 +40,6 @@ class datatypes(Namespace):
         """The value of an environment variable whose name matches the property's name"""
 
         _type_name = "unfurl.datatypes.EnvVar"
-        _type = "string"
 
     class EnvironmentVariables(tosca.datatypes.Root):
         """An open type (properties don't need to be declared) that serializes as a map of environment variables."""

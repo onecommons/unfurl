@@ -154,7 +154,6 @@ class datatypes(Namespace):
 
     class NetworkPortDef(tosca.ValueType, int):
         _type_name = "tosca.datatypes.network.PortDef"
-        _type = "integer"
         _constraints = [{"in_range": [1, 65535]}]
 
     class NetworkPortSpec(Root):
@@ -179,11 +178,9 @@ class datatypes(Namespace):
 
     class Json(tosca.ValueType, str):
         _type_name = "tosca.datatypes.json"
-        _type = "string"
 
     class Xml(tosca.ValueType, str):
         _type_name = "tosca.datatypes.xml"
-        _type = "string"
 
 
 class artifacts(Namespace):

@@ -1970,14 +1970,21 @@ class _BaseDataType(ToscaObject):
 
 class ValueType(_BaseDataType):
     _template_section: ClassVar[str] = "data_types"
-    _type: ClassVar[Optional[str]] = None
     _constraints: ClassVar[Optional[List[dict]]] = None
+
+    @classmethod
+    def type(cls) -> str:
+        for c in cls.__mro__:
+            if c.__name__ in PYTHON_TO_TOSCA_TYPES:
+                return PYTHON_TO_TOSCA_TYPES[c.__name__]
+        raise TypeError("ValueType must be derived from a simple type.")
 
     def to_yaml(self, dict_cls=dict):
         # find the simple type this is derived from and convert value to that type
         for c in self.__class__.__mro__:
             if c.__name__ in PYTHON_TO_TOSCA_TYPES:
                 return c(self)
+        raise TypeError("ValueType must be derived from a simple type.")
 
     @classmethod
     def _cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
@@ -1987,8 +1994,7 @@ class ValueType(_BaseDataType):
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
             body[cls.tosca_type_name()]["description"] = doc
-        if cls._type:
-            body[cls.tosca_type_name()]["type"] = cls._type
+        body[cls.tosca_type_name()]["type"] = cls.type()
         if cls._constraints:
             body[cls.tosca_type_name()]["constraints"] = cls._constraints
         return body

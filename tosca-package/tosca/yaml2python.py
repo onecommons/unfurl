@@ -820,8 +820,8 @@ class Convert:
             else:
                 src += f"{indent}_target: {self.import_types(target_types)[0]}\n"
 
-        # artifact, relationship and datatype special keys
-        for key in ["file_ext", "mime_type", "type", "constraints", "default_for"]:
+        # artifact, relationship and datatype types have special keys
+        for key in ["file_ext", "mime_type", "constraints", "default_for"]:
             value = toscatype.get_value(key)
             if value:
                 src += f"{indent}_{key} = {value2python_repr(value, True)}\n"

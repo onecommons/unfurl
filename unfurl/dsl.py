@@ -139,13 +139,16 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
 
 
 def proxy_instance(instance, cls: Type[_ToscaType]):
+    if instance.proxy:
+        return instance.proxy
     obj = find_template(instance.template)
     if obj:
         found_cls: Optional[Type[_ToscaType]] = obj.__class__
     else:
         # if target is subtype of cls, use the subtype
         found_cls = cls._all_types.get(instance.template.type)
-    return get_proxy_class(found_cls or cls)(instance, obj)
+    instance.proxy = get_proxy_class(found_cls or cls)(instance, obj)
+    return instance.proxy
 
 
 class DslMethodConfigurator(Configurator):
@@ -200,6 +203,8 @@ class ProxyCollection:
             self._cache[key] = val
             val = val._values
         else:
+            if isinstance(val, tosca.ToscaObject):
+                val = val.to_yaml(tosca.yaml_cls)            
             self._cache.pop(key, None)
         self._values[key] = val
 
@@ -224,8 +229,8 @@ class ProxyList(ProxyCollection, MutableSequence):
         # unwrap proxied datatypes
         if isinstance(val, (DataTypeProxyBase, ProxyCollection)):
             val = val._values
-        elif isinstance(val, tosca.DataType):
-            val = val.__dict__
+        elif isinstance(val, tosca.ToscaObject):
+            val = val.to_yaml(tosca.yaml_cls)
         self._values.insert(index, val)
 
 
@@ -335,6 +340,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             setattr(self._obj, name, val)
         if isinstance(val, (DataTypeProxyBase, ProxyCollection)):
             val = val._values
+        elif isinstance(val, tosca.ToscaObject):
+            val = val.to_yaml(tosca.yaml_cls)
         self._instance.attributes[name] = val
         self._cache.pop(name, None)
 
