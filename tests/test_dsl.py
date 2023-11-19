@@ -261,7 +261,7 @@ node_types:
           relationship: tosca.relationships.ConnectsTo
 """
 
-example_wordpress_python = '''
+_example_wordpress_python = '''
 import tosca
 from tosca import *
 class WordPress(tosca.nodes.WebApplication):
@@ -273,9 +273,11 @@ class WordPress(tosca.nodes.WebApplication):
     db_host: str
     "Description of the db_host property"
 
-    database_endpoint: "tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"
+    database_endpoint: {}
     "Description of the database_endpoint requirement"
 '''
+example_wordpress_python = _example_wordpress_python.format('"tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"')
+example_wordpress_python_alt = _example_wordpress_python.format('tosca.nodes.Database = Requirement(capability="tosca.capabilities.EndpointDatabase", relationship=tosca.relationships.ConnectsTo)')
 
 
 def test_example_wordpress():
@@ -285,6 +287,9 @@ def test_example_wordpress():
 
     tosca_tpl2 = _to_yaml(example_wordpress_python, True)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
+
+    tosca_tpl3= _to_yaml(example_wordpress_python_alt, True)
+    assert src_tpl["node_types"] == tosca_tpl3["node_types"]
 
 
 # section 2.1 "Hello world"

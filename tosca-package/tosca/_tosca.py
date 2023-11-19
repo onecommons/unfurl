@@ -246,6 +246,16 @@ def computed(
     status: str = "",
     options: Optional["PropertyOptions"] = None,
 ) -> Callable[[FT], ComputedDescriptor[T]]:
+    """Function decorator that declare a TOSCA property whose value is computed by the decorated method at runtime.
+
+    Args:
+        name (str, optional): TOSCA name of the field, overrides the function name when generating YAML.
+        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the property.
+        title (str, optional): Human-friendly alternative name of the property.
+        status (str, optional): TOSCA status of the property.
+        options (PropertyOptions, optional): Typed metadata to apply.
+    """
+
     def decorator_operation(func: Callable[..., T]) -> ComputedDescriptor[T]:
         computed_field = _Tosca_Field(
             ToscaFieldType.property,
@@ -461,6 +471,9 @@ class AttributeOptions(Options):
 
 class _Tosca_Field(dataclasses.Field):
     title = None
+    relationship: Union[str, Type["RelationshipType"], None] = None
+    capability: Union[str, Type["CapabilityType"], None] = None
+    node: Union[str, Type["NodeType"], None] = None
     node_filter: Optional[Dict[str, Any]] = None
     valid_source_types: Optional[List[str]] = None
 
@@ -715,10 +728,24 @@ class _Tosca_Field(dataclasses.Field):
         if occurrences != [1, 1]:
             field_def["occurrences"] = occurrences
 
+    def _resolve_toscaname(self, candidate) -> str:
+        if isinstance(candidate, str):
+            try:
+                candidate = self._resolve_class(candidate)
+            except NameError as e:
+                return candidate
+        return candidate.tosca_type_name()
+
     def _to_requirement_yaml(
         self, converter: Optional["PythonToYaml"]
     ) -> Dict[str, Any]:
         req_def: Dict[str, Any] = yaml_cls()
+        if self.node:
+            req_def["node"] = self._resolve_toscaname(self.node)
+        if self.capability:
+            req_def["capability"] = self._resolve_toscaname(self.capability)
+        if self.relationship:
+            req_def["relationship"] = self._resolve_toscaname(self.relationship)
         info = self.get_type_info_checked()
         if not info:
             return req_def
@@ -870,10 +897,11 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
         default (Any, optional): Default value. Set to None if the {name} isn't required. Defaults to MISSING.
         factory (Callable, optional): Factory function to initialize the {name} with a unique value per template. Defaults to MISSING.
         name (str, optional): TOSCA name of the field, overrides the {name}'s name when generating YAML. Defaults to "".
-        metadata (Dict[str, str], optional): Dictionary of metadata to associate with the {name}.\n"""
+        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the {name}.\n"""
     indent = "        "
     if status:
         doc += f"{indent}constraints (List[DataConstraints], optional): List of TOSCA property constraints to apply to the {name}.\n"
+        doc += f"{indent}title (str, optional): Human-friendly alternative name of the {name}.\n"
         doc += f"{indent}status (str, optional): TOSCA status of the {name}.\n"
         doc += f"{indent}options ({func.__name__}Options, optional): Typed metadata to apply.\n"
     for arg in extra:
@@ -954,9 +982,15 @@ def Requirement(
     factory=MISSING,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    relationship: Union[str, Type["RelationshipType"], None] = None,
+    capability: Union[str, Type["CapabilityType"], None] = None,
+    node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> Any:
     field = _Tosca_Field(ToscaFieldType.requirement, default, factory, name, metadata)
+    field.relationship = relationship
+    field.capability = capability
+    field.node = node
     field.node_filter = node_filter
     return field
 
@@ -965,7 +999,10 @@ _make_field_doc(
     Requirement,
     False,
     [
-        "node_filter (Dict[str, Any], optional): The TOSCA node_filter for this requirement."
+        "relationship (str | Type[RelationshipType], optional): The requirement's ``relationship`` specified by TOSCA type name or RelationshipType class.",
+        "capability (str | Type[CapabilityType], optional): The requirement's ``capability`` specified by TOSCA type name or CapabilityType class.",
+        "node (str, | Type[NodeType], optional): The requirement's ``node`` specified by TOSCA type name or NodeType class.",
+        "node_filter (Dict[str, Any], optional): The TOSCA node_filter for this requirement.",
     ],
 )
 
