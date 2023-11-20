@@ -28,7 +28,7 @@ from typing import (
     Any,
     NewType,
 )
-from typing_extensions import Protocol, NoReturn
+from typing_extensions import Protocol, NoReturn, TypedDict, Unpack
 from enum import Enum
 from urllib.parse import quote, quote_plus, urlsplit
 
@@ -810,7 +810,29 @@ def _mid_truncate(label: str, replace: str, trunc: int) -> str:
     return label
 
 
-_label_defaults = dict(
+LabelArg = Union[str, Mapping, list]
+
+
+class DNSLabelKwArgs(TypedDict, total=False):
+    start_prepend: str
+    sep: str
+    digest: Optional[str]
+    digestlen: int
+
+
+class K8sLabelKwArgs(DNSLabelKwArgs, total=False):
+    start: str
+
+
+class LabelKwArgs(K8sLabelKwArgs, total=False):
+    allowed: str
+    replace: str
+    end: Optional[str]
+    max: int
+    case: str
+
+
+_label_defaults = LabelKwArgs(
     allowed=r"\w",
     max=63,
     case="any",
@@ -831,7 +853,8 @@ def _validate_allowed(chars):
         return chars
 
 
-def to_label(arg, **kw):
+# mypy: enable-incomplete-feature=Unpack
+def to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
     r"""Convert a string to a label with the given constraints.
         If a dictionary, all keys and string values are converted.
         If list, to_label is applied to each item and concatenated using ``sep``
@@ -862,7 +885,7 @@ def to_label(arg, **kw):
         # convert keys and string values of the mapping, filtering out nulls
         # only apply digest to values
         return {
-            to_label(n, **kw): to_label(v, digest=digest, **kw)
+            to_label(n, **kw): to_label(v, digest=digest, **kw)  # type: ignore
             for n, v in arg.items()
             if v is not None
         }
@@ -885,7 +908,7 @@ def to_label(arg, **kw):
         trunc_chars = trunc - min(len(sep) * (len(arg) - 1), trunc - 1)
         seg_max = max(trunc_chars // len(arg), 1)
         segments = [str(n) for n in arg]
-        labels = [to_label(n, digestlen=0, max=9999, **kw) for n in segments]
+        labels = [to_label(n, digestlen=0, max=9999, **kw) for n in segments]  # type: ignore
         length = sum(map(len, labels))
         if length > trunc_chars or digest is not None:
             # needs truncation and/or digest
@@ -943,14 +966,14 @@ set_eval_func(
 
 
 def to_dns_label(
-    arg,
+    arg: LabelArg,
     allowed=r"\w-",
     start=r"\w",
     replace="--",
     case="lower",
     end=r"\w",
     max=63,
-    **kw,
+    **kw: Unpack[DNSLabelKwArgs],
 ):
     """
     Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
@@ -978,13 +1001,23 @@ set_eval_func(
 )
 
 
-def to_kubernetes_label(arg, allowed=r"\w_.-", replace="__", end=r"\w", **kw):
+def to_kubernetes_label(
+    arg: LabelArg,
+    allowed=r"\w_.-",
+    case="any",
+    replace="__",
+    end=r"\w",
+    max=63,
+    **kw: Unpack[K8sLabelKwArgs],
+):
     """
     See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
 
     Invalid characters are replaced with "__".
     """
-    return to_label(arg, allowed=allowed, replace=replace, end=end, **kw)
+    return to_label(
+        arg, allowed=allowed, replace=replace, end=end, max=max, case=case, **kw
+    )
 
 
 set_eval_func(
@@ -995,7 +1028,12 @@ set_eval_func(
 
 
 def to_googlecloud_label(
-    arg, allowed=r"\w_-", case="lower", replace="__", max=63, **kw
+    arg: LabelArg,
+    allowed=r"\w_-",
+    case="lower",
+    replace="__",
+    max=63,
+    **kw: Unpack[K8sLabelKwArgs],
 ):
     """
     See https://cloud.google.com/resource-manager/docs/labels-overview
