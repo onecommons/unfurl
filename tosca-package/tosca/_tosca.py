@@ -222,60 +222,6 @@ def operation(
     return decorator_operation
 
 
-GT = TypeVar("GT")
-
-
-class ComputedDescriptor(Generic[GT]):
-    def __init__(self, func, field: "_Tosca_Field"):
-        self.func = func
-        self.field = field
-
-    def __get__(self, obj: Any, cls: Any) -> GT:
-        if obj is None:
-            return self  # type: ignore
-        return self.func(obj)
-
-
-FT = TypeVar("FT", bound=Callable)
-
-
-def computed(
-    name="",
-    metadata: Optional[Dict[str, JsonType]] = None,
-    title: str = "",
-    status: str = "",
-    options: Optional["PropertyOptions"] = None,
-) -> Callable[[FT], ComputedDescriptor[T]]:
-    """Function decorator that declare a TOSCA property whose value is computed by the decorated method at runtime.
-
-    Args:
-        name (str, optional): TOSCA name of the field, overrides the function name when generating YAML.
-        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the property.
-        title (str, optional): Human-friendly alternative name of the property.
-        status (str, optional): TOSCA status of the property.
-        options (PropertyOptions, optional): Typed metadata to apply.
-    """
-
-    def decorator_operation(func: Callable[..., T]) -> ComputedDescriptor[T]:
-        computed_field = _Tosca_Field(
-            ToscaFieldType.property,
-            default=_Ref(
-                {"eval": dict(computed=f"{func.__module__}:{func.__qualname__}")}
-            ),
-            name=name or func.__name__,
-            metadata=metadata,
-            title=title,
-            status=status,
-            options=options,
-        )
-        computed_field.type = inspect.signature(func).return_annotation
-        if func.__doc__:
-            computed_field.description = func.__doc__
-        return ComputedDescriptor(func, computed_field)
-
-    return decorator_operation
-
-
 class tosca_timestamp(str):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({super().__repr__()})"
@@ -605,6 +551,10 @@ class _Tosca_Field(dataclasses.Field):
         elif isinstance(val, _Ref):
             match_filters = self.node_filter.setdefault("match", [])
             match_filters.append(val)
+        elif isinstance(val, _DataclassType) and issubclass(val, ToscaType):
+            # its a DataType class
+            match_filters = self.node_filter.setdefault("match", [])
+            match_filters.append(dict(get_nodes_of_type=val.tosca_type_name()))
         else:
             # val is concrete value, just replace the default
             self._set_default(val)
@@ -974,6 +924,51 @@ _make_field_doc(
         "attribute (bool, optional): Indicate that the property is also a TOSCA attribute. Defaults to False."
     ],
 )
+
+RT = TypeVar("RT")
+
+
+def Computed(
+    name="",
+    *,
+    factory: Callable[..., RT],
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title: str = "",
+    status: str = "",
+    options: Optional["PropertyOptions"] = None,
+    attribute: bool = False,
+) -> RT:
+    """Field specifier for declaring a TOSCA property whose value is computed by the factory function at runtime.
+
+    Args:
+        factory (function): function called at runtime every time the property is evaluated.
+        name (str, optional): TOSCA name of the field, overrides the Python name when generating YAML.
+        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the property.
+        title (str, optional): Human-friendly alternative name of the property.
+        status (str, optional): TOSCA status of the property.
+        options (PropertyOptions, optional): Typed metadata to apply.
+        attribute (bool, optional): Indicate that the property is also a TOSCA attribute.
+
+    Return type:
+        The return type of the factory function (should be compatible with the field type).
+    """
+    default = _Ref(
+        {"eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")}
+    )
+    # this cast type checks that factory function's return type matches the field's type
+    return cast(
+        RT,
+        _Tosca_Field(
+            ToscaFieldType.property,
+            default=default,
+            name=name,
+            metadata=metadata,
+            title=title,
+            status=status,
+            options=options,
+            declare_attribute=attribute,
+        ),
+    )
 
 
 def Requirement(
@@ -1439,6 +1434,7 @@ def field(
         Artifact,
         field,
         dataclasses.field,
+        Computed,
     ),
 )
 class _ToscaType(ToscaObject, metaclass=_DataclassType):
@@ -1725,17 +1721,6 @@ class ToscaType(_ToscaType):
                             cls_or_self, operation, converter
                         )
 
-    @classmethod
-    def _computed_yaml(cls, body, converter: Optional["PythonToYaml"]) -> None:
-        for methodname, operation in cls.__dict__.items():
-            if methodname[0] == "_":
-                continue
-            if isinstance(operation, ComputedDescriptor):
-                computed = operation.field
-                computed.owner = cls
-                item = computed.to_yaml(converter)
-                body.setdefault(computed.section, {}).update(item)
-
     @staticmethod
     def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
         dict_cls = converter and converter.yaml_cls or yaml_cls
@@ -1808,7 +1793,6 @@ class ToscaType(_ToscaType):
                     # a property that is also declared as an attribute
                     item = {field.tosca_name: field._to_attribute_yaml()}
                     body.setdefault("attributes", {}).update(item)
-        cls._computed_yaml(body, converter)
         if not converter or not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
             interfaces = cls._interfaces_yaml(cls, cls, converter)

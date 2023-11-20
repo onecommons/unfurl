@@ -47,7 +47,7 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
-from tosca._tosca import _Tosca_Field, _ToscaType, ComputedDescriptor
+from tosca._tosca import _Tosca_Field, _ToscaType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .eval import set_eval_func
@@ -121,6 +121,7 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
+    print( yaml_src)
     return yaml_src
 
 
@@ -201,8 +202,6 @@ def eval_computed(arg, ctx):
     cls = getattr(module, cls_name)
     func = getattr(cls, func_name)
     proxy = proxy_instance(ctx.currentResource, cls)
-    if isinstance(func, ComputedDescriptor):
-        return func.func(proxy)
     return func(proxy)
 
 
@@ -392,9 +391,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 # )
             elif hasattr(self._obj or self._cls, name):
                 cls_val = getattr(self._cls, name, None)
-                if isinstance(cls_val, ComputedDescriptor):
-                    return cls_val.func(self)
-                elif self._obj:
+                if self._obj:
                     val = getattr(self._obj, name)
                 else:
                     val = cls_val

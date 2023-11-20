@@ -8,7 +8,7 @@ import unfurl
 from typing import List, Dict, Any, Tuple, Union, Sequence
 from typing_extensions import Annotated
 from tosca import (
-    computed,
+    Computed,
     Namespace,
     PortSpec,
     DEFAULT,

@@ -194,7 +194,7 @@ class Imports:
                 "Requirement",
                 "ToscaInputs",
                 "ToscaOutputs",
-                "computed",
+                "Computed",
                 "operation",
                 "AttributeOptions",
                 "PropertyOptions",

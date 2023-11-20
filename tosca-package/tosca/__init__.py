@@ -109,7 +109,7 @@ __all__ = [
     "ValueType",
     "b",
     "bps",
-    "computed",
+    "Computed",
     "d",
     "equal",
     "field",

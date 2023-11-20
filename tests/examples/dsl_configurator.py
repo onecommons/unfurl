@@ -5,7 +5,12 @@ from tosca import *
 from unfurl.configurator import TaskView
 from unfurl.configurators import DoneDict, TemplateConfigurator, TemplateInputs
 
-class Test(tosca.nodes.Root):
+
+class Base(tosca.nodes.Root):
+    url: str  # test that a derived class safely override a property with a computed property
+
+
+class Test(Base):
     url_scheme: str
     host: str
     computed: str = tosca.Attribute()
@@ -14,12 +19,10 @@ class Test(tosca.nodes.Root):
     data_list: List["MyDataType"] = tosca.DEFAULT
     a_requirement: unfurl.nodes.Generic
 
-    @tosca.computed(
-        title="URL",
-        metadata={"sensitive": True},
-    )
-    def url(self) -> str:
+    def _url(self) -> str:
         return f"{ self.url_scheme }://{self.host }"
+
+    url: str = tosca.Computed(factory=_url)
 
     def run(self, task: TaskView) -> bool:
         DoneDict()  # this is from an unsafe module, test that its available in this context
@@ -43,13 +46,15 @@ class Test(tosca.nodes.Root):
     @operation(outputs=dict(test_output="computed"))
     def delete(self, **kw: Any) -> TemplateConfigurator:
         render = self._context  # type: ignore
-        done=DoneDict(outputs=dict(test_output="set output"))
+        done = DoneDict(outputs=dict(test_output="set output"))
         return TemplateConfigurator(TemplateInputs(run="test me", done=done))
+
 
 class MyDataType(tosca.DataType):
     ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
-                factory=lambda: tosca.datatypes.NetworkPortSpec(**tosca.PortSpec.make(80))
-              )
+        factory=lambda: tosca.datatypes.NetworkPortSpec(**tosca.PortSpec.make(80))
+    )
+
 
 generic = unfurl.nodes.Generic("generic")
 generic.extra = "extra"  # type: ignore

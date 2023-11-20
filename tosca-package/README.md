@@ -246,9 +246,10 @@ import tosca
 class Integrated(tosca.nodes.Root):
     hostname: str
 
-    @tosca.computed()
-    def url(self) -> str:
+    def _url(self) -> str:
         return f"https://{self.hostname}/"
+
+    url: str = tosca.Computed(factory=_url)
 
     def run(self, task):
         # invoked by the orchestrator when the operation is executed
@@ -259,9 +260,9 @@ class Integrated(tosca.nodes.Root):
         return self.run
 ```
 
-Here the `create()` operation returns the `run()` method, which will be invoked by the orchestrator. This example also illustrates another mechanism for integrating with the orchestrator by using the `@computed()` method decorator to declare a TOSCA property whose value is computed by the decorated method at runtime.
+Here the `create()` operation returns the `run()` method, which will be invoked by the orchestrator. This example also illustrates another mechanism for integrating with the orchestrator by using the `Computed()` field specifier to declare a TOSCA property whose value is computed by the decorated method at runtime.
 
-Unfurl provides this integration and other orchestrators can implement a callback interface to provide similar integration.
+Unfurl provides this integration and other orchestrators can implement a callback interface to provide similar integration.  In addition, Unfurl will automatically run operation methods during the Unfurl's planning and render phase if the method executes runtime-only functionality that isn't available when generating YAML.
 
 ### Node Filters
 
