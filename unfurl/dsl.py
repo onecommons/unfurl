@@ -121,7 +121,6 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
-    print( yaml_src)
     return yaml_src
 
 

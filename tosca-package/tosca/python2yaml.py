@@ -29,7 +29,7 @@ from ._tosca import (
     global_state,
     WritePolicy,
     InstanceProxy,
-    ValueType
+    ValueType,
 )
 from .loader import restricted_exec, get_module_path
 
@@ -160,6 +160,8 @@ class PythonToYaml:
             elif isinstance(value._target, CapabilityType):
                 node = value._target._node
                 req["capability"] = value._target._local_name
+        else:
+            raise TypeError(f'Invalid value for requirement: "{value}" on {req}"')
         if node:
             node_name = self.add_template(node, default_node_name)
             req["node"] = node_name
@@ -253,8 +255,10 @@ class PythonToYaml:
                         self._import_module(current_module, path, module_name)
                         continue
                     if isinstance(obj, type) and issubclass(obj, ValueType):
-                          as_yaml = obj._cls_to_yaml(self)
-                          self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
+                        as_yaml = obj._cls_to_yaml(self)
+                        self.sections.setdefault(section, self.yaml_cls()).update(
+                            as_yaml
+                        )
                     else:
                         assert to_yaml
                         parent = self.sections
@@ -273,22 +277,20 @@ class PythonToYaml:
             # instead of converting the type, add an import if missing
             module, p = self.find_yaml_import(module_name)
             if not p and module:
-                            #  its a TOSCA object but no yaml file found, convert to yaml now
+                #  its a TOSCA object but no yaml file found, convert to yaml now
                 p = self._imported_module2yaml(module)
             if p and path:
                 try:
                     self.imports.add(("", p.relative_to(path)))
                 except ValueError:
-                                # not a subpath of the current module, add a repository
-                    ns, path = self._set_repository_for_module(
-                                    module_name, p
-                                )
+                    # not a subpath of the current module, add a repository
+                    ns, path = self._set_repository_for_module(module_name, p)
                     if path:
                         self.imports.add((ns, path))
                     else:
                         logger.warning(
-                                        f"import look up in {current_module} failed, can find {module_name}"
-                                    )
+                            f"import look up in {current_module} failed, can find {module_name}"
+                        )
 
 
 def python_src_to_yaml_obj(

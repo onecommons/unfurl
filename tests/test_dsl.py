@@ -507,8 +507,8 @@ def test_custom_interface():
 def test_class_init() -> None:
     class Example(tosca.nodes.Root):
         shellScript: tosca.artifacts.Root = tosca.artifacts.Root(file="example.sh")
-        prop1: Optional[str] = tosca.Eval()
-        host: tosca.nodes.Compute = tosca.Requirement(default=None)
+        prop1: Optional[str] = tosca.CONSTRAINED
+        host: tosca.nodes.Compute = tosca.CONSTRAINED
 
         @classmethod
         def _class_init(cls) -> None:

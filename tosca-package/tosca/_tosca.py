@@ -739,7 +739,13 @@ class _Tosca_Field(dataclasses.Field):
                 default = self.default_factory()
             else:
                 default = self.default
-            converter.set_requirement_value(req_def, default, self.name)
+            if default is CONSTRAINED:
+                if not self.node_filter:
+                    raise ValueError(
+                        f'"{self.name}" on "{self.owner}" was marked as CONSTRAINED but no constraint was set in "_class_init()".'
+                    )
+            elif default and default not in [MISSING, REQUIRED]:
+                converter.set_requirement_value(req_def, default, self.name)
         self._add_occurrences(req_def, info)
         return req_def
 
@@ -758,7 +764,12 @@ class _Tosca_Field(dataclasses.Field):
         return cap_def
 
     def _to_artifact_yaml(self, converter: Optional["PythonToYaml"]) -> Dict[str, Any]:
-        if self.default and self.default is not dataclasses.MISSING:
+        if (
+            self.default
+            and self.default is not MISSING
+            and self.default is not CONSTRAINED
+            and self.default is not REQUIRED
+        ):
             return self.default.to_template_yaml(converter)
         elif self.default_factory and self.default_factory is not dataclasses.MISSING:
             return self.default_factory().to_template_yaml(converter)
@@ -811,6 +822,7 @@ class _Tosca_Field(dataclasses.Field):
         elif (
             self.default is not dataclasses.MISSING
             and self.default is not REQUIRED
+            and self.default is not CONSTRAINED
             and self.default is not None
         ):
             # only set the default to null if required (not optional)
@@ -832,7 +844,11 @@ class _Tosca_Field(dataclasses.Field):
             )
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
             prop_def["default"] = to_tosca_value(self.default_factory())
-        elif self.default is not dataclasses.MISSING and self.default is not REQUIRED:
+        elif (
+            self.default is not dataclasses.MISSING
+            and self.default is not REQUIRED
+            and self.default is not CONSTRAINED
+        ):
             if self.default is not None or not optional:
                 # only set the default to null when if property is required
                 prop_def["default"] = to_tosca_value(self.default)
@@ -1607,15 +1623,15 @@ class ToscaType(_ToscaType):
         self._instance_fields: Optional[Dict[str, Tuple[_Tosca_Field, Any]]] = None
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for field in fields.values():
-            if getattr(self, field.name) is REQUIRED:
+            val = object.__getattribute__(self, field.name)
+            if val is REQUIRED:
                 # on Python < 3.10 we set this to workaround lack of keyword only fields
                 raise ValueError(
                     f'Keyword argument was missing: {field.name} on "{self}".'
                 )
             elif getattr(field, "deferred_property_assignments", None):
-                target = getattr(self, field.name)
                 for name, value in field.deferred_property_assignments.items():
-                    setattr(target, name, value)
+                    setattr(val, name, value)
 
     # XXX version (type and template?)
 
@@ -1865,16 +1881,22 @@ class ToscaType(_ToscaType):
             body["metadata"] = metadata_to_yaml(self._metadata)
         for field, value in self.get_instance_fields().values():
             if field.section == "requirements":
-                # XXX node_filter if value is ref
-                # XXX handle case where value is a type not an instance
-                req = dict_cls()
-                shorthand = converter.set_requirement_value(
-                    req, value, self._name + "_" + field.name
-                )
-                if shorthand or req:
-                    body.setdefault("requirements", []).append(
-                        {field.tosca_name: shorthand or req}
-                    )
+                if value and value is not CONSTRAINED:
+                    # XXX node_filter if value is ref
+                    # XXX handle case where value is a type not an instance
+                    if not isinstance(value, (list, tuple)):
+                        value = [value]
+                    for i, item in enumerate(value):
+                        req = dict_cls()
+                        shorthand = converter.set_requirement_value(
+                            req,
+                            item,
+                            self._name + "_" + field.name + (str(i) if i else ""),
+                        )
+                        if shorthand or req:
+                            body.setdefault("requirements", []).append(
+                                {field.tosca_name: shorthand or req}
+                            )
             elif field.section in ["capabilities", "artifacts"]:
                 if value:
                     assert isinstance(value, (CapabilityType, ArtifactType))
