@@ -19,8 +19,13 @@ class Lock:
     def __init__(self, ensemble: "YamlManifest"):
         self.ensemble = ensemble
 
+    def find_packages(self):
+        lock = self.ensemble.manifest.config.get("lock")
+        if lock:
+            yield from self._find_packages(lock, self.ensemble)
+
     @staticmethod
-    def apply_to_packages(locked: dict, manifest: "Manifest"):
+    def _find_packages(locked: dict, manifest: "Manifest"):
         for repo_dict in locked["repositories"]:
             if not repo_dict.get("name"):
                 continue
@@ -29,36 +34,41 @@ class Lock:
                 continue
             package_id, url, revision = get_package_id_from_url(repo_dict["url"])
             if package_id:
-                commit = repo_dict.get("commit")
-                revision = repo_dict.get("tag")
-                if not commit:  # old lock format
-                    commit = repo_dict.get("revision")
-                    revision = None
-                existing_package = manifest.packages.get(package_id)
-                if existing_package:
-                    if existing_package.lock_to_commit:
-                        continue
-                    if revision and existing_package.revision == revision:
-                        continue
-                    if not Package(package_id, url, revision).is_compatible_with(existing_package):
-                        logger.warning(
-                            "locking packages to a incompatible revision % for %s",
-                            revision,
-                            existing_package,
-                        )
-                    existing_package.revision = revision
-                    package = existing_package
-                else:
-                    package = Package(package_id, url, revision)
-                    manifest.packages[package_id] = package
-                if not revision:
-                    package.lock_to_commit = True
-                logger.verbose(
-                    "setting package %s (%s) to revision %s from lock section",
-                    package_id,
-                    repo_dict.get("name"),
-                    revision,
-                )
+                yield package_id, url, repo_dict
+
+    @staticmethod
+    def apply_to_packages(locked: dict, manifest: "Manifest"):
+        for package_id, url, repo_dict in Lock._find_packages(locked, manifest):
+            commit = repo_dict.get("commit")
+            revision = repo_dict.get("tag")
+            if not commit:  # old lock format
+                commit = repo_dict.get("revision")
+                revision = None
+            existing_package = manifest.packages.get(package_id)
+            if existing_package:
+                if existing_package.lock_to_commit:
+                    continue
+                if revision and existing_package.revision == revision:
+                    continue
+                if not Package(package_id, url, revision).is_compatible_with(existing_package):
+                    logger.warning(
+                        "locking packages to a incompatible revision % for %s",
+                        revision,
+                        existing_package,
+                    )
+                existing_package.revision = revision
+                package = existing_package
+            else:
+                package = Package(package_id, url, revision)
+                manifest.packages[package_id] = package
+            if not revision:
+                package.lock_to_commit = True
+            logger.verbose(
+                "setting package %s (%s) to revision %s from lock section",
+                package_id,
+                repo_dict.get("name"),
+                revision,
+            )
 
     # XXX
     # def validate_runtime(self):

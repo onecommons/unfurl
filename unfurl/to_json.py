@@ -49,6 +49,7 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
+from .lock import Lock
 from .plan import _get_templates_from_topology
 from .repo import sanitize_url
 from .runtime import EntityInstance, TopologyInstance
@@ -283,10 +284,13 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
             if default_value and default_value != schema["default"]:
                 schema["default"] = default_value
             type_schema = tosca_type_to_jsonschema(custom_defs, propdefs, dt.type)
-            metadata = dt.get_value('metadata', parent=True)
-            if metadata and 'additionalProperties' in metadata:
+            metadata = dt.get_value("metadata", parent=True)
+            if metadata and "additionalProperties" in metadata:
                 schema["additionalProperties"] = dict(type="string", required=True)
-                if len(type_schema["properties"]) == 1 and "$toscatype" in type_schema["properties"]:
+                if (
+                    len(type_schema["properties"]) == 1
+                    and "$toscatype" in type_schema["properties"]
+                ):
                     del type_schema["properties"]
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
@@ -1523,6 +1527,10 @@ def get_deployment_blueprints(
       resourceTemplates: [ResourceTemplate!]
       cloud: ResourceType
       environmentVariableNames: [String!]
+
+      source: String
+      projectPath: String!
+      commitTime: String
     }
     """
     deployment_blueprints = (
@@ -1808,6 +1816,7 @@ def add_graphql_deployment(
       summary: String
       workflow: String
       deployTime: String
+      packages: JSON
     }
     """
     name = dtemplate["name"]
@@ -1834,6 +1843,14 @@ def add_graphql_deployment(
     _set_deployment_url(manifest, deployment, primary_resource)
     if primary_resource and primary_resource["title"] == primary_name:
         primary_resource["title"] = deployment["title"]
+    packages = {}
+    for package_id, package_url, repo_dict in Lock(manifest).find_packages():
+        packages[_project_path(repo_dict["url"])] = dict(
+            version=repo_dict.get("tag", repo_dict.get("branch", "MISSING"))
+        )
+    if packages:
+        deployment["packages"] = packages
+
     db["Deployment"] = {name: deployment}
     return deployment
 
