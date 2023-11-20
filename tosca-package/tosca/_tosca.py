@@ -519,6 +519,28 @@ class _Tosca_Field(dataclasses.Field):
             # XXX default is shared across template instances and subtypes -- what about mutable values like dicts and basically all Toscatypes?
             setattr(self.default, name, val)
 
+    def _validate_name_is_property(self, name):
+        # ensure that the give field name refers to a property or attribute
+        assert self._tosca_field_type == ToscaFieldType.requirement
+        ti = self.get_type_info_checked()
+        if not ti:
+            logger.warning(
+                f"Could't check property {name} on {self.name}, unable to resolve type."
+            )
+            return
+        # XXX ti.types[0] might not be a node type!
+        field = ti.types[0].__dataclass_fields__.get(name)
+        if not field:
+            logger.warning(f"Property {name} is not present on {ti.types[0]}")
+            return
+        if field.tosca_field_type not in [
+            ToscaFieldType.property,
+            ToscaFieldType.attribute,
+        ]:
+            raise ValueError(
+                f'{ti.types} Can not set "{name}" on {self}: "{name}" is a {field.tosca_field_type.name}, not a TOSCA property'
+            )
+
     def add_node_filter(
         self, val, prop_name: Optional[str] = None, capability: Optional[str] = None
     ):
@@ -526,6 +548,7 @@ class _Tosca_Field(dataclasses.Field):
         if self.node_filter is None:
             self.node_filter = {}
         if capability:
+            assert prop_name
             cap_filters = self.node_filter.setdefault("capabilities", [])
             for cap_filter in cap_filters:
                 if list(cap_filter)[0] == capability:
@@ -536,7 +559,9 @@ class _Tosca_Field(dataclasses.Field):
                 cap_filters.append({capability: node_filter})
         else:
             node_filter = self.node_filter
-        if prop_name:
+        if prop_name is not None:
+            if not capability:
+                self._validate_name_is_property(prop_name)
             prop_filters = node_filter.setdefault("properties", [])
             if isinstance(val, _Ref):
                 val.set_source()
@@ -548,16 +573,16 @@ class _Tosca_Field(dataclasses.Field):
                     "q": val
                 }  # quote the value to distinguish from built-in tosca node_filters
             prop_filters.append({prop_name: val})
-        elif isinstance(val, _Ref):
-            match_filters = self.node_filter.setdefault("match", [])
-            match_filters.append(val)
-        elif isinstance(val, _DataclassType) and issubclass(val, ToscaType):
-            # its a DataType class
-            match_filters = self.node_filter.setdefault("match", [])
-            match_filters.append(dict(get_nodes_of_type=val.tosca_type_name()))
         else:
-            # val is concrete value, just replace the default
-            self._set_default(val)
+            match_filters = self.node_filter.setdefault("match", [])
+            if isinstance(val, _DataclassType) and issubclass(val, ToscaType):
+                # its a DataType class
+                match_filters.append(dict(get_nodes_of_type=val.tosca_type_name()))
+            else:
+                # XXX if val is a node, create ref:
+                # val = _Ref({"eval": "::"+ val._name})
+                assert isinstance(val, _Ref), val
+                match_filters.append(val)
 
     def _set_default(self, val):
         if isinstance(val, DataConstraint):
@@ -1134,31 +1159,14 @@ class FieldProjection(_Ref):
             object.__setattr__(self, name, val)
             return
         if self.parent:
+            # XXX
+            # self.parent.field.tosca_field_type == ToscaFieldType.requirement:
+            #    node_filter = self.field.get_property_constraint(name, val)
+            #    self.parent.field.add_requirement_filter(self.field.tosca_name, node_filter)
+            # else:
             raise ValueError(
                 f"Can't set {name} on {self}: Only one level of field projection currently supported"
             )
-        if self.field.tosca_field_type == ToscaFieldType.requirement:
-            # this will create a property node_filter so we need to figure out what name
-            # XXX supporting match filters for name is a requirement
-            try:
-                ti = self.field.get_type_info()
-                field = ti.types[0].__dataclass_fields__[name]
-            except:
-                # couldn't resolve the type
-                # XXX if current field type isn't a requirement we can assume name is property
-                raise AttributeError(
-                    f"Can't project {name} from {self}: Only one level of field projection currently supported"
-                )
-            else:
-                if field.tosca_field_type in [
-                    ToscaFieldType.property,
-                    ToscaFieldType.attribute,
-                ]:
-                    self.field.set_property_constraint(name, val)
-                else:
-                    raise ValueError(
-                        f'{ti.types} Can not set "{name}" on {self}: "{name}" is a {field.tosca_field_type.name}, not a TOSCA property'
-                    )
         else:
             self.field.set_property_constraint(name, val)
 
