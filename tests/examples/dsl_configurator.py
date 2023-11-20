@@ -3,6 +3,7 @@ import tosca
 from typing import Any, Callable, List, Optional
 from tosca import *
 from unfurl.configurator import TaskView
+from unfurl.configurators import DoneDict, TemplateConfigurator, TemplateInputs
 
 class Test(tosca.nodes.Root):
     url_scheme: str
@@ -21,6 +22,7 @@ class Test(tosca.nodes.Root):
         return f"{ self.url_scheme }://{self.host }"
 
     def run(self, task: TaskView) -> bool:
+        DoneDict()  # this is from an unsafe module, test that its available in this context
         self.computed = self.url
         self.data.ports.source = tosca.datatypes.NetworkPortDef(80)
         self.data.ports.target = tosca.datatypes.NetworkPortDef(8080)
@@ -37,6 +39,12 @@ class Test(tosca.nodes.Root):
 
     def create(self, **kw: Any) -> Callable[[Any], Any]:
         return self.run
+
+    @operation(outputs=dict(test_output="computed"))
+    def delete(self, **kw: Any) -> TemplateConfigurator:
+        render = self._context  # type: ignore
+        done=DoneDict(outputs=dict(test_output="set output"))
+        return TemplateConfigurator(TemplateInputs(run="test me", done=done))
 
 class MyDataType(tosca.DataType):
     ports: tosca.datatypes.NetworkPortSpec = tosca.Property(

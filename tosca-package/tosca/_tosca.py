@@ -163,7 +163,7 @@ F = TypeVar("F", bound=Callable[..., Any], covariant=False)
 class OperationFunc(Protocol):
     __name__: str
     operation_name: str
-    apply_to: Sequence[str]
+    apply_to: Optional[Sequence[str]]
     timeout: Optional[float]
     operation_host: Optional[str]
     environment: Optional[Dict[str, str]]
@@ -175,7 +175,7 @@ class OperationFunc(Protocol):
 
 def operation(
     name="",
-    apply_to: Sequence[str] = (),
+    apply_to: Optional[Sequence[str]] = None,
     timeout: Optional[float] = None,
     operation_host: Optional[str] = None,
     environment: Optional[Dict[str, str]] = None,
@@ -1703,8 +1703,8 @@ class ToscaType(_ToscaType):
             if methodname[0] == "_":
                 continue
             if cls_or_self.is_operation(operation):
-                if hasattr(operation, "apply_to"):
-                    apply_to = operation.apply_to
+                apply_to = getattr(operation, "apply_to", None)
+                if apply_to is not None:
                     for name in apply_to:
                         interface = interface_ops.get(name)
                         if interface is not None:
@@ -1739,17 +1739,23 @@ class ToscaType(_ToscaType):
     @staticmethod
     def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
         dict_cls = converter and converter.yaml_cls or yaml_cls
-        result = operation(_ToscaTypeProxy(cls_or_self))
-        if result is None:
-            return result
+        try:
+            result = operation(_ToscaTypeProxy(cls_or_self))
+        except:
+            className = f"{operation.__module__}:{operation.__qualname__}:render"
+            implementation = dict_cls(className=className)
+            result = None
+        else:
+            if result is None:
+                return result
         if result is NotImplemented:
             return "not_implemented"
         if isinstance(result, _ArtifactProxy):
             implementation = dict_cls(primary=result.name_or_tpl)
         elif isinstance(result, types.FunctionType):
-            className = f"{result.__module__}:{result.__qualname__}"
+            className = f"{result.__module__}:{result.__qualname__}:run"
             implementation = dict_cls(className=className)
-        else:
+        elif result:  # with unfurl this will be a Configurator
             className = f"{result.__class__.__module__}.{result.__class__.__name__}"
             implementation = dict_cls(className=className)
         # XXX add to implementation: preConditions

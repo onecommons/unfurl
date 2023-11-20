@@ -42,7 +42,7 @@ class PythonPackageCheckConfigurator(Configurator):
         yield task.done(True, status=status)
 
 
-class DoneDict(TypedDict):
+class DoneDict(TypedDict, total=False):
     success: Optional[bool]
     modified: Optional[bool]
     status: Optional[Status]
@@ -51,12 +51,10 @@ class DoneDict(TypedDict):
 
 
 class TemplateInputs(ToscaInputs):
-    run: Optional[Dict] = None
+    run: Optional[Any] = None
     dryrun: Union[None, bool, str, dict] = None
     done: Optional[DoneDict] = None
     resultTemplate: Optional[Dict] = None
-    outputs: Optional[Dict] = None
-
 
 class TemplateConfigurator(Configurator):
     exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")

@@ -213,6 +213,7 @@ spec:
         extra:
           value:
             eval: ::generic::copy_of_extra
+changes: []
 """
 
 
@@ -269,3 +270,20 @@ def test_computed_properties():
             "skipped": 0,
             "changed": 1,
         }
+        result, job, summary = run_job_cmd(
+            cli_runner, ["-vvv", "undeploy"], print_result=True
+        )
+        assert job.get_outputs()["computed"] == "set output"
+        assert summary["job"] == {
+            "id": "A01110GC0000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        }
+        # print( result.output )
+        # with open("ensemble/ensemble.yaml") as f:
+        #     print(f.read())

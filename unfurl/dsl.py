@@ -57,7 +57,7 @@ from .spec import EntitySpec, NodeSpec, RelationshipSpec
 from .repo import RepoView
 from .util import check_class_registry, get_base_dir, register_class
 from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
-from unfurl.configurator import Configurator
+from unfurl.configurator import Configurator, TaskView
 from typing_extensions import (
     dataclass_transform,
     get_args,
@@ -117,7 +117,7 @@ def convert_to_yaml(
         # can't use readonly yaml since we might write out yaml files with it
         yaml_dict_type(False),
         safe_mode,
-        import_resolver.manifest.modules,
+        import_resolver.manifest.modules if safe_mode else sys.modules,
         write_policy,
         import_resolver,
     )
@@ -152,13 +152,43 @@ def proxy_instance(instance, cls: Type[_ToscaType]):
 
 
 class DslMethodConfigurator(Configurator):
-    def __init__(self, cls: Type[ToscaType], fun: Callable):
+    def __init__(self, cls: Type[ToscaType], func: Callable, action: str):
         self.cls = cls
-        self.fun = fun
+        self.func = func
+        self.action = action
+        self.configurator: Optional[Configurator] = None
+
+    def render(self, task: TaskView) -> Any:
+        if self.action == "render":
+            obj = proxy_instance(task.target, self.cls)
+            obj._context = task.inputs.context
+            result = self.func(obj)
+            if isinstance(result, Configurator):
+                self.configurator = result
+                # configurators rely on task.inputs, so update them
+                task.inputs.update(result.inputs)
+                # task.inputs get reset after render phase
+                # so we need to set configSpec.inputs too in order to preserve them for run()
+                task.configSpec.inputs.update(result.inputs)
+                return self.configurator.render(task)
+            else:
+                assert callable(result), result
+                self.func = result
+        return super().render(task)
+
+    def _is_generator(self):
+        # Note: this needs to called after configurator is set in render()
+        if self.configurator:
+            return self.configurator._is_generator()
+        return inspect.isgeneratorfunction(self.func)
 
     def run(self, task):
+        if self.configurator:
+            return self.configurator.run(task)
         obj = proxy_instance(task.target, self.cls)
-        return self.fun(obj, task)
+        obj._context = task.inputs.context
+        return self.func(obj, task)
+
 
 def eval_computed(arg, ctx):
     """
@@ -204,7 +234,7 @@ class ProxyCollection:
             val = val._values
         else:
             if isinstance(val, tosca.ToscaObject):
-                val = val.to_yaml(tosca.yaml_cls)            
+                val = val.to_yaml(tosca.yaml_cls)
             self._cache.pop(key, None)
         self._values[key] = val
 
@@ -266,6 +296,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         # templates can have attributes assigned directly to it so see if we have the template
         self._obj = obj
         self._cache: Dict[str, Any] = {}
+        self._context = None
 
     def _get_field(self, name):
         if self._obj:
@@ -333,7 +364,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     def __setattr__(self, name, val):
         #  you should be able to modify the dsl at this point (there probably isn't even an object to modify)
         #  so only modify the instance
-        if name in ("_instance", "_obj", "_cache"):
+        if name in ("_instance", "_obj", "_cache", "_context"):
             object.__setattr__(self, name, val)
             return
         if self._obj is not None and hasattr(self._obj, name):
@@ -419,7 +450,7 @@ _proxies = {}
 
 def get_proxy_class(cls, base: type = InstanceProxyBase):
     # we need to create a real subclass for issubclass() to work
-    # (InstanceProxyBase[_cls] returns typing._GenericAlias not a real subclass)
+    # (InstanceProxyBase[_cls] returns typing._GenericAlias, not a real subclass)
     if cls not in _proxies:
 
         class _P(base):

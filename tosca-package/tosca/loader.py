@@ -617,6 +617,6 @@ def restricted_exec(
     finally:
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
-        if temp_module:
-            del sys.modules[full_name]
+        if safe_mode and temp_module:
+             del sys.modules[full_name]
     return result

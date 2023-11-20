@@ -126,14 +126,14 @@ class ConfigurationSpec:
         return find_schema_errors(expanded, self.preConditions)
 
     def create(self):
-        className = self.className
+        className: str = self.className
         if ":" in className:
             from .dsl import DslMethodConfigurator
-            module_name, sep, qualname = className.partition(":")
+            module_name, qualname, action = className.split(":")
             module = importlib.import_module(module_name)
             cls_name, sep, func_name = qualname.rpartition(".")
             cls = getattr(module, cls_name)
-            return DslMethodConfigurator(cls, getattr(cls, func_name))
+            return DslMethodConfigurator(cls, getattr(cls, func_name), action)
 
         klass = lookup_class(className)
         if not klass:
