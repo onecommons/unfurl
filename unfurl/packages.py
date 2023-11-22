@@ -56,6 +56,7 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 
 The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
 """
+import os.path
 import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from typing_extensions import Literal
@@ -241,20 +242,29 @@ class PackageSpec:
 
 
 def get_package_id_from_url(url: str) -> Package_Url_Info:
-    if url.startswith(".") or url.startswith("/") or url.startswith("file:") or url.startswith("git-local"):
+    if (
+        url.startswith(".")
+        or url.startswith("/")
+        or url.startswith("file:")
+        or url.startswith("git-local")
+    ):
         # this isn't a package id or a non-local git url
         return Package_Url_Info(None, url, None)
 
     # package_ids can have a revision in the fragment
     url, repopath, revision = split_git_url(url)
     parts = urlparse(url)
-    path = parts.path.strip("/")
+    path = parts.path
+    if path:  # avoid normpath turning "" into "."
+        path = os.path.normpath(parts.path).strip("/")
     if path.endswith(".git"):
         path = path[: len(path) - 4]
     if parts.hostname:
         package_id = parts.hostname + "/" + path
     else:
         package_id = path
+    if repopath == ".":
+        repopath = ""
     # follow Go's convention for including the path part of git url fragment in package_ids:
     if repopath:
         package_id += ".git/" + repopath
