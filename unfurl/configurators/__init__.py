@@ -56,6 +56,7 @@ class TemplateInputs(ToscaInputs):
     done: Optional[DoneDict] = None
     resultTemplate: Optional[Dict] = None
 
+
 class TemplateConfigurator(Configurator):
     exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")
 
@@ -120,14 +121,18 @@ class TemplateConfigurator(Configurator):
     def can_dry_run(self, task):
         return bool(task.inputs.get("dryrun"))
 
-    def render(self, task):
+    def render(self, task: "TaskView"):
         if task.dry_run:
             runResult = task.inputs.get("dryrun")
             if not isinstance(runResult, dict):
                 runResult = task.inputs.get("run")
         else:
             runResult = task.inputs.get("run")
-        task.logger.trace("render run template with %s", runResult)
+        if isinstance(runResult, Mapping):
+            logResult: Any = list(runResult)
+        else:
+            logResult = runResult
+        task.logger.trace("render run template with %s", logResult)
         return runResult
 
     def done(self, task: "TaskView", **kw):
