@@ -1846,12 +1846,15 @@ def add_graphql_deployment(
     packages = {}
     for package_id, repo_dict in Lock(manifest).find_packages():
         # lock packages to the last deployed version
+        # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
         version = (
             repo_dict.get("tag")
             or repo_dict.get("revision")  # tag or branch explicitly set
             or repo_dict.get("discovered_revision")
         )
-        # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
+        if not version and "discovered_revision" not in repo_dict:
+            # old version of lock section YAML, set missing to True
+            version = "(MISSING)"
         if version:
             packages[_project_path(repo_dict["url"])] = dict(version=version)
     if packages:

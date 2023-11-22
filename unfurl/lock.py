@@ -28,10 +28,18 @@ class Lock:
 
     @staticmethod
     def _find_packages(locked: dict, manifest: "Manifest"):
+        old_format = "package_rules" not in locked
         for repo_dict in locked["repositories"]:
             package_id = repo_dict.get("package_id")
             if package_id:
                 yield package_id, repo_dict
+            elif old_format and repo_dict.get("name"):
+                repository = manifest.repositories.get(repo_dict["name"])
+                if repository and repository.package is False:
+                    continue
+                package_id, url, revision = get_package_id_from_url(repo_dict["url"])
+                if package_id:
+                    yield package_id, repo_dict
 
     @staticmethod
     def find_package(lock: dict, manifest: "Manifest", package):
