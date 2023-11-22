@@ -158,19 +158,19 @@ class PackageSpec:
                     # PackageSpec.url used above will always have revision stripped off
                     package.url = package.url + "#" + package.revision_tag
                 return ""
-            elif self.package_id:
-                replaced_id = package.package_id
-                package.package_id = self.package_id.replace(
-                    "*", package.package_id[len(self.package_spec) - 1 :]
-                )
-                package.url = ""
-                return replaced_id
-            elif self.revision:
-                # if (only) the revision was set and the package didn't set one itself, set it
-                if not package.revision:
-                    package.revision = self.revision
-                return ""
             else:
+                if self.package_id:
+                    replaced_id = package.package_id
+                    package.package_id = self.package_id.replace(
+                        "*", package.package_id[len(self.package_spec) - 1 :]
+                    )
+                    package.url = ""
+                    return replaced_id
+                if self.revision:
+                    # if (only) the revision was set and the package didn't set one itself, set it
+                    if not package.revision:
+                        package.revision = self.revision
+                    return ""
                 # package_specs
                 raise UnfurlError(
                     f"Malformed package spec: {self.package_spec}: missing url or package id"
@@ -191,8 +191,7 @@ class PackageSpec:
 
     @staticmethod
     def update_package(package_specs: List["PackageSpec"], package: "Package") -> bool:
-        """_summary_
-
+        """
         Args:
             package_specs (PackageSpec): Rules to apply to the package.
             package (Package): Package will be updated in-place if there are rules that apply to it.
