@@ -100,7 +100,10 @@ class Package_Url_Info(NamedTuple):
 
 class PackageSpec:
     def __init__(
-        self, package_spec: str, url_ish: Optional[str], minimum_version: Optional[str]
+        self,
+        package_spec: str,
+        url_ish: Optional[str],
+        minimum_version: Optional[str] = None,
     ) -> None:
         # url can be package id, a url prefix, or an url with a revision or branch
         self.package_spec = package_spec
@@ -114,7 +117,6 @@ class PackageSpec:
             self.package_id = None
             revision = None
         self.revision = minimum_version or revision
-        self.lock_to_commit = False
         if ":" in self.package_spec or "#" in self.package_spec:
             raise UnfurlError(
                 f"Malformed package spec: {self.package_spec} must be a package id not an URL"
@@ -175,9 +177,6 @@ class PackageSpec:
                 raise UnfurlError(
                     f"Malformed package spec: {self.package_spec}: missing url or package id"
                 )
-
-        if self.lock_to_commit:
-            package.lock_to_commit = self.lock_to_commit
         if self.revision:
             package.revision = self.revision
         if self.url:
@@ -310,8 +309,10 @@ class Package:
         else:
             self.url = url
         self.repositories: List[RepoView] = []
-        self.discovered_revision = False
-        self.lock_to_commit = False
+        # flags:
+        self.discovered = False  # the current revision was discovered
+        self.missing = False  # if set, failed to find a version tag
+        self.locked = False  # current revision set from lock
 
     @property
     def safe_url(self):
@@ -335,27 +336,20 @@ class Package:
 
     def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
         prefix = self.version_tag_prefix()
+        order = "earliest" if self.missing else "latest"
         logger.debug(
-            f"looking for remote tags {prefix}* for {self.safe_url} using {get_remote_tags}"
+            f"Package {self.package_id} is looking for {order} remote tags {prefix}* on {self.safe_url}"
         )
         # get an sorted list of tags and strip the prefix from them
         url, repopath, urlrevision = split_git_url(self.url)
-        try:
-            vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
-        except Exception:
-            logger.warning(
-                "failed to look up version tags on remote git at %s",
-                sanitize_url(url),
-                exc_info=True,
-            )
-            return None
+        vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
-        # as if it didn't specify a semver at all. Unrelease versions have no backwards compatibility
+        # as if it didn't specify a semver at all. Unreleased versions have no backwards compatibility
         # guarantees so we don't want to treat the repository as pinned to a particular revision.
         tags = [vtag for vtag in vtags if is_semver(vtag, True)]
         if tags:
-            if self.lock_to_commit:
+            if self.missing:
                 # if this is set then there wasn't a version tag when the lock file saved
                 # so assume that the oldest tag is the best one to grab
                 return tags[-1]
@@ -365,16 +359,24 @@ class Package:
         return None
 
     def set_version_from_repo(self, get_remote_tags) -> bool:
-        revision = self.find_latest_semver_from_repo(get_remote_tags)
-        # set flag to indicate the revision wasn't explicitly specified
-        if revision != self.revision:
-            # e.g. if no revision was specified and there are no version tags, don't set discovered_revision
-            # so the package continues to rely on the default branch, not future tags
+        try:
+            revision = self.find_latest_semver_from_repo(get_remote_tags)
+        except Exception:
+            logger.warning(
+                "failed to look up version tags on remote git at %s",
+                self.safe_url,
+                exc_info=True,
+            )
+            return False
+        # remember the result of the search even if we don't set the revision
+        if revision:
+            self.discovered = True
+            self.missing = False
             self.revision = revision
-            self.discovered_revision = True
             return True
         else:
-            return False
+            self.missing = True
+        return False
 
     def set_url_from_package_id(self):
         self.url = package_id_to_url(self.package_id, self.revision_tag)
@@ -391,9 +393,8 @@ class Package:
 
     def is_mutable_ref(self) -> bool:
         # is this package pointing to ref that could change?
-        return False
-        # XXX if revision, see if its tag or branch
-        # if self.discovered_revision: return True
+        return not self.locked
+        # XXX:
         # treat tags immutable unless it looks like a non-exact semver tag:
         # return not self.revision or self.has_semver() or self.revision_is_branch()
 
@@ -425,14 +426,14 @@ class Package:
         if not self.revision or not package.revision:
             # there aren't two revisions to compare so skip compatibility check
             return True
-        # if the revision wasn't specified, skip compatibility check
-        if self.discovered_revision or package.discovered_revision:
+        # if either revision wasn't explicitly specified, skip compatibility check
+        if self.discovered or package.discovered:
             return True
         if not self.has_semver(True):
             # require an exact match for non-semver revisions
             return self.revision == package.revision
-        if not package.has_semver(True):  # the other package doesn't have a semver and doesn't match
-            return False
+        if not package.has_semver(True):
+            return False  # the other package doesn't have a semver and doesn't match
         # # if given revision is newer than current packages we need to reload (error for now?)
         return TOSCAVersionProperty(package.revision).is_semver_compatible_with(
             TOSCAVersionProperty(self.revision)
@@ -442,16 +443,7 @@ class Package:
 PackagesType = Dict[str, Union[Literal[False], Package]]
 
 
-def resolve_package(
-    repoview: RepoView,
-    packages: PackagesType,
-    package_specs: List[PackageSpec],
-    get_remote_tags=get_remote_tags,
-) -> Optional["Package"]:
-    """
-    If repository references a package, register it with existing package or create a new one.
-    A error is raised if a package's version conflicts with the repository's version requirement.
-    """
+def extract_package(repoview: RepoView):
     package_id, url, revision = get_package_id_from_url(repoview.url)
     if not package_id:
         repoview.package = False
@@ -459,9 +451,27 @@ def resolve_package(
 
     # if repository.revision is set it overrides the revision in the url fragment
     minimum_version = repoview.repository.revision or revision
-    package = Package(package_id, url or "", minimum_version)
+    return Package(package_id, url or "", minimum_version)
+
+
+def resolve_package(
+    repoview: RepoView,
+    packages: PackagesType,
+    package_specs: List[PackageSpec],
+    get_remote_tags=get_remote_tags,
+    lock_dict: Optional[dict] = None,
+) -> Optional["Package"]:
+    """
+    If repository references a package, register it with existing package or create a new one.
+    A error is raised if a package's version conflicts with the repository's version requirement.
+    """
+    package = extract_package(repoview)
+    if not package:
+        return None
     # possibly change the package info if we match a PackageSpec
     changed = PackageSpec.update_package(package_specs, package)
+    if lock_dict:
+        apply_lock(lock_dict, package)
     if package.package_id not in packages:
         if not package.url:
             # the repository didn't specify a full url and there wasn't already an existing package or package spec
@@ -476,7 +486,7 @@ def resolve_package(
             repoview.package = False
             packages[package.package_id] = False
             return None
-        packages[package_id] = package
+        packages[package.package_id] = package
     else:
         existing = packages[package.package_id]
         if not existing:  # the repository isn't a package
@@ -494,3 +504,29 @@ def resolve_package(
 
     package.add_reference(repoview)
     return package
+
+
+def apply_lock(lock_dict, package: Package) -> bool:
+    # note that repo_dict might refer to a different git repository than the one the current package rules use.
+    # so the tag here might be missing on the new git repository -- that's ok we don't want to avoid that error
+    if lock_dict.get("discovered_revision") == "(MISSING)":
+        package.missing = True
+    # note that tag might not be a semver tag so missing can still be true even if there's a tag
+    tag = lock_dict.get("tag")
+    if tag:
+        # a tag was used at lock time
+        package.locked = True
+        package.revision = tag
+        logger.verbose(
+            "setting package %s to revision %s from lock section",
+            package.package_id,
+            tag,
+        )
+        return True
+    if "discovered_revision" not in lock_dict:
+        # old version of lock section YAML, set missing to True
+        package.missing = True
+    # otherwise don't try to set the revision or mark this as locked
+    # and so if the package doesn't have an explicit revision set
+    # resolve_package will search for tags and reset missing and discovered
+    return False

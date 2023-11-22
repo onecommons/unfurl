@@ -213,7 +213,6 @@ class JobTest(unittest.TestCase):
 
 
 class PickleTest(unittest.TestCase):
-    @unittest.skipIf(six.PY2, "XXX fix pickling in 2.7")
     def test_pickle(self):
         path = __file__ + "/../examples/mock-helm-ensemble.yaml"
         manifest = YamlManifest(path=path)
@@ -316,7 +315,8 @@ class RunTest(unittest.TestCase):
         # manifest shouldn't have changed
         manifest2 = YamlManifest(output.getvalue())
         lock = manifest2.manifest.config["lock"]
-        assert "runtime" in lock and len(lock["repositories"]) == 3
+        # this in-memory manifest doesn't use git repos so no repositories are included in the lock
+        assert "runtime" in lock and len(lock["repositories"]) == 0
         self.assertEqual(
             manifest2.lastJob["summary"],
             "2 tasks (2 changed, 2 ok, 0 failed, 0 unknown, 0 skipped)",

@@ -35,6 +35,8 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
 
+from .lock import Lock
+
 from .util import (
     UnfurlBadDocumentError,
     filter_env,
@@ -66,7 +68,7 @@ from .repo import (
     split_git_url,
     memoized_remote_tags,
 )
-from .packages import UnfurlPackageUpdateNeeded, resolve_package
+from .packages import UnfurlPackageUpdateNeeded, extract_package, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -494,6 +496,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         # commit = repo_view.package.lock_to_commit if repo_view.package else ""
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
+            # XXX coalesce repoviews
             repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(
                 repo_view.as_git_url(), base
             )
@@ -604,19 +607,28 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _resolve_repoview(self, repo_view):
         if repo_view.package is None:
-            # need to resolve if its a package
-            # if repoview.repository references a package, set the repository's url
-            # and register this reference with the package
-            # might raise error if version conflict
+            package = extract_package(repo_view)
+            if not package:
+                return
+            locked = self.config.get("lock")
+            if locked:
+                lock_dict = Lock.find_package(locked, self.manifest, package)
+            else:
+                lock_dict = None
             if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
                 remote_tags_check = None
             else:
                 remote_tags_check = self.get_remote_tags
+            # need to resolve if its a package
+            # if repoview.repository references a package, set the repository's url
+            # and register this reference with the package
+            # might raise error if version conflict
             resolve_package(
                 repo_view,
                 self.manifest.packages,
                 self.manifest.package_specs,
                 remote_tags_check,
+                lock_dict
             )
 
     def resolve_to_local_path(

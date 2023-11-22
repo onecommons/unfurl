@@ -1844,10 +1844,16 @@ def add_graphql_deployment(
     if primary_resource and primary_resource["title"] == primary_name:
         primary_resource["title"] = deployment["title"]
     packages = {}
-    for package_id, package_url, repo_dict in Lock(manifest).find_packages():
-        packages[_project_path(repo_dict["url"])] = dict(
-            version=repo_dict.get("tag", repo_dict.get("branch", "MISSING"))
+    for package_id, repo_dict in Lock(manifest).find_packages():
+        # lock packages to the last deployed version
+        version = (
+            repo_dict.get("tag")
+            or repo_dict.get("revision")  # tag or branch explicitly set
+            or repo_dict.get("discovered_revision")
         )
+        # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
+        if version:
+            packages[_project_path(repo_dict["url"])] = dict(version=version)
     if packages:
         deployment["packages"] = packages
 

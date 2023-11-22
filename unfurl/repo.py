@@ -581,16 +581,24 @@ class RepoView:
         initial = self.repo and self.repo.resolve_rev_spec("INITIAL") or self.get_initial_revision()
         if initial:
             record["initial"] = initial
-        if self.package and self.package.revision:
-            # intended revision (branch or tag) declared by user
-            record["revision"] = self.package.revision
+        record["discovered_revision"] = ""  # default: no search occurred
+        if self.package:
+            record["package_id"] = self.package.package_id
+            if self.package.revision:
+                # intended revision (branch or tag) declared by user (or restored from previous lock)
+                if self.package.discovered:
+                    record["discovered_revision"] = self.package.revision
+                else:
+                    record["revision"] = self.package.revision
+            if self.package.missing:
+                record["discovered_revision"] = "(MISSING)"
         if self.repo and self.repo.active_branch:
             # current commit is on this branch
             record["branch"] = self.repo.active_branch
         if self.repo and self.repo.current_tag:
             # current commit is on this tag
             record["tag"] = self.repo.current_tag
-        if self.name:
+        if not self.package and self.name:
             record["name"] = self.name
         if self.origin:
             record["origin"] = normalize_git_url(self.origin, 1)
