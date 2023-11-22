@@ -23,11 +23,11 @@ HIDDEN_MSG_LOGGER = "unfurl.metadata"
 DEFAULT_TRUNCATE_LENGTH = 748
 
 
-def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH) -> str:
+def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
     if not s:
         return ""
     if len(s) > max:
-        return f"{s[:max//2]} [{len(s)} omitted...]  {s[-max//2:]}"
+        return f"{s[:max//2]} [{len(s)} {omitted}]  {s[-max//2:]}"
     return s
 
 

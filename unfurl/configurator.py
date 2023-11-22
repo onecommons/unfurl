@@ -20,7 +20,7 @@ import os
 import copy
 from tosca import ToscaInputs
 from toscaparser.properties import Property
-from .logs import UnfurlLogger, Levels, LogExtraLevels
+from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncate
 
 if TYPE_CHECKING:
     from .manifest import Manifest, ChangeRecordRecord
@@ -51,7 +51,13 @@ from .util import (
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
-from .runtime import ArtifactInstance, EntityInstance, NodeInstance, RelationshipInstance, Operational
+from .runtime import (
+    ArtifactInstance,
+    EntityInstance,
+    NodeInstance,
+    RelationshipInstance,
+    Operational,
+)
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
 from .planrequests import (
@@ -96,7 +102,11 @@ class ConfiguratorResult:
         self.exception = exception
 
     def __str__(self) -> str:
-        result = "" if self.result is None else str(self.result)[:240] + "..."
+        result = (
+            ""
+            if self.result is None
+            else truncate(str(SensitiveFilter.redact(self.result)), 240, "...")
+        )
         return (
             "changes: "
             + (
@@ -1016,7 +1026,9 @@ class TaskView:
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
-                self._manifest._create_entity_instance(ArtifactInstance, key, val, existingResource)
+                self._manifest._create_entity_instance(
+                    ArtifactInstance, key, val, existingResource
+                )
 
         template = resourceSpec.get("template")
         if template:
