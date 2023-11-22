@@ -386,7 +386,17 @@ class CacheItemDependency:
 
     def out_of_date(self, args: Optional[dict]) -> bool:
         if self.latest_package_url:
-            return self._tag_changed(args)
+            package = get_package_from_url(self.latest_package_url)
+            assert package
+            set_version_from_remote_tags(package, args)
+            if package.revision_tag and self.branch != package.revision_tag:
+                logger.debug(
+                    f"newer tag {package.revision_tag} found for {package} (was {self.branch})"
+                )
+                return True
+            else:
+                return False
+
         cache_entry = self.to_entry()
         # get dep's repo, pulls if last pull greater than stale_pull_age
         repo = cache_entry.pull(cache, self.stale_pull_age)
@@ -400,20 +410,10 @@ class CacheItemDependency:
                 return True
         return False  # we're up-to-date!
 
-    def _tag_changed(self, args: Optional[dict]) -> bool:
-        package = get_package_from_url(self.latest_package_url)
-        assert package
-
-        def get_remote_tags(url, pattern):
-            return get_remote_tags_cached(url, pattern, args)
-
-        package.set_version_from_repo(get_remote_tags)
-        if package.revision_tag and self.branch != package.revision_tag:
-            logger.debug(
-                f"newer tag {package.revision_tag} found for {self.cache_key()} (was {self.branch})"
-            )
-            return True
-        return False
+def set_version_from_remote_tags(package: Package, args: Optional[dict]):
+    def get_remote_tags(url, pattern):
+        return get_remote_tags_cached(url, pattern, args)
+    package.set_version_from_repo(get_remote_tags)
 
 
 CacheItemDependencies = Dict[str, CacheItemDependency]
@@ -850,7 +850,9 @@ class CacheEntry:
             "",
             "",
         )
-        if package and package.discovered_revision:
+        if package and package.discovered:
+            # if set then we want to see if the dependency changed by looking for newer tags
+            # (instead of pulling from the branch)
             dep.latest_package_url = package.url
         return dep
 
@@ -1034,7 +1036,7 @@ def _export(
     latest_commit = request.args.get("latest_commit")
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
-    branch = request.args.get("branch", DEFAULT_BRANCH)
+    branch = request.args.get("branch")
     args = dict(request.args)
     if request.headers.get("X-Git-Credentials"):
         args["username"], args["password"] = (
@@ -1049,6 +1051,15 @@ def _export(
             extra = "+" + args["environment"]
         else:
             extra = ""
+    if not branch or branch == "(MISSING)":
+        package = get_package_from_url(get_project_url(project_id))
+        if package:
+            package.missing = branch == "(MISSING)"
+            set_version_from_remote_tags(package, args)
+            branch = package.revision_tag or DEFAULT_BRANCH
+        else:
+            logger.debug(f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags.")
+            branch = DEFAULT_BRANCH
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
         project_id,
@@ -1057,6 +1068,7 @@ def _export(
         requested_format + extra,
         repo,
         args=args,
+        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
     )
     err, json_summary = cache_entry.get_or_set(
         cache,
@@ -1069,7 +1081,8 @@ def _export(
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
                 dcache_entry = CacheEntry(
-                    project_id, branch, manifest_path, "deployment", repo, args=args
+                    project_id, branch, manifest_path, "deployment", repo, args=args,
+                            stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
                 )
                 derr, djson = dcache_entry.get_or_set(
                     cache, _export_cache_work, latest_commit
@@ -1298,6 +1311,7 @@ def _localenv_from_cache(
         "localenv",
         repo,
         args=args,
+        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
     )
     err, value = cache_entry.get_or_set(
         cache, _cache_localenv_work, latest_commit, _validate_localenv

@@ -99,7 +99,7 @@ def _next_port():
 
 def start_server_process(proc, port):
     proc.start()
-    for _ in range(5):
+    for _ in range(10):
         time.sleep(0.2)
         try:
             url = f"http://localhost:{port}/health?secret=secret"
@@ -349,11 +349,13 @@ def test_server_export_remote():
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
+                    "branch": "(MISSING)"
                 },
                 headers={
                   "If-None-Match": server._make_etag(last_commit),
                 }
             )
+            # branch=(MISSING) will log: Package unfurl.cloud/onecommons/project-templates/application-blueprint is looking for earliest remote tags v* on https://unfurl.cloud/onecommons/project-templates/application-blueprint.git
             assert res.status_code == 200
             # don't bother re-exporting the second time
             exported = run_cmd(
