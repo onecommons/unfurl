@@ -1077,6 +1077,7 @@ def _export(
     )
     if not err:
         hit = cache_entry.hit and not post_work
+        derrors = False
         if request.args.get("include_all_deployments"):
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
@@ -1088,6 +1089,7 @@ def _export(
                     cache, _export_cache_work, latest_commit
                 )
                 if derr:
+                    derrors = True
                     error_dict = dict(deployment=manifest_path, error="Internal Error")
                     if isinstance(derr, Exception):
                         error_dict["details"] = "".join(
@@ -1096,7 +1098,7 @@ def _export(
                     deployments.append(error_dict)
                 else:
                     deployments.append(djson)
-                    hit = hit and dcache_entry.hit
+                hit = hit and dcache_entry.hit
             json_summary["deployments"] = deployments
         if hit:
             etag = request.headers.get("If-None-Match")
@@ -1108,7 +1110,8 @@ def _export(
         response = json_response(
             json_summary, request.args.get("pretty"), sort_keys=False
         )
-        if latest_commit:
+        if latest_commit and not derrors:
+            # don't set etag if there were errors
             response.headers["Etag"] = _make_etag(latest_commit)
         return response
     else:
