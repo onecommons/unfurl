@@ -547,9 +547,18 @@ class _Tosca_Field(dataclasses.Field):
         assert self._tosca_field_type == ToscaFieldType.requirement
         if self.node_filter is None:
             self.node_filter = {}
+        self._set_node_filter_constraint(self.node_filter, val, prop_name, capability)
+
+    def _set_node_filter_constraint(
+        self,
+        root_node_filter: dict,
+        val,
+        prop_name: Optional[str] = None,
+        capability: Optional[str] = None,
+    ):
         if capability:
             assert prop_name
-            cap_filters = self.node_filter.setdefault("capabilities", [])
+            cap_filters = root_node_filter.setdefault("capabilities", [])
             for cap_filter in cap_filters:
                 if list(cap_filter)[0] == capability:
                     node_filter = cap_filter[capability]
@@ -558,7 +567,7 @@ class _Tosca_Field(dataclasses.Field):
                 node_filter = {}
                 cap_filters.append({capability: node_filter})
         else:
-            node_filter = self.node_filter
+            node_filter = root_node_filter
         if prop_name is not None:
             if not capability:
                 self._validate_name_is_property(prop_name)
@@ -574,7 +583,7 @@ class _Tosca_Field(dataclasses.Field):
                 }  # quote the value to distinguish from built-in tosca node_filters
             prop_filters.append({prop_name: val})
         else:
-            match_filters = self.node_filter.setdefault("match", [])
+            match_filters = root_node_filter.setdefault("match", [])
             if isinstance(val, _DataclassType) and issubclass(val, ToscaType):
                 # its a DataType class
                 match_filters.append(dict(get_nodes_of_type=val.tosca_type_name()))
@@ -1156,38 +1165,72 @@ class FieldProjection(_Ref):
     def __getattr__(self, name):
         # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
-        # cls = self._resolve_class(self.field.type)
         try:
             ti = self.field.get_type_info()
-            if not issubclass(ti.types[0], ToscaType):
-                return self.field.default
-            field = ti.types[0].__dataclass_fields__[name]
-            return FieldProjection(field, self)
-        except:
+        except NameError:
             # couldn't resolve the type
             # XXX if current field type isn't a requirement we can assume name is property
             raise AttributeError(
-                f"Can't project {name} from {self}: Only one level of field projection currently supported"
+                f'Can\'t project "{name}" from "{self}": Could not resolve {self.type}'
             )
+        if not issubclass(ti.types[0], ToscaType):
+            return self.field.default
+        field = ti.types[0].__dataclass_fields__.get(name)
+        if not field:
+            raise AttributeError(f"{ti.types[0]} has no field '{name}'")
+        return FieldProjection(field, self)
+
+    def get_requirement_filter(self, tosca_name: str):
+        """
+        node_filter:
+            requirements:
+              - host:
+                  description: A compute instance with at least 2000 MB of RAM memory.
+        """
+        if self.parent:
+            if self.parent.field.tosca_field_type == ToscaFieldType.requirement:
+                node_filter = self.parent.get_requirement_filter(self.field.tosca_name)
+            else:
+                raise ValueError(
+                    f"Can't create a requirement_filter on {self}: Only one level of field projection currently supported"
+                )
+        else:
+            if self.field.node_filter is None:
+                self.field.node_filter = {}
+            node_filter = self.field.node_filter
+        req_filters = node_filter.setdefault("requirements", [])
+        for req_filter in req_filters:
+            if tosca_name in req_filter:
+                return req_filter[tosca_name]
+        req_filter = {}
+        req_filters.append({tosca_name: req_filter})
+        return req_filter
 
     def __setattr__(self, name, val):
         if name in ["expr", "field", "parent"]:
             object.__setattr__(self, name, val)
             return
+
         if self.parent:
-            # XXX
-            # self.parent.field.tosca_field_type == ToscaFieldType.requirement:
-            #    node_filter = self.field.get_property_constraint(name, val)
-            #    self.parent.field.add_requirement_filter(self.field.tosca_name, node_filter)
-            # else:
-            raise ValueError(
-                f"Can't set {name} on {self}: Only one level of field projection currently supported"
-            )
+            if self.parent.field.tosca_field_type == ToscaFieldType.requirement:
+                self.set_requirement_constraint(val, name, None)
+            else:
+                raise ValueError(
+                    f"Can't set {name} on {self}: Only one level of field projection currently supported"
+                )
         else:
             self.field.set_property_constraint(name, val)
 
     def __delattr__(self, name):
         raise AttributeError(name)
+
+    def set_requirement_constraint(self, val, name, capability):
+        assert self.field.tosca_field_type == ToscaFieldType.requirement
+        if self.parent:
+            node_filter = self.parent.get_requirement_filter(self.field.tosca_name)
+            self.field._set_node_filter_constraint(node_filter, val, name)
+        else:
+            self.field.add_node_filter(val, name, capability)
 
     def apply_constraint(self, c: DataConstraint):
         if self.field.tosca_field_type in [
@@ -1211,7 +1254,7 @@ class FieldProjection(_Ref):
                 parent = self.parent
                 capability = None
             if parent and parent.field.tosca_field_type == ToscaFieldType.requirement:
-                parent.field.add_node_filter(c, self.field.tosca_name, capability)
+                parent.set_requirement_constraint(c, self.field.tosca_name, capability)
             else:
                 self.field.constraints.append(c)
         else:

@@ -1,3 +1,4 @@
+import pprint
 from typing import List, Optional
 import unittest
 
@@ -31,6 +32,7 @@ def test_constraints():
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
     manifest = local.get_manifest(skip_validation=True, safe_mode=True)
     service_template = manifest.manifest.expanded["spec"]["service_template"]
+    # pprint.pprint(service_template["node_types"])
     assert service_template["topology_template"] == {
         "node_templates": {
             "myapp": {
@@ -62,7 +64,12 @@ def test_constraints():
     assert service_template["node_types"] == {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
-            "properties": {"image": {"type": "string"}, "url": {"type": "string"}},
+            "properties": {
+                "image": {"type": "string"},
+                "url": {"type": "string"},
+                "mem_size": {"type": "scalar-unit.size"},
+                "name": {"type": "string"},
+            },
         },
         "ContainerHost": {
             "derived_from": "tosca.nodes.Root",
@@ -96,7 +103,7 @@ def test_constraints():
                 {"container": {"node": "container_service"}},
                 {
                     "proxy": {
-                        "node": "Proxy",
+                        "node": "ProxyContainerHost",
                         "node_filter": {
                             "properties": [
                                 {
@@ -106,7 +113,21 @@ def test_constraints():
                                         "vars": {"SOURCE": {"eval": "::myapp"}},
                                     }
                                 }
-                            ]
+                            ],
+                            "requirements": [
+                                {
+                                    "hosting": {
+                                        "properties": [
+                                            {"name": {"q": "app"}},
+                                            {
+                                                "mem_size": {
+                                                    "in_range": ["2 GB", "20 GB"]
+                                                }
+                                            },
+                                        ]
+                                    }
+                                }
+                            ],
                         },
                     }
                 },
@@ -177,7 +198,6 @@ def test_class_init() -> None:
             cls.name = max_length(20)  # type: ignore
             # setting a constraint on reference to requirement creates a node_filter:
             in_range(2 * gb, 20 * gb).apply_constraint(cls.host.host.mem_size)
-            # cls.container.host.host.mem_size = in_range(2*gb, 20*gb)
 
     __name__ = "tests.test_constraints"
     converter = PythonToYaml(locals())

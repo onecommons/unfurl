@@ -1,9 +1,11 @@
 import unfurl
 import tosca
-
+from tosca import gb
 class ContainerService(tosca.nodes.Root):
     image: str
     url: str
+    mem_size: tosca.Size = tosca.CONSTRAINED
+    name: str = tosca.CONSTRAINED
 
 class ContainerHost(tosca.nodes.Root):
     hosting: ContainerService
@@ -28,11 +30,15 @@ class App(tosca.nodes.Root):
     container: ContainerService = ContainerService(
         "container_service", image="myimage:latest", url="http://localhost:8000"
     )
-    proxy: Proxy
+    proxy: ProxyContainerHost
 
     @classmethod
     def _class_init(cls) -> None:
         # the proxy's backend is set to the container's url
         cls.proxy.backend_url = cls.container.url
+        cls.proxy.hosting.name = "app"
+        tosca.in_range(2*gb, 20*gb).apply_constraint(cls.proxy.hosting.mem_size)
+        # same as:
+        # cls.proxy.hosting.mem_size = tosca.in_range(2*gb, 20*gb)
 
 topology = App("myapp", proxy=ProxyContainerHost())
