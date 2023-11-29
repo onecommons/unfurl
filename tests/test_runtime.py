@@ -4,7 +4,7 @@ import os.path
 import pickle
 import unittest
 
-import six
+import io
 from click.testing import CliRunner
 from ruamel.yaml.comments import CommentedMap
 
@@ -305,7 +305,7 @@ class RunTest(unittest.TestCase):
         )
         manifest = YamlManifest(simple)
         runner = Runner(manifest)
-        output = six.StringIO()
+        output = io.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # print(output.getvalue())
@@ -321,7 +321,7 @@ class RunTest(unittest.TestCase):
             manifest2.lastJob["summary"],
             "2 tasks (2 changed, 2 ok, 0 failed, 0 unknown, 0 skipped)",
         )
-        output2 = six.StringIO()
+        output2 = io.StringIO()
         job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
         assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
 
@@ -359,7 +359,7 @@ root:
         print('d', handler, handler.stream)
         old_stream = handler.stream
         try:
-            handler.stream = six.StringIO()
+            handler.stream = io.StringIO()
 
             logger = logging.getLogger("unfurl")
             logger.critical("test1 %s", sensitive_str("sensitive"))
@@ -455,7 +455,7 @@ class FileTest(unittest.TestCase):
         with cliRunner.isolated_filesystem():  # as tmpDir
             manifest = YamlManifest(simple, path=".")
             runner = Runner(manifest)
-            output = six.StringIO()
+            output = io.StringIO()
             with open("foo.txt", "w") as f:
                 f.write("test")
             job = runner.run(JobOptions(add=True, out=output, startTime="test"))
@@ -512,7 +512,7 @@ spec:
             assert manifest.manifest.config["dsl"]["foo"].anchor.value == "foo"
             assert manifest.manifest.config["dsl"]["foo"].anchor.always_dump
 
-            output = six.StringIO()
+            output = io.StringIO()
             manifest.dump(output)
             config = YamlConfig(output.getvalue())
             assert config.config["+include"] == {"file": "template.yaml"}

@@ -2,7 +2,7 @@ import unittest
 import os
 import json
 import logging
-import six
+import io
 from unfurl.localenv import LocalEnv
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
@@ -82,7 +82,7 @@ def test_digests(caplog):
     path = __file__ + "/../examples/digest-ensemble.yaml"
     manifest = LocalEnv(path).get_manifest()
     runner = Runner(manifest)
-    output = six.StringIO()  # so we don't save the file
+    output = io.StringIO()  # so we don't save the file
     job = runner.run(JobOptions(startTime=1, out=output))  # deploy
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
@@ -104,7 +104,7 @@ def test_digests(caplog):
         manifest2 = YamlManifest(
             job.out.getvalue(), path=os.path.dirname(path), localEnv=manifest.localEnv
         )
-        output2 = six.StringIO()  # so we don't save the file
+        output2 = io.StringIO()  # so we don't save the file
         job2 = Runner(manifest2).run(JobOptions(startTime=2, out=output2))
         assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
         # print(job2.out.getvalue())

@@ -1,5 +1,5 @@
 import unittest
-import six
+import io
 import os
 import os.path
 import shutil
@@ -57,7 +57,7 @@ class RunTest(unittest.TestCase):
         runner = Runner(manifest)
 
         assert not manifest.lastJob, "expected new manifest"
-        output = six.StringIO()  # so we don't save the file
+        output = io.StringIO()  # so we don't save the file
         job = runner.run(JobOptions(add=True, out=output, startTime=1))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # print(manifest.statusSummary())
@@ -153,7 +153,7 @@ class RunTest(unittest.TestCase):
         baseDir = __file__ + "/../examples/"
         manifest2 = YamlManifest(output.getvalue(), path=baseDir)
         # print(manifest2.statusSummary())
-        output2 = six.StringIO()
+        output2 = io.StringIO()
         job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime=2))
         # print("2", output2.getvalue())
         # print("2", job2.json_summary(True))
@@ -163,7 +163,7 @@ class RunTest(unittest.TestCase):
         assert len(job2.workDone) == 0, job2.workDone
         # self.assertEqual(output.getvalue(), output2.getvalue())
 
-        output3 = six.StringIO()
+        output3 = io.StringIO()
         manifest3 = YamlManifest(output2.getvalue(), path=baseDir)
         job3 = Runner(manifest3).run(
             JobOptions(workflow="undeploy", out=output3, startTime=2)
@@ -181,7 +181,7 @@ class RunTest(unittest.TestCase):
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
         assert not manifest.lastJob, "expected new manifest"
-        output = six.StringIO()  # so we don't save the file
+        output = io.StringIO()  # so we don't save the file
         job = runner.run(JobOptions(workflow="discover", out=output, startTime=1))
         # print(job.summary())
         # print("discovered", runner.manifest.tosca.discovered)
@@ -194,7 +194,7 @@ class RunTest(unittest.TestCase):
             path
         )  # set the basedir which sets the current working dir
         # manifest2.statusSummary()
-        output2 = six.StringIO()
+        output2 = io.StringIO()
         job2 = Runner(manifest2).run(
             JobOptions(workflow="discover", out=output2, startTime=2)
         )
@@ -222,7 +222,7 @@ class RunTest(unittest.TestCase):
             manifest = YamlManifest(path=path)
             runner = Runner(manifest)
 
-            output = six.StringIO()  # so we don't save the file
+            output = io.StringIO()  # so we don't save the file
             job = runner.run(
                 JobOptions(
                     workflow="run",
@@ -281,7 +281,7 @@ class RunTest(unittest.TestCase):
                 manifest = YamlManifest(path=path)
                 runner = Runner(manifest)
 
-                output = six.StringIO()  # so we don't save the file
+                output = io.StringIO()  # so we don't save the file
                 job = runner.run(
                     JobOptions(
                         workflow="deploy",
@@ -290,7 +290,7 @@ class RunTest(unittest.TestCase):
                         out=output,
                     )
                 )
-                output = six.StringIO()  # so we don't save the file
+                output = io.StringIO()  # so we don't save the file
         finally:
             os.environ["UNFURL_TMPDIR"] = oldTmpDir
         tasks = list(job.workDone.values())

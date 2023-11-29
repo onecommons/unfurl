@@ -3,7 +3,7 @@ import re
 import traceback
 import unittest
 from collections.abc import MutableSequence
-import six
+import io
 import sys
 import unfurl
 from click.testing import CliRunner
@@ -120,7 +120,7 @@ class CliTestConfigurator(Configurator):
         assert isinstance(attrs["aListOfItems"], sensitive_list), type(
             attrs["aListOfItems"]
         )
-        out = six.StringIO()
+        out = io.StringIO()
         yaml.dump(attrs["aListOfItems"], out)
         assert out.getvalue() == "<<REDACTED>>\n...\n", repr(out.getvalue())
         assert isinstance(

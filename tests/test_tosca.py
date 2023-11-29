@@ -10,9 +10,8 @@ from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import make_vault_lib
 from unfurl.spec import find_env_vars
-import six
+import io
 from click.testing import CliRunner
-import json
 
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
@@ -263,7 +262,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         ]
 
         runner = Runner(manifest)
-        output = six.StringIO()
+        output = io.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 1)
@@ -330,7 +329,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(len(manifest.tosca._workflows), 3)
 
         runner = Runner(manifest)
-        output = six.StringIO()
+        output = io.StringIO()
         job = runner.run(
             JobOptions(
                 add=True, check=True, planOnly=False, out=output, startTime="test"
