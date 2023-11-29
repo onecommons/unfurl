@@ -531,8 +531,11 @@ class _Tosca_Field(dataclasses.Field):
         # XXX ti.types[0] might not be a node type!
         field = ti.types[0].__dataclass_fields__.get(name)
         if not field:
-            logger.warning(f"Property {name} is not present on {ti.types[0]}")
-            return
+            # in _cls_init_() __dataclass_fields__ aren't set yet and the class attribute is the field
+            field = getattr(ti.types[0], name, None)
+            if not isinstance(field, _Tosca_Field):
+                logger.warning(f"Property {name} is not present on {ti.types[0]}")
+                return
         if field.tosca_field_type not in [
             ToscaFieldType.property,
             ToscaFieldType.attribute,
@@ -1177,7 +1180,10 @@ class FieldProjection(_Ref):
             return self.field.default
         field = ti.types[0].__dataclass_fields__.get(name)
         if not field:
-            raise AttributeError(f"{ti.types[0]} has no field '{name}'")
+            # __dataclass_fields__ might not be updated yet, do a regular getattr
+            field = getattr(ti.types[0], name)
+            if not isinstance(field, _Tosca_Field):
+                raise AttributeError(f"{ti.types[0]} has no field '{name}'")
         return FieldProjection(field, self)
 
     def get_requirement_filter(self, tosca_name: str):
@@ -1596,7 +1602,10 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         locals = cls._namespace or {}
         obj = locals.get(name, globals.get(name))
         if obj is None:
-            raise NameError(f"{qname} not found in {cls}'s scope")
+            if name == cls.__name__:
+                obj = cls
+            else:
+                raise NameError(f"{qname} not found in {cls.__name__}'s scope")
         while names:
             name = names.pop(0)
             ns = obj
@@ -1668,7 +1677,7 @@ class ToscaType(_ToscaType):
         for field in fields.values():
             val = object.__getattribute__(self, field.name)
             if val is REQUIRED:
-                # on Python < 3.10 we set this to workaround lack of keyword only fields
+                # on Python < 3.10 we set this to workaround the lack of keyword only fields
                 raise ValueError(
                     f'Keyword argument was missing: {field.name} on "{self}".'
                 )

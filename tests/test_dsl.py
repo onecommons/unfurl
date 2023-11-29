@@ -65,6 +65,7 @@ def dump_yaml(namespace, out=sys.stdout):
         yaml.dump(doc, out)
     return doc
 
+
 def _generate_builtin(generate, builtin_path=None):
     import_resolver = ImportResolver(None)  # type: ignore
     python_src = generate(import_resolver, True)
@@ -156,14 +157,15 @@ type_reference_yaml = {
         },
         "WordPressPlugin": {
             "derived_from": "tosca.nodes.Root",
-            "properties": {"name": {"type": "string"},
-            "instance": {
-                "type": "string",
-                "default": {
-                    "eval": "::[.type=WordPress]::.capabilities[.name=app_endpoint]::ip_address"
+            "properties": {
+                "name": {"type": "string"},
+                "instance": {
+                    "type": "string",
+                    "default": {
+                        "eval": "::[.type=WordPress]::.capabilities[.name=app_endpoint]::ip_address"
+                    },
                 },
             },
-            }
         },
     },
     "topology_template": {},
@@ -276,8 +278,12 @@ class WordPress(tosca.nodes.WebApplication):
     database_endpoint: {}
     "Description of the database_endpoint requirement"
 '''
-example_wordpress_python = _example_wordpress_python.format('"tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"')
-example_wordpress_python_alt = _example_wordpress_python.format('tosca.nodes.Database = Requirement(capability="tosca.capabilities.EndpointDatabase", relationship=tosca.relationships.ConnectsTo)')
+example_wordpress_python = _example_wordpress_python.format(
+    '"tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"'
+)
+example_wordpress_python_alt = _example_wordpress_python.format(
+    'tosca.nodes.Database = Requirement(capability="tosca.capabilities.EndpointDatabase", relationship=tosca.relationships.ConnectsTo)'
+)
 
 
 def test_example_wordpress():
@@ -288,7 +294,7 @@ def test_example_wordpress():
     tosca_tpl2 = _to_yaml(example_wordpress_python, True)
     assert src_tpl["node_types"] == tosca_tpl2["node_types"]
 
-    tosca_tpl3= _to_yaml(example_wordpress_python_alt, True)
+    tosca_tpl3 = _to_yaml(example_wordpress_python_alt, True)
     assert src_tpl["node_types"] == tosca_tpl3["node_types"]
 
 
@@ -509,9 +515,11 @@ def test_class_init() -> None:
         shellScript: tosca.artifacts.Root = tosca.artifacts.Root(file="example.sh")
         prop1: Optional[str] = tosca.CONSTRAINED
         host: tosca.nodes.Compute = tosca.CONSTRAINED
+        self_reference: "Example" = tosca.CONSTRAINED
 
         @classmethod
         def _class_init(cls) -> None:
+            cls.self_reference.prop1 = cls.prop1 or ""
             cls.host.public_address = cls.prop1 or ""
 
             with pytest.raises(ValueError) as e_info1:
@@ -531,7 +539,9 @@ def test_class_init() -> None:
     my_template = Example("my_template")
     tosca.global_state.mode = "spec"
     assert my_template.prop1 == {"eval": "::my_template::prop1"}
-    tosca.global_state.mode = "runtime"  # test to make sure converter sets this back to spec
+    tosca.global_state.mode = (
+        "runtime"  # test to make sure converter sets this back to spec
+    )
     __name__ = "tests.test_dsl"
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
@@ -561,8 +571,16 @@ def test_class_init() -> None:
                                 {"public_address": {"eval": "$SOURCE::prop1"}}
                             ],
                         },
+                    },
+                },
+                {
+                    "self_reference": {
+                        "node": "Example",
+                        "node_filter": {
+                            "properties": [{"prop1": {"eval": "$SOURCE::prop1"}}]
+                        },
                     }
-                }
+                },
             ],
             "interfaces": {
                 "Standard": {
@@ -696,6 +714,7 @@ def test_envvar_type():
     # yaml.dump(yaml_dict, sys.stdout)
     assert tosca_yaml == yaml_dict
 
+
 test_relationship_yaml = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 topology_template: {}
@@ -754,6 +773,7 @@ class HasDNS(tosca.nodes.Root):
     """DNS provider for domain name configuration"""
 '''
 
+
 def test_relationship():
     python_src, parsed_yaml = _to_python(test_relationship_yaml)
     # print(python_src)
@@ -761,6 +781,7 @@ def test_relationship():
     tosca_tpl2 = _to_yaml(test_relationship_python, True)
     # pprint(tosca_tpl2)
     assert parsed_yaml == tosca_tpl2
+
 
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",
