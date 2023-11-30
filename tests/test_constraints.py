@@ -21,7 +21,7 @@ from unfurl.util import change_cwd
 def _verify_mypy(path):
     stdout, stderr, return_code = api.run([path])
     if stdout:
-        # print(stdout)
+        print(stdout)
         assert "no issues found in 1 source file" in stdout
     assert return_code == 0, (stderr, stdout)
 
@@ -150,7 +150,9 @@ def test_constraints():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-@pytest.mark.parametrize("path", ["constraints.py", "dsl_configurator.py"])
+@pytest.mark.parametrize(
+    "path", ["constraints.py", "dsl_configurator.py", "dsl_relationships.py"]
+)
 def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "examples", path)
@@ -307,3 +309,60 @@ def test_computed_properties():
         # print( result.output )
         # with open("ensemble/ensemble.yaml") as f:
         #     print(f.read())
+
+
+relationships_yaml = {
+    "topology_template": {},
+    "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+    "node_types": {
+        "Volume": {
+            "derived_from": "tosca.nodes.Root",
+            "properties": {"disk_label": {"type": "string"}},
+        },
+        "TestTarget": {
+            "derived_from": "tosca.nodes.Root",
+            "artifacts": {
+                "volume_mount": {
+                    "type": "VolumeMountArtifact",
+                    "properties": {
+                        "mountpoint": "/mnt/{{'.targets::volume_attachment::.target::disk_label' | eval}}"
+                    },
+                    "file": "",
+                    "intent": "mount",
+                    "target": "HOST",
+                }
+            },
+            "requirements": [
+                {
+                    "volume_attachment": {
+                        "relationship": "VolumeAttachment",
+                        "node": "Volume",
+                        "occurrences": [0, 1],
+                    }
+                }
+            ],
+        },
+    },
+    "relationship_types": {
+        "VolumeAttachment": {
+            "derived_from": "tosca.relationships.AttachesTo",
+        }
+    },
+    "artifact_types": {
+        "VolumeMountArtifact": {
+            "derived_from": "tosca.artifacts.Root",
+            "properties": {"mountpoint": {"type": "string"}},
+        }
+    },
+}
+
+
+def test_relationships():
+    basepath = os.path.join(os.path.dirname(__file__), "examples/")
+    # loads yaml with with a json include
+    local = LocalEnv(basepath + "dsl-ensemble.yaml")
+    manifest = local.get_manifest(skip_validation=True, safe_mode=True)
+    service_template = manifest.manifest.expanded["spec"]["service_template"]
+    # pprint.pprint(service_template, indent=2)
+    service_template.pop("repositories")
+    assert service_template == relationships_yaml

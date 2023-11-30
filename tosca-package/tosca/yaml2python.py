@@ -815,10 +815,8 @@ class Convert:
 
         target_types = toscatype.get_value("valid_target_types")
         if target_types:
-            if len(target_types) > 1:
-                src += f'{indent}_target: Union[{", ".join(self.import_types(target_types))}]\n'
-            else:
-                src += f"{indent}_target: {self.import_types(target_types)[0]}\n"
+            python_target_types = [self.python_name_from_type(t) for t in target_types]
+            src += f'{indent}_valid_target_types = [{", ".join(python_target_types)}]\n'
 
         # artifact, relationship and datatype types have special keys
         for key in ["file_ext", "mime_type", "constraints", "default_for"]:

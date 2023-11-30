@@ -141,7 +141,7 @@ class unfurl_relationships_DNSRecords(tosca.relationships.Root):
     _type_name = "unfurl.relationships.DNSRecords"
     records: Dict[str, "unfurl_datatypes_DNSRecord"]
 
-    _valid_target_types = ["unfurl_capabilities_DNSZone"]
+    _valid_target_types = [unfurl_capabilities_DNSZone]
 
 
 class unfurl_nodes_DNSZone(tosca.nodes.Root):

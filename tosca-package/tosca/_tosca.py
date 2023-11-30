@@ -371,11 +371,13 @@ def metadata_to_yaml(metadata: Mapping):
 
 
 class ToscaFieldType(Enum):
+    # value corresponds to its section in a node template
     property = "properties"
     attribute = "attributes"
     capability = "capabilities"
     requirement = "requirements"
     artifact = "artifacts"
+    builtin = ""
 
 
 class _REQUIRED_TYPE:
@@ -624,6 +626,8 @@ class _Tosca_Field(dataclasses.Field):
         elif self.tosca_field_type == ToscaFieldType.requirement:
             return ".targets::" + self.tosca_name
             # but if accessing the relationship template, need to use the form below
+        elif self.name == "_target":  # special case
+            return ".target"
         else:
             assert self.tosca_field_type
             return f".{self.tosca_field_type.value}[.name={self.tosca_name}]"
@@ -696,6 +700,8 @@ class _Tosca_Field(dataclasses.Field):
             field_def = self._to_capability_yaml()
         elif self.tosca_field_type == ToscaFieldType.artifact:
             field_def = self._to_artifact_yaml(converter)
+        elif self.name == "_target":  # _target handled in _to_requirement_yaml
+            return {}
         else:
             assert False
         # note: description needs to be set when parsing ast
@@ -707,7 +713,7 @@ class _Tosca_Field(dataclasses.Field):
 
     def _add_occurrences(self, field_def: dict, info: TypeInfo) -> None:
         occurrences = [1, 1]
-        if info.optional or (not self.default and self.default == ()):
+        if info.optional or self.default == ():
             occurrences[0] = 0
         if info.collection is list:
             occurrences[1] = "UNBOUNDED"  # type: ignore
@@ -736,13 +742,20 @@ class _Tosca_Field(dataclasses.Field):
         info = self.get_type_info_checked()
         if not info:
             return req_def
+        target_typeinfo = None
         for _type in info.types:
             if issubclass(_type, RelationshipType):
                 req_def["relationship"] = _type.tosca_type_name()
+                target_field = _type.__dataclass_fields__.get("_target")
+                target_typeinfo = cast(
+                    _Tosca_Field, target_field
+                ).get_type_info_checked()
             elif issubclass(_type, CapabilityType):
                 req_def["capability"] = _type.tosca_type_name()
             elif issubclass(_type, NodeType):
                 req_def["node"] = _type.tosca_type_name()
+        if "node" not in req_def and target_typeinfo:
+            req_def["node"] = target_typeinfo.types[0].tosca_type_name()
         if self.node_filter:
             req_def["node_filter"] = to_tosca_value(self.node_filter)
         if converter:
@@ -750,7 +763,7 @@ class _Tosca_Field(dataclasses.Field):
             if self.default_factory and self.default_factory is not dataclasses.MISSING:
                 default = self.default_factory()
             else:
-                default = self.default
+                default = self.default  # type: ignore
             if default is CONSTRAINED:
                 if not self.node_filter:
                     raise ValueError(
@@ -1346,12 +1359,18 @@ def _make_dataclass(cls):
         annotations = cls.__dict__.get("__annotations__")
         if annotations:
             for name, annotation in annotations.items():
-                if name[0] != "_":
+                if name[0] != "_" or name in ["_target"]:
                     field = None
                     default = getattr(cls, name, REQUIRED)
                     if not isinstance(default, dataclasses.Field):
-                        # XXX or not InitVar or ClassVar
-                        field = _Tosca_Field(None, default, owner=cls)
+                        base_field = cls.__dataclass_fields__.get(name)
+                        if isinstance(base_field, _Tosca_Field):
+                            field = _Tosca_Field(
+                                base_field._tosca_field_type, default, owner=cls
+                            )
+                        else:
+                            # XXX or not InitVar or ClassVar
+                            field = _Tosca_Field(None, default, owner=cls)
                         setattr(cls, name, field)
                     elif isinstance(default, _Tosca_Field):
                         default.owner = cls
@@ -1487,13 +1506,20 @@ def field(
     default=dataclasses.MISSING,
     default_factory=dataclasses.MISSING,
     kw_only=dataclasses.MISSING,
-):
+    builtin=False,
+) -> Any:
     kw: Dict[str, Any] = dict(default=default, default_factory=default_factory)
     if sys.version_info.minor > 9:
         kw["kw_only"] = kw_only
         if default is REQUIRED:
             # we don't need this default placeholder set if Python supports kw_only fields
             kw["default"] = dataclasses.MISSING
+    elif default == MISSING and default_factory == MISSING:
+        # we need this dummy value because this argument can't be marked as keyword only on older Pythons
+        # and this parameter probably will come after one without a default value
+        kw["default"] = REQUIRED
+    if builtin:
+        return _Tosca_Field(ToscaFieldType.builtin, default, default_factory)
     return dataclasses.field(**kw)
 
 
@@ -1861,14 +1887,17 @@ class ToscaType(_ToscaType):
             if cls._docstrings:
                 field.description = cls._docstrings.get(field.name)
             item = field.to_yaml(converter)
-            if field.section == "requirements":
-                body.setdefault("requirements", []).append(item)
-            else:  # properties, attribute, capabilities, artifacts
-                body.setdefault(field.section, {}).update(item)
-                if field.declare_attribute:
-                    # a property that is also declared as an attribute
-                    item = {field.tosca_name: field._to_attribute_yaml()}
-                    body.setdefault("attributes", {}).update(item)
+            if item:
+                if field.section == "requirements":
+                    body.setdefault("requirements", []).append(item)
+                elif not field.section:  # _target
+                    body.update(item)
+                else:  # properties, attribute, capabilities, artifacts
+                    body.setdefault(field.section, {}).update(item)
+                    if field.declare_attribute:
+                        # a property that is also declared as an attribute
+                        item = {field.tosca_name: field._to_attribute_yaml()}
+                        body.setdefault("attributes", {}).update(item)
         if not converter or not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml
             interfaces = cls._interfaces_yaml(cls, cls, converter)
@@ -2115,22 +2144,18 @@ class CapabilityType(_OwnedToscaType):
 class RelationshipType(ToscaType):
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
-
+    _valid_target_types: ClassVar[Optional[List[Type[CapabilityType]]]] = None
     _default_for: Optional[str] = field(default=None)
-    _target: Union[NodeType, CapabilityType] = field(default=None)
+    _target: NodeType = field(default=None, builtin=True)
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         yaml = cls._shared_cls_to_yaml(converter)
-        # only use _target if declared directly
-        annotations = cls.__dict__.get("__annotations__")
-        _valid_target_types = annotations and annotations.get("_target")
+        # only use _valid_target_types if declared directly
+        _valid_target_types = cls.__dict__.get("_valid_target_types")
         if _valid_target_types:
             # a derived class declared concrete types
-            target_types = [
-                cls._resolve_class(t).tosca_type_name()
-                for t in pytype_to_tosca_type(_valid_target_types).types
-            ]
+            target_types = [t.tosca_type_name() for t in _valid_target_types]
             yaml[cls.tosca_type_name()]["valid_target_types"] = target_types
         return yaml
 
@@ -2143,7 +2168,7 @@ class RelationshipType(ToscaType):
             tpl["default_for"] = self._default_for
         return tpl
 
-    def __getitem__(self, target: Union[NodeType, CapabilityType]) -> Self:
+    def __getitem__(self, target: NodeType) -> Self:
         if self._target:
             return dataclasses.replace(self, _target=target)  # type: ignore
         self._target = target
