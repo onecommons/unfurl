@@ -188,7 +188,7 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     if name in modules:
         # cf. "Crazy side-effects!" in _bootstrap.py (e.g. parent could have imported child)
         return modules[name]
-    if name.startswith("tosca_repositories"):
+    if name.startswith("tosca_repositories") or name.startswith("service_template"):
         spec = RepositoryFinder.find_spec(name, [base_dir])
         if not spec:
             raise ModuleNotFoundError("No module named " + name, name=name)
@@ -200,10 +200,12 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
             origin_path = os.path.join(parent_path, last)
         else:
             origin_path = os.path.join(base_dir, name.replace(".", "/"))
-        if name in ALLOWED_PRIVATE_PACKAGES or name == "service_template":
+        if name in ALLOWED_PRIVATE_PACKAGES:
             spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
         else:
-            if os.path.isdir(origin_path):
+            if os.path.isdir(origin_path) and not os.path.isfile(
+                    origin_path + ".py"
+                ):
                 spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
             else:
                 origin_path += ".py"
@@ -309,6 +311,7 @@ def __safe_import__(
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
+        base_dir = os.path.normpath(os.path.join(base_dir, '.' * level))
 
     # load user code in our restricted environment
     module = load_private_module(base_dir, modules, name)
@@ -410,7 +413,7 @@ def safe_guarded_write(ob):
 # _iter_unpack_sequence_
 # _unpack_sequence_
 
-PRINT_AST_SRC = False
+PRINT_AST_SRC = os.getenv("UNFURL_PRINT_AST_SRC")
 
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
