@@ -537,7 +537,7 @@ def test_class_init() -> None:
     # print( str(inspect.signature(Example.__init__)) )
 
     my_template = Example("my_template")
-    tosca.global_state.mode = "spec"
+    assert my_template._name == "my_template"
     assert my_template.prop1 == {"eval": "::my_template::prop1"}
     tosca.global_state.mode = (
         "runtime"  # test to make sure converter sets this back to spec
@@ -625,6 +625,7 @@ topology_template:
 def test_datatype():
     import tosca
     from tosca import DataType
+    tosca.global_state.mode = "spec"
 
     class MyDataType(DataType):
         prop1: str = ""
@@ -681,6 +682,7 @@ def test_envvar_type():
     import tosca
     from tosca import Property, DEFAULT
     import unfurl
+    tosca.global_state.mode = "spec"
 
     class Namespace(tosca.Namespace):
         # we can't resolve forward references to classes defined in local scope
@@ -958,6 +960,7 @@ def test_export():
     path = os.path.join(
         os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
     )
+    assert tosca.global_state.mode != "runtime"
     result = runner.invoke(
         cli,
         [

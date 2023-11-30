@@ -251,7 +251,7 @@ class Imports:
         import unfurl
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
-        from tosca import ({", ".join(self.from_tosca)})
+        from tosca import ({", ".join(sorted(self.from_tosca))})
         import tosca
         """
             )
@@ -1553,6 +1553,7 @@ def convert_service_template(
         imports._set_builtin_imports()
         imports._set_ext_imports()
     tpl = cast(Dict[str, Any], template.tpl)
+    _tosca.global_state.mode = "spec"
     converter = Convert(
         template,
         True,

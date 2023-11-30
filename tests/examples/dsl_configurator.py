@@ -57,9 +57,11 @@ class MyDataType(tosca.DataType):
 
 
 generic = unfurl.nodes.Generic("generic")
-generic.extra = "extra"  # type: ignore
+assert generic._name == "generic"
+setattr(generic, "extra","extra")
+assert getattr(generic, "extra") == "extra"
 test = Test(url_scheme="https", host="foo.com", a_requirement=generic)
 
 if __name__ == "__main__":
-    print(test)
+    print(generic)
     print(tosca.nodes.Root())

@@ -769,10 +769,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         path: str,
         repo_view: Optional[RepoView],
         base_dir: str,
-        yaml_dict: type = dict,
+        yaml_dict = dict,
     ):
         if path.endswith(".py"):
             from .dsl import convert_to_yaml
+            import tosca._tosca
+            tosca._tosca.yaml_cls = yaml_dict
 
             return convert_to_yaml(self, contents, path, repo_view, base_dir)
         else:
@@ -804,7 +806,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
-                        # self.expand is true when doing a TOSCA import (see Manifest_load_spec())
+                        # self.expand is true when doing a TOSCA import (see Manifest._load_spec())
                         doc = YamlConfig(
                             doc,
                             base_dir,
