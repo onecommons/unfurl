@@ -385,8 +385,13 @@ class Convert:
             python_prefix, tosca_name = self._get_name(namespace_prefix)
             self.import_prefixes[namespace_prefix] = python_prefix
             if python_prefix != filename:
+                if module_name.startswith("."):
+                    # need an extra "."
+                    from_name = "." + module_name
+                else:
+                    from_name = module_name
                 import_stmt = (
-                    f"from {module_name or '.'} import {filename} as {python_prefix}"
+                    f"from {from_name or '.'} import {filename} as {python_prefix}"
                 )
             else:
                 import_stmt = f"from {module_name or '.'} import {filename}"
@@ -1410,10 +1415,12 @@ class Convert:
         # to convert it to Python
         file_path = str(Path(import_path).parent / Path(import_def["file"]).name)
         if file_path not in self.template.nested_tosca_tpls:
-            logger.warning(
-                f"can't import: {file_path} not found in {list(self.template.nested_tosca_tpls)}"
-            )
-            return
+            file_path = os.path.abspath(file_path)
+            if file_path not in self.template.nested_tosca_tpls:
+                logger.warning(
+                    f"can't import: {file_path} not found in {list(self.template.nested_tosca_tpls)}"
+                )
+                return
 
         assert self.template.tpl is not None
         tpl = self.template.nested_tosca_tpls[file_path]

@@ -82,8 +82,12 @@ class RepositoryFinder(PathFinder):
                 return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
             else:
                 origin_path = os.path.join(dir_path, *names[1:])
-                if os.path.isdir(origin_path):
-                    return ModuleSpec(fullname, None, origin=origin_path, is_package=True)
+                if os.path.isdir(origin_path) and not os.path.isfile(
+                    origin_path + ".py"
+                ):
+                    return ModuleSpec(
+                        fullname, None, origin=origin_path, is_package=True
+                    )
                 origin_path += ".py"
                 loader = ToscaYamlLoader(fullname, origin_path, modules)
                 spec = spec_from_loader(fullname, loader, origin=origin_path)
@@ -407,6 +411,7 @@ def safe_guarded_write(ob):
 # _unpack_sequence_
 
 PRINT_AST_SRC = False
+
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
