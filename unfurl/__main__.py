@@ -1173,6 +1173,9 @@ def _yaml_to_python(
     project_or_ensemble_path, file, local_env, python_target_version, overwrite: str
 ):
     from tosca import yaml2python, WritePolicy
+    from .yamlloader import ImportResolver
+    from .manifest import Manifest
+
 
     if python_target_version:
         python_target_version = int(python_target_version.split(".")[-1])
@@ -1204,9 +1207,12 @@ def _yaml_to_python(
         if not file:
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
+        dummy_manifest = Manifest(None)
+        dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
         python_src = yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
+            import_resolver=ImportResolver(dummy_manifest),
             python_target_version=python_target_version,
             write_policy=write_policy,
         )

@@ -1057,7 +1057,7 @@ def clone(
 
     ##### step 2: create destination project if necessary
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
-    if options.get("empty"):
+    if options.get("empty") and not options.get("design"):
         # don't create an ensemble
         return "Cloned project to " + builder.dest_project.projectRoot
 
