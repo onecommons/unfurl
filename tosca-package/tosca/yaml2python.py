@@ -1436,7 +1436,9 @@ class Convert:
         if "repositories" in self.template.tpl:
             repositories = self.template.tpl["repositories"]
             tpl.setdefault("repositories", {}).update(repositories)
-        if self.write_policy.can_overwrite(file_path, import_path):
+        if import_def.get("repository") == "unfurl":
+            logger.debug("not converting built-in import: %s", import_path)
+        elif self.write_policy.can_overwrite(file_path, import_path):
             convert_service_template(
                 ToscaTemplate(
                     file_path,
@@ -1481,9 +1483,13 @@ class Convert:
             )
             self.imports._add_imports("", namespace)
         except:
+            # print(self.imports.prelude() + src)
             logger.error(
                 f"error executing generated source for {full_name}", exc_info=True
             )
+        finally:
+            # not in safe_mode, delete from sys.modules if present since source might not be complete
+            sys.modules.pop(full_name, None)
 
 
 def generate_builtins(import_resolver, format=True) -> str:
@@ -1599,7 +1605,7 @@ def convert_service_template(
                 else:
                     logger.error(f"error importing {module_name}", exc_info=True)
             src += import_src
-
+    imports_src = src
     namespace: Dict[str, Any] = {}
     # interface_types needs to go first because they will be base classes for types that implement them
     # data_types and capability_types can be set as defaults so they also need to be defined early
@@ -1634,7 +1640,7 @@ def convert_service_template(
                 if ns_prefix:
                     imports.from_tosca.add("Namespace")
                     class_src = f"class {tosca_type}(Namespace):\n" + class_src
-                converter.execute_source(class_src, namespace)
+                converter.execute_source(imports_src + class_src, namespace)
                 src += class_src + "\n"
     topology = template.topology_template
     if topology:
