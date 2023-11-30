@@ -28,6 +28,7 @@ from typing import (
     TypeVar,
     Tuple,
     cast,
+    overload,
 )
 import types
 from typing_extensions import (
@@ -417,7 +418,10 @@ class AttributeOptions(Options):
     pass
 
 
-class _Tosca_Field(dataclasses.Field):
+_T = TypeVar("_T")
+
+
+class _Tosca_Field(dataclasses.Field[_T]):
     title = None
     relationship: Union[str, Type["RelationshipType"], None] = None
     capability: Union[str, Type["CapabilityType"], None] = None
@@ -795,9 +799,9 @@ class _Tosca_Field(dataclasses.Field):
             and self.default is not CONSTRAINED
             and self.default is not REQUIRED
         ):
-            return self.default.to_template_yaml(converter)
+            return self.default.to_template_yaml(converter)  # type: ignore
         elif self.default_factory and self.default_factory is not dataclasses.MISSING:
-            return self.default_factory().to_template_yaml(converter)
+            return self.default_factory().to_template_yaml(converter)  # type: ignore
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
@@ -895,7 +899,7 @@ class _Tosca_Field(dataclasses.Field):
             ):
                 value.type = type(value)
             return value
-        field = _Tosca_Field(None, owner=owner_class, default=value)
+        field = _Tosca_Field[_T](None, owner=owner_class, default=value)
         field.name = name
         if isinstance(value, FieldProjection):
             field.type = value.field.type
@@ -925,6 +929,59 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
     func.__doc__ = doc
 
 
+# cf @overloads here: https://github.com/python/typeshed/blob/main/stdlib/dataclasses.pyi#L159
+
+
+@overload
+def Attribute(
+    *,
+    default: _T,
+    name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title="",
+    status="",
+    options: Optional[AttributeOptions] = None,
+    # attributes are excluded from __init__,
+    # this tricks the static checker, see pep 681:
+    init: Literal[False] = False,
+) -> _T:
+    ...
+
+
+@overload
+def Attribute(
+    *,
+    factory: Callable[[], _T],
+    name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title="",
+    status="",
+    options: Optional[AttributeOptions] = None,
+    # attributes are excluded from __init__,
+    # this tricks the static checker, see pep 681:
+    init: Literal[False] = False,
+) -> _T:
+    ...
+
+
+@overload
+def Attribute(
+    *,
+    name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title="",
+    status="",
+    options: Optional[AttributeOptions] = None,
+    # attributes are excluded from __init__,
+    # this tricks the static checker, see pep 681:
+    init: Literal[False] = False,
+) -> Any:
+    ...
+
+
 def Attribute(
     *,
     default=None,
@@ -939,7 +996,7 @@ def Attribute(
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
 ) -> Any:
-    field = _Tosca_Field(
+    return _Tosca_Field(
         ToscaFieldType.attribute,
         default,
         factory,
@@ -950,10 +1007,53 @@ def Attribute(
         constraints=constraints,
         options=options,
     )
-    return field
 
 
 _make_field_doc(Attribute, True)
+
+
+@overload
+def Property(
+    *,
+    default: _T,
+    name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title="",
+    status="",
+    options: Optional[PropertyOptions] = None,
+    attribute: bool = False,
+) -> _T:
+    ...
+
+
+@overload
+def Property(
+    *,
+    factory: Callable[[], _T],
+    name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title="",
+    status="",
+    options: Optional[PropertyOptions] = None,
+    attribute: bool = False,
+) -> _T:
+    ...
+
+
+@overload
+def Property(
+    *,
+    name: str = "",
+    constraints: Optional[List[DataConstraint]] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
+    title="",
+    status="",
+    options: Optional[PropertyOptions] = None,
+    attribute: bool = False,
+) -> Any:
+    ...
 
 
 def Property(
@@ -968,7 +1068,7 @@ def Property(
     options: Optional[PropertyOptions] = None,
     attribute: bool = False,
 ) -> Any:
-    field = _Tosca_Field(
+    return _Tosca_Field(
         ToscaFieldType.property,
         default=default,
         default_factory=factory,
@@ -980,7 +1080,6 @@ def Property(
         options=options,
         declare_attribute=attribute,
     )
-    return field
 
 
 _make_field_doc(
@@ -1021,7 +1120,7 @@ def Computed(
     default = _Ref(
         {"eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")}
     )
-    # this cast type checks that factory function's return type matches the field's type
+    # casting this to the factory function's return type enables the type checker to check that the return type matches the field's type
     return cast(
         RT,
         _Tosca_Field(
@@ -1037,6 +1136,47 @@ def Computed(
     )
 
 
+@overload
+def Requirement(
+    *,
+    default: _T,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    relationship: Union[str, Type["RelationshipType"], None] = None,
+    capability: Union[str, Type["CapabilityType"], None] = None,
+    node: Union[str, Type["NodeType"], None] = None,
+    node_filter: Optional[Dict[str, Any]] = None,
+) -> _T:
+    ...
+
+
+@overload
+def Requirement(
+    *,
+    factory: Callable[[], _T],
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    relationship: Union[str, Type["RelationshipType"], None] = None,
+    capability: Union[str, Type["CapabilityType"], None] = None,
+    node: Union[str, Type["NodeType"], None] = None,
+    node_filter: Optional[Dict[str, Any]] = None,
+) -> _T:
+    ...
+
+
+@overload
+def Requirement(
+    *,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    relationship: Union[str, Type["RelationshipType"], None] = None,
+    capability: Union[str, Type["CapabilityType"], None] = None,
+    node: Union[str, Type["NodeType"], None] = None,
+    node_filter: Optional[Dict[str, Any]] = None,
+) -> Any:
+    ...
+
+
 def Requirement(
     *,
     default=MISSING,
@@ -1048,7 +1188,9 @@ def Requirement(
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> Any:
-    field = _Tosca_Field(ToscaFieldType.requirement, default, factory, name, metadata)
+    field: Any = _Tosca_Field(
+        ToscaFieldType.requirement, default, factory, name, metadata
+    )
     field.relationship = relationship
     field.capability = capability
     field.node = node
@@ -1068,6 +1210,38 @@ _make_field_doc(
 )
 
 
+@overload
+def Capability(
+    *,
+    default: _T,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    valid_source_types: Optional[List[str]] = None,
+) -> _T:
+    ...
+
+
+@overload
+def Capability(
+    *,
+    factory: Callable[[], _T],
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    valid_source_types: Optional[List[str]] = None,
+) -> _T:
+    ...
+
+
+@overload
+def Capability(
+    *,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    valid_source_types: Optional[List[str]] = None,
+) -> Any:
+    ...
+
+
 def Capability(
     *,
     default=MISSING,
@@ -1076,7 +1250,9 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     valid_source_types: Optional[List[str]] = None,
 ) -> Any:
-    field = _Tosca_Field(ToscaFieldType.capability, default, factory, name, metadata)
+    field: Any = _Tosca_Field(
+        ToscaFieldType.capability, default, factory, name, metadata
+    )
     field.valid_source_types = valid_source_types or []
     return field
 
@@ -1090,15 +1266,43 @@ _make_field_doc(
 )
 
 
+@overload
+def Artifact(
+    *,
+    default: _T,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+) -> _T:
+    ...
+
+
+@overload
+def Artifact(
+    *,
+    factory: Callable[[], _T],
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+) -> _T:
+    ...
+
+
+@overload
+def Artifact(
+    *,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+) -> Any:
+    ...
+
+
 def Artifact(
     *,
     default=MISSING,
     factory=MISSING,
-    name: str = "",
-    metadata: Optional[Dict[str, JsonType]] = None,
+    name="",
+    metadata=None,
 ) -> Any:
-    field = _Tosca_Field(ToscaFieldType.artifact, default, factory, name, metadata)
-    return field
+    return _Tosca_Field(ToscaFieldType.artifact, default, factory, name, metadata)
 
 
 _make_field_doc(Artifact)
@@ -2192,7 +2396,7 @@ class ArtifactType(_OwnedToscaType):
         "order",
         "contents",
     )
-    file: str = field(default=REQUIRED)
+    file: str = field()
     repository: Optional[str] = field(default=None)
     deploy_path: Optional[str] = field(default=None)
     version: Optional[str] = field(default=None)
