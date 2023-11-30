@@ -47,10 +47,10 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
-from tosca._tosca import _Tosca_Field, _ToscaType
+from tosca._tosca import _Tosca_Field, _ToscaType, global_state
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
-from .eval import set_eval_func
+from .eval import RefContext, set_eval_func
 from .result import Results
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
@@ -138,8 +138,9 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
     return None
 
 
-def proxy_instance(instance, cls: Type[_ToscaType]):
+def proxy_instance(instance, cls: Type[_ToscaType], context: RefContext):
     if instance.proxy:
+        # XXX make sure existing proxy context matches context argument
         return instance.proxy
     obj = find_template(instance.template)
     if obj:
@@ -147,8 +148,10 @@ def proxy_instance(instance, cls: Type[_ToscaType]):
     else:
         # if target is subtype of cls, use the subtype
         found_cls = cls._all_types.get(instance.template.type)
-    instance.proxy = get_proxy_class(found_cls or cls)(instance, obj)
-    return instance.proxy
+
+    proxy = get_proxy_class(found_cls or cls)(instance, obj, context)
+    instance.proxy = proxy
+    return proxy
 
 
 class DslMethodConfigurator(Configurator):
@@ -160,9 +163,8 @@ class DslMethodConfigurator(Configurator):
 
     def render(self, task: TaskView) -> Any:
         if self.action == "render":
-            obj = proxy_instance(task.target, self.cls)
-            obj._context = task.inputs.context
-            result = self.func(obj)
+            obj = proxy_instance(task.target, self.cls, task.inputs.context)
+            result = obj._invoke(self.func)
             if isinstance(result, Configurator):
                 self.configurator = result
                 # configurators rely on task.inputs, so update them
@@ -185,9 +187,8 @@ class DslMethodConfigurator(Configurator):
     def run(self, task):
         if self.configurator:
             return self.configurator.run(task)
-        obj = proxy_instance(task.target, self.cls)
-        obj._context = task.inputs.context
-        return self.func(obj, task)
+        obj = proxy_instance(task.target, self.cls, task.inputs.context)
+        return obj._invoke(self.func, task)
 
 
 def eval_computed(arg, ctx):
@@ -200,8 +201,8 @@ def eval_computed(arg, ctx):
     cls_name, sep, func_name = qualname.rpartition(".")
     cls = getattr(module, cls_name)
     func = getattr(cls, func_name)
-    proxy = proxy_instance(ctx.currentResource, cls)
-    return func(proxy)
+    proxy = proxy_instance(ctx.currentResource, cls, ctx)
+    return proxy._invoke(func)
 
 
 set_eval_func("computed", eval_computed)
@@ -289,18 +290,33 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
 
     _cls: Type[PT]
 
-    def __init__(self, instance: EntityInstance, obj: Optional[PT] = None):
+    def __init__(
+        self, instance: EntityInstance, obj: Optional[PT], context: RefContext
+    ):
         self._instance = instance
         # templates can have attributes assigned directly to it so see if we have the template
         self._obj = obj
         self._cache: Dict[str, Any] = {}
-        self._context = None
+        self._context = context.copy(instance)
+        # when calling into python code context won't have the basedir for the location of the code
+        # (since its not imported as yaml). So set it now.
+        path = sys.modules[self._cls.__module__].__file__
+        assert path
+        self._context.base_dir = os.path.dirname(path)
 
     def _get_field(self, name):
         if self._obj:
             return self._obj.get_field(name)
         else:
             return self._cls.__dataclass_fields__.get(name)
+
+    def _invoke(self, func, *args):
+        saved_context = global_state.context
+        global_state.context = self._context.copy(self._instance.root)
+        try:
+            return func(self, *args)
+        finally:
+            global_state.context = saved_context
 
     def __str__(self):
         if self._obj:
@@ -340,7 +356,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             instance = rel.target
             cls = nodetype
         if instance:
-            return proxy_instance(instance, cls)
+            return proxy_instance(instance, cls, self._context)
         return None
 
     def _proxy_requirements(
@@ -360,23 +376,30 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         return val
 
     def __setattr__(self, name, val):
-        #  you should be able to modify the dsl at this point (there probably isn't even an object to modify)
+        #  you shouldn't be able to modify the dsl at this point (there probably isn't even an object to modify)
         #  so only modify the instance
         if name in ("_instance", "_obj", "_cache", "_context"):
             object.__setattr__(self, name, val)
             return
-        if self._obj is not None and hasattr(self._obj, name):
-            setattr(self._obj, name, val)
+        field = self._get_field(name)
         if isinstance(val, (DataTypeProxyBase, ProxyCollection)):
             val = val._values
         elif isinstance(val, tosca.ToscaObject):
             val = val.to_yaml(tosca.yaml_cls)
-        self._instance.attributes[name] = val
+        self._instance.attributes[
+            field.tosca_name if isinstance(field, _Tosca_Field) else name
+        ] = val
         self._cache.pop(name, None)
+
+    # XXX
+    # def __delattr__(self, __name: str) -> None:
+    #     return None
 
     def _getattr(self, name):
         # if the attribute refers to a instance field, return the value from the instance
         # otherwise try to get the value from the obj, if set, or from the cls
+        # note that when accessing viva instance.attributes, any evaluation of expressions
+        # will be done via the yaml generated from python using the instance's attribute manager context.
         if name in self._cache:
             return self._cache[name]
         field = self._get_field(name)
@@ -389,15 +412,17 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 #     self.instance.template.type_definition, name.lstrip("_")
                 # )
             elif hasattr(self._obj or self._cls, name):
-                cls_val = getattr(self._cls, name, None)
                 if self._obj:
                     val = getattr(self._obj, name)
                 else:
-                    val = cls_val
+                    val = getattr(self._cls, name, None)
                 if callable(val):
                     if isinstance(val, types.MethodType):
                         # so we can call with proxy as self
                         val = val.__func__
+                    assert (
+                        global_state.context
+                    )  # should have been set by _invoke() earlier in the call stack.
                     return functools.partial(val, self)
                 return val
             elif name in self._instance.attributes:  # untyped properties
@@ -407,7 +432,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 ToscaFieldType.property,
                 ToscaFieldType.attribute,
             ):
-                val = _proxy_prop(field, self._instance.attributes[name])
+                val = _proxy_prop(field, self._instance.attributes[field.tosca_name])
                 self._cache[name] = val
                 return val
             elif field.tosca_field_type == ToscaFieldType.requirement:
@@ -422,7 +447,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     field.tosca_name
                 )
                 if artifact:
-                    proxy = proxy_instance(artifact, field.get_type_info().types[0])
+                    proxy = proxy_instance(
+                        artifact, field.get_type_info().types[0], self._context
+                    )
                     self._cache[field.name] = proxy
                     return proxy
                 return None
@@ -432,7 +459,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     field.tosca_name
                 )
                 proxies = [
-                    proxy_instance(cap, type_info.types[0]) for cap in capabilities
+                    proxy_instance(cap, type_info.types[0], self._context)
+                    for cap in capabilities
                 ]
                 if len(proxies) <= 1 and not type_info.collection:
                     proxies = proxies[0] if proxies else None  # type: ignore
@@ -495,6 +523,7 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
             self._cache[name] = proxy
             return proxy
         elif hasattr(self._cls, name):
+            # XXX if val is method, proxy and set context
             return getattr(self._cls, name)
         elif name in self._values:  # untyped properties
             return self._values[name]
