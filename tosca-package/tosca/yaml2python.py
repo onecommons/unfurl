@@ -179,6 +179,7 @@ class Imports:
         self._imports: Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]] = {}
         self._add_imports("", imports or {})
         self._import_statements = set()
+        self.declared = []
         self.from_tosca = set(
             [
                 "Artifact",
@@ -205,10 +206,14 @@ class Imports:
         self.from_tosca.add(name)
         return name
 
+    def get_all(self):
+        return self.declared
+
     def add_declaration(self, tosca_name: str, localname: str):
         # new obj is being declared in the current module in the global scope
         assert tosca_name not in self._imports, tosca_name
         self._imports[tosca_name] = (localname, None)
+        self.declared.append(localname)
 
     def _add_imports(self, basename: str, namespace: Dict[str, Any]):
         for name, ref in namespace.items():
@@ -1643,6 +1648,8 @@ def convert_service_template(
 
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
+    if not builtin_prefix:
+        src += f"\n__all__= {value2python_repr(imports.get_all(), True)}"
     if builtin_prefix == "unfurl.":
         imports.from_tosca.add("Namespace")
         src += """\nclass interfaces(Namespace):

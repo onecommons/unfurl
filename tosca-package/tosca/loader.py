@@ -461,7 +461,7 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
         return super().visit_ClassDef(node)
 
 
-ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(["__name__"])
+ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(ImmutableModule.__always_safe__)
 
 
 class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
@@ -623,5 +623,5 @@ def restricted_exec(
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
         if safe_mode and temp_module:
-             del sys.modules[full_name]
+            del sys.modules[full_name]
     return result
