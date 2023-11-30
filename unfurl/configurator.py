@@ -469,6 +469,7 @@ class TaskView:
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
         self.dry_run = None
+        self.verbose = 0  # set by ConfigView
         # private:
         self._errors: List[
             UnfurlTaskError
@@ -707,9 +708,9 @@ class TaskView:
 
     def get_settings(self) -> dict:
         return dict(
-            verbose=self.verbose,  # type: ignore
+            verbose=self.verbose,
             name=self.configSpec.name,
-            dryrun=self.dry_run,  # type: ignore
+            dryrun=self.dry_run,
             workflow=self.configSpec.workflow,
             operation=self.configSpec.operation,
             timeout=self.configSpec.timeout,

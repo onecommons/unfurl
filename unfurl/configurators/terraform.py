@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: MIT
 from typing import TYPE_CHECKING, Union, Dict, Any
 from typing_extensions import Literal
+
+from ..configurator import TaskView
 from ..util import save_to_file, UnfurlTaskError, wrap_var, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
 from ..result import Result
-from ..projectpaths import get_path, FilePath, Folders
+from ..projectpaths import WorkFolder, get_path, FilePath, Folders
 import json
 import os
 import os.path
@@ -263,7 +265,7 @@ class TerraformConfigurator(ShellConfigurator):
                 return tfprops
         return tfvars
 
-    def _prepare_workspace(self, task, cwd):
+    def _prepare_workspace(self, task: TaskView, cwd: WorkFolder):
         """
         In terraform directory:
             Write out tf.json if necessary.
@@ -320,7 +322,7 @@ class TerraformConfigurator(ShellConfigurator):
             mainpath = None
         return mainpath, varpath
 
-    def _prepare_vars(self, task, cwd):
+    def _prepare_vars(self, task: TaskView, cwd):
         # XXX .tfvars can be sensitive
         # we need to output the plan and convert it to json to see which variables are marked sensitive
         tfvars = self._get_tfvars(task)
@@ -335,12 +337,12 @@ class TerraformConfigurator(ShellConfigurator):
             return cwd.write_file(tfvars, path)
         return None
 
-    def _get_workfolder_name(self, task):
+    def _get_workfolder_name(self, task: TaskView) -> str:
         return (
             task.inputs.get("stateLocation") or Folders.secrets
         )  # XXX global option for secrets
 
-    def _prepare_state(self, task, cwd):
+    def _prepare_state(self, task: TaskView, cwd):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
@@ -360,14 +362,14 @@ class TerraformConfigurator(ShellConfigurator):
             task.logger.debug("Couldn't find terraform.tfstate file at %s", yamlPath)
         return "terraform.tfstate"
 
-    def _get_plan_path(self, task, cwd):
+    def _get_plan_path(self, task, cwd: WorkFolder):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.get_job_id(task.changeId)
         return cwd.get_current_path(jobId + ".plan")
 
-    def render(self, task):
+    def render(self, task: TaskView):
         workdir = task.inputs.get("workdir") or Folders.tasks
         if task.dry_run:
             dryrun_mode = task.inputs.get("dryrun_mode", "plan")
@@ -423,7 +425,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         return [cmd, terraformcmd, statePath]
 
-    def run(self, task):
+    def run(self, task: TaskView):
         cwd = task.get_work_folder(Folders.tasks)
         cmd, terraform, statePath = task.rendered
         current_path = cwd.cwd
