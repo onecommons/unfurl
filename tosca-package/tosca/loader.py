@@ -497,7 +497,7 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None):
     global service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
-    else:
+    elif not service_template_basedir:
         service_template_basedir = os.getcwd()
     global installed
     if installed:
