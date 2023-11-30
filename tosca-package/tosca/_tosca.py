@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 import collections.abc
+import copy
 import dataclasses
 from enum import Enum
 import inspect
@@ -364,6 +365,7 @@ def to_tosca_value(obj, dict_cls=dict):
         if to_yaml:  # e.g. datatypes, _Scalar
             return to_yaml(dict_cls)
         else:
+            # XXX coerce to compatible json type or raise error
             return obj
 
 
@@ -1309,7 +1311,9 @@ _make_field_doc(Artifact)
 
 
 class _Ref:
-    def __init__(self, expr: Optional[Dict[str, Any]]):
+    def __init__(self, expr: Union[None, "_Ref", Dict[str, Any]]):
+        if isinstance(expr, _Ref):
+            expr = expr.expr
         self.expr: Optional[Dict[str, Any]] = expr
 
     def set_source(self):
@@ -1318,11 +1322,43 @@ class _Ref:
             if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
                 self.expr["eval"] = "$SOURCE::" + expr
 
+    # _RefFunc[RT] -> List[RT]
+    def map(self, func: "_Ref") -> "_Ref":
+        # return a copy of this _Ref with a  "foreach" clause added
+        # that applies ``func`` to each item.
+        # assumes ``func`` is an expression function that takes one argument and sets that argument to ``$item``.
+        assert self.expr
+        ref = copy.deepcopy(self.expr)
+        map_expr = copy.deepcopy(func.expr)
+        inner = map_expr and map_expr["eval"]
+        assert isinstance(inner, dict)
+        name = next(iter(inner))  # assume first key is the function name
+        inner[name] = {"eval": "$item"}
+        ref["foreach"] = map_expr
+        return _Ref(ref)
+
+    def __str__(self) -> str:
+        # represent this as a jina2 expression so we can embed _Refs in f-strings
+        if self.expr:
+            expr = self.expr.get("eval")
+            if isinstance(expr, str):
+                jinja = f"'{expr}' | eval"
+            else:
+                jinja = f"{self.expr} | map_value"
+            return "{{" + jinja + "}}"
+        return ""
+
     def __repr__(self):
         return f"_Ref({self.expr})"
 
-    def to_yaml(self, dict_cls=dict):
-        return self.expr
+    def __or__(self, __value: Any) -> "_Ref":
+        return _Ref(dict(eval={"or": [self.expr, __value]}))
+
+    def __and__(self, __value: Any) -> "_Ref":
+        return _Ref(dict(eval={"and": [self.expr, __value]}))
+
+    def to_yaml(self, dict_cls=None):
+        return to_tosca_value(self.expr, dict_cls or yaml_cls)
 
     # note: we need this to prevent dataclasses error on 3.11+: mutable default for field
     def __hash__(self) -> int:
