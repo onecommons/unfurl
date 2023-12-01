@@ -56,18 +56,21 @@ class RepositoryFinder(PathFinder):
             if import_resolver:
                 # this may clone a repository
                 repo_path = import_resolver.find_repository_path(names[1])
-                if repo_path:
-                    if len(names) == 2:
-                        return ModuleSpec(
-                            fullname, None, origin=repo_path, is_package=True
-                        )
-                    else:
-                        origin_path = os.path.join(repo_path, *names[2:]) + ".py"
-                        assert os.path.isfile(origin_path), origin_path
-                        loader = ToscaYamlLoader(fullname, origin_path, modules)
-                        spec = spec_from_loader(fullname, loader, origin=origin_path)
-                        return spec
-                        # return PathFinder.find_spec(fullname, [repo_path], target)
+            else:
+                # assume already created
+                repo_path = os.path.join(service_template_basedir, "tosca_repositories", names[1])
+            if repo_path:
+                if len(names) == 2:
+                    return ModuleSpec(
+                        fullname, None, origin=repo_path, is_package=True
+                    )
+                else:
+                    origin_path = os.path.join(repo_path, *names[2:]) + ".py"
+                    assert os.path.isfile(origin_path), origin_path
+                    loader = ToscaYamlLoader(fullname, origin_path, modules)
+                    spec = spec_from_loader(fullname, loader, origin=origin_path)
+                    return spec
+                    # return PathFinder.find_spec(fullname, [repo_path], target)
         # XXX special case service-template.yaml as service_template ?
         elif names[0] == "service_template":
             if path:
@@ -293,6 +296,7 @@ def __safe_import__(
                 # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
                 return last if fromlist else first
             else:
+                print ("WAYYYYY", name, fromlist)
                 module = importlib.import_module(name)
                 _check_fromlist(module, fromlist)
                 module = ImmutableModule(name, **vars(module))
