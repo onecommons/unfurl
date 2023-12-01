@@ -1318,7 +1318,7 @@ class _Ref:
         self.expr: Optional[Dict[str, Any]] = expr
 
     def set_source(self):
-        if self.expr:
+        if isinstance(self.expr, dict):
             expr = self.expr.get("eval")
             if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
                 self.expr["eval"] = "$SOURCE::" + expr
@@ -1329,6 +1329,7 @@ class _Ref:
         # that applies ``func`` to each item.
         # assumes ``func`` is an expression function that takes one argument and sets that argument to ``$item``.
         assert self.expr
+        assert isinstance(func.expr, dict)
         ref = copy.deepcopy(self.expr)
         map_expr = copy.deepcopy(func.expr)
         inner = map_expr and map_expr["eval"]
@@ -1340,14 +1341,14 @@ class _Ref:
 
     def __str__(self) -> str:
         # represent this as a jina2 expression so we can embed _Refs in f-strings
-        if self.expr:
+        if isinstance(self.expr, dict):
             expr = self.expr.get("eval")
             if isinstance(expr, str):
                 jinja = f"'{expr}' | eval"
             else:
                 jinja = f"{self.expr} | map_value"
-            return "{{" + jinja + "}}"
-        return ""
+            return "{{ " + jinja + " }}"
+        return self.expr or ""
 
     def __repr__(self):
         return f"_Ref({self.expr})"

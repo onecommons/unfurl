@@ -325,7 +325,7 @@ relationships_yaml = {
                 "volume_mount": {
                     "type": "VolumeMountArtifact",
                     "properties": {
-                        "mountpoint": "/mnt/{{'.targets::volume_attachment::.target::disk_label' | eval}}"
+                        "mountpoint": "/mnt/{{ '.targets::volume_attachment::.target::disk_label' | eval }}"
                     },
                     "file": "",
                     "intent": "mount",

@@ -61,9 +61,12 @@ class RepositoryFinder(PathFinder):
                 repo_path = os.path.join(service_template_basedir, "tosca_repositories", names[1])
             if repo_path:
                 if len(names) == 2:
-                    return ModuleSpec(
-                        fullname, None, origin=repo_path, is_package=True
-                    )
+                    if os.path.exists(repo_path):
+                        return ModuleSpec(
+                            fullname, None, origin=repo_path, is_package=True
+                        )
+                    else:
+                        return None
                 else:
                     origin_path = os.path.join(repo_path, *names[2:]) + ".py"
                     assert os.path.isfile(origin_path), origin_path
@@ -296,7 +299,6 @@ def __safe_import__(
                 # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
                 return last if fromlist else first
             else:
-                print ("WAYYYYY", name, fromlist)
                 module = importlib.import_module(name)
                 _check_fromlist(module, fromlist)
                 module = ImmutableModule(name, **vars(module))
