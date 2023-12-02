@@ -374,7 +374,7 @@ class _Sentinal:
     def __init__(self, name):
         self.name = name
 
-    def __str__(self):
+    def __repr__(self):
         return "<Sentinal: " + self.name + ">"
 
 

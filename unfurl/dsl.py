@@ -26,6 +26,7 @@ import inspect
 import os
 from pathlib import Path
 import importlib
+import pprint
 import types
 from typing import (
     Any,
@@ -56,7 +57,7 @@ from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
 from .repo import RepoView
 from .util import check_class_registry, get_base_dir, register_class
-from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
+from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy, PythonToYaml
 from unfurl.configurator import Configurator, TaskView
 from typing_extensions import (
     dataclass_transform,
@@ -73,9 +74,44 @@ import toscaparser.properties
 import toscaparser.capabilities
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
+from unfurl.yamlmanifest import YamlManifest
 
 if TYPE_CHECKING:
     from .yamlloader import ImportResolver
+
+
+_N = TypeVar("_N", bound=tosca.Namespace)
+
+
+def runtime_test(namespace: Type[_N]) -> _N:
+    from .job import Runner
+
+    converter = PythonToYaml(namespace.get_defs())
+    doc = converter.module2yaml(True)
+    # pprint.pprint(doc)
+    config = dict(apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc))
+    manifest = YamlManifest(config)
+    assert manifest.rootResource
+    # a plan is needed to create the instances
+    job = Runner(manifest).static_plan()
+    ctx = RefContext(manifest.rootResource)
+    clone = namespace()
+    node_templates = {
+        t._name: (python_name, t)
+        for python_name, t in namespace.get_defs().items()
+        if isinstance(t, tosca.NodeType)
+    }
+    count = 0
+    for r in manifest.rootResource.get_self_and_descendants():
+        if r.name in node_templates:
+            python_name, t = node_templates[r.name]
+            proxy = proxy_instance(r, t.__class__, ctx)
+            assert proxy._obj is t  # make sure it found this template
+            setattr(clone, python_name, proxy)
+            count += 1
+    assert count == len(node_templates), f"{count}, {len(node_templates)}"
+    assert tosca.global_state.mode == "runtime"
+    return clone
 
 
 def convert_to_yaml(

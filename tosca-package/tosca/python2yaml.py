@@ -1,6 +1,6 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
-import importlib, importlib.util, importlib._bootstrap
+import importlib.util, importlib._bootstrap
 import io
 import inspect
 from types import ModuleType
@@ -30,6 +30,7 @@ from ._tosca import (
     WritePolicy,
     InstanceProxy,
     ValueType,
+    _Tosca_Field
 )
 from .loader import restricted_exec, get_module_path
 
@@ -58,6 +59,7 @@ class PythonToYaml:
             self.modules = modules
         self.write_policy = write_policy
         self.import_resolver = import_resolver
+        self.templates: List[ToscaType] = []
 
     def find_yaml_import(
         self, module_name: str
@@ -97,12 +99,33 @@ class PythonToYaml:
         self.repos[repo_name] = repo_path
         return repo_name, path.relative_to(repo_path)
 
-    def module2yaml(self) -> dict:
+    @staticmethod
+    def _add_type(t, types_used):
+        for b in t.__mro__:
+            if b is ToscaType:
+                break
+            if not b.__module__.startswith("tosca."):
+                types_used.setdefault(b.__module__, {})[b.__name__] = b
+
+    def module2yaml(self, include_types=False) -> dict:
         # module contents will have been set to self.globals
         mode = global_state.mode
         try:
             global_state.mode = "yaml"
             self._namespace2yaml(self.globals)
+            if include_types:
+                types_used: dict = {}
+                for t in self.templates:
+                    self._add_type(t.__class__, types_used)
+                    for name in t.__annotations__:
+                        field = t.get_field(name)
+                        if isinstance(field, _Tosca_Field):
+                            ti = field.get_type_info_checked()
+                            if ti and ti.types and issubclass(ti.types[0], ToscaType):
+                                self._add_type(ti.types[0], types_used)
+                for module_name, classes in types_used.items():
+                    self.globals["__name__"] = module_name
+                    self._namespace2yaml(classes)
         finally:
             global_state.mode = mode
         self.add_repositories_and_imports()
@@ -137,6 +160,7 @@ class PythonToYaml:
             if module_name:
                 section[name].setdefault("metadata", {})["module"] = module_name
                 obj.register_template(module_name, name)
+            self.templates.append(obj)
         return name
 
     def set_requirement_value(self, req: dict, value, default_node_name: str):
@@ -268,10 +292,15 @@ class PythonToYaml:
                             to_yaml(self.yaml_cls)
                         )
 
-    def _import_module(self, current_module, path, module_name):
+    def _import_module(self, current_module, path, module_name) -> None:
         if not module_name.startswith("tosca."):
+            if not path:
+                logger.warning(
+                    f"can't import {module_name}: current module {current_module} doesn't have a path"
+                )
+                return
             # logger.debug(
-            #     f"adding import statement to {current_module} for {obj} in {module_name}"
+            #     f"adding import statement to {current_module} in {module_name} at {path}"
             # )
             # this type was imported from another module
             # instead of converting the type, add an import if missing
@@ -289,7 +318,7 @@ class PythonToYaml:
                         self.imports.add((ns, path))
                     else:
                         logger.warning(
-                            f"import look up in {current_module} failed, can find {module_name}"
+                            f"import look up in {current_module} failed, can't find {module_name}"
                         )
 
 

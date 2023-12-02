@@ -735,8 +735,6 @@ relationship_types:
     properties:
       records:
         type: map
-        entry_schema: 
-          type: any
 
 node_types:
   HasDNS:

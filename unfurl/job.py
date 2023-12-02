@@ -1500,6 +1500,12 @@ class Runner:
         self.manifest = manifest
         assert self.manifest.tosca
 
+    def static_plan(self, jobOptions=None):
+        if jobOptions is None:
+            jobOptions = JobOptions()
+        job = _plan(self.manifest, jobOptions)
+        return job
+
     def run(self, jobOptions=None):
         if jobOptions is None:
             jobOptions = JobOptions()

@@ -1894,12 +1894,14 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         name = names.pop(0)
         if cls._globals:
             globals = cls._globals
-        elif cls.__module__ and cls.__module__ != "builtins":
-            globals = sys.modules[cls.__module__].__dict__
         else:
             globals = {}
+        if cls.__module__ in sys.modules and cls.__module__ != "builtins":
+            mod_globals = sys.modules[cls.__module__].__dict__
+        else:
+            mod_globals = {}
         locals = cls._namespace or {}
-        obj = locals.get(name, globals.get(name))
+        obj = locals.get(name, globals.get(name, mod_globals.get(name)))
         if obj is None:
             if name == cls.__name__:
                 obj = cls
@@ -2395,7 +2397,7 @@ class DataType(_BaseDataType, _OwnedToscaType):
 class OpenDataType(DataType):
     "Properties don't need to be declared with TOSCA data types derived from this class."
 
-    _type_metadata = dict(additionalProperties=True)  # type: ignore
+    _type_metadata = dict(additionalProperties=True)
 
     def __init__(self, _name="", **kw):
         for k in list(kw):
