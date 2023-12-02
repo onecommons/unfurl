@@ -1215,6 +1215,7 @@ class Convert:
         localname = self.imports.get_local_ref(tosca_name)
         if not localname:
             assert self.template.topology_template
+            src = ""
             if type == "node":
                 if not template:
                     template = self.template.topology_template.node_templates.get(
@@ -1236,7 +1237,7 @@ class Convert:
                     )
                 if template:
                     localname, src = self.relationship_template2obj(template, indent="")
-                    if not localname:
+                    if not localname and src:
                         # template was inline and unnamed, use the given name as the variable name
                         localname = tosca_name
                         src = f"{localname} = {src}"
@@ -1250,7 +1251,8 @@ class Convert:
                 return tosca_name
 
             # we need insert the code declaring this template before its name is referenced
-            self._pending_defs.append(src)
+            if src:
+                self._pending_defs.append(src)
         return localname
 
     def template2obj(

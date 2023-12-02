@@ -1207,12 +1207,15 @@ def _yaml_to_python(
         if not file:
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
-        dummy_manifest = Manifest(None)
-        dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
+        # XXX:
+        # dummy_manifest = Manifest(None)
+        # dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
+        # import_resolver=ImportResolver(dummy_manifest)
+        import_resolver = None
         python_src = yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
-            import_resolver=ImportResolver(dummy_manifest),
+            import_resolver=import_resolver,
             python_target_version=python_target_version,
             write_policy=write_policy,
         )
