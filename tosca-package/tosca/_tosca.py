@@ -259,7 +259,11 @@ TOSCA_SIMPLE_TYPES.update(
 )
 
 PYTHON_TO_TOSCA_TYPES = {v: k for k, v in TOSCA_SIMPLE_TYPES.items()}
-PYTHON_TO_TOSCA_TYPES["Tuple"] = "range"
+PYTHON_TO_TOSCA_TYPES.update({
+  "Tuple": "range",
+  "dict": "map",
+  "list": "list",
+})
 
 TOSCA_SHORT_NAMES = {
     "PortDef": "tosca.datatypes.network.PortDef",
@@ -828,14 +832,17 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             _type = self._resolve_class(_type)
             tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
             if not tosca_type:  # it must be a datatype
-                assert issubclass(_type, _BaseDataType), _type
+                if not issubclass(_type, _BaseDataType):
+                    raise TypeError(f"unrecognized value type: {_type}")
                 tosca_type = _type.tosca_type_name()
                 metadata = _type._get_property_metadata()
                 if metadata:
                     schema["metadata"] = metadata
         schema["type"] = tosca_type
         if info.collection:
-            schema["entry_schema"] = self.pytype_to_tosca_schema(_type)[0]
+            entry_schema = self.pytype_to_tosca_schema(_type)[0]
+            if len(entry_schema) > 1  or entry_schema["type"] != 'any':
+                schema["entry_schema"] = entry_schema
         if info.metadata:
             schema["constraints"] = [
                 c.to_yaml() for c in info.metadata if isinstance(c, DataConstraint)
@@ -1896,6 +1903,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         if obj is None:
             if name == cls.__name__:
                 obj = cls
+            elif name in sys.modules:
+                obj = sys.modules[name]
             else:
                 raise NameError(f"{qname} not found in {cls.__name__}'s scope")
         while names:

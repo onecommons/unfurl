@@ -58,9 +58,21 @@ class MyDataType(tosca.DataType):
 
 generic = unfurl.nodes.Generic("generic")
 assert generic._name == "generic"
-setattr(generic, "extra","extra")
+setattr(generic, "extra", "extra")
 assert getattr(generic, "extra") == "extra"
 test = Test(url_scheme="https", host="foo.com", a_requirement=generic)
+
+tosca.global_state.mode = "runtime"
+# unevaluated expression:
+assert test.url == {
+    "eval": {"computed": "service_template.mytypes:Test._url"}
+}, test.url
+
+# string conversions always convert to jinja2 expressions so f-string work:
+assert (
+    str(test.url)
+    == "{{ {'eval': {'computed': 'service_template.mytypes:Test._url'}} | map_value }}"
+), str(test.url)
 
 if __name__ == "__main__":
     print(generic)

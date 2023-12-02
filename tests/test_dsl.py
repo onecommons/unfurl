@@ -113,7 +113,7 @@ def test_builtin_ext_generation():
 type_reference_python = '''
 import tosca
 from tosca import *
-from typing import Sequence
+from typing import Sequence, Dict
 
 class WordPress(tosca.nodes.WebApplication):
     """
@@ -130,6 +130,9 @@ class WordPress(tosca.nodes.WebApplication):
 class WordPressPlugin(tosca.nodes.Root):
     name: str
     instance: str = WordPress.app_endpoint.ip_address
+
+class MyPlugin(WordPressPlugin):
+    settings: dict
 '''
 
 type_reference_yaml = {
@@ -166,6 +169,10 @@ type_reference_yaml = {
                     },
                 },
             },
+        },
+        "MyPlugin": {
+            "derived_from": "WordPressPlugin",
+            "properties": {"settings": {"type": "map"}},
         },
     },
     "topology_template": {},
@@ -625,6 +632,7 @@ topology_template:
 def test_datatype():
     import tosca
     from tosca import DataType
+
     tosca.global_state.mode = "spec"
 
     class MyDataType(DataType):
@@ -682,6 +690,7 @@ def test_envvar_type():
     import tosca
     from tosca import Property, DEFAULT
     import unfurl
+
     tosca.global_state.mode = "spec"
 
     class Namespace(tosca.Namespace):
