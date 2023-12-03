@@ -259,11 +259,13 @@ TOSCA_SIMPLE_TYPES.update(
 )
 
 PYTHON_TO_TOSCA_TYPES = {v: k for k, v in TOSCA_SIMPLE_TYPES.items()}
-PYTHON_TO_TOSCA_TYPES.update({
-  "Tuple": "range",
-  "dict": "map",
-  "list": "list",
-})
+PYTHON_TO_TOSCA_TYPES.update(
+    {
+        "Tuple": "range",
+        "dict": "map",
+        "list": "list",
+    }
+)
 
 TOSCA_SHORT_NAMES = {
     "PortDef": "tosca.datatypes.network.PortDef",
@@ -1319,10 +1321,10 @@ _make_field_doc(Artifact)
 
 
 class _Ref:
-    def __init__(self, expr: Union[None, "_Ref", Dict[str, Any]]):
+    def __init__(self, expr: Union["_Ref", Dict[str, Any]]):
         if isinstance(expr, _Ref):
             expr = expr.expr
-        self.expr: Optional[Dict[str, Any]] = expr
+        self.expr: Dict[str, Any] = expr
 
     def set_source(self):
         if isinstance(self.expr, dict):
@@ -1381,7 +1383,7 @@ class _Ref:
         return False
 
 
-def Eval(expr=None) -> Any:
+def Eval(expr) -> Any:
     return _Ref(expr)
 
 
