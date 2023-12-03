@@ -80,7 +80,6 @@ def test_constraints():
             "properties": {
                 "backend_url": {
                     "type": "string",
-                    "default": None,
                     "description": "URL to proxy",
                 }
             },

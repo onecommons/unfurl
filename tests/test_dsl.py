@@ -792,6 +792,46 @@ def test_relationship():
     assert parsed_yaml == tosca_tpl2
 
 
+test_inheritance_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+node_types:
+  Service:
+    derived_from: tosca.nodes.Root
+    attributes:
+      host:
+        type: string
+        default: base_default
+    requirements:
+      - host:
+          occurrences: [0, 1]
+          relationship: tosca.relationships.HostedOn
+          node: tosca.nodes.Abstract.Compute
+
+  ContainerService:
+    derived_from: Service
+    attributes:
+      host:
+        type: string
+        default: derived_default
+
+  Private:
+    derived_from: tosca.nodes.Root
+
+  PrivateContainerService:
+    derived_from: [Private, ContainerService]
+    requirements:
+      - host:
+          occurrences: [1, 1] # make required
+          relationship: tosca.relationships.HostedOn
+          node: tosca.nodes.Compute
+"""
+
+def test_property_inheritance():
+    python_src, parsed_yaml = _to_python(test_inheritance_yaml)
+    assert parsed_yaml == _to_yaml(python_src, True)
+
+
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",
     [

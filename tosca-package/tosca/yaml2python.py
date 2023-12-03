@@ -299,7 +299,9 @@ class Convert:
     ):
         self.template = template
         self.global_names: Dict[str, str] = {}
-        self.local_names: Dict[str, List[str]] = {}
+        # local namespace of tosca names
+        # the same name can appear in different positions (the value of the dict)
+        self.local_names: Dict[str, str] = {}
         self._pending_defs: List[str] = []
         self.topology = (
             template.tpl and template.tpl.get("topology_template")
@@ -318,9 +320,6 @@ class Convert:
         self.write_policy = write_policy
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
-
-    def init_names(self, names: Dict[str, List[str]]):
-        self.local_names = names or {}
 
     def find_repository(self, name) -> Tuple[str, str]:
         if name in ["self"]:
@@ -501,20 +500,12 @@ class Convert:
 
     def _set_name(self, yaml_name: str, fieldtype: str) -> Tuple[str, str]:
         name, toscaname = self._get_name(yaml_name)
-        if name in self.local_names:
-            # if there already is a name clash or if there is about to be one
-            if (
-                len(self.local_names[name]) > 1
-                or fieldtype not in self.local_names[name]
-            ):
-                # conflict: name is used in another namespace
-                toscaname = yaml_name  # set toscaname (which might be emtpy) because name is changing
-                name = name + "_" + fieldtype  # rename to avoid conflict
-            else:
-                # already in names in the same namespace
-                # (ok, this idempotent)
-                return name, toscaname
-        self.local_names[name] = [fieldtype]
+        existing = self.local_names.get(name)
+        if existing and existing != fieldtype:
+            # conflict: name is used in another namespace
+            toscaname = yaml_name  # set toscaname (which might be empty) because name is changing
+            name = name + "_" + fieldtype  # rename to avoid conflict
+        self.local_names[name] = fieldtype
         return name, toscaname
 
     def python_name_from_type(self, tosca_type: str, minimize=False) -> str:
@@ -703,7 +694,7 @@ class Convert:
             )
             if mutable or value_repr[0] in ("{", "["):
                 fieldparams.append(f"factory=lambda:({value_repr})")
-            elif fieldparams:
+            elif fieldparams or fieldtype == "attributes":
                 fieldparams.append(f"default={value_repr}")
             else:
                 fielddecl = f"= {value_repr}"
@@ -741,38 +732,37 @@ class Convert:
                     base_names += ", " + self.python_name_from_type(itype, True)
         return base_names
 
-    def _get_type_names(self, current_type: StatefulEntityType) -> Dict[str, List[str]]:
+    def init_names(self, current_type: StatefulEntityType):
         # find all the identifiers declared on this type with the namespaces they appear in
         # namespace keys: requirement, capability, operation, property (includes attributes)
-        names: Dict[str, List[str]] = {}
-        entity_type = current_type.parent_type
-        if not entity_type:
-            return names
-        props = entity_type.get_definition("properties") or {}
-        for name in props:
-            names[name] = ["property"]
-        attrs = entity_type.get_definition("attributes") or {}
-        for name in attrs:
-            names[name] = ["property"]
-        if isinstance(entity_type, NodeType):
-            reqs = entity_type.requirements or []
-            for req in reqs:
-                name = list(req)[0]
-                names.setdefault(name, []).append("requirement")
-            capabilities = entity_type.get_capabilities_def()
-            for name in capabilities:
-                names.setdefault(name, []).append("capability")
-        for iname, idef in entity_type.interfaces.items():
-            ops = idef.get("operations") or {}
-            for name in ops:
-                names.setdefault(name, []).append("operation")
-        return names
+        self.local_names = {}
+        for entity_type in reversed(current_type.ancestors()):
+            # NB: order of _set_name calls needs to match toscatype2class()
+            props = entity_type.get_definition("properties") or {}
+            for name in props:
+                self._set_name(name, "property")
+            attrs = entity_type.get_definition("attributes") or {}
+            for name in attrs:
+                self._set_name(name, "property")
+            if isinstance(entity_type, NodeType):
+                capabilities = entity_type.get_capabilities_def()
+                for name in capabilities:
+                    self._set_name(name, "capability")
+                reqs = entity_type.requirements or []
+                for req in reqs:
+                    name = list(req)[0]
+                    self._set_name(name, "requirement")
+            # XXX artifacts
+            for iname, idef in entity_type.interfaces.items():
+                ops = idef.get("operations") or {}
+                for name in ops:
+                    self._set_name(name, "operation")
 
     def toscatype2class(
         self, toscatype: StatefulEntityType, baseclass_name: str, initial_indent=""
     ) -> str:
         indent = "    "
-        self.init_names(self._get_type_names(toscatype))
+        self.init_names(toscatype)
         # XXX list of imports
         toscaname = toscatype.type
         cls_name = self.python_name_from_type(toscaname, True)
@@ -1261,7 +1251,7 @@ class Convert:
         indent="",
         declare=True,
     ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str]:
-        self.init_names({})
+        self.local_names = {}
         assert entity_template.type
         cls_name, cls = self.imports.get_type_ref(entity_template.type)
         if not cls_name:
