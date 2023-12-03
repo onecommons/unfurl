@@ -702,15 +702,19 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             self.get_type_info().collection or self.get_type_info().types[0]
         )()
 
-    def to_yaml(self, converter: Optional["PythonToYaml"]) -> dict:
+    def to_yaml(
+        self,
+        converter: Optional["PythonToYaml"],
+        super_field: Optional["_Tosca_Field"] = None,
+    ) -> dict:
         if self.tosca_field_type == ToscaFieldType.property:
             field_def = self._to_property_yaml()
         elif self.tosca_field_type == ToscaFieldType.attribute:
             field_def = self._to_attribute_yaml()
         elif self.tosca_field_type == ToscaFieldType.requirement:
-            field_def = self._to_requirement_yaml(converter)
+            field_def = self._to_requirement_yaml(converter, super_field)
         elif self.tosca_field_type == ToscaFieldType.capability:
-            field_def = self._to_capability_yaml()
+            field_def = self._to_capability_yaml(super_field)
         elif self.tosca_field_type == ToscaFieldType.artifact:
             field_def = self._to_artifact_yaml(converter)
         elif self.name == "_target":  # _target handled in _to_requirement_yaml
@@ -724,14 +728,20 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             field_def.setdefault("metadata", {}).update(metadata_to_yaml(self.metadata))
         return {self.tosca_name: field_def}
 
-    def _add_occurrences(self, field_def: dict, info: TypeInfo) -> None:
+    def _get_occurrences(self):
         occurrences = [1, 1]
+        info = self.get_type_info_checked()
+        if not info:
+            return occurrences
         if info.optional or self.default == ():
             occurrences[0] = 0
         if info.collection is list:
             occurrences[1] = "UNBOUNDED"  # type: ignore
+        return occurrences
 
-        if occurrences != [1, 1]:
+    def _add_occurrences(self, field_def: dict, default=(1, 1)) -> None:
+        occurrences = self._get_occurrences()
+        if occurrences != list(default):
             field_def["occurrences"] = occurrences
 
     def _resolve_toscaname(self, candidate) -> str:
@@ -743,7 +753,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         return candidate.tosca_type_name()
 
     def _to_requirement_yaml(
-        self, converter: Optional["PythonToYaml"]
+        self, converter: Optional["PythonToYaml"], super_field: Optional["_Tosca_Field"]
     ) -> Dict[str, Any]:
         req_def: Dict[str, Any] = yaml_cls()
         if self.node:
@@ -784,10 +794,14 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                     )
             elif default and default not in [MISSING, REQUIRED]:
                 converter.set_requirement_value(req_def, default, self.name)
-        self._add_occurrences(req_def, info)
+        if super_field:
+            default_occurrences = super_field._get_occurrences()
+        else:
+            default_occurrences = [1, 1]
+        self._add_occurrences(req_def, default_occurrences)
         return req_def
 
-    def _to_capability_yaml(self) -> Dict[str, Any]:
+    def _to_capability_yaml(self, super_field: Optional["_Tosca_Field"]) -> Dict[str, Any]:
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
@@ -795,7 +809,11 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         _type = info.types[0]
         assert issubclass(_type, _ToscaType), (self, _type)
         cap_def: dict = yaml_cls(type=_type.tosca_type_name())
-        self._add_occurrences(cap_def, info)
+        if super_field:
+            default_occurrences = super_field._get_occurrences()
+        else:
+            default_occurrences = [1, 1]
+        self._add_occurrences(cap_def, default_occurrences)
         # XXX if self.default or self.default_factory: save properties
         if self.valid_source_types:  # is not None: XXX only set to [] if declared
             cap_def["valid_source_types"] = self.valid_source_types
@@ -843,7 +861,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         schema["type"] = tosca_type
         if info.collection:
             entry_schema = self.pytype_to_tosca_schema(_type)[0]
-            if len(entry_schema) > 1  or entry_schema["type"] != 'any':
+            if len(entry_schema) > 1 or entry_schema["type"] != "any":
                 schema["entry_schema"] = entry_schema
         if info.metadata:
             schema["constraints"] = [
@@ -1920,13 +1938,13 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         return obj
 
     @classmethod
-    def tosca_bases(cls, section=None) -> Iterator[str]:
+    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
         for c in cls.__bases__:
             # only include classes of the same tosca type as this class
             # and exclude the base class defined in this module
             if issubclass(c, ToscaType):
                 if c._type_section == (section or cls._type_section) and c.__module__ != __name__:  # type: ignore
-                    yield c.tosca_type_name()
+                    yield c
 
 
 class ToscaInputs(_ToscaType):
@@ -2150,11 +2168,16 @@ class ToscaType(_ToscaType):
         dict_cls = converter and converter.yaml_cls or yaml_cls
         body: Dict[str, Any] = dict_cls()
         tosca_name = cls.tosca_type_name()
-        bases: Union[list, str] = [b for b in cls.tosca_bases() if b != tosca_name]
+        bases: Union[list, str] = [
+            b.tosca_type_name() for b in cls.tosca_bases() if b != tosca_name
+        ]
+        super_fields = {}
         if bases:
             if len(bases) == 1:
                 bases = bases[0]
             body["derived_from"] = bases
+            for b in cls.tosca_bases():
+                super_fields.update(b.__dataclass_fields__)
 
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
@@ -2166,7 +2189,7 @@ class ToscaType(_ToscaType):
             assert field.name, field
             if cls._docstrings:
                 field.description = cls._docstrings.get(field.name)
-            item = field.to_yaml(converter)
+            item = field.to_yaml(converter, super_fields.get(field.name))
             if item:
                 if field.section == "requirements":
                     body.setdefault("requirements", []).append(item)
