@@ -19,6 +19,7 @@ from typing import (
 )
 import hashlib
 import re
+from tosca.yaml2python import has_function
 from toscaparser.common.exception import ValidationError
 from toscaparser.properties import Property
 
@@ -499,6 +500,11 @@ def _validation_error(src, context, prop_def, msg):
     UnfurlTaskError(context.task, msg, dependency=dep)
 
 
+def is_computed(val) -> bool:
+    if isinstance(val, Results):
+        val = val._attributes
+    return has_function(val)
+
 class _Sentinal:
     def __init__(self, name):
         self.name = name
@@ -597,6 +603,10 @@ class Results(ABC):
     def resolve_all(self):
         ...
 
+    @abstractmethod
+    def is_compatible(self, other) -> bool:
+        ...
+
     def __init__(
         self,
         serializedOriginal,
@@ -644,16 +654,11 @@ class Results(ABC):
     @property
     def change_count(self) -> int:
         # change_count is at least shared across _map_values()
-        # and usually by an attribute_manager
-        return 0
-        # return self.context.currentResource.change_count
-        # return self.context.currentResource.attributeManager.count
+        return self.context.referenced.change_count
 
     def bump_change_count(self) -> int:
-        return 0
-        # manager = self.context.currentResource.attributeManager
-        # manager.count += 1
-        # return manager.count
+        self.context.referenced.change_count += 1
+        return self.context.referenced.change_count
 
     @staticmethod
     def _map_value(
@@ -727,9 +732,10 @@ class Results(ABC):
                 else:
                     assert not isinstance(val, Result), val
                     result = self.resolve(key, val, validate)
-                    computed = (
-                        self.change_count
-                    )  # XXX if result.resolved != val else MAX_CHANGE_COUNT
+                    if is_computed(val):
+                        computed = self.change_count
+                    else:  # marks as not computed:
+                        computed = MAX_CHANGE_COUNT
                     val = ResultsItem(result, val, computed)
                 return val
             finally:
@@ -758,7 +764,7 @@ class Results(ABC):
                 # hasn't been evaluate yet
                 if value != old_val:
                     # if old_val is computed we don't know if it's unequal without evaluating old_val
-                    # but don't bother with that, the caller can get item if they care
+                    # but don't bother with that, the caller can compare the resolved item if they care
                     if self.validate:
                         self._validate(key, value)
                     self._attributes[key] = ResultsItem(value, old_val)
@@ -868,6 +874,11 @@ class Results(ABC):
         if isinstance(other, Results):
             return self._attributes == other._attributes
         else:
+            # try to avoid resolve_all()
+            if not self.is_compatible(other):
+                return False
+            if self._attributes == other:
+                return True
             self.resolve_all()
             return self._attributes == other
 
@@ -907,6 +918,9 @@ class ResultsMap(Results, MutableMapping):
             diffDict[key] = {"+%": "delete"}
         return diffDict
 
+    def is_compatible(self, other):
+        return isinstance(other, MutableMapping)
+
 
 class ResultsList(Results, MutableSequence):
     def insert(self, index, value):
@@ -925,3 +939,6 @@ class ResultsList(Results, MutableSequence):
 
     def resolve_all(self):
         list(self)
+
+    def is_compatible(self, other):
+        return isinstance(other, MutableSequence)
