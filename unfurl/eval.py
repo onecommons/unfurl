@@ -5,8 +5,8 @@ Public Api:
 
 map_value - returns a copy of the given value resolving any embedded queries or template strings
 
-Ref.resolve given an expression, returns a ResultList
-Ref.resolve_one given an expression, return value, none or a (regular) list
+Ref.resolve given an expression, returns a list of values or Result
+Ref.resolve_one given an expression, return value, none or a list of values
 Ref.is_ref return true if the given diction looks like a Ref
 
 Internal:
@@ -19,6 +19,7 @@ from functools import partial
 from typing import (
     Any,
     Dict,
+    Iterator,
     List,
     Tuple,
     Optional,
@@ -26,8 +27,10 @@ from typing import (
     Iterable,
     cast,
     TYPE_CHECKING,
+    overload,
 )
 from typing import Mapping as MappingType
+from typing_extensions import Literal
 import re
 import operator
 import sys
@@ -69,11 +72,16 @@ def map_value(
     """Resolves any expressions or template strings embedded in the given map or list."""
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
-    return _map_value(value, resourceOrCxt, False, applyTemplates)
+    return _map_value(
+        value, resourceOrCxt, resourceOrCxt.wantList or False, applyTemplates
+    )
 
 
 def _map_value(
-    value: Any, ctx: "RefContext", wantList: bool = False, applyTemplates: bool = True
+    value: Any,
+    ctx: "RefContext",
+    wantList: Union[bool, str] = False,
+    applyTemplates: bool = True,
 ) -> Any:
     from .support import is_template, apply_template
 
@@ -82,8 +90,8 @@ def _map_value(
         return Ref(value).resolve(ctx, wantList=wantList)
 
     if isinstance(value, Mapping):
+        oldBaseDir = ctx.base_dir
         try:
-            oldBaseDir = ctx.base_dir
             ctx.base_dir = getattr(value, "base_dir", oldBaseDir)
             if ctx.base_dir and ctx.base_dir != oldBaseDir:
                 ctx.trace("found base_dir", ctx.base_dir)
@@ -96,14 +104,14 @@ def _map_value(
     elif isinstance(value, (MutableSequence, tuple)):
         return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
     elif applyTemplates and is_template(value, ctx):
-        return apply_template(value, ctx)
+        return apply_template(value, ctx.copy(wantList=wantList))
     return value
 
 
 class _Tracker:
     def __init__(self):
         self.count = 0
-        self.referenced = []
+        self.referenced: List[Tuple[Union[str, None, "Ref"], List[Result]]] = []
 
     def start(self):
         self.count += 1
@@ -113,29 +121,27 @@ class _Tracker:
         self.count -= 1
         return self.count
 
-    def add_ref_reference(self, ref: "Ref", result: ResultsList):
+    def add_ref_reference(self, ref: "Ref", result: List[Result]):
         if self.count > 0:
-            self.referenced.append([ref, result])
+            self.referenced.append((ref, result))
 
     def add_result_reference(self, ref: Union[str, None], result: Result):
         if self.count > 0:
-            self.referenced.append([ref, result])
+            self.referenced.append((ref, [result]))
 
-    def getReferencedResults(self, index=0):
+    def getReferencedResults(self, index=0) -> Iterator[Result]:
         referenced = self.referenced[index:]
         if not referenced:
             return
         for ref, results in referenced:
-            if not isinstance(ref, Ref):
-                assert isinstance(results, Result)
-                yield results
-            else:
-                for obj in results._attributes:
-                    assert isinstance(obj, Result)
-                    yield obj
+            for obj in results:
+                assert isinstance(obj, Result)
+                yield obj
 
 
 _defaultStrictness = True
+
+ResolveOneUnion = Union[None, Any, List[Any]]
 
 
 class RefContext:
@@ -231,7 +237,7 @@ class RefContext:
         self.referenced.add_result_reference(None, result)
         return result
 
-    def add_ref_reference(self, ref: "Ref", result: ResultsList) -> None:
+    def add_ref_reference(self, ref: "Ref", result: List[Result]) -> None:
         self.referenced.add_ref_reference(ref, result)
 
     def add_result_reference(self, ref: str, result: Result) -> None:
@@ -265,7 +271,7 @@ class RefContext:
         expr: Union[str, Mapping],
         vars: Optional[dict] = None,
         wantList: Union[bool, str] = False,
-    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
+    ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         return Ref(expr, vars).resolve(self, wantList)
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -375,17 +381,54 @@ class Ref:
             self.vars.update(vars)
         self.source = exp
 
+    @overload
+    def resolve(
+        self,
+        ctx: RefContext,
+        wantList: Literal[True] = True,
+        strict: Optional[bool] = None,
+    ) -> List[Any]:
+        ...
+
+    @overload
+    def resolve(
+        self,
+        ctx: RefContext,
+        wantList: Literal[False],
+        strict: Optional[bool] = None,
+    ) -> ResolveOneUnion:
+        ...
+
+    @overload
+    def resolve(
+        self,
+        ctx: RefContext,
+        wantList: str,  # == "result"
+        strict: Optional[bool] = None,
+    ) -> List[Result]:
+        ...
+
+    @overload
     def resolve(
         self,
         ctx: RefContext,
         wantList: Union[bool, str] = True,
         strict: Optional[bool] = None,
-    ) -> Optional[Union[ResultsList, Result, List[Result], Any]]:
+    ) -> Union[List[Result], List[Any], ResolveOneUnion]:
+        ...
+
+    # returns a list of values, a list of Result, or resolve_one
+    def resolve(
+        self,
+        ctx: RefContext,
+        wantList: Union[bool, str] = True,
+        strict: Optional[bool] = None,
+    ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         """
-        If wantList=True (default) returns a ResultList of matches
+        If wantList=True (default) returns list of values
         Note that values in the list can be a list or None
         If wantList=False return `resolve_one` semantics
-        If wantList='result' return a Result
+        If wantList='result' return a list of Result
         """
         if self.strict is not None:
             # overrides RefContext's strict
@@ -410,36 +453,28 @@ class Ref:
         if ref_results and select:
             results = for_each(select, ref_results, ctx)
         else:
-            results = ResultsList(ref_results, ctx)
+            results = ref_results  # , ctx)
         ctx.add_ref_reference(self, results)
         ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
-        if self.foreach:
-            # foreach always returns a list
-            if wantList == "result":
-                return Result(results)
-            else:
-                return results
-        if wantList and not wantList == "result":
+        if wantList == "result":
             return results
+        values = [r.resolved for r in results]
+        if wantList or self.foreach:
+            # foreach always returns a list
+            return values
+        # resolve_one semantics
+        if not values:
+            return None
+        elif len(values) == 1:
+            return values[0]
         else:
-            if not results:
-                return None
-            elif len(results) == 1:
-                if wantList == "result":
-                    return results._attributes[0]
-                else:
-                    return results[0]
-            else:
-                if wantList == "result":
-                    return Result(results)
-                else:
-                    return list(results)
+            return values
 
     def resolve_one(
         self,
         ctx: RefContext,
         strict: Optional[bool] = None,
-    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
+    ) -> ResolveOneUnion:
         """
         If no match return None
         If more than one match return a list of matches
@@ -551,7 +586,7 @@ def _for_each(
     foreach: Union[MappingType[str, Any], str],
     results: Iterable[Tuple[Any, Any]],
     ctx: RefContext,
-) -> List[ResultOrResultList]:
+) -> List[Result]:
     if isinstance(foreach, str):
         keyExp: Union[Mapping, str, None] = None
         valExp: Union[Mapping, str, None] = foreach
@@ -597,7 +632,7 @@ def _for_each(
                     break
                 elif val is Continue:
                     continue
-                valResult: ResultOrResultList = evalResults[0]
+                valResult: Union[Result, List[Result]] = evalResults[0]
             else:
                 valResult = evalResults
 
@@ -607,28 +642,24 @@ def _for_each(
                 yield valResult
 
     if keyExp:
-        return [
-            Result(CommentedMap(cast(Iterable[PairResultOrResultList], make_items())))
-        ]
+        return [Result(CommentedMap(cast(Iterable[Tuple[Any, Result]], make_items())))]
     else:
-        return list(cast(Iterable[ResultOrResultList], make_items()))
+        return list(cast(Iterable[Result], make_items()))
 
 
 def for_each(
-    foreach: Union[Mapping, str], results: list, ctx: RefContext
-) -> ResultsList:
+    foreach: Union[Mapping, str], results: List[Result], ctx: RefContext
+) -> List[Result]:
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
         result = _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
     else:
         result = _for_each(
             foreach, enumerate(r.external or r.resolved for r in results), ctx
         )
-    return ResultsList(result, ctx)  # ResultsList[List[ResultOrResultList]]]
+    return result
 
 
-def for_each_func(
-    foreach: Union[Mapping, str], ctx: RefContext
-) -> List[ResultOrResultList]:
+def for_each_func(foreach: Union[Mapping, str], ctx: RefContext) -> List[Result]:
     results = ctx.currentResource
     if isinstance(results, Mapping):
         return _for_each(foreach, results.items(), ctx)
@@ -741,7 +772,7 @@ def eval_ref(
     return _eval_ref_results(val, ctx)
 
 
-def _eval_ref_results(val, ctx):
+def _eval_ref_results(val, ctx) -> List[Result]:
     mappedVal = Results._map_value(val, ctx)
     if isinstance(mappedVal, Result):
         return [mappedVal]

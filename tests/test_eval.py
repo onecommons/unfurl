@@ -117,6 +117,8 @@ class EvalTest(unittest.TestCase):
             ["f", [{"a": 1, "b": 1}]],
             ["::*", [resource]],
             ["::*::.template::type", ["tosca.nodes.Root"]],
+
+
             # [{"q": "{{ foo }}"}, ["{{ foo }}"]]
             # XXX test nested ['.[k[d=3]=4]']
         ]:
@@ -608,7 +610,7 @@ foo
         self.assertEqual(result, "test")
 
         result = expr.resolve(ctx, wantList="result")
-        self.assertIs(result.external, singleton)
+        self.assertIs(result[0].external, singleton)
 
         asTemplate = '{{ {"externaltest": none } | eval }}'
         result = map_value(asTemplate, ctx)

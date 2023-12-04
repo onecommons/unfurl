@@ -355,10 +355,10 @@ class Configurator(metaclass=AutoRegisterClass):
             return True  # an old input was removed
 
         # only resolve the inputs and dependencies that were resolved before
-        results = []
+        results: List[Result] = []
         for key in keys:
             if "::" in key:
-                results.append(Ref(key).resolve(task.inputs.context, wantList="result"))
+                results.extend(Ref(key).resolve(task.inputs.context, wantList="result"))
             else:
                 results.append(task.inputs._getresult(key))
 
@@ -874,10 +874,10 @@ class TaskView:
         strict: bool = True,
         vars: Optional[dict] = None,
         throw: bool = False,
-    ) -> Union[ResultsList, Result, List[Result], None]:
+    ) -> Union[Any, Result, List[Result], None]:
         # XXX pass resolveExternal to context?
         try:
-            result = Ref(query, vars=vars).resolve(
+            result = Ref(query, vars=vars, trace=2).resolve(
                 self.inputs.context, wantList, strict
             )
         except Exception:
@@ -1289,11 +1289,13 @@ class Dependency(Operational):
     def _is_unexpected(self) -> bool:
         if self.target is None:
             return True
-        wantList: Union[str, bool] = (
-            "result" if isinstance(self.expected, Result) else self.wantList
-        )
-        result = Ref(self.expr).resolve(RefContext(self.target), wantList=wantList)
-        return result != self.expected
+        if isinstance(self.expected, Result):
+            result = Ref(self.expr).resolve(RefContext(self.target), "result")
+            if not result:
+                return True
+            return result[0] != self.expected
+        else:
+            return self.expected != Ref(self.expr).resolve(RefContext(self.target), self.wantList)
 
     def refresh(self, config: "ConfigTask") -> None:
         if self.expected is not None:

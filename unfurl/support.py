@@ -48,6 +48,7 @@ from .result import (
     Results,
     ResultsList,
     ResultsMap,
+    ResultsItem,
     Result,
     ExternalValue,
     serialize_value,
@@ -339,7 +340,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined)
     return env.from_string(value).render(vars)
 
 
-def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
+def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Result]:
     if not isinstance(value, str):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
         if ctx.strict:
@@ -506,10 +507,10 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
 
                 if (
                     external_result
-                    and ctx.wantList == "result"
+                    and ctx.wantList == "result" and external_result.external
                     and value == external_result.external.get()
                 ):
-                    # return the external value instead
+                    # return a Result with the external value instead
                     return external_result
 
                 # wrap result as AnsibleUnsafe so it isn't evaluated again
@@ -1131,7 +1132,11 @@ def get_nodes_of_type(type_name: str, ctx: RefContext):
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
 
-set_eval_func("_generate", lambda arg, ctx: get_random_password(10, ""), True, True)
+def _generate() -> str:
+    return get_random_password(10, "")
+
+
+set_eval_func("_generate", lambda arg, ctx: _generate(), True, True)
 
 
 def _urljoin(scheme, host, port=None, path=None, query=None, frag=None):
@@ -1722,7 +1727,7 @@ LiveDependencies = NewType(
     "LiveDependencies",
     Dict[
         "InstanceKey",
-        Tuple["EntityInstance", Dict[str, Tuple[bool, Union[Result, Any]]]],
+        Tuple["EntityInstance", Dict[str, Tuple[bool, Union[ResultsItem, Any]]]],
     ],
 )
 
@@ -1824,7 +1829,7 @@ class AttributeManager:
     #   #   resource._localStatus = old
 
     @staticmethod
-    def _save_sensitive(defs, key, value):
+    def _save_sensitive(defs, key: str, value: Result):
         # attribute marked as sensitive and value isn't a secret so mark value as sensitive
         # but externalvalues are ok since they don't reveal much
         sensitive = is_sensitive_schema(defs, key) and not value.external
@@ -1835,7 +1840,7 @@ class AttributeManager:
         return savedValue
 
     @staticmethod
-    def _check_attribute(specd, key, value, instance):
+    def _check_attribute(specd, key: str, value: ResultsItem, instance):
         changed = value.has_diff()
         live = (
             changed  # modified by this task
@@ -1852,9 +1857,9 @@ class AttributeManager:
         dependencies: Dict[InstanceKey, List["Dependency"]] = {}
         for resource, attributes in self.attributes.values():
             overrides, specd = attributes._attributes.split()
-            # items in overrides of type Result have been accessed during this transaction
+            # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in overrides.items():
-                if isinstance(value, Result):
+                if isinstance(value, ResultsItem):
                     changed, isLive = self._check_attribute(specd, key, value, resource)
                     if isLive:
                         dep = Dependency(
@@ -1875,16 +1880,16 @@ class AttributeManager:
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
             live: Dict[str, Any] = {}
-            # items in overrides of type Result have been accessed during this transaction
+            # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in list(overrides.items()):
-                if not isinstance(value, Result):
+                if not isinstance(value, ResultsItem):
                     # hasn't been accessed so keep it as is
                     _attributes[key] = value
                 else:
                     changed, isLive = self._check_attribute(specd, key, value, resource)
                     savedValue = self._save_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
-                    # save the Result not savedValue because we need the ExternalValue
+                    # save the ResultsItem not savedValue because we need the ExternalValue
                     live[key] = (isLive, savedValue if is_sensitive else value)
                     if not isLive:
                         resource._properties[key] = savedValue

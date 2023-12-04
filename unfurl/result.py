@@ -5,7 +5,18 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import io
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Match, Optional, Tuple, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Match,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 import hashlib
 import re
 from toscaparser.common.exception import ValidationError
@@ -370,27 +381,12 @@ class ExternalValue(ChangeAware):
         return {"eval": serialized}
 
 
-class _Sentinal:
-    def __init__(self, name):
-        self.name = name
-
-    def __repr__(self):
-        return "<Sentinal: " + self.name + ">"
-
-
-_Deleted = _Sentinal("_Deleted")
-_Get = _Sentinal("_Get")
-_RecursionGuard = _Sentinal("_RecursionGuard")
-
-
 class Result(ChangeAware):
-    # ``original`` is managed by the Results that owns this Result
-    # in __getitem__ and __setitem__
-    __slots__ = ("original", "resolved", "external", "select")
+    # Result optionally maintains a shadow "external" value
+    __slots__ = ("resolved", "external", "select")
 
     def __init__(self, resolved: Any):
         self.select: Tuple = ()
-        self.original = _Deleted  # assume this is new to start
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
@@ -415,26 +411,6 @@ class Result(ChangeAware):
         if self.external:
             return self.external.__digestable__(options)
         return self.resolved
-
-    def has_diff(self):
-        if isinstance(self.resolved, Results):
-            return self.resolved.has_diff()
-        elif self.original is not _Get:
-            # this Result is new or modified
-            return self.original != self.resolved
-        return False
-
-    def get_diff(self):
-        if isinstance(self.resolved, (ResultsList, ResultsMap)):
-            return self.resolved.get_diff()
-        else:
-            new = self.as_ref()
-            if isinstance(self.resolved, Mapping) and isinstance(
-                self.original, Mapping
-            ):
-                old = serialize_value(self.original)
-                return diff_dicts(old, new)
-            return new
 
     def __sensitive__(self):
         if self.external:
@@ -523,6 +499,84 @@ def _validation_error(src, context, prop_def, msg):
     UnfurlTaskError(context.task, msg, dependency=dep)
 
 
+class _Sentinal:
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return "<Sentinal: " + self.name + ">"
+
+
+_Missing = _Sentinal("_Missing")
+_RecursionGuard = _Sentinal("_RecursionGuard")
+MAX_CHANGE_COUNT = 0xFFFFFFFFFFFF
+
+
+class ResultsItem(Result):
+    "Internal representation of an item stored in Results"
+
+    __slots__ = ("original", "last_computed")  # "computed",
+
+    def __init__(
+        self, resolved: Any, original: Any = _Missing, seen: int = MAX_CHANGE_COUNT
+    ):
+        if isinstance(resolved, Result):
+            self.select: Tuple = ()
+            self.external = resolved.external
+            assert not isinstance(resolved.resolved, Result)
+            resolved = self.resolved = resolved.resolved
+            assert not isinstance(resolved, Result)
+        else:
+            super().__init__(resolved)
+        self.last_computed = seen
+        assert not isinstance(original, Result)
+        self.original = original
+
+    def set_resolved(self, result: Result, seen: int):
+        # the value was computed again
+        assert (
+            self.is_computed()
+        ), "computed items are mutually exclusive with update_value()"
+        self.select = result.select
+        self.external = result.external
+        self.resolved = result.resolved
+        assert not isinstance(result.resolved, Result)
+        self.last_computed = seen
+
+    def is_computed(self):
+        return self.last_computed < MAX_CHANGE_COUNT
+
+    def update_value(self, newvalue):
+        # replace with a concrete value
+        self.last_computed = MAX_CHANGE_COUNT
+        self.resolved = newvalue
+
+    def has_diff(self):
+        "Was the item modified?"
+        if self.original is _Missing:
+            return True
+
+        # original if set, that means it was modified
+        if isinstance(self.resolved, Results):
+            return self.resolved.has_diff()
+        elif not self.is_computed():
+            # was set, see if original changed
+            return self.original != self.resolved
+        return False
+
+    def get_diff(self):
+        if isinstance(self.resolved, (ResultsList, ResultsMap)):
+            return self.resolved.get_diff()
+        else:
+            new = self.as_ref()
+            if isinstance(self.resolved, Mapping) and isinstance(
+                self.original, Mapping
+            ):
+                old = serialize_value(self.original)
+                return diff_dicts(old, new)
+            return new
+
+
 class Results(ABC):
     """
     Evaluating expressions are not guaranteed to be idempotent (consider quoting)
@@ -533,11 +587,10 @@ class Results(ABC):
 
     __slots__ = ("_attributes", "context", "_deleted", "validate", "defs")
 
-    doFullResolve = False
     applyTemplates = True
 
     @abstractmethod
-    def _values(self):
+    def _values(self) -> Iterator:
         ...
 
     @abstractmethod
@@ -560,6 +613,10 @@ class Results(ABC):
             ctx = RefContext(resourceOrCxt)
         else:
             ctx = resourceOrCxt
+        assert not any(
+            isinstance(x, Result) and not isinstance(x, ResultsItem)
+            for x in self._attributes
+        )
 
         oldBaseDir = ctx.base_dir
         newBaseDir = getattr(serializedOriginal, "base_dir", oldBaseDir)
@@ -580,19 +637,43 @@ class Results(ABC):
         from .eval import map_value
 
         try:
-            return map_value(self._getitem(key), self.context)
+            return map_value(self._get(key), self.context)
         except (KeyError, IndexError):
             return default
 
+    @property
+    def change_count(self) -> int:
+        # change_count is at least shared across _map_values()
+        # and usually by an attribute_manager
+        return 0
+        # return self.context.currentResource.change_count
+        # return self.context.currentResource.attributeManager.count
+
+    def bump_change_count(self) -> int:
+        return 0
+        # manager = self.context.currentResource.attributeManager
+        # manager.count += 1
+        # return manager.count
+
     @staticmethod
-    def _map_value(val, context, applyTemplates=True, defs=None):
+    def _map_value(
+        val, context, applyTemplates=True, defs=None
+    ) -> Union[Result, "Results", Any]:
         "Recursively and lazily resolves any references in a value"
         from .eval import map_value, Ref
 
         if isinstance(val, Results):
             return val
         elif Ref.is_ref(val):
-            return Ref(val).resolve(context, wantList="result")
+            results = Ref(val).resolve(context, wantList="result")
+            if not results:
+                return None
+            elif len(results) == 1:
+                return results[0]
+            else:
+                # the whole list was computed, not individual items, so they will be marked as new items
+                items = [ResultsItem(r) for r in val]
+                return ResultsList(items, context, False, defs or {})
         elif isinstance(val, sensitive):
             return val
         elif isinstance(val, Mapping):
@@ -602,10 +683,18 @@ class Results(ABC):
         elif isinstance(val, list):
             # already validated
             # always explicitly set defs
+            if val and len(val) == 1 and isinstance(val[0], Result):
+                # XXX! see test_localConfig in test_cli.py
+                return val[0]
+            items = [ResultsItem(r) if isinstance(r, Result) else r for r in val]
             return ResultsList(val, context, False, defs or {})
         else:
-            # at this point, just evaluates templates in strings or returns val
-            return map_value(val, context.copy(wantList="result"), applyTemplates)
+            from .support import is_template, apply_template
+
+            if applyTemplates and is_template(val, context):
+                return apply_template(val, context.copy(wantList="result"))
+            else:
+                return val
 
     def __sensitive__(self):
         # only check resolved values
@@ -613,65 +702,92 @@ class Results(ABC):
 
     def has_diff(self):
         # only check resolved values
-        return any(isinstance(x, Result) and x.has_diff() for x in self._values())
+        return any(isinstance(x, ResultsItem) and x.has_diff() for x in self._values())
 
     def __getitem__(self, key):
-        return self._getitem(key)
+        return self._get(key)
 
-    def _getitem(self, key):
+    def _get(self, key):
         return self._getresult(key).resolved
 
-    def _getresult(self, key: Any, validate: Optional[bool] = None) -> Result:
-        from .eval import map_value, Ref
-
+    def _getresult(self, key, validate: Optional[bool] = None) -> ResultsItem:
         val = self._attributes[key]
-        if isinstance(val, Result):
-            # already resolved
-            self.context.trace("Results.get: already resolved", key, val)
-            assert not isinstance(val.resolved, Result), val
-            return val
         if val is _RecursionGuard:
-            self.context.trace("Recursion detected, returning None", key)
-            return Result(None)
+            self.context.trace("Recursion guard set in Results, returning None", key)
+            return ResultsItem(None, val, self.change_count)
         else:
             self._attributes[key] = _RecursionGuard
             try:
-                if self.doFullResolve:
-                    self.context.trace("Results.doFullResolve", key, val)
-                    if isinstance(val, Results):
-                        resolved = val
-                    else:  # evaluate records that aren't Results
-                        resolved = map_value(val, self.context, self.applyTemplates)
+                if isinstance(val, ResultsItem):
+                    # previously resolved
+                    if val.last_computed < self.change_count:
+                        # need to re-evaluate
+                        result = self.resolve(key, val.original, validate)
+                        val.set_resolved(result, self.change_count)
                 else:
-                    # lazily evaluate lists and dicts
-                    self.context.trace("Results._mapValue", key, val)
-                    defs = self.get_datatype_defs(key)
-                    resolved = self._map_value(
-                        val, self.context, self.applyTemplates, defs
-                    )
-                # will return a Result if val was an expression that was evaluated
-                if isinstance(resolved, Result):
-                    result: Result = resolved
-                    result.resolved = self._transform(key, result.resolved)
-                    resolved = result.resolved
-                else:
-                    resolved = self._transform(key, resolved)
-                    result = Result(resolved)
-                result.original = _Get
-                if isinstance(resolved, MutableSequence) and resolved:
-                    assert not isinstance(resolved[0], Result), resolved[0]
-
-                if self.validate if validate is None else validate:
-                    self._validate(key, resolved, val)
-                if self.defs and is_sensitive_schema(self.defs, key):
-                    result.resolved = wrap_sensitive_value(resolved)
-
-                self._attributes[key] = result
-                assert not isinstance(resolved, Result), val
-                return result
+                    assert not isinstance(val, Result), val
+                    result = self.resolve(key, val, validate)
+                    computed = (
+                        self.change_count
+                    )  # XXX if result.resolved != val else MAX_CHANGE_COUNT
+                    val = ResultsItem(result, val, computed)
+                return val
             finally:
-                if self._attributes[key] is _RecursionGuard:
-                    self._attributes[key] = val
+                # set the new val or restore the old one
+                self._attributes[key] = val
+
+    def __setitem__(self, key, value) -> None:
+        # value is treated as a concrete value, it is never evaluated again
+        if self.validate:
+            self._validate(key, value)
+        if self.defs and is_sensitive_schema(self.defs, key):
+            value = wrap_sensitive_value(value)
+
+        assert not isinstance(value, Result), value
+        if key not in self._attributes:
+            self._attributes[key] = ResultsItem(value, _Missing)
+        else:
+            old_val = self._attributes[key]
+            if isinstance(old_val, ResultsItem):
+                if old_val.resolved != value:  # only set if values are different
+                    if self.validate:
+                        self._validate(key, value)
+                    old_val.update_value(value)
+                    self.bump_change_count()
+            else:
+                # hasn't been evaluate yet
+                if value != old_val:
+                    # if old_val is computed we don't know if it's unequal without evaluating old_val
+                    # but don't bother with that, the caller can get item if they care
+                    if self.validate:
+                        self._validate(key, value)
+                    self._attributes[key] = ResultsItem(value, old_val)
+
+        # remove from deleted if it's there
+        self._deleted.pop(key, None)
+
+    def resolve(self, key, val, validate: Optional[bool] = None) -> Result:
+        # lazily evaluate lists and dicts
+        self.context.trace("Results._mapValue", key, val)
+        defs = self.get_datatype_defs(key)
+        resolved = self._map_value(val, self.context, self.applyTemplates, defs)
+        # will return a Result if it was val was an expression that was evaluated
+        if isinstance(resolved, Result):
+            result = resolved
+        else:
+            result = Result(resolved)
+        resolved = result.resolved = self._transform(key, result.resolved)
+        if isinstance(resolved, MutableSequence) and resolved:
+            # make sure we don't have a List[Result]
+            assert not isinstance(resolved[0], Result), resolved[0]
+
+        if self.validate if validate is None else validate:
+            self._validate(key, resolved, val)
+        if self.defs and is_sensitive_schema(self.defs, key):
+            result.resolved = wrap_sensitive_value(resolved)
+
+        assert not isinstance(result.resolved, Result)
+        return result
 
     def get_datatype_defs(self, key) -> Optional[Dict[str, Any]]:
         property = self.defs.get(key)
@@ -734,35 +850,6 @@ class Results(ABC):
         except:  # IndexError or KeyError
             return False
 
-    def __setitem__(self, key, value):
-        assert not isinstance(value, Result), (key, value)
-        if self.context.currentResource.readonly:
-            raise UnfurlError(
-                "Attempting to set {key} on a readonly instance {self.context.currentResource}"
-            )
-        if self._haskey(key):
-            resolved = self._getresult(key, False).resolved
-            if resolved != value:  # the existing value changed
-                if self.validate:
-                    self._validate(key, value)
-                if self.defs and is_sensitive_schema(self.defs, key):
-                    value = wrap_sensitive_value(value)
-
-                result = self._attributes[key]
-                if result.original is _Get:
-                    # we haven't saved the original value yet
-                    result.original = result.resolved
-                result.resolved = value
-        else:
-            if self.validate:
-                self._validate(key, value)
-            if self.defs and is_sensitive_schema(self.defs, key):
-                value = wrap_sensitive_value(value)
-            self._attributes[key] = Result(value)
-
-        # remove from deleted if it's there
-        self._deleted.pop(key, None)
-
     def __delitem__(self, index):
         if self.context.currentResource.readonly:
             raise UnfurlError(
@@ -771,6 +858,8 @@ class Results(ABC):
         val = self._attributes[index]
         self._deleted[index] = val
         del self._attributes[index]
+        if isinstance(val, ResultsItem):
+            self.bump_change_count()
 
     def __len__(self):
         return len(self._attributes)
@@ -796,8 +885,10 @@ class ResultsMap(Results, MutableMapping):
     def resolve_all(self):
         list(self.values())
 
-    def get_resolved(self):
-        return {key: v for key, v in self._attributes.items() if isinstance(v, Result)}
+    def get_resolved(self) -> Dict[str, ResultsItem]:
+        return {
+            key: v for key, v in self._attributes.items() if isinstance(v, ResultsItem)
+        }
 
     def __contains__(self, key):
         return key in self._attributes
@@ -809,7 +900,7 @@ class ResultsMap(Results, MutableMapping):
         # returns a dict with the same semantics as diffDicts
         diffDict = cls()
         for key, val in self._attributes.items():
-            if isinstance(val, Result) and val.has_diff():
+            if isinstance(val, ResultsItem) and val.has_diff():
                 diffDict[key] = val.get_diff()
 
         for key in self._deleted:
@@ -820,7 +911,7 @@ class ResultsMap(Results, MutableMapping):
 class ResultsList(Results, MutableSequence):
     def insert(self, index, value):
         assert not isinstance(value, Result), value
-        self._attributes.insert(index, Result(value))
+        self._attributes.insert(index, ResultsItem(value, _Missing))
 
     def _values(self):
         return self._attributes
@@ -828,7 +919,7 @@ class ResultsList(Results, MutableSequence):
     def get_diff(self, cls=list):
         # we don't have patchList yet so just returns the whole list
         return cls(
-            val.get_diff() if isinstance(val, Result) else val
+            val.get_diff() if isinstance(val, ResultsItem) else val
             for val in self._attributes
         )
 

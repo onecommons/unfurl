@@ -411,13 +411,13 @@ class FileTestConfigurator(Configurator):
         assert os.path.isabs(task.inputs["path"]), task.inputs
         assert task.inputs["contents"] == "test", task.inputs["contents"]
 
-        filevalue = task.query({"ref": {"file": "foo.txt"}}, wantList=True)
-        assert filevalue._attributes[0].external.type == "file"
+        filevalue = task.query({"ref": {"file": "foo.txt"}}, wantList='result')
+        assert filevalue[0].external.type == "file"
 
         filevalue = task.query(
-            {"ref": {"file": "foo.txt"}, "foreach": "path"}, wantList=True
+            {"ref": {"file": "foo.txt"}, "foreach": "path"}, wantList='result'
         )
-        assert filevalue._attributes[0].external.type == "file"
+        assert filevalue[0].external.type == "file"
 
         value = task.query({"ref": {"file": "foo.txt"}})
         yield task.done(True, Status.ok, result=value)
