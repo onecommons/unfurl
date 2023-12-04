@@ -1665,7 +1665,10 @@ def convert_service_template(
         except Exception as e:
             logger.error("failed to format %s: %s", path, e)
     if path:
-        if write_policy.can_overwrite(template.path, path):
+        overwrite, unchanged = write_policy.can_overwrite_compare(
+            template.path, path, src
+        )
+        if overwrite:
             try:
                 with open(path, "w") as po:
                     logger.info("writing to %s", path)
@@ -1673,5 +1676,7 @@ def convert_service_template(
             except Exception:
                 logger.error("failed writing to %s", path)
         else:
-            logger.info("not writing to %s: %s", path, write_policy.deny_message())
+            logger.info(
+                "not writing to %s: %s", path, write_policy.deny_message(unchanged)
+            )
     return src

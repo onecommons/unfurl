@@ -99,7 +99,7 @@ def test_builtin_generation():
         diffs = diff_dicts(
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
-        # print(yaml2python.value2python_repr(diffs))
+        print(yaml2python.value2python_repr(diffs))
         diffs.pop("unfurl.interfaces.Install", None)
         if diffs:
             # these diffs exist because requirements include inherited types
@@ -997,10 +997,16 @@ node._name = "test"
 
 def test_write_policy():
     test_path = os.path.join(os.getenv("UNFURL_TMPDIR"), "test_generated.txt")
+    src = "import unfurl\n"
     with open(test_path, "w") as f:
-        f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file"))
+        f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file")+src)
     try:
         assert tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
+        can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare("ignore", test_path, src + "# ignore\n#\n")
+        assert can_write, unchanged == (True, True)
+        assert tosca.WritePolicy.auto.deny_message(unchanged) == 'overwrite policy is "auto" but the contents have not changed'
+        can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare("ignore", test_path, "# ignore\nimport tosca\n")
+        assert can_write, unchanged == (True, False)
         os.utime(test_path, (time.time() + 5, time.time() + 5))
         assert not tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
     finally:
