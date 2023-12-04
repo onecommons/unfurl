@@ -52,7 +52,7 @@ from tosca._tosca import _Tosca_Field, _ToscaType, global_state
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .eval import RefContext, set_eval_func
-from .result import Results
+from .result import Results, ResultsItem, ResultsMap
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
 from .repo import RepoView
@@ -89,12 +89,16 @@ def runtime_test(namespace: Type[_N]) -> _N:
     converter = PythonToYaml(namespace.get_defs())
     doc = converter.module2yaml(True)
     # pprint.pprint(doc)
-    config = dict(apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc))
+    config = dict(
+        apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc)
+    )
     manifest = YamlManifest(config)
     assert manifest.rootResource
     # a plan is needed to create the instances
     job = Runner(manifest).static_plan()
-    ctx = RefContext(manifest.rootResource)
+    assert manifest.rootResource.attributeManager
+    # make sure we share the change_count
+    ctx = manifest.rootResource.attributeManager._get_context(manifest.rootResource)
     clone = namespace()
     node_templates = {
         t._name: (python_name, t)
@@ -319,6 +323,21 @@ def _proxy_prop(field: _Tosca_Field, value: Any):
 PT = TypeVar("PT", bound="ToscaType")
 
 
+class Cache:
+    def __init__(self, ctx: RefContext) -> None:
+        self.context = ctx
+        self._cache: Dict[str, ResultsItem] = {}
+
+    def __getitem__(self, key) -> Any:
+        item = self._cache[key]
+        if item.last_computed < self.context.referenced.change_count:
+            raise KeyError(key)
+        return item.resolved
+
+    def __setitem__(self, key, value):
+        self._cache[key] = ResultsItem(value, seen=self.context.referenced.change_count)
+
+
 class InstanceProxyBase(InstanceProxy, Generic[PT]):
     """
     Stand-in for a ToscaType template during runtime that proxy values from the instance.
@@ -332,8 +351,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         self._instance = instance
         # templates can have attributes assigned directly to it so see if we have the template
         self._obj = obj
-        self._cache: Dict[str, Any] = {}
         self._context = context.copy(instance)
+        self._cache = Cache(self._context)
         # when calling into python code context won't have the basedir for the location of the code
         # (since its not imported as yaml). So set it now.
         path = sys.modules[self._cls.__module__].__file__
@@ -422,10 +441,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             val = val._values
         elif isinstance(val, tosca.ToscaObject):
             val = val.to_yaml(tosca.yaml_cls)
-        self._instance.attributes[
-            field.tosca_name if isinstance(field, _Tosca_Field) else name
-        ] = val
-        self._cache.pop(name, None)
+        attr_name = field.tosca_name if isinstance(field, _Tosca_Field) else name
+        self._instance.attributes[attr_name] = val
 
     # XXX
     # def __delattr__(self, __name: str) -> None:
@@ -436,8 +453,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         # otherwise try to get the value from the obj, if set, or from the cls
         # note that when accessing viva instance.attributes, any evaluation of expressions
         # will be done via the yaml generated from python using the instance's attribute manager context.
-        if name in self._cache:
+        try:
             return self._cache[name]
+        except KeyError:
+            pass
         field = self._get_field(name)
         if not field:
             if name in ["_name", "_metadata", "_directives"]:
@@ -468,6 +487,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 ToscaFieldType.property,
                 ToscaFieldType.attribute,
             ):
+                # self._context._trace=2
+                # self._instance.attributes.context._trace=2
                 val = _proxy_prop(field, self._instance.attributes[field.tosca_name])
                 self._cache[name] = val
                 return val
