@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from .configurator import Dependency
 
 from .logs import getLogger
-from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
+from .eval import _Tracker, RefContext, set_eval_func, Ref, map_value, SafeRefContext
 from .result import (
     Results,
     ResultsList,
@@ -507,7 +507,8 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
 
                 if (
                     external_result
-                    and ctx.wantList == "result" and external_result.external
+                    and ctx.wantList == "result"
+                    and external_result.external
                     and value == external_result.external.get()
                 ):
                     # return a Result with the external value instead
@@ -1757,6 +1758,7 @@ class AttributeManager:
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
         self._context_vars = None
+        self.tracker = _Tracker()
 
     @property
     def yaml(self):
@@ -1765,6 +1767,7 @@ class AttributeManager:
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_yaml"] = None
+        state["tracker"] = _Tracker()
         return state
 
     def get_status(self, resource):
@@ -1787,7 +1790,7 @@ class AttributeManager:
             ):
                 resource.template._isReferencedBy.append(template)  # type: ignore
 
-    def _get_context(self, resource):
+    def _get_context(self, resource) -> RefContext:
         if (
             self._context_vars is None
             or self._context_vars["NODES"].resource is not resource.root
@@ -1795,7 +1798,9 @@ class AttributeManager:
             self._context_vars = {}
             set_context_vars(self._context_vars, resource)
         ctor = SafeRefContext if self.safe_mode else RefContext
-        return ctor(resource, self._context_vars, task=self.task, strict=self.strict)
+        ctx = ctor(resource, self._context_vars, task=self.task, strict=self.strict)
+        ctx.referenced = self.tracker
+        return ctx
 
     def get_attributes(self, resource: "EntityInstance") -> ResultsMap:
         if resource.nested_key not in self.attributes:
@@ -1822,6 +1827,11 @@ class AttributeManager:
         else:
             attributes = self.attributes[resource.nested_key][1]
             return attributes
+
+    def _reset(self):
+        self.attributes = {}
+        # self.statuses = {}
+        self.tracker = _Tracker()
 
     # def revertChanges(self):
     #   self.attributes = {}
@@ -1916,6 +1926,5 @@ class AttributeManager:
                     diff[key] = _attributes[key]
             changes[resource.key] = diff
 
-        self.attributes = {}
-        # self.statuses = {}
+        self._reset()
         return changes, liveDependencies

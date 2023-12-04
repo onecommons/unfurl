@@ -770,7 +770,8 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List[PlanRequest]) ->
         return True
     if req.task:
         task = req.task
-        task._attributeManager.attributes = {}
+        assert task._attributeManager
+        task._attributeManager._reset()
         task.target.root.set_attribute_manager(task._attributeManager)
     else:
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
@@ -802,8 +803,7 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List[PlanRequest]) ->
         task.restore_envvars()
     if error:
         errors.append(req)
-        task._reset()
-        task._attributeManager.attributes = {}  # rollback changes
+        task._reset()  # rollback changes
     else:
         task.commit_changes()
     return proceed
@@ -818,7 +818,7 @@ def _render_request(
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     assert req.task
     task = req.task
-    task._attributeManager.attributes = {}
+    task._attributeManager._reset()
     task.target.root.set_attribute_manager(task._attributeManager)
 
     error = None
@@ -868,14 +868,12 @@ def _render_request(
         # rollback changes:
         task._errors = []
         task._reset()
-        task._attributeManager.attributes = {}
         task.discard_work_folders()
         return bool(dependent_refs), None
     elif error:
         task.fail_work_folders()
-        task._reset()
+        task._reset() # rollback changes
         task.logger.warning("Configurator render failed", exc_info=error_info)
-        task._attributeManager.attributes = {}  # rollback changes
         return None, error
     else:
         task.logger.trace(f"committing changes from rendering task {task.target}")

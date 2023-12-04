@@ -112,6 +112,7 @@ class _Tracker:
     def __init__(self):
         self.count = 0
         self.referenced: List[Tuple[Union[str, None, "Ref"], List[Result]]] = []
+        self.change_count = 0
 
     def start(self):
         self.count += 1

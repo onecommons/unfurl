@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from .job import ConfigTask
 
 
-from .support import Status, ResourceChanges, Priority, set_context_vars
+from .support import AttributeManager, Status, ResourceChanges, Priority, set_context_vars
 from .result import (
     ChangeRecord,
     ResultsList,
@@ -485,6 +485,7 @@ class TaskView:
         self._failed_paths: List[str] = []
         self._rendering = False
         self._environ: object = None
+        self._attributeManager: AttributeManager = None  # type: ignore
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
 
@@ -534,9 +535,10 @@ class TaskView:
         {{ inputs.param }}
         """
         if self._inputs is None:
-            assert self._attributeManager  # type: ignore
+            assert self._attributeManager
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
             ctx = RefContext(self.target, task=self)
+            ctx.referenced = self._attributeManager.tracker
             inputs = self.configSpec.inputs
             relationship = None
             if isinstance(self.target, RelationshipInstance):

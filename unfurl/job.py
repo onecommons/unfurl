@@ -407,6 +407,7 @@ class ConfigTask(TaskView, ConfigChange):
     def _reset(self):
         self._inputs = None
         self._environ = None
+        self._attributeManager._reset()
 
     def commit_changes(self):
         """
