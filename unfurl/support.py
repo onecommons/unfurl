@@ -10,6 +10,7 @@ import hashlib
 import math
 import os
 from random import choice
+import string
 import sys
 import os.path
 import re
@@ -1133,11 +1134,29 @@ def get_nodes_of_type(type_name: str, ctx: RefContext):
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
 
-def _generate() -> str:
-    return get_random_password(10, "")
+def _generate(preset="", len=0, ranges=(), **kw) -> str:
+    # must match https://github.com/onecommons/unfurl-gui/blob/main/packages/oc-pages/vue_shared/lib/directives/generate.js
+    if preset == "number":
+        return get_random_password(len or 1, valid_chars=string.digits, start="")
+    elif preset == "password":
+        pw = ""
+        while not re.search(r"\d", pw):
+            pw = get_random_password(len or 15, "", "", start="")
+        return pw
+    else:
+        extra = None
+        valid_chars = ""
+        if ranges:
+            for interval in ranges:
+                if isinstance(interval[0], str):
+                    interval = [ord(interval[0]), ord(interval[1])]
+                valid_chars += "".join([chr(i) for i in range(*interval)])
+            extra = ""
+        # default includes some punctuation (the extra param)
+        return get_random_password(len or 10, "", extra, valid_chars, start="")
 
 
-set_eval_func("_generate", lambda arg, ctx: _generate(), True, True)
+set_eval_func("_generate", lambda arg, ctx: _generate(**arg), True, True)
 
 
 def _urljoin(scheme, host, port=None, path=None, query=None, frag=None):

@@ -116,6 +116,7 @@ class UnfurlValidationError(UnfurlError):
         super().__init__(message, log=log)
         self.errors = errors or []
 
+
 class UnfurlBadDocumentError(UnfurlError):
     def __init__(
         self,
@@ -125,6 +126,7 @@ class UnfurlBadDocumentError(UnfurlError):
     ) -> None:
         super().__init__(message, saveStack=saveStack)
         self.errors = cast(Tuple[str, List[object]], errors or [])
+
 
 class UnfurlTaskError(UnfurlError):
     def __init__(
@@ -248,9 +250,7 @@ def load_module(path: str, full_name: str = None) -> ModuleType:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        spec = importlib.util.spec_from_file_location(
-            full_name, os.path.abspath(path)
-        )
+        spec = importlib.util.spec_from_file_location(full_name, os.path.abspath(path))
         # XXX: spec might be None
         module = importlib.util.module_from_spec(spec)  # type: ignore
         spec.loader.exec_module(module)  # type: ignore
@@ -449,12 +449,21 @@ def clean_output(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(value))
 
 
-def get_random_password(count=12, prefix="uv", extra=None):
+def get_random_password(
+    count=12,
+    prefix="uv",
+    extra=None,
+    valid_chars="",
+    start=string.ascii_letters,
+):
     srandom = random.SystemRandom()
-    start = string.ascii_letters
+    if not valid_chars:
+        valid_chars = string.ascii_letters + string.digits
     if extra is None:
-        extra = "%()*+,-./<>?=@^_~"
-    source = string.ascii_letters + string.digits + extra
+        extra = "%()*+,-./<>?=^_~"
+    if not start:
+        start = valid_chars
+    source = valid_chars + extra
     return prefix + "".join(
         srandom.choice(source if i else start) for i in range(count)
     )
@@ -627,8 +636,7 @@ def unique_name(name: str, existing: Sequence) -> str:
 
 # python < 3.9 doesn't  support Path.is_relative_to
 def is_relative_to(p, *other) -> bool:
-    """Return True if the path is relative to another path or False.
-    """
+    """Return True if the path is relative to another path or False."""
     try:
         Path(p).relative_to(*other)
         return True
