@@ -274,6 +274,10 @@ def get_current_project_id() -> str:
     return project_id
 
 
+def local_developer_mode() -> bool:
+    return bool(app.config.get("UNFURL_CURRENT_GIT_URL"))
+
+
 def _get_local_project_dir(project_id) -> str:
     local_projects = app.config.get("UNFURL_LOCAL_PROJECTS")
     if local_projects:
@@ -410,9 +414,11 @@ class CacheItemDependency:
                 return True
         return False  # we're up-to-date!
 
+
 def set_version_from_remote_tags(package: Package, args: Optional[dict]):
     def get_remote_tags(url, pattern):
         return get_remote_tags_cached(url, pattern, args)
+
     package.set_version_from_repo(get_remote_tags)
 
 
@@ -496,6 +502,12 @@ class CacheEntry:
         return self.repo
 
     def pull(self, cache: Cache, stale_ok_age: int = 0) -> GitRepo:
+        if local_developer_mode():
+            if not self.repo:
+                self._set_project_repo()
+            if self.repo and self.repo.is_dirty():
+                return self.repo
+
         branch = self.branch or DEFAULT_BRANCH
         repo_key = (
             self.project_id
@@ -756,11 +768,18 @@ class CacheEntry:
     ) -> bool:
         if value == "not_stored":
             return False
+
+        if local_developer_mode():
+            if self.checked_repo.is_dirty(False, self.file_path):
+                return False
+
         logger.debug("checking deps %s on %s", list(self._deps), self.cache_key())
+
         for dep in self._deps.values():
             if dep.out_of_date(self.args):
                 # need to regenerate the value
                 return False
+
         return not validate or validate(value, self, cache, latest_commit)
 
     def get_or_set(
@@ -1058,7 +1077,9 @@ def _export(
             set_version_from_remote_tags(package, args)
             branch = package.revision_tag or DEFAULT_BRANCH
         else:
-            logger.debug(f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags.")
+            logger.debug(
+                f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags."
+            )
             branch = DEFAULT_BRANCH
     repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
@@ -1082,8 +1103,13 @@ def _export(
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
                 dcache_entry = CacheEntry(
-                    project_id, branch, manifest_path, "deployment", repo, args=args,
-                            stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
+                    project_id,
+                    branch,
+                    manifest_path,
+                    "deployment",
+                    repo,
+                    args=args,
+                    stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
                 )
                 derr, djson = dcache_entry.get_or_set(
                     cache, _export_cache_work, latest_commit
@@ -2093,7 +2119,10 @@ def serve(
         if cloud_server[0] != "/":  # unit tests use local file paths
             server_host = urlparse(cloud_server).hostname
             if not server_host:
-                logger.info('Exiting, cloud server URL "%s" is not a valid absolute URL', cloud_server)
+                logger.info(
+                    'Exiting, cloud server URL "%s" is not a valid absolute URL',
+                    cloud_server,
+                )
                 return
         app.config["UNFURL_CLOUD_SERVER"] = cloud_server
     local_env = set_current_ensemble_git_url()
