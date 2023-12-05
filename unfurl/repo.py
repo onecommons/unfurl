@@ -640,7 +640,7 @@ class RepoView:
                 )
             target = os.path.abspath(os.readlink(symlink))
             if target == self.working_dir:  # already exists
-                return self.working_dir, str(symlink)
+                return name, self.working_dir
             symlink.unlink()
 
         # use os.path.relpath as Path.relative_to only accepts strict subpaths
