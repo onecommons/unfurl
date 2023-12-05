@@ -23,7 +23,11 @@ class ProxyContainerHost(Proxy, ContainerHost):
     def _class_init(cls) -> None:
         # the backend is the container services url
         cls.backend_url = cls.hosting.url
-        cls.set_source(cls.hosting, cls.backend_url)
+
+        cls.set_to_property_source(cls.hosting, cls.backend_url)
+        # the following are equivalent:
+        # cls.set_to_property_source(cls.hosting, "backend_url")
+        # cls.hosting = cls.backend_url  # type: ignore
 
 class App(tosca.nodes.Root):
     container: ContainerService = ContainerService(

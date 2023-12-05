@@ -419,7 +419,7 @@ def safe_guarded_write(ob):
 # _iter_unpack_sequence_
 # _unpack_sequence_
 
-PRINT_AST_SRC = os.getenv("UNFURL_PRINT_AST_SRC")
+PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
 
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):

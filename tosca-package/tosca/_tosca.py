@@ -2050,26 +2050,51 @@ class ToscaType(_ToscaType):
             self._name = owner.__name__ + "_" + name
 
     @classmethod
-    def set_source(cls, requirement: Any, reference: Any) -> None:
+    def set_to_property_source(cls, requirement: Any, property: Any) -> None:
         """
-        Create a constraint that sets a requirement to the source of the property reference.
+        Sets the given requirement to the TOSCA template that provided the value of "property".
 
-        Should be called from ``_class_init(cls)``. For example,
+        For example, if ``A.property = B.property``
+        then ``A.set_to_property_source("requirement", "property")``
+        will create a node filter sets `A.requirement = B`
 
-        ``cls._set_source(cls.requirement, cls.property)``
+        The requirement and property have to be defined on the same class.
+
+        Args:
+            requirement (FieldProjection or str): name of the requirement field
+            property (FieldProjection or str): name of the property field
+
+        Raises:
+            TypeError: If ``requirement`` or ``property`` are missing from ``cls``.
+
+        Should be called from ``_class_init(cls)``.
+
+        ``cls.set_to_property_source(cls.requirement, cls.property)``
 
         is equivalent to:
 
-        ``cls.requirement = cls.property``
+        ``cls.requirement = cls.property`` in ``_class_init(cls)``
 
         But this method can be used to avoid static type checker complaints with that assignment.
+
+        The requirement and property names can also be strings, e.g.:
+
+        ``cls.set_to_property_source("requirement", "property")``
         """
+        if isinstance(requirement, str):
+            requirement = getattr(_DataclassTypeProxy(cls), requirement)
         if isinstance(requirement, FieldProjection):
             requirement = requirement.field
         if isinstance(requirement, _Tosca_Field):
             if requirement.owner != cls:
                 raise ValueError(f"Field {requirement} isn't owned by {cls}")
-            return requirement.set_constraint(reference)
+            if isinstance(property, str):
+                property = getattr(_DataclassTypeProxy(cls), property)
+            if not isinstance(property, FieldProjection):
+                raise TypeError(
+                    f"{property} isn't a TOSCA field -- this method should be called from _class_init()"
+                )
+            return requirement.set_constraint(property)
         raise TypeError(
             f"{requirement} isn't a TOSCA field -- this method should be called from _class_init()"
         )

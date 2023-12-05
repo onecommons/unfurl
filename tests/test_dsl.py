@@ -536,7 +536,7 @@ def test_class_init() -> None:
             cls.host = tosca.nodes.Compute("my_compute")
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
-            cls.set_source(cls.host, cls.prop1)
+            cls.set_to_property_source(cls.host, cls.prop1)
 
         def create(self, **kw) -> tosca.artifacts.Root:
             return self.shellScript.execute(input1=self.prop1)
