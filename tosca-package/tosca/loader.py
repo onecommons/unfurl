@@ -66,7 +66,7 @@ class RepositoryFinder(PathFinder):
                             fullname, None, origin=repo_path, is_package=True
                         )
                     else:
-                        logger.warning(f"Can't load module {fullname}: {repo_path} doesn't exist")
+                        logger.error(f"Can't load module {fullname}: {repo_path} doesn't exist")
                         return None
                 else:
                     origin_path = os.path.join(repo_path, *names[2:]) + ".py"
@@ -76,7 +76,7 @@ class RepositoryFinder(PathFinder):
                     return spec
                     # return PathFinder.find_spec(fullname, [repo_path], target)
             else:
-                logger.warning(f"Can't load module {fullname}: couldn't resolve path.")
+                logger.error(f"Can't load module {fullname}: have you declared a repository for {names[1]}?")
         # XXX special case service-template.yaml as service_template ?
         elif names[0] == "service_template":
             if path:

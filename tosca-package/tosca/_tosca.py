@@ -1666,6 +1666,11 @@ def _make_dataclass(cls):
                                 base_field._tosca_field_type, default, owner=cls
                             )
                         else:
+                            if default is not REQUIRED and name not in cls.__dict__:
+                                # attribute is defined on a base class but its not a tosca field
+                                # XXX maybe allow default if its compatible with the annotation?
+                                default = REQUIRED  # so don't use it as the default
+                                # (and the type checker should flag this if the types aren't compatible)
                             # XXX or not InitVar or ClassVar
                             field = _Tosca_Field(None, default, owner=cls)
                         setattr(cls, name, field)
@@ -1774,17 +1779,11 @@ class _Tosca_Fields_Getter:
         ]
 
 
-class _Set_ConfigSpec_Method:
-    def __get__(self, obj, objtype) -> Callable:
-        if obj:
-            return obj._set_config_spec_
-        else:
-            return objtype._class_set_config_spec
-
-
 class _FieldDescriptor:
     def __init__(self, field: _Tosca_Field):
         self.field = field
+        if callable(self.field.default):
+            raise ValueError(f"bad default for {self.field.name}")
 
     def __get__(self, obj, obj_type):
         if obj or global_state._in_process_class:
@@ -1837,7 +1836,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     # we need this intermediate type because the base class with the @dataclass_transform can't specify fields
     # NB: _name needs to come first for python < 3.10, so we can't set any non-classvars here
     explicit_tosca_fields = _Tosca_Fields_Getter()  # list of _ToscaFields
-    set_config_spec_args = _Set_ConfigSpec_Method()
 
     # see RestrictedPython/Guards.py
     _guarded_writes: ClassVar[bool] = True
