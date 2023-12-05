@@ -633,22 +633,21 @@ def test_datatype():
     import tosca
     from tosca import DataType
 
-    tosca.global_state.mode = "spec"
+    with tosca.set_evaluation_mode("spec"):
+      class MyDataType(DataType):
+          prop1: str = ""
 
-    class MyDataType(DataType):
-        prop1: str = ""
+      class Example(tosca.nodes.Root):
+          data: MyDataType
 
-    class Example(tosca.nodes.Root):
-        data: MyDataType
+      test = Example(data=MyDataType(prop1="test"))
 
-    test = Example(data=MyDataType(prop1="test"))
-
-    __name__ = "tests.test_dsl"
-    converter = PythonToYaml(locals())
-    yaml_dict = converter.module2yaml()
-    tosca_yaml = load_yaml(yaml, test_datatype_yaml)
-    # yaml.dump(yaml_dict, sys.stdout)
-    assert tosca_yaml == yaml_dict
+      __name__ = "tests.test_dsl"
+      converter = PythonToYaml(locals())
+      yaml_dict = converter.module2yaml()
+      tosca_yaml = load_yaml(yaml, test_datatype_yaml)
+      # yaml.dump(yaml_dict, sys.stdout)
+      assert tosca_yaml == yaml_dict
 
 
 test_envvars_yaml = """
@@ -691,39 +690,38 @@ def test_envvar_type():
     from tosca import Property, DEFAULT
     import unfurl
 
-    tosca.global_state.mode = "spec"
+    with tosca.set_evaluation_mode("spec"):
+        class Namespace(tosca.Namespace):
+            # we can't resolve forward references to classes defined in local scope
+            # (like "MyDataType" below) so we need to place them in a namespace
+            class Example(tosca.nodes.Root):
+                data: "MyDataType" = DEFAULT
 
-    class Namespace(tosca.Namespace):
-        # we can't resolve forward references to classes defined in local scope
-        # (like "MyDataType" below) so we need to place them in a namespace
-        class Example(tosca.nodes.Root):
-            data: "MyDataType" = DEFAULT
+            class MyDataType(unfurl.datatypes.EnvironmentVariables):
+                name: str = "default_name"
 
-        class MyDataType(unfurl.datatypes.EnvironmentVariables):
-            name: str = "default_name"
+        Example = Namespace.Example
+        test = Example()
 
-    Example = Namespace.Example
-    test = Example()
+        class pcls(tosca.InstanceProxy):
+            _cls = Example
 
-    class pcls(tosca.InstanceProxy):
-        _cls = Example
+        assert issubclass(pcls, Example)
+        assert issubclass(Example, Example)
 
-    assert issubclass(pcls, Example)
-    assert issubclass(Example, Example)
+        p = pcls()
+        assert isinstance(p, Example)
+        assert isinstance(p, tosca.InstanceProxy)
+        assert issubclass(type(p), Example)
+        assert isinstance(test, Example)
+        assert not isinstance(test, tosca.InstanceProxy)
 
-    p = pcls()
-    assert isinstance(p, Example)
-    assert isinstance(p, tosca.InstanceProxy)
-    assert issubclass(type(p), Example)
-    assert isinstance(test, Example)
-    assert not isinstance(test, tosca.InstanceProxy)
-
-    __name__ = "tests.test_dsl"
-    converter = PythonToYaml(locals())
-    yaml_dict = converter.module2yaml()
-    tosca_yaml = load_yaml(yaml, test_envvars_yaml)
-    # yaml.dump(yaml_dict, sys.stdout)
-    assert tosca_yaml == yaml_dict
+        __name__ = "tests.test_dsl"
+        converter = PythonToYaml(locals())
+        yaml_dict = converter.module2yaml()
+        tosca_yaml = load_yaml(yaml, test_envvars_yaml)
+        # yaml.dump(yaml_dict, sys.stdout)
+        assert tosca_yaml == yaml_dict
 
 
 test_relationship_yaml = """

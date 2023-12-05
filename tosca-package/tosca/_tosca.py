@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 import collections.abc
+from contextlib import contextmanager
 import copy
 import dataclasses
 from enum import Enum
@@ -69,6 +70,31 @@ global_state = _LocalState()
 yaml_cls = dict
 
 JsonType = Union[None, int, str, bool, List["JsonType"], Dict[str, "JsonType"]]
+
+
+@contextmanager
+def set_evaluation_mode(mode: str):
+    """
+    A context manager that sets the global (per-thread) tosca evaluation mode and restores the previous mode upon exit.
+    This is only needed for testing or other special contexts.
+
+    Args:
+        mode (str):  "spec", "yaml", or  "runtime"
+
+    Yields:
+        the previous mode
+
+    .. code-block:: python
+
+      with set_mode("spec"):
+          assert tosca.global_state.mode == "spec"
+    """
+    saved = global_state.mode
+    try:
+        global_state.mode = mode
+        yield saved
+    finally:
+        global_state.mode = saved
 
 
 class ToscaObject:
@@ -801,7 +827,9 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         self._add_occurrences(req_def, default_occurrences)
         return req_def
 
-    def _to_capability_yaml(self, super_field: Optional["_Tosca_Field"]) -> Dict[str, Any]:
+    def _to_capability_yaml(
+        self, super_field: Optional["_Tosca_Field"]
+    ) -> Dict[str, Any]:
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()

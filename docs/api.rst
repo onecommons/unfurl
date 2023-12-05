@@ -24,7 +24,7 @@ Note that these functions all take keyword-only parameters (this is needed for I
 
 .. automodule:: tosca
   :imported-members: true
-  :members: ArtifactType, CapabilityType, DataType, GroupType, InterfaceType, PolicyType, NodeType, RelationshipType, Property, Attribute, Requirement, Capability, Artifact, operation, Computed, ToscaInputs, ToscaOutputs
+  :members: ArtifactType, CapabilityType, DataType, GroupType, InterfaceType, PolicyType, NodeType, RelationshipType, Property, Attribute, Requirement, Capability, Artifact, operation, Computed, ToscaInputs, ToscaOutputs, set_evaluation_mode
 
 API for writing configurators
 -----------------------------
