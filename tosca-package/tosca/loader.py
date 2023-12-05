@@ -66,6 +66,7 @@ class RepositoryFinder(PathFinder):
                             fullname, None, origin=repo_path, is_package=True
                         )
                     else:
+                        logger.warning(f"Can't load module {fullname}: {repo_path} doesn't exist")
                         return None
                 else:
                     origin_path = os.path.join(repo_path, *names[2:]) + ".py"
@@ -74,6 +75,8 @@ class RepositoryFinder(PathFinder):
                     spec = spec_from_loader(fullname, loader, origin=origin_path)
                     return spec
                     # return PathFinder.find_spec(fullname, [repo_path], target)
+            else:
+                logger.warning(f"Can't load module {fullname}: couldn't resolve path.")
         # XXX special case service-template.yaml as service_template ?
         elif names[0] == "service_template":
             if path:
@@ -197,7 +200,7 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     if name.startswith("tosca_repositories") or name.startswith("service_template"):
         spec = RepositoryFinder.find_spec(name, [base_dir])
         if not spec:
-            raise ModuleNotFoundError("No module named " + name, name=name)
+            raise ModuleNotFoundError(f"No module named {name} (base: {base_dir})", name=name)
     else:
         if parent:
             parent_path = get_module_path(modules[parent])
