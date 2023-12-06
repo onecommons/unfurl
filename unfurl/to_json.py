@@ -718,7 +718,7 @@ def node_type_to_graphql(
     types: ResourceTypesByName,
     summary: bool = False,
     include_matches: bool = True,
-) -> ResourceType:
+) -> Optional[ResourceType]:
     """
     type ResourceType {
       name: String!
@@ -777,7 +777,8 @@ def node_type_to_graphql(
     if type_definition.defs is None:
         logger.warning("%s is missing type definition", type_definition.type)
         jsontype["extends"] = []
-        return jsontype
+        del types[typename]
+        return None
 
     extends: List[str] = []
     # add ancestors classes to extends
@@ -941,7 +942,8 @@ def to_graphql_nodetypes(spec: ToscaSpec, include_all: bool) -> ResourceTypesByN
             typedef = sub_map.node_type
             if typedef:
                 jsontype = node_type_to_graphql(nested_topology, typedef, types)
-                _update_root_type(jsontype, sub_map, nested_topology)
+                if jsontype:
+                    _update_root_type(jsontype, sub_map, nested_topology)
 
     descendents: Dict[str, List[str]] = {}
     for typename, defs in custom_defs.items():
@@ -1363,9 +1365,9 @@ def _get_or_make_primary(
             jsontype = types.get(root_type.type)
             if not jsontype:
                 jsontype = node_type_to_graphql(spec.topology, root_type, types)
-            assert jsontype
             assert topology.substitution_mappings
-            _update_root_type(jsontype, topology.substitution_mappings, spec.topology)
+            if jsontype:
+                _update_root_type(jsontype, topology.substitution_mappings, spec.topology)
         # if no property mapping in use, generate a new root template if there are any missing inputs
         elif (
             not topology.substitution_mappings
