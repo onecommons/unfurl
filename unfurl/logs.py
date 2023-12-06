@@ -20,8 +20,7 @@ except ImportError:
 
 HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
-DEFAULT_TRUNCATE_LENGTH = 748
-
+DEFAULT_TRUNCATE_LENGTH =  int(os.getenv("UNFURL_LOG_TRUNCATE") or 748)
 
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
     if not s:
