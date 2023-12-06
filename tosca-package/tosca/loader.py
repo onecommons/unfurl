@@ -426,7 +426,6 @@ PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
 FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER")
 
 
-
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
         super().__init__(errors, warnings, used_names)
@@ -543,7 +542,9 @@ def restricted_exec(
     # package is the full name of module
     # path is base_dir to the root of the package
     if FORCE_SAFE_MODE and not safe_mode:
-        raise RuntimeError("Expected Safe Mode for TOSCA loader")
+        safe_mode = True
+        if FORCE_SAFE_MODE in ["warn", "stacktrace"]:
+            logger.warning("Forcing safe mode for the TOSCA loader.", stack_info=FORCE_SAFE_MODE=="stacktrace")
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
         modules = {} if safe_mode else sys.modules
@@ -558,7 +559,7 @@ def restricted_exec(
     tosca_builtins["__import__"] = safe_import if safe_mode else __import__
     # we don't restrict read access so add back the safe builtins
     # missing from safe_builtins, only exclude the following:
-    # "aiter", "anext", "breakpoint", "compile", "delattr", "dir", "eval", exec, exit, quite, print
+    # "aiter", "anext", "breakpoint", "compile", "delattr", "dir", "eval", "exec", "exit", "quit", "print"
     # "globals", "locals", "open", input, setattr, vars, license, copyright, help, credits
     for name in [
         "NotImplemented",

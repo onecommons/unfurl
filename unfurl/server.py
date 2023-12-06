@@ -2089,6 +2089,16 @@ def create_error_response(code: str, message: str, err: Optional[Exception] = No
     return jsonify(response), http_code
 
 
+def enter_safe_mode():
+    import tosca.loader
+
+    tosca.loader.FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER") or "1"
+
+
+if os.getenv("SERVER_SOFTWARE"):
+    enter_safe_mode()
+
+
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
     host: str,
@@ -2141,6 +2151,8 @@ def serve(
             f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
         )
 
+    enter_safe_mode()
+
     # Start one WSGI server
     import uvicorn
 
@@ -2153,7 +2165,7 @@ def serve(
     )
 
     # app.run(host=host, port=port)
-    # gunicorn"  , "-b", "0.0.0.0:5000", "unfurl.server:app"
+    # gunicorn  , "-b", "0.0.0.0:5000", "unfurl.server:app"
     # from gunicorn.app.wsgiapp import WSGIApplication
     # WSGIApplication().run()
 
