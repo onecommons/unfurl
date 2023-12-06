@@ -423,6 +423,8 @@ def safe_guarded_write(ob):
 # _unpack_sequence_
 
 PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
+FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER")
+
 
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
@@ -540,6 +542,8 @@ def restricted_exec(
 ) -> CompileResult:
     # package is the full name of module
     # path is base_dir to the root of the package
+    if FORCE_SAFE_MODE and not safe_mode:
+        raise RuntimeError("Expected Safe Mode for TOSCA loader")
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
         modules = {} if safe_mode else sys.modules
