@@ -92,16 +92,18 @@ class PythonToYaml:
         if not root_module:
             return "", None
         root_path = root_module.__file__
+        logger.warning("{module_name} {root_path}")
         if not root_path:
             root_path = get_module_path(root_module)
             repo_path = Path(root_path)
         else:
             repo_path = Path(root_path).parent
+        logger.warning("{module_name} {root_path} parent")
         self.repos[repo_name] = repo_path
         try:
             return repo_name, path.relative_to(repo_path)
         except ValueError:
-            return repo_name, repo_path
+            return repo_name, None
 
     @staticmethod
     def _add_type(t, types_used):
