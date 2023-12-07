@@ -164,6 +164,9 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
+    if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
+        print("converted ", path, "to:")
+        pprint.pprint(yaml_src)
     return yaml_src
 
 
