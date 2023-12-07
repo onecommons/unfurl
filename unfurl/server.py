@@ -221,7 +221,7 @@ def set_current_ensemble_git_url():
     if not project_or_ensemble_path:
         return None
     try:
-        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
+        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True, readonly=True)
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
@@ -1893,6 +1893,10 @@ def _patch_ensemble(
     if current_working_dir == parent_localenv.project.project_repoview.repo.working_dir:
         # don't set home if its current project
         current_working_dir = None
+    make_resolver = ServerCacheResolver.make_factory(
+        None, dict(username=username, password=password)
+    )
+    parent_localenv.make_resolver = make_resolver
     if create:
         blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
         logger.info(
@@ -1910,6 +1914,7 @@ def _patch_ensemble(
             use_environment=environment,
             use_deployment_blueprint=deployment_blueprint,
             home=current_working_dir,
+            parent_localenv=parent_localenv,
         )
         logger.info(msg)
     # elif clone:
@@ -1928,9 +1933,7 @@ def _patch_ensemble(
     )
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
-    local_env.make_resolver = ServerCacheResolver.make_factory(
-        None, dict(username=username, password=password)
-    )
+    local_env.make_resolver = make_resolver
     # don't validate in case we are still an incomplete draft
     manifest = local_env.get_manifest(skip_validation=True, safe_mode=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
