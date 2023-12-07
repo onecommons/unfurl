@@ -51,7 +51,6 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements.datatype import DataType as ToscaParserDataType
 from .scalars import *
 
-
 if typing.TYPE_CHECKING:
     from .python2yaml import PythonToYaml
 
@@ -62,6 +61,7 @@ class _LocalState(threading.local):
         self._in_process_class = False
         self.safe_mode = False
         self.context: Any = None  # orchestrator specific runtime state
+        self.modules = {}
         self.__dict__.update(kw)
 
 
@@ -1944,6 +1944,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             globals = {}
         if cls.__module__ in sys.modules and cls.__module__ != "builtins":
             mod_globals = sys.modules[cls.__module__].__dict__
+        elif cls.__module__ in global_state.modules:
+            mod_globals = global_state.modules[cls.__module__].__dict__
         else:
             mod_globals = {}
         locals = cls._namespace or {}

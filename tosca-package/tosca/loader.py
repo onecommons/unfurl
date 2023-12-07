@@ -662,6 +662,7 @@ def restricted_exec(
     try:
         global_state.safe_mode = safe_mode
         global_state.mode = "spec"
+        global_state.modules = modules
         if temp_module:
             exec(result.code, temp_module.__dict__)
             namespace.update(temp_module.__dict__)
