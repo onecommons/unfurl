@@ -1914,7 +1914,7 @@ def _patch_ensemble(
             use_environment=environment,
             use_deployment_blueprint=deployment_blueprint,
             home=current_working_dir,
-            parent_localenv=parent_localenv,
+            # parent_localenv=parent_localenv,
         )
         logger.info(msg)
     # elif clone:
