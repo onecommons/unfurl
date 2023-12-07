@@ -58,7 +58,9 @@ class RepositoryFinder(PathFinder):
                 repo_path = import_resolver.find_repository_path(names[1])
             else:
                 # assume already created
-                repo_path = os.path.join(service_template_basedir, "tosca_repositories", names[1])
+                repo_path = os.path.join(
+                    service_template_basedir, "tosca_repositories", names[1]
+                )
             if repo_path:
                 if len(names) == 2:
                     if os.path.exists(repo_path):
@@ -66,7 +68,9 @@ class RepositoryFinder(PathFinder):
                             fullname, None, origin=repo_path, is_package=True
                         )
                     else:
-                        logger.error(f"Can't load module {fullname}: {repo_path} doesn't exist")
+                        logger.error(
+                            f"Can't load module {fullname}: {repo_path} doesn't exist"
+                        )
                         return None
                 else:
                     origin_path = os.path.join(repo_path, *names[2:]) + ".py"
@@ -76,7 +80,9 @@ class RepositoryFinder(PathFinder):
                     return spec
                     # return PathFinder.find_spec(fullname, [repo_path], target)
             else:
-                logger.error(f"Can't load module {fullname}: have you declared a repository for {names[1]}?")
+                logger.error(
+                    f"Can't load module {fullname}: have you declared a repository for {names[1]}?"
+                )
         # XXX special case service-template.yaml as service_template ?
         elif names[0] == "service_template":
             if path:
@@ -132,9 +138,11 @@ class ToscaYamlLoader(Loader):
             python_filepath = str(path.parent / (path.stem + ".py"))
             src = yaml_to_python(self.filepath, python_filepath)
         else:
+            python_filepath = str(path)
             with open(path) as f:
                 src = f.read()
         safe_mode = import_resolver.get_safe_mode() if import_resolver else True
+        module.__dict__["__file__"] = python_filepath
         restricted_exec(
             src, vars(module), path.parent, self.full_name, self.modules, safe_mode
         )
@@ -200,7 +208,9 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
     if name.startswith("tosca_repositories") or name.startswith("service_template"):
         spec = RepositoryFinder.find_spec(name, [base_dir])
         if not spec:
-            raise ModuleNotFoundError(f"No module named {name} (base: {base_dir})", name=name)
+            raise ModuleNotFoundError(
+                f"No module named {name} (base: {base_dir})", name=name
+            )
     else:
         if parent:
             parent_path = get_module_path(modules[parent])
@@ -212,9 +222,7 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
         if name in ALLOWED_PRIVATE_PACKAGES:
             spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
         else:
-            if os.path.isdir(origin_path) and not os.path.isfile(
-                    origin_path + ".py"
-                ):
+            if os.path.isdir(origin_path) and not os.path.isfile(origin_path + ".py"):
                 spec = ModuleSpec(name, None, origin=origin_path, is_package=True)
             else:
                 origin_path += ".py"
@@ -320,7 +328,7 @@ def __safe_import__(
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
-        base_dir = os.path.normpath(os.path.join(base_dir, '.' * level))
+        base_dir = os.path.normpath(os.path.join(base_dir, "." * level))
 
     # load user code in our restricted environment
     module = load_private_module(base_dir, modules, name)
@@ -629,7 +637,7 @@ def restricted_exec(
     )
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = full_name
-    if base_dir:
+    if base_dir and "__file__" not in namespace:
         namespace["__file__"] = (
             os.path.join(base_dir, full_name.replace(".", "/")) + ".py"
         )

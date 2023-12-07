@@ -201,6 +201,10 @@ class PythonToYaml:
 
         path = Path(get_module_path(module))
         yaml_path = path.parent / (path.stem + ".yaml")
+        if module.__name__.startswith("unfurl"):
+            logger.debug("skipping saving imported python module as YAML: "
+                "not converting built-in module: %s", module.__name__)
+            return yaml_path
         assert module.__file__
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
             logger.info(
