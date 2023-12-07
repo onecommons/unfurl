@@ -925,7 +925,11 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
         assert output[1] == exp_path
 
 
-def test_sandbox():
+def test_sandbox(capsys):
+    _to_yaml("print('hello', 'world')", True)
+    captured = capsys.readouterr()
+    assert captured.out == "hello world"
+
     # disallowed imports parse but raise ImportError when accessed
     imports = [
         "import sys",

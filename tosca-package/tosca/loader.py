@@ -19,7 +19,7 @@ import builtins
 from toscaparser.imports import ImportResolver
 from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
-from RestrictedPython import safe_builtins, PrintCollector
+from RestrictedPython import safe_builtins
 from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAMES
 from . import Namespace, global_state
 
@@ -529,6 +529,29 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None):
     # sys.path_importer_cache.clear()
     # invalidate_caches()
     installed = True
+
+class PrintCollector:
+    # based on RestrictedPython/PrintCollector.py but make it actually print something
+    """Collect written text, and return it when called."""
+
+    def __init__(self, _getattr_=None):
+        self.txt = []
+        self._getattr_ = _getattr_
+
+    def write(self, text):
+        self.txt.append(text)
+
+    def __call__(self):
+        # not sure when this called?
+        return "".join(self.txt)
+
+    def _call_print(self, *objects, **kwargs):
+        if kwargs.get("file", None) is None:
+            kwargs["file"] = self
+        else:
+            self._getattr_(kwargs["file"], "write")
+        # print(*object) doesn't work but this does:
+        sys.stdout.write(' '.join(str(o) for o in objects))
 
 
 def restricted_exec(
