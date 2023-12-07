@@ -145,12 +145,16 @@ class PythonToYaml:
                 if not self.import_resolver or not self.import_resolver.get_repository(
                     repo, None
                 ):
+                    logger.warning(
+                        f"couldn't find {repo} in {self.import_resolver.manifest.repositories}"
+                    )
                     # if repository has already been defined, don't add it here (it will probably be wrong)
-                    repositories[repo] = dict(url=self.repos[repo].as_uri())
+                    # repositories[repo] = dict(url=self.repos[repo].as_uri())
             imports.append(_import)
         if repositories:
             self.sections.setdefault("repositories", {}).update(repositories)
         if imports:
+            logger.warning("skipping imports for now %s", imports)
             self.sections.setdefault("imports", []).extend(imports)
 
     def add_template(self, obj: ToscaType, name: str = "", module_name="") -> str:
@@ -321,11 +325,18 @@ class PythonToYaml:
                 yaml_path = self._imported_module2yaml(module)
             if yaml_path and path:
                 try:
-                    self.imports.add(("", yaml_path.relative_to(path)))
+                    import_path = yaml_path.relative_to(path)
+                    self.imports.add(("", import_path))
+                    logger.warning(
+                        f"added suspect import {import_path} relative_to {path}"
+                    )
                 except ValueError:
                     # not a subpath of the current module, add a repository
                     ns, path = self._set_repository_for_module(module_name, yaml_path)
                     if path:
+                        logger.warning(
+                            f"added suspect import {import_path} in package {ns} relative_to {path}"
+                        )
                         self.imports.add((ns, path))
                     else:
                         if ns:
