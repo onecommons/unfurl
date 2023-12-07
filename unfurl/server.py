@@ -1914,7 +1914,7 @@ def _patch_ensemble(
             use_environment=environment,
             use_deployment_blueprint=deployment_blueprint,
             home=current_working_dir,
-            # parent_localenv=parent_localenv,
+            parent_localenv=parent_localenv,
         )
         logger.info(msg)
     # elif clone:
@@ -2400,6 +2400,7 @@ class ServerCacheResolver(SimpleCacheResolver):
                     self.set_cache(cache_entry.cache_key(), doc)
 
         if private:
+            logger.trace(f"load_yaml of {url}: server falling back to private {repo_view.repo}")
             doc, cacheable = super().load_yaml(url, fragment, ctx)
             # XXX support private cache deps (need to save last_commit, provide repo_view.working_dir)
         elif err:

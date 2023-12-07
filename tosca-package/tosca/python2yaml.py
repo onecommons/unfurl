@@ -30,7 +30,7 @@ from ._tosca import (
     WritePolicy,
     InstanceProxy,
     ValueType,
-    _Tosca_Field
+    _Tosca_Field,
 )
 from .loader import restricted_exec, get_module_path
 
@@ -64,6 +64,7 @@ class PythonToYaml:
     def find_yaml_import(
         self, module_name: str
     ) -> Tuple[Optional[ModuleType], Optional[Path]]:
+        "Find the given Python module and corresponding yaml file path"
         module = self.modules.get(module_name) or sys.modules.get(module_name)
         if not module:
             return None, None
@@ -97,7 +98,10 @@ class PythonToYaml:
         else:
             repo_path = Path(root_path).parent
         self.repos[repo_name] = repo_path
-        return repo_name, path.relative_to(repo_path)
+        try:
+            return repo_name, path.relative_to(repo_path)
+        except ValueError:
+            return repo_name, repo_path
 
     @staticmethod
     def _add_type(t, types_used):
@@ -202,8 +206,11 @@ class PythonToYaml:
         path = Path(get_module_path(module))
         yaml_path = path.parent / (path.stem + ".yaml")
         if module.__name__.startswith("unfurl"):
-            logger.debug("skipping saving imported python module as YAML: "
-                "not converting built-in module: %s", module.__name__)
+            logger.debug(
+                "skipping saving imported python module as YAML: "
+                "not converting built-in module: %s",
+                module.__name__,
+            )
             return yaml_path
         assert module.__file__
         if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
@@ -308,22 +315,29 @@ class PythonToYaml:
             # )
             # this type was imported from another module
             # instead of converting the type, add an import if missing
-            module, p = self.find_yaml_import(module_name)
-            if not p and module:
+            module, yaml_path = self.find_yaml_import(module_name)
+            if not yaml_path and module:
                 #  its a TOSCA object but no yaml file found, convert to yaml now
-                p = self._imported_module2yaml(module)
-            if p and path:
+                yaml_path = self._imported_module2yaml(module)
+            if yaml_path and path:
                 try:
-                    self.imports.add(("", p.relative_to(path)))
+                    self.imports.add(("", yaml_path.relative_to(path)))
                 except ValueError:
                     # not a subpath of the current module, add a repository
-                    ns, path = self._set_repository_for_module(module_name, p)
+                    ns, path = self._set_repository_for_module(module_name, yaml_path)
                     if path:
                         self.imports.add((ns, path))
                     else:
-                        logger.warning(
-                            f"import look up in {current_module} failed, can't find {module_name}"
-                        )
+                        if ns:
+                            logger.warning(
+                                f"import look up in {current_module} failed, {module_name} in package {ns} isn't relative to {yaml_path}",
+                                stack_info=True,
+                            )
+                        else:
+                            logger.warning(
+                                f"import look up in {current_module} failed, can't find {module_name}",
+                                stack_info=True,
+                            )
 
 
 def python_src_to_yaml_obj(
