@@ -335,10 +335,12 @@ def __safe_import__(
     if fromlist:
         if "*" in fromlist:
             # ok if there's no __all__ because default * will exclude names that start with "_"
-            for all_name in getattr(module, "__all__", ()):
-                if all_name[0] == "_":
+            safe = getattr(module, "__safe__", None)
+            if safe is not None:
+                all_name = getattr(module, "__all__", ())
+                if set(safe) != set(all_name):
                     raise ImportError(
-                        f'Import of * from {module.__name__} is not permitted, its __all__ has disallowed name "{all_name}"',
+                        f'Import of * from {module.__name__} is not permitted, its "__all__" does not match its "__safe__" attribute.',
                         name=module.__name__,
                     )
 
@@ -538,6 +540,7 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None):
     # invalidate_caches()
     installed = True
 
+
 class PrintCollector:
     # based on RestrictedPython/PrintCollector.py but make it actually print something
     """Collect written text, and return it when called."""
@@ -559,7 +562,7 @@ class PrintCollector:
         else:
             self._getattr_(kwargs["file"], "write")
         # print(*object) doesn't work but this does:
-        sys.stdout.write(' '.join(str(o) for o in objects))
+        sys.stdout.write(" ".join(str(o) for o in objects))
 
 
 def restricted_exec(
@@ -575,7 +578,10 @@ def restricted_exec(
     if FORCE_SAFE_MODE and not safe_mode:
         safe_mode = True
         if FORCE_SAFE_MODE in ["warn", "stacktrace"]:
-            logger.warning("Forcing safe mode for the TOSCA loader.", stack_info=FORCE_SAFE_MODE=="stacktrace")
+            logger.warning(
+                "Forcing safe mode for the TOSCA loader.",
+                stack_info=FORCE_SAFE_MODE == "stacktrace",
+            )
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
         modules = {} if safe_mode else sys.modules
