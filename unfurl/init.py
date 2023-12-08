@@ -737,6 +737,7 @@ class EnsembleBuilder:
             manifestPath,
             project=project,
             override_context=self.options.get("use_environment"),
+            parent=self.options.get("parent_localenv"),
         )
         manifest = yamlmanifest.ReadOnlyManifest(
             localEnv=localEnv, vault=localEnv.get_vault()

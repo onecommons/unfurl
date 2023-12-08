@@ -2289,6 +2289,7 @@ class ServerCacheResolver(SimpleCacheResolver):
             not base_url or not repo_view.url.startswith(base_url) or repo_view.repo
         )
         if private:
+            logger.trace(f"find_repository_path on server falling back to private for {repo_view.url} ({repo_view.repo})")
             return self._get_link_to_repo(repo_view, base_path)
         else:
             project_id, branch = self._project_id_from_repo(repo_view)
@@ -2400,6 +2401,7 @@ class ServerCacheResolver(SimpleCacheResolver):
                     self.set_cache(cache_entry.cache_key(), doc)
 
         if private:
+            logger.trace(f"load yaml for {url}: server falling back to private with {repo_view.repo} {err}")
             doc, cacheable = super().load_yaml(url, fragment, ctx)
             # XXX support private cache deps (need to save last_commit, provide repo_view.working_dir)
         elif err:

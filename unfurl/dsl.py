@@ -51,6 +51,7 @@ from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
 from tosca._tosca import _Tosca_Field, _ToscaType, global_state
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
+from .logs import getLogger
 from .eval import RefContext, set_eval_func
 from .result import Results, ResultsItem, ResultsMap
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
@@ -79,6 +80,7 @@ from unfurl.yamlmanifest import YamlManifest
 if TYPE_CHECKING:
     from .yamlloader import ImportResolver
 
+logger = getLogger("unfurl")
 
 _N = TypeVar("_N", bound=tosca.Namespace)
 
@@ -129,6 +131,7 @@ def convert_to_yaml(
 
     import_resolver.expand = False
     namespace: Dict[str, Any] = {}
+    logger.trace(f"converting {path} to Python in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}")
     if repo_view and repo_view.repository:
         package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
         relpath = str(package_path).strip("/").replace("/", ".")
@@ -161,6 +164,9 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
+    if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
+        print("converted ", path, "to:")
+        pprint.pprint(yaml_src)
     return yaml_src
 
 
