@@ -23,8 +23,8 @@ class TerraformInputs(ShellInputs):
     dryrun_mode: Literal["plan", "real"] = "plan"
     dryrun_output: Union[None, str, Dict[str, Any]] = None
 
-tfvar = tosca.PropertyOptions(["tfvar"])
-tfoutput = tosca.AttributeOptions(["tfoutput"])
+tfvar = tosca.PropertyOptions(dict(tfvar=True))
+tfoutput = tosca.AttributeOptions(dict(tfoutput=True))
 
 def _get_env(env, verbose, dataDir):
     env["TF_IN_AUTOMATION"] = "1"

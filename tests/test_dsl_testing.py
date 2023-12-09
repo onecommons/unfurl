@@ -1,7 +1,8 @@
+import pytest
 import unfurl
 import tosca
 from unfurl.dsl import runtime_test
-
+from unfurl.configurators.terraform import tfoutput, tfvar
 
 class Service(tosca.nodes.Root):
     host: str = tosca.Attribute()
@@ -39,3 +40,18 @@ def test_runtime_test():
     assert topology.service.host == "example.com"
     assert topology.service.url == "https://example.com"
     assert topology.service.host == "example.com"
+
+def test_options():
+    class MyOption(tosca.Options):
+        def __init__(self, val: str):
+            super().__init__(dict(my_option=val))
+
+    p = tosca.Property(options=tfvar)
+    assert p.metadata == dict(tfvar=True)
+    tosca.Attribute(options=tfoutput)
+    with pytest.raises(ValueError):
+        tosca.Attribute(options=tfvar)
+    with pytest.raises(ValueError):
+        tosca.Property(options=tfoutput)
+    field = tosca.Property(options=tfvar|MyOption("foo"))
+    assert field.metadata == dict(tfvar=True, my_option="foo")

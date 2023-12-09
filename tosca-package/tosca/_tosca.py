@@ -440,17 +440,82 @@ class _CONSTRAINED_TYPE:
 CONSTRAINED: Any = _CONSTRAINED_TYPE()
 
 
-class Options(frozenset):
-    def asdict(self):
-        return {n: True for n in self}
+class Options:
+    """
+    A utility class to enable structured and validated metadata on TOSCA fields.
+    Options are passed to the field specifier functions and merged with unstructured metadata.
+    The user can use the | operator to merge Options together.
+    """
+
+    def __init__(self, data: Dict[str, JsonType]):
+        """
+        Args:
+            data (Dict[str, JsonType]): Metadata to be add to the field specifier.
+        """
+        self.data = data
+        self.next: Optional[Options] = None
+
+    def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
+        """
+        This is called when initializing the field these options were passed to.
+        The field's metadata will have already been set, including the data in this Options instance.
+
+        Args:
+            field (_Tosca_Field): The field that these Options has been assigned to.
+
+        Returns:
+            Tuple[bool, str]: Whether validation succeeded and an optional error message if it didn't.
+        """
+        return True, ""
+
+    def set_options(self, field: "_Tosca_Field"):
+        metadata = field.metadata.copy()
+        option: Optional[Options] = self
+        while option:
+            metadata.update(option.data)
+            option = option.next
+        field.metadata = types.MappingProxyType(metadata)
+
+        option = self
+        while option:
+            valid, msg = option.validate(field)
+            if not valid:
+                raise ValueError(
+                    f'Invalid option for field "{field.name}": {option.data}. {msg}'
+                )
+            option = option.next
+
+    def __or__(self, __value: "Options") -> "Options":
+        if isinstance(__value, dict):
+            __value = Options(__value)
+        elif not isinstance(__value, Options):
+            raise TypeError(f"Options | {type(__value)} not supported.")
+        self.next = __value
+        return self
+
+    def __ror__(self, __value: "Options") -> "Options":
+        if isinstance(__value, dict):
+            __value = Options(__value)
+        elif not isinstance(__value, Options):
+            raise TypeError(f"Options | {type(__value)} not supported.")
+        self.next = __value
+        return self
 
 
 class PropertyOptions(Options):
-    pass
+    def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
+        return (
+            field.tosca_field_type == ToscaFieldType.property,
+            "This option only works with properties.",
+        )
 
 
 class AttributeOptions(Options):
-    pass
+    def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
+        return (
+            field.tosca_field_type == ToscaFieldType.attribute,
+            "This option only works with attributes.",
+        )
 
 
 _T = TypeVar("_T")
@@ -480,8 +545,6 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     ):
         if metadata is None:
             metadata = {}
-        if options:
-            metadata.update(options.asdict())
         args = [
             self,
             default,
@@ -513,6 +576,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         self.status = status
         self.declare_attribute = declare_attribute
         self.constraints: List[DataConstraint] = constraints or []
+        if options:
+            options.set_options(self)
         self.deferred_property_assignments: Dict[str, Any] = {}
         self._type_info: Optional[TypeInfo] = None
 
@@ -975,13 +1040,13 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
         default (Any, optional): Default value. Set to None if the {name} isn't required. Defaults to MISSING.
         factory (Callable, optional): Factory function to initialize the {name} with a unique value per template. Defaults to MISSING.
         name (str, optional): TOSCA name of the field, overrides the {name}'s name when generating YAML. Defaults to "".
-        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the {name}.\n"""
+        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the {name}.
+        options (Options, optional): Additional typed metadata to merge into metadata.\n"""
     indent = "        "
     if status:
         doc += f"{indent}constraints (List[DataConstraints], optional): List of TOSCA property constraints to apply to the {name}.\n"
         doc += f"{indent}title (str, optional): Human-friendly alternative name of the {name}.\n"
         doc += f"{indent}status (str, optional): TOSCA status of the {name}.\n"
-        doc += f"{indent}options ({func.__name__}Options, optional): Typed metadata to apply.\n"
     for arg in extra:
         doc += f"{indent}{arg}\n"
     func.__doc__ = doc
@@ -999,7 +1064,7 @@ def Attribute(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[AttributeOptions] = None,
+    options: Optional[Options] = None,
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
@@ -1016,7 +1081,7 @@ def Attribute(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[AttributeOptions] = None,
+    options: Optional[Options] = None,
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
@@ -1032,7 +1097,7 @@ def Attribute(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[AttributeOptions] = None,
+    options: Optional[Options] = None,
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
@@ -1049,7 +1114,7 @@ def Attribute(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[AttributeOptions] = None,
+    options: Optional[Options] = None,
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
@@ -1079,7 +1144,7 @@ def Property(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[PropertyOptions] = None,
+    options: Optional[Options] = None,
     attribute: bool = False,
 ) -> _T:
     ...
@@ -1094,7 +1159,7 @@ def Property(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[PropertyOptions] = None,
+    options: Optional[Options] = None,
     attribute: bool = False,
 ) -> _T:
     ...
@@ -1108,7 +1173,7 @@ def Property(
     metadata: Optional[Dict[str, JsonType]] = None,
     title="",
     status="",
-    options: Optional[PropertyOptions] = None,
+    options: Optional[Options] = None,
     attribute: bool = False,
 ) -> Any:
     ...
@@ -1123,7 +1188,7 @@ def Property(
     metadata: Optional[Dict[str, JsonType]] = None,
     title: str = "",
     status: str = "",
-    options: Optional[PropertyOptions] = None,
+    options: Optional[Options] = None,
     attribute: bool = False,
 ) -> Any:
     return _Tosca_Field(
@@ -1158,7 +1223,7 @@ def Computed(
     metadata: Optional[Dict[str, JsonType]] = None,
     title: str = "",
     status: str = "",
-    options: Optional["PropertyOptions"] = None,
+    options: Optional["Options"] = None,
     attribute: bool = False,
 ) -> RT:
     """Field specifier for declaring a TOSCA property whose value is computed by the factory function at runtime.
@@ -1169,7 +1234,7 @@ def Computed(
         metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the property.
         title (str, optional): Human-friendly alternative name of the property.
         status (str, optional): TOSCA status of the property.
-        options (PropertyOptions, optional): Typed metadata to apply.
+        options (Options, optional): Typed metadata to apply.
         attribute (bool, optional): Indicate that the property is also a TOSCA attribute.
 
     Return type:
@@ -1200,6 +1265,7 @@ def Requirement(
     default: _T,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     relationship: Union[str, Type["RelationshipType"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
@@ -1214,6 +1280,7 @@ def Requirement(
     factory: Callable[[], _T],
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     relationship: Union[str, Type["RelationshipType"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
@@ -1227,6 +1294,7 @@ def Requirement(
     *,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     relationship: Union[str, Type["RelationshipType"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
@@ -1241,13 +1309,19 @@ def Requirement(
     factory=MISSING,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     relationship: Union[str, Type["RelationshipType"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> Any:
     field: Any = _Tosca_Field(
-        ToscaFieldType.requirement, default, factory, name, metadata
+        ToscaFieldType.requirement,
+        default,
+        factory,
+        name,
+        metadata,
+        options=options,
     )
     field.relationship = relationship
     field.capability = capability
@@ -1274,6 +1348,7 @@ def Capability(
     default: _T,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
 ) -> _T:
     ...
@@ -1285,6 +1360,7 @@ def Capability(
     factory: Callable[[], _T],
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
 ) -> _T:
     ...
@@ -1295,6 +1371,7 @@ def Capability(
     *,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
 ) -> Any:
     ...
@@ -1306,10 +1383,16 @@ def Capability(
     factory=MISSING,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
 ) -> Any:
     field: Any = _Tosca_Field(
-        ToscaFieldType.capability, default, factory, name, metadata
+        ToscaFieldType.capability,
+        default,
+        factory,
+        name,
+        metadata,
+        options=options,
     )
     field.valid_source_types = valid_source_types or []
     return field
@@ -1330,6 +1413,7 @@ def Artifact(
     default: _T,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
 ) -> _T:
     ...
 
@@ -1340,6 +1424,7 @@ def Artifact(
     factory: Callable[[], _T],
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
 ) -> _T:
     ...
 
@@ -1349,6 +1434,7 @@ def Artifact(
     *,
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
 ) -> Any:
     ...
 
@@ -1359,8 +1445,11 @@ def Artifact(
     factory=MISSING,
     name="",
     metadata=None,
+    options: Optional["Options"] = None,
 ) -> Any:
-    return _Tosca_Field(ToscaFieldType.artifact, default, factory, name, metadata)
+    return _Tosca_Field(
+        ToscaFieldType.artifact, default, factory, name, metadata, options=options
+    )
 
 
 _make_field_doc(Artifact)
@@ -1407,12 +1496,6 @@ class _Ref:
 
     def __repr__(self):
         return f"_Ref({self.expr})"
-
-    def __or__(self, __value: Any) -> "_Ref":
-        return _Ref(dict(eval={"or": [self.expr, __value]}))
-
-    def __and__(self, __value: Any) -> "_Ref":
-        return _Ref(dict(eval={"and": [self.expr, __value]}))
 
     def to_yaml(self, dict_cls=None):
         return to_tosca_value(self.expr, dict_cls or yaml_cls)
