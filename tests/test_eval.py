@@ -49,7 +49,8 @@ class EvalTest(unittest.TestCase):
             ],
             "e": {"a1": {"b1": "v1"}, "a2": {"b2": "v2"}},
             "f": {"a": 1, "b": {"ref": ".::f::a"}},
-            "empty_list": []
+            "empty_list": [],
+            "ports": ["80:81"]
         }
         if more:
             resourceDef.update(more)
@@ -255,6 +256,19 @@ class EvalTest(unittest.TestCase):
         }
         result7 = Ref(test7).resolve_one(RefContext(resource, vars=dict(p="80:81"), trace=0))
         assert result7 == [PortSpec.make("80:81")]
+
+        test8 = {
+            "eval": ".::ports",
+            "foreach": {
+                "eval": {"portspec": {"eval": "$item"}}
+            }
+        }
+        result8 = Ref(test8).resolve_one(RefContext(resource, trace=0))
+        assert result8 == [PortSpec.make("80:81")]
+
+        mapped = ResultsMap._map_value(dict(test8=test8), RefContext(resource))
+        assert mapped["test8"] == [PortSpec.make("80:81")]
+
 
     def test_serializeValues(self):
         resource = self._getTestResource()

@@ -2119,7 +2119,7 @@ def _get_field(cls_or_obj, name):
     if not isinstance(cls_or_obj, type):
         return cls_or_obj.get_instance_field(name)
     else:
-        return cls_or_obj.__dataclass_fields__.get(name)
+        return cls_or_obj.__dataclass_fields__.get(name)  # type: ignore
 
 class ToscaType(_ToscaType):
     # NB: _name needs to come first for python < 3.10

@@ -671,14 +671,14 @@ class Results(ABC):
             return val
         elif Ref.is_ref(val):
             results = Ref(val).resolve(context, wantList="result")
-            if not results:
-                return None
+            if "foreach" in val or len(results) > 1:
+                # the whole list was computed, not individual items, so they will be marked as new items
+                items = [ResultsItem(r) for r in results]
+                return ResultsList(items, context, False, defs or {})
             elif len(results) == 1:
                 return results[0]
             else:
-                # the whole list was computed, not individual items, so they will be marked as new items
-                items = [ResultsItem(r) for r in val]
-                return ResultsList(items, context, False, defs or {})
+                return None
         elif isinstance(val, sensitive):
             return val
         elif isinstance(val, Mapping):
