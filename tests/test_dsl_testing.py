@@ -25,6 +25,10 @@ def test_runtime_test():
     # start in spec mode, where properties always return eval expressions
     assert test.service.url == {"eval": "::test_service::url"}
 
+    assert test.service.get_field("url") == Service.get_field("url")
+    # Service.url is a FieldProjection
+    assert test.service.get_field("url") == Service.url.field  # type: ignore
+
     # switch to "runtime" mode, which returns properties' values but computed expressions still are unevaluated
     tosca.global_state.mode = "runtime"
     assert test.service.url == "{{ SELF.url_scheme }}://{{SELF.host }}"

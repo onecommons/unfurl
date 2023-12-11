@@ -122,7 +122,7 @@ class PythonToYaml:
                 for t in self.templates:
                     self._add_type(t.__class__, types_used)
                     for name in t.__annotations__:
-                        field = t.get_field(name)
+                        field = t.get_instance_field(name)
                         if isinstance(field, _Tosca_Field):
                             ti = field.get_type_info_checked()
                             if ti and ti.types and issubclass(ti.types[0], ToscaType):

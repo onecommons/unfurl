@@ -41,6 +41,7 @@ from typing import (
     Optional,
     Type,
     TypeVar,
+    Union,
     cast,
     TYPE_CHECKING,
     Tuple,
@@ -48,16 +49,16 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
-from tosca._tosca import _Tosca_Field, _ToscaType, global_state
+from tosca._tosca import _Tosca_Field, _ToscaType, global_state, FieldProjection, _Ref
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .logs import getLogger
-from .eval import RefContext, set_eval_func
+from .eval import RefContext, set_eval_func, Ref
 from .result import Results, ResultsItem, ResultsMap
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
 from .repo import RepoView
-from .util import check_class_registry, get_base_dir, register_class
+from .util import UnfurlError, check_class_registry, get_base_dir, register_class
 from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy, PythonToYaml
 from unfurl.configurator import Configurator, TaskView
 from typing_extensions import (
@@ -255,6 +256,10 @@ set_eval_func("computed", eval_computed)
 
 
 class ProxyCollection:
+    """
+    For proxying properties and attributes with lists and maps.
+    It will create proxies of Tosca datatypes on demand.
+    """
     def __init__(self, collection, field: _Tosca_Field):
         self._values = collection
         self._field = field
@@ -367,7 +372,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
 
     def _get_field(self, name):
         if self._obj:
-            return self._obj.get_field(name)
+            return self._obj.get_instance_field(name)
         else:
             return self._cls.__dataclass_fields__.get(name)
 

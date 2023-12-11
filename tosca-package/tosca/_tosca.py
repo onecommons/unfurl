@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import copy
 import dataclasses
 from enum import Enum
+import functools
 import inspect
 import threading
 import typing
@@ -2103,6 +2104,22 @@ class ToscaInputs(_ToscaType):
 class ToscaOutputs(_ToscaType):
     pass
 
+class anymethod:
+    def __init__(self, func: Callable, keyword=None):
+        self.func = func
+        self.keyword = keyword
+
+    def __get__(self, obj, objtype) -> Callable:
+        if self.keyword:
+            return functools.partial(self.func, **{self.keyword: obj or objtype})
+        else:
+            return functools.partial(self.func, obj or objtype)
+
+def _get_field(cls_or_obj, name):
+    if not isinstance(cls_or_obj, type):
+        return cls_or_obj.get_instance_field(name)
+    else:
+        return cls_or_obj.__dataclass_fields__.get(name)
 
 class ToscaType(_ToscaType):
     # NB: _name needs to come first for python < 3.10
@@ -2364,7 +2381,14 @@ class ToscaType(_ToscaType):
     def to_yaml(self, dict_cls=dict):
         return self._name
 
-    def get_field(self, name) -> Optional[dataclasses.Field]:
+    if typing.TYPE_CHECKING:
+        @classmethod
+        def get_field(cls, name) -> Optional[dataclasses.Field]:
+            return None
+    else:
+        get_field = anymethod(_get_field)
+
+    def get_instance_field(self, name) -> Optional[dataclasses.Field]:
         field = object.__getattribute__(self, "__dataclass_fields__").get(name)
         if field:
             return field
