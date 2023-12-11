@@ -334,7 +334,7 @@ topology_template:
 example_helloworld_python = '''
 """Template for deploying a single server with predefined properties."""
 import tosca
-from tosca import *  # imports GB, MB scalars
+from tosca import *  # imports GB, MB scalars, tosca_version
 db_server = tosca.nodes.Compute(
     "db_server",
     host=tosca.capabilities.Compute(
@@ -346,7 +346,7 @@ db_server = tosca.nodes.Compute(
         architecture="x86_64",
         type="linux",
         distribution="rhel",
-        version="6.5",
+        version=tosca_version("6.5"),
     ),
 )
 '''
@@ -515,6 +515,19 @@ def test_custom_interface():
     # yaml.dump(yaml_dict, sys.stdout)
     tosca_yaml = load_yaml(yaml, custom_interface_yaml)
     assert yaml_dict == tosca_yaml
+
+
+def test_bad_field():
+    class BadNode(tosca.nodes.Root):
+        a_property: str = tosca.Property()
+
+    test = BadNode(a_property=test_builtin_generation)
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    with pytest.raises(TypeError):
+        yaml_dict = converter.module2yaml()
+        yaml.dump(yaml_dict, sys.stdout)
 
 
 def test_class_init() -> None:

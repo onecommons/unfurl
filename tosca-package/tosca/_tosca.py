@@ -339,12 +339,26 @@ def get_optional_type(_type) -> Tuple[bool, Any]:
             return True, _types[0]
     return False, _type
 
+Collection_Types = (list, collections.abc.Sequence, dict)
 
 class TypeInfo(NamedTuple):
     optional: bool
-    collection: Optional[type]
+    # keep in sync with collection_types:
+    collection: Optional[Union[Type[tuple], Type[list], Type[dict]]]
     types: tuple
     metadata: Any
+
+    def instance_check(self, value: Any):
+        if self.optional and value is None:
+            return True
+        if self.collection:
+            if isinstance(value, Collection_Types):
+                for item in value:
+                    if not isinstance(value, self.types):
+                        return False
+                return True
+        elif isinstance(value, self.types):
+            return True
 
 
 def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
@@ -357,12 +371,11 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
         metadata = None
     origin = get_origin(_type)
     collection = None
-    collection_types = (list, collections.abc.Sequence, dict)
-    if origin in collection_types:
-        if origin == collections.abc.Sequence:
-            collection = list
-        else:
-            collection = origin
+    if origin == collections.abc.Sequence:
+        collection = list
+    elif origin in Collection_Types:
+        collection = origin
+    if collection:
         args = get_args(_type)
         if args:
             _type = get_args(_type)[1 if origin is dict else 0]
@@ -2440,6 +2453,8 @@ class ToscaType(_ToscaType):
                 if field.default == value:
                     # XXX datatype values don't compare properly, should have logic like CapabilityType above
                     continue
+                if not isinstance(value, _Ref) and not field.get_type_info().instance_check(value):
+                    raise TypeError(f'{field.tosca_field_type.name} "{field.name}"\'s value has wrong type: it\'s a {type(value)}, not a {field.type}.')
                 body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
                     value
                 )

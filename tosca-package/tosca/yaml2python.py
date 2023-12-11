@@ -370,6 +370,7 @@ class Convert:
         if repo:
             # generate repo import if repository: key given
             module_name, _import_path = self.find_repository(repo)
+            # XXX add comment with repo url
             import_path = PurePath(_import_path)
         else:
             # otherwise assume local path
@@ -590,7 +591,11 @@ class Convert:
                 return value + "*" + unit, False
             if typename:
                 # simple value type
-                return value2python_repr(value), False
+                if datatype in ["timestamp", "version"]:  # use wrapper type
+                    self.imports.add_tosca_from(typename)
+                    return f"{typename}({value2python_repr(value)})", False
+                else:
+                    return value2python_repr(value), False
             else:
                 # its a tosca datatype
                 typename, cls = self.imports.get_type_ref(datatype)
