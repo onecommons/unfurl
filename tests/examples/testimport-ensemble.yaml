@@ -8,7 +8,7 @@ spec:
     topology_template:
       outputs:
         aOutput:
-          value: {eval: ::testPrefix::anAttribute}
+          value: {eval: "::testPrefix::anAttribute"}
       node_templates:
         testPrefix:
           type: A.Test

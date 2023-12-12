@@ -132,7 +132,9 @@ def convert_to_yaml(
 
     import_resolver.expand = False
     namespace: Dict[str, Any] = {}
-    logger.trace(f"converting {path} to Python in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}")
+    logger.trace(
+        f"converting {path} to Python in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}"
+    )
     if repo_view and repo_view.repository:
         package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
         relpath = str(package_path).strip("/").replace("/", ".")
@@ -260,6 +262,7 @@ class ProxyCollection:
     For proxying properties and attributes with lists and maps.
     It will create proxies of Tosca datatypes on demand.
     """
+
     def __init__(self, collection, field: _Tosca_Field):
         self._values = collection
         self._field = field
@@ -390,6 +393,60 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         else:
             return self._cls.__str__(self)  # type: ignore
 
+    def find_required_by(
+        self,
+        requirement: Union[str, FieldProjection],
+        Expected: Optional[Type[tosca.NodeType]] = None,
+    ) -> tosca.NodeType:
+        """
+        Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
+        """
+        ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
+            requirement, Expected
+        )
+        assert isinstance(ref, _Ref)  # actually it will be a _Ref
+        result = Ref(cast(_Ref, ref).expr).resolve_one(self._context)
+        expected = Expected or tosca.nodes.Root
+        if isinstance(requirement, str):
+            requirement_name = requirement
+        else:
+            requirement_name = requirement.tosca_name
+        if not result:
+            raise UnfurlError(f"No {requirement_name} found")
+        if isinstance(result, MutableMapping):
+            raise UnfurlError(f"More than one {requirement_name} found")
+        proxied = proxy_instance(result, expected, self._context)
+        if not isinstance(proxied, expected):
+            raise UnfurlError(
+                f"Expected type {expected} for {result} for {requirement_name}"
+            )
+        return proxied
+
+    def find_all_required_by(
+        self,
+        requirement: Union[str, FieldProjection],
+        Expected: Optional[Type[tosca.NodeType]] = None,
+    ) -> List[tosca.NodeType]:
+        """
+        Runtime version of NodeType (and RelationshipType)'s find_all_required_by, executes the eval expression returned by that method.
+        """
+        ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
+            requirement, Expected
+        )
+        assert isinstance(ref, _Ref)  # actually it will be a _Ref
+        result = Ref(cast(_Ref, ref).expr).resolve(self._context)
+        expected = Expected or tosca.nodes.Root
+        if isinstance(requirement, str):
+            requirement_name = requirement
+        else:
+            requirement_name = requirement.tosca_name
+        proxied = [proxy_instance(item, expected, self._context) for item in result]
+        if not all(isinstance(node, expected) for node in proxied):
+            raise UnfurlError(
+                f"Expected type {expected} for {result} for {requirement_name}"
+            )
+        return proxied
+
     if not TYPE_CHECKING:
 
         def __getattr__(self, name):
@@ -486,9 +543,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     if isinstance(val, types.MethodType):
                         # so we can call with proxy as self
                         val = val.__func__
-                    assert (
-                        global_state.context
-                    )  # should have been set by _invoke() earlier in the call stack.
+                    # should have been set by _invoke() earlier in the call stack.
+                    assert global_state.context
                     return functools.partial(val, self)
                 return val
             elif name in self._instance.attributes:  # untyped properties

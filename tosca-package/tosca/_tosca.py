@@ -1619,8 +1619,12 @@ class FieldProjection(_Ref):
         req_filters.append({tosca_name: req_filter})
         return req_filter
 
+    @property
+    def tosca_name(self):
+        return self.field.tosca_name
+
     def __setattr__(self, name, val):
-        if name in ["expr", "field", "parent"]:
+        if name in ["expr", "field", "parent", "tosca_name"]:
             object.__setattr__(self, name, val)
             return
 
@@ -2104,6 +2108,7 @@ class ToscaInputs(_ToscaType):
 class ToscaOutputs(_ToscaType):
     pass
 
+
 class anymethod:
     def __init__(self, func: Callable, keyword=None):
         self.func = func
@@ -2382,9 +2387,11 @@ class ToscaType(_ToscaType):
         return self._name
 
     if typing.TYPE_CHECKING:
+
         @classmethod
         def get_field(cls, name) -> Optional[dataclasses.Field]:
             return None
+
     else:
         get_field = anymethod(_get_field)
 
@@ -2502,7 +2509,133 @@ class ToscaType(_ToscaType):
         return getattr(loaded, class_name)
 
 
+_TT = TypeVar("_TT", bound="NodeType")
+
+
+# source_requirement set to the types the type checker will see,
+# e.g. Foo.my_requirement
+def find_required_by(
+    requirement_name: Union[str, "CapabilityType", "NodeType", "RelationshipType"],
+    expected_type: Union[Type[_TT], None] = None,
+    cls_or_obj=None,
+) -> _TT:
+    """
+    find_required_by(requirement_name: str | FieldProjection, expected_type: Type[NodeType] | None = None)
+
+    Finds the node template with a requirement named ``requirement_name`` whose value is this template.
+
+    For example:
+
+    .. code-block:: python
+
+        class A(NodeType):
+          pass
+
+        class B(NodeType):
+          connects_to: A
+
+        a = A()
+        b = B(connects_to=a)
+
+        >>> a.find_required_by(B.connects_to, B)
+        b
+
+    If no match is found, or more than one match is found, an error is raised.
+    If 0 or more matches are expected, use `find_all_required_by`.
+
+    If called during class definition this will return an eval expression.
+    If called as a classmethod or as a free function it will evaluate in the current context.
+
+    For example, to expand on the example above:
+
+    .. code-block:: python
+
+      class A(NodeType):
+        parent: B = find_required_by(B.connects_to, B)
+
+    Args:
+        requirement_name (str | FieldProjection): Either the name of the req, or for a more type safety, a reference to the requirement (e.g. ``B.connects_to`` in the example above).
+        expected_type (NodeType, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
+
+    Returns:
+        NodeType: The node template that is targeting this template via the requirement.
+    """
+
+    if isinstance(requirement_name, FieldProjection):
+        source_field = requirement_name.field
+        req_name = requirement_name.field.tosca_name
+    elif isinstance(requirement_name, str):
+        req_name = requirement_name
+        source_field = None
+    elif isinstance(requirement_name, _Tosca_Field):
+        req_name = requirement_name.tosca_name
+        source_field = requirement_name
+    else:
+        raise TypeError(
+            f"{property} isn't a TOSCA field -- this method should be called from _class_init()"
+        )
+    if not source_field and expected_type:
+        field = expected_type.get_field(req_name)
+        if not field:
+            raise TypeError(f"{expected_type} doesn't have a field named {req_name}")
+        if isinstance(field, _Tosca_Field):
+            source_field = field
+        else:
+            raise TypeError(f"Field {req_name} on {expected_type} is not a requirement")
+        req_name = source_field.tosca_name
+    if source_field:
+        if source_field.tosca_field_type != ToscaFieldType.requirement:
+            raise TypeError(f"Field {req_name} is not a requirement")
+        if (
+            expected_type
+            and source_field.owner
+            and not issubclass(source_field.owner, expected_type)
+        ):
+            raise TypeError(
+                f"{expected_type} doesn't match the requirement's owner {source_field.owner}"
+            )
+        if cls_or_obj:
+            if not isinstance(cls_or_obj, type):
+                cls = cls_or_obj.__class__
+            else:
+                cls = cls_or_obj
+            if not issubclass(cls, source_field.get_type_info().types):
+                raise TypeError(
+                    f"{req_name}'s type is incompatible with {cls} -- wrong requirement?"
+                )
+    prefix = ""
+    if isinstance(cls_or_obj, NodeType) and cls_or_obj._name:
+        prefix = "::" + cls_or_obj._name + "::"
+    # XXX elif RelationshipType
+    expr = dict(eval=prefix + ".sources::" + req_name)
+    return cast(_TT, _Ref(expr))
+
+
+def find_all_required_by(
+    requirement_name: Union[str, "CapabilityType", "NodeType", "RelationshipType"],
+    expected_type: Union[Type[_TT], None] = None,
+    cls_or_obj=None,
+) -> List[_TT]:
+    """
+    find_all_required_by(requirement_name: str | FieldProjection, expected_type: Type[NodeType] | None = None)
+
+    Behaves the same as `find_required_by` but returns a list of all the matches found.
+    If no match is found, return an empty list.
+
+    Args:
+        requirement_name (str | FieldProjection): Either the name of the req, or for a more type safety, a reference to the requirement (e.g. ``B.connects_to`` in the example above).
+        expected_type (NodeType, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
+
+    Returns:
+        List[tosca.NodeType]:
+    """
+    ref = cast(_Ref, find_required_by(requirement_name, expected_type, cls_or_obj))
+    ref.expr["foreach"] = "$true"
+    return cast(List[_TT], ref)
+
+
 class NodeType(ToscaType):
+    "NodeType"
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
 
@@ -2523,6 +2656,32 @@ class NodeType(ToscaType):
     def find_artifact(self, name_or_tpl) -> Optional["ArtifactType"]:
         # XXX
         return None
+
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def find_required_by(
+            cls,
+            source_attr: Union[str, "NodeType", FieldProjection, None],
+            expected_type: Union[Type[_T], None] = None,
+        ) -> _T:
+            return cast(_T, None)
+
+    else:
+        find_required_by = anymethod(find_required_by, keyword="cls_or_obj")
+
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def find_all_required_by(
+            cls,
+            source_attr: Union[str, "NodeType", FieldProjection, None],
+            expected_type: Union[Type[_T], None] = None,
+        ) -> List[_T]:
+            return cast(List[_T], None)
+
+    else:
+        find_all_required_by = anymethod(find_all_required_by, keyword="cls_or_obj")
 
 
 class _OwnedToscaType(ToscaType):
@@ -2651,6 +2810,32 @@ class RelationshipType(ToscaType):
             return dataclasses.replace(self, _target=target)  # type: ignore
         self._target = target
         return self
+
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def find_required_by(
+            cls,
+            source_attr: Union[str, "RelationshipType", FieldProjection, None],
+            expected_type: Union[Type[_T], None],
+        ) -> _T:
+            return cast(_T, None)
+
+    else:
+        find_required_by = anymethod(find_required_by, keyword="cls_or_obj")
+
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def find_all_required_by(
+            cls,
+            source_attr: Union[str, "RelationshipType", FieldProjection, None],
+            expected_type: Union[Type[_T], None] = None,
+        ) -> List[_T]:
+            return cast(List[_T], None)
+
+    else:
+        find_all_required_by = anymethod(find_all_required_by, keyword="cls_or_obj")
 
 
 class ArtifactType(_OwnedToscaType):

@@ -651,6 +651,8 @@ def _for_each(
 def for_each(
     foreach: Union[Mapping, str], results: List[Result], ctx: RefContext
 ) -> List[Result]:
+    if foreach == "$true":
+        return results
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
         result = _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
     else:
