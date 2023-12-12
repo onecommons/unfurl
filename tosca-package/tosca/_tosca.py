@@ -110,14 +110,23 @@ class ToscaObject:
         return None
 
 
-class DataConstraint(ToscaObject):
-    def __init__(self, constraint):
+T = TypeVar("T")
+
+
+class DataConstraint(ToscaObject, Generic[T]):
+    """
+    Base class for :tosca_spec:`TOSCA property constraints <_Toc50125233>`. A subclass exists for each of those constraints.
+
+    These can be passed as `Property` and `Attribute` field specifiers or as a Python type annotations.
+    """
+
+    def __init__(self, constraint: T):
         self.constraint = constraint
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return {self.__class__.__name__: to_tosca_value(self.constraint)}
 
-    def apply_constraint(self, val: Any) -> bool:
+    def apply_constraint(self, val: T) -> bool:
         assert isinstance(val, FieldProjection), val
         val.apply_constraint(self)
         return True
@@ -143,15 +152,9 @@ class less_or_equal(DataConstraint):
     pass
 
 
-T = TypeVar("T")
-
-
 class in_range(DataConstraint, Generic[T]):
     def __init__(self, min: T, max: T):
         super().__init__([min, max])
-
-    def apply_constraint(self, val: Optional[T]) -> bool:
-        return super().apply_constraint(val)
 
 
 class valid_values(DataConstraint):
@@ -340,7 +343,9 @@ def get_optional_type(_type) -> Tuple[bool, Any]:
             return True, _types[0]
     return False, _type
 
+
 Collection_Types = (list, collections.abc.Sequence, dict)
+
 
 class TypeInfo(NamedTuple):
     optional: bool
@@ -1058,7 +1063,7 @@ def _make_field_doc(func, status=False, extra: Sequence[str] = ()) -> None:
         options (Options, optional): Additional typed metadata to merge into metadata.\n"""
     indent = "        "
     if status:
-        doc += f"{indent}constraints (List[DataConstraints], optional): List of TOSCA property constraints to apply to the {name}.\n"
+        doc += f"{indent}constraints (List[`DataConstraint`], optional): List of TOSCA property constraints to apply to the {name}.\n"
         doc += f"{indent}title (str, optional): Human-friendly alternative name of the {name}.\n"
         doc += f"{indent}status (str, optional): TOSCA status of the {name}.\n"
     for arg in extra:
@@ -2120,13 +2125,16 @@ class anymethod:
         else:
             return functools.partial(self.func, obj or objtype)
 
+
 def _get_field(cls_or_obj, name):
     if not isinstance(cls_or_obj, type):
         return cls_or_obj.get_instance_field(name)
     else:
         return cls_or_obj.__dataclass_fields__.get(name)  # type: ignore
 
+
 class ToscaType(_ToscaType):
+    "Base class for TOSCA type definitions."
     # NB: _name needs to come first for python < 3.10
     _name: str = field(default="", kw_only=False)
     _type_name: ClassVar[str] = ""
@@ -2174,9 +2182,10 @@ class ToscaType(_ToscaType):
 
         For example, if ``A.property = B.property``
         then ``A.set_to_property_source("requirement", "property")``
-        will create a node filter sets `A.requirement = B`
+        will create a node filter for ``A.requirement`` that selects ``B``.
 
         The requirement and property have to be defined on the same class.
+        The method should be called from ``_class_init(cls)``.
 
         Args:
             requirement (FieldProjection or str): name of the requirement field
@@ -2185,19 +2194,17 @@ class ToscaType(_ToscaType):
         Raises:
             TypeError: If ``requirement`` or ``property`` are missing from ``cls``.
 
-        Should be called from ``_class_init(cls)``.
-
-        ``cls.set_to_property_source(cls.requirement, cls.property)``
-
-        is equivalent to:
-
-        ``cls.requirement = cls.property`` in ``_class_init(cls)``
-
-        But this method can be used to avoid static type checker complaints with that assignment.
-
         The requirement and property names can also be strings, e.g.:
 
         ``cls.set_to_property_source("requirement", "property")``
+
+        Note that ``cls.set_to_property_source(cls.requirement, cls.property)``
+
+        is equivalent to:
+
+        ``cls.requirement = cls.property``  if called within ``_class_init(cls)``,
+
+        but using this method will avoid static type checker complaints.
         """
         if isinstance(requirement, str):
             requirement = getattr(_DataclassTypeProxy(cls), requirement)
@@ -2484,8 +2491,12 @@ class ToscaType(_ToscaType):
                 if field.default == value:
                     # XXX datatype values don't compare properly, should have logic like CapabilityType above
                     continue
-                if not isinstance(value, _Ref) and not field.get_type_info().instance_check(value):
-                    raise TypeError(f'{field.tosca_field_type.name} "{field.name}"\'s value has wrong type: it\'s a {type(value)}, not a {field.type}.')
+                if not isinstance(
+                    value, _Ref
+                ) and not field.get_type_info().instance_check(value):
+                    raise TypeError(
+                        f"{field.tosca_field_type.name} \"{field.name}\"'s value has wrong type: it's a {type(value)}, not a {field.type}."
+                    )
                 body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
                     value
                 )
@@ -2778,7 +2789,8 @@ class CapabilityType(_OwnedToscaType):
         return tpl
 
 
-class RelationshipType(ToscaType):
+class RelationshipType(_OwnedToscaType):
+    # the "owner" of the relationship is its source node
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
     _valid_target_types: ClassVar[Optional[List[Type[CapabilityType]]]] = None
@@ -2810,32 +2822,6 @@ class RelationshipType(ToscaType):
             return dataclasses.replace(self, _target=target)  # type: ignore
         self._target = target
         return self
-
-    if typing.TYPE_CHECKING:
-        # trick the type checker to support both class and instance method calls
-        @classmethod
-        def find_required_by(
-            cls,
-            source_attr: Union[str, "RelationshipType", FieldProjection, None],
-            expected_type: Union[Type[_T], None],
-        ) -> _T:
-            return cast(_T, None)
-
-    else:
-        find_required_by = anymethod(find_required_by, keyword="cls_or_obj")
-
-    if typing.TYPE_CHECKING:
-        # trick the type checker to support both class and instance method calls
-        @classmethod
-        def find_all_required_by(
-            cls,
-            source_attr: Union[str, "RelationshipType", FieldProjection, None],
-            expected_type: Union[Type[_T], None] = None,
-        ) -> List[_T]:
-            return cast(List[_T], None)
-
-    else:
-        find_all_required_by = anymethod(find_all_required_by, keyword="cls_or_obj")
 
 
 class ArtifactType(_OwnedToscaType):

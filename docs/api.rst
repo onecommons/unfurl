@@ -2,7 +2,7 @@ Python API
 ===================================
 
 .. contents::
-    :depth: 2
+    :depth: 3
 
 
 API for writing service templates
@@ -24,7 +24,46 @@ Note that these functions all take keyword-only parameters (this is needed for I
 
 .. automodule:: tosca
   :imported-members: true
-  :members: ArtifactType, CapabilityType, DataType, GroupType, InterfaceType, PolicyType, NodeType, RelationshipType, Property, Attribute, Requirement, Capability, Artifact, operation, Computed, ToscaInputs, ToscaOutputs, set_evaluation_mode
+  :members: Property, Attribute, Requirement, Capability, Artifact, operation, Computed
+
+TOSCA Types
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ToscaType
+
+  .. automethod:: set_to_property_source
+
+.. autoclass:: NodeType
+  
+  .. automethod:: find_required_by
+
+  .. automethod:: find_all_required_by
+
+.. autoclass:: RelationshipType
+
+.. autoclass:: CapabilityType
+
+.. autoclass:: DataType
+
+.. autoclass:: ArtifactType
+
+.. autoclass:: InterfaceType
+
+.. autoclass:: GroupType
+
+.. autoclass:: PolicyType
+
+Other
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: DataConstraint
+
+.. TODO:
+  .. autoclass:: ToscaInputs
+  .. autoclass:: ToscaOutputs
+
+.. autofunction:: set_evaluation_mode
+
 
 API for writing configurators
 -----------------------------
