@@ -235,6 +235,17 @@ def get_scalar_unit(value_type, metadata):
     # XXX add format specifier
     # regex: "|".join(get_scalarunit_class(value_type).SCALAR_UNIT_DICT)
 
+def _update_property_metadata(p: PropertyDef, metadata):
+    property_metadata = metadata.get(p.name)
+    if property_metadata:
+        # don't modify original
+        cp = PropertyDef(p.name, p.value, p.schema)
+        if cp.schema:
+            cp.schema.setdefault("metadata", {}).update(property_metadata)
+        else:
+            cp.schema = dict(type="string", metadata=property_metadata)
+        return cp
+    return p
 
 def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     # convert a PropertyDef to a property (this creates the Schema object we need)
@@ -262,6 +273,9 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
     if metadata:
         # set "sensitive" if present
         schema.update(metadata)
+        property_metadata = metadata.get("property_metadata")
+    else:
+        property_metadata = None
     constraints = toscaSchema.constraints or []
     if tosca_type in VALUE_TYPES:
         type_schema = _get_valuetype_schema(tosca_type, metadata)
@@ -277,6 +291,8 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
             if schema.get("default"):
                 default_value = schema["default"].copy()
             for p in dt.get_properties_def_objects():
+                if property_metadata:
+                    p = _update_property_metadata(p, property_metadata)
                 if is_property_user_visible(p):
                     propdefs.append(p)
                 elif default_value:
@@ -1997,7 +2013,7 @@ def _map_nodefilter_properties(filters, inputsSchemaProperties, jsonprops) -> di
     for name, value in get_nodefilters(filters, "properties"):
         if not isinstance(value, dict) or "eval" in value:
             # the filter declared an expression to set the property's value
-            # mark the property to be deleted from the target inputschema so the user can't set it
+            # mark the property to be deleted from the target inputsSchema so the user can't set it
             # (since they can't shouldn't set this property now)
             jsonprops[name] = None
         elif "default" in value:
