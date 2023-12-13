@@ -119,6 +119,9 @@ app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
 app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
 )
+app.config["CACHE_CONTROL_SERVE_STALE"] = int(
+    os.environ.get("CACHE_CONTROL_SERVE_STALE") or 2592000
+)
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
 if not cors:
     ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
@@ -1082,6 +1085,7 @@ def _export(
             )
             branch = DEFAULT_BRANCH
     repo = _get_project_repo(project_id, branch, args)
+    stale_pull_age = app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
     cache_entry = CacheEntry(
         project_id,
         branch,
@@ -1089,7 +1093,7 @@ def _export(
         requested_format + extra,
         repo,
         args=args,
-        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
+        stale_pull_age=stale_pull_age,
     )
     err, json_summary = cache_entry.get_or_set(
         cache,
@@ -1109,7 +1113,7 @@ def _export(
                     "deployment",
                     repo,
                     args=args,
-                    stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
+                    stale_pull_age=stale_pull_age,
                 )
                 derr, djson = dcache_entry.get_or_set(
                     cache, _export_cache_work, latest_commit
@@ -1136,9 +1140,18 @@ def _export(
         response = json_response(
             json_summary, request.args.get("pretty"), sort_keys=False
         )
-        if latest_commit and not derrors:
+        if not derrors:
             # don't set etag if there were errors
-            response.headers["Etag"] = _make_etag(latest_commit)
+            if latest_commit:
+                response.headers["Etag"] = _make_etag(latest_commit)
+                max_age = 86400  # one day
+            else:
+                max_age = stale_pull_age
+            serve_stale = app.config["CACHE_CONTROL_SERVE_STALE"]
+            if serve_stale:
+                response.headers[
+                    "Cache-Control"
+                ] = f"max-age={max_age}, stale-while-revalidate={serve_stale}"
         return response
     else:
         if isinstance(err, FatalToscaImportError):
@@ -2289,7 +2302,9 @@ class ServerCacheResolver(SimpleCacheResolver):
             not base_url or not repo_view.url.startswith(base_url) or repo_view.repo
         )
         if private:
-            logger.trace(f"find_repository_path on server falling back to private for {repo_view.url} ({repo_view.repo})")
+            logger.trace(
+                f"find_repository_path on server falling back to private for {repo_view.url} ({repo_view.repo})"
+            )
             return self._get_link_to_repo(repo_view, base_path)
         else:
             project_id, branch = self._project_id_from_repo(repo_view)
@@ -2401,7 +2416,9 @@ class ServerCacheResolver(SimpleCacheResolver):
                     self.set_cache(cache_entry.cache_key(), doc)
 
         if private:
-            logger.trace(f"load yaml for {url}: server falling back to private with {repo_view.repo} {err}")
+            logger.trace(
+                f"load yaml for {url}: server falling back to private with {repo_view.repo} {err}"
+            )
             doc, cacheable = super().load_yaml(url, fragment, ctx)
             # XXX support private cache deps (need to save last_commit, provide repo_view.working_dir)
         elif err:
