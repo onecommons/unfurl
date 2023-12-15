@@ -104,7 +104,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 pip install unfurl
 ```
 
-By default `unfurl` creates a virtual Python environment to run in so it only installs the minimal requirements needed to run the command line. If you want to run it using your system Python install it with the "full" option:
+ Running `unfurl home --init` creates a virtual Python environment to run unfurl in so by default unfurl only installs the minimal requirements needed to run the command line. If you want to run unfurl using your system Python install it with the "full" option:
 
 ```
 pip install unfurl[full]

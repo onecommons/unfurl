@@ -172,6 +172,52 @@ node_types:
       Standard:
         type: tosca.interfaces.node.lifecycle.Standard
 
+  tosca.nodes.Abstract.Storage:
+    derived_from: tosca.nodes.Root
+    properties:
+      name:
+        type: string
+      size:
+        type: scalar-unit.size
+        default: 0 MB
+        constraints:
+          - greater_or_equal: 0 MB
+
+  tosca.nodes.Storage.BlockStorage:
+    derived_from: tosca.nodes.Abstract.Storage
+    properties:
+      volume_id:
+        type: string
+        required: false
+      snapshot_id:
+        type: string
+        required: false
+    attributes:
+      volume_id:
+        type: string
+    capabilities:
+      attachment:
+        type: tosca.capabilities.Attachment
+
+  # for backwards compatibility:
+  tosca.nodes.BlockStorage:
+    derived_from: tosca.nodes.Storage.BlockStorage
+    properties:
+      name:
+        type: string
+        default: &quot;&quot;
+
+  tosca.nodes.Storage.ObjectStorage:
+    derived_from: tosca.nodes.Abstract.Storage
+    properties:
+      maxsize:
+        type: scalar-unit.size
+        constraints:
+          - greater_or_equal: 0 GB
+    capabilities:
+      storage_endpoint:
+        type: tosca.capabilities.Endpoint
+
   tosca.nodes.Abstract.Compute:
     derived_from: tosca.nodes.Root
     capabilities:
@@ -307,52 +353,6 @@ node_types:
           relationship: tosca.relationships.HostedOn
     capabilities:
       app_endpoint:
-        type: tosca.capabilities.Endpoint
-
-  tosca.nodes.Abstract.Storage:
-    derived_from: tosca.nodes.Root
-    properties:
-      name:
-        type: string
-      size:
-        type: scalar-unit.size
-        default: 0 MB
-        constraints:
-          - greater_or_equal: 0 MB
-
-  tosca.nodes.Storage.BlockStorage:
-    derived_from: tosca.nodes.Abstract.Storage
-    properties:
-      volume_id:
-        type: string
-        required: false
-      snapshot_id:
-        type: string
-        required: false
-    attributes:
-      volume_id:
-        type: string
-    capabilities:
-      attachment:
-        type: tosca.capabilities.Attachment
-
-  # for backwards compatibility:
-  tosca.nodes.BlockStorage:
-    derived_from: tosca.nodes.Storage.BlockStorage
-    properties:
-      name:
-        type: string
-        default: &quot;&quot;
-
-  tosca.nodes.Storage.ObjectStorage:
-    derived_from: tosca.nodes.Abstract.Storage
-    properties:
-      maxsize:
-        type: scalar-unit.size
-        constraints:
-          - greater_or_equal: 0 GB
-    capabilities:
-      storage_endpoint:
         type: tosca.capabilities.Endpoint
 
   tosca.nodes.network.Network:
@@ -569,6 +569,15 @@ node_types:
           occurrences: [0, UNBOUNDED]
           description: Connection to one or more load balanced applications
 
+  tosca.nodes.Container.Runtime:
+    derived_from: tosca.nodes.SoftwareComponent
+    capabilities:
+      host:
+        type: tosca.capabilities.Container
+        valid_source_types: [tosca.nodes.Container.Application]
+      scalable:
+        type: tosca.capabilities.Scalable
+
   tosca.nodes.Container.Application:
     derived_from: tosca.nodes.Root
     requirements:
@@ -580,15 +589,6 @@ node_types:
           capability: tosca.capabilities.Storage
       - network:
           capability: tosca.capabilities.Endpoint
-
-  tosca.nodes.Container.Runtime:
-    derived_from: tosca.nodes.SoftwareComponent
-    capabilities:
-      host:
-        type: tosca.capabilities.Container
-        valid_source_types: [tosca.nodes.Container.Application]
-      scalable:
-        type: tosca.capabilities.Scalable
 
   # note: missing from 1.3 spec
   tosca.nodes.Container.Runtime.Docker:
@@ -993,7 +993,6 @@ data_types:
           type: string
 
   tosca.datatypes.network.PortDef:
-    derived_from: tosca.datatypes.Root
     type: integer
     constraints:
       - in_range: [1, 65535]
@@ -1047,11 +1046,9 @@ data_types:
         required: false
 
   tosca.datatypes.json:
-    derived_from: tosca.datatypes.Root
     type: string
 
   tosca.datatypes.xml:
-    derived_from: tosca.datatypes.Root
     type: string
 
 ##########################################################################
@@ -1428,7 +1425,7 @@ capability_types:
         type: string
         default: ssh
       port:
-        type: tosca:PortDef
+        type: tosca.datatypes.network.PortDef
         default: 22
 
 relationship_types:
