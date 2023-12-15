@@ -17,7 +17,7 @@ import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
-from unfurl.util import change_cwd
+from unfurl.util import change_cwd, get_package_digest
 from base64 import b64encode
 
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
@@ -86,7 +86,7 @@ delete_patch = """
 
 _static_server_port = 8090
 _server_port = 8091
-CLOUD_TEST_SERVER = "https://unfurl.cloud"  # "https://gitlab.com"
+CLOUD_TEST_SERVER = "https://gitlab.com"  # if changed, need to set package rules # "https://unfurl.cloud"
 
 
 #  Increment port just in case server ports aren't closed in time for next test
@@ -290,6 +290,7 @@ def test_server_export_remote():
             for export_format in ["deployment", "environments"]:
                 # try twice, second attempt should be cached
                 cleaned_output = "0"
+                etag = ""
                 for msg in ("cache miss for", "cache hit for"):
                     # test caching
                     project_id = "onecommons/project-templates/dashboard"
@@ -301,10 +302,13 @@ def test_server_export_remote():
                             "format": export_format,
                         },
                         headers={
-                          "If-None-Match": server._make_etag(last_commit),
+                          "If-None-Match": etag,
                           "X-Git-Credentials": b64encode("username:token".encode())
                         }
                     )
+                    if res.status_code == 200:
+                        etag = res.headers.get("Etag") or ""
+                        assert etag
                     if msg == "cache miss for":
                         assert res.status_code == 200
                         # don't bother re-exporting the second time
@@ -318,10 +322,10 @@ def test_server_export_remote():
                         output = exported.output
                         cleaned_output = output[max(output.find("{"), 0):]
                         expected = _strip_sourceinfo(json.loads(cleaned_output))
-                        assert _strip_sourceinfo(res.json()) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+                        assert _strip_sourceinfo(res.json()) == expected #, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
                     else:
                         # cache hit
-                        assert res.status_code == 304
+                        assert res.status_code == 304, (res.headers.get("Etag") == etag, etag)
 
                     file_path = server._get_filepath(export_format, None)
                     key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
@@ -351,13 +355,11 @@ def test_server_export_remote():
                     "format": "blueprint",
                     "branch": "(MISSING)"
                 },
-                headers={
-                  "If-None-Match": server._make_etag(last_commit),
-                }
             )
             # branch=(MISSING) will log: Package unfurl.cloud/onecommons/project-templates/application-blueprint is looking for earliest remote tags v* on https://unfurl.cloud/onecommons/project-templates/application-blueprint.git
             assert res.status_code == 200
-            # don't bother re-exporting the second time
+            # assert res.status_code == 304
+            # etag = res.headers.get("Etag") or ""
             exported = run_cmd(
                 runner,
                 ["--home", "", "export", "--format", "blueprint", "application-blueprint/ensemble-template.yaml"],
@@ -370,6 +372,10 @@ def test_server_export_remote():
             expected = _strip_sourceinfo(json.loads(cleaned_output))
             assert _strip_sourceinfo(res.json(), True) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
 
+            dep_commit = GitRepo(Repo("application-blueprint/unfurl-types")).revision
+            etag = server._make_etag(hex(int(last_commit, 16) 
+                                         ^ int(get_package_digest(True), 16)
+                                         ^ int(dep_commit, 16)))
             # # check that this public project (no auth header sent) was cached
             res = requests.get(
                 f"http://localhost:{port}/export",
@@ -379,7 +385,7 @@ def test_server_export_remote():
                     "format": "blueprint",
                 },
                 headers={
-                  "If-None-Match": server._make_etag(last_commit),
+                  "If-None-Match": etag,
                 }
             )
             assert res.status_code == 304

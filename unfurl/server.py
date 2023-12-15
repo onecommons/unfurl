@@ -31,6 +31,7 @@ from typing import (
     List,
     NamedTuple,
     Optional,
+    Set,
     Tuple,
     Any,
     Union,
@@ -120,7 +121,7 @@ app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
 )
 app.config["CACHE_CONTROL_SERVE_STALE"] = int(
-    os.environ.get("CACHE_CONTROL_SERVE_STALE") or 2592000
+    os.environ.get("CACHE_CONTROL_SERVE_STALE") or 0 # 2592000 (1 month)
 )
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
 if not cors:
@@ -370,26 +371,26 @@ class CacheItemDependency:
 
     project_id: str
     branch: Optional[str]
-    file_path: str  # relative to project root
+    file_paths: List[str]  # relative to project root
     key: str
     stale_pull_age: int = 0
     do_clone: bool = False
     latest_commit: str = ""  # HEAD of this branch
-    last_commit: str = ""  # last commit for file_path
+    last_commits: Set[str] = field(default_factory=set)  # last commit for file_path
     latest_package_url: str = ""  # set when dependency uses the latest package revision
 
     def to_entry(self) -> "CacheEntry":
         return CacheEntry(
             self.project_id,
             self.branch,
-            self.file_path,
+            "",
             self.key,
             stale_pull_age=self.stale_pull_age,
             do_clone=self.do_clone,
         )
 
-    def cache_key(self) -> str:
-        return f"{self.project_id}:{self.branch or ''}:{self.file_path}:{self.key}"
+    def dep_key(self) -> str:
+        return f"{self.project_id}:{self.branch or ''}"
 
     def out_of_date(self, args: Optional[dict]) -> bool:
         if self.latest_package_url:
@@ -410,10 +411,10 @@ class CacheItemDependency:
         if repo.revision != self.latest_commit:
             # the repository has changed, check to see if files this cache entry uses has changed
             # note: we don't need the cache value to be present in the cache since we have the commit info already
-            last_commit_for_entry = cache_entry._set_commit_info()
-            if last_commit_for_entry != self.last_commit:
+            last_commit_for_entry = cache_entry._set_commit_info(self.file_paths)
+            if last_commit_for_entry not in self.last_commits:
                 # there's a newer version of files used by the cache entry
-                logger.debug(f"dependency {self.cache_key()} changed")
+                logger.debug(f"dependency {self.dep_key()} changed")
                 return True
         return False  # we're up-to-date!
 
@@ -434,6 +435,13 @@ class CacheValue(NamedTuple):
     last_commit: str
     latest_commit: str
     deps: CacheItemDependencies
+
+    def make_etag(self) -> str:
+        etag = int(self.last_commit, 16) ^ int(get_package_digest(True), 16)
+        for dep in self.deps.values():
+            for last_commit in dep.last_commits:
+                etag ^= int(last_commit, 16)
+        return _make_etag(hex(etag))
 
 
 CacheWorkCallable = Callable[
@@ -477,6 +485,7 @@ class CacheEntry:
     commitinfo: Union[bool, Optional["Commit"]] = None
     hit: Optional[bool] = None
     directives: Optional[CacheDirective] = None
+    value: Optional[CacheValue] = None
 
     def _set_project_repo(self) -> Optional[GitRepo]:
         self.repo = _get_project_repo(
@@ -566,11 +575,12 @@ class CacheEntry:
             cache.set(repo_key, (time.time(), "failed"))
             raise
 
-    def _set_commit_info(self) -> str:
+    def _set_commit_info(self, paths=None) -> str:
         repo = self.checked_repo
-        paths = []
-        if self.file_path:  # if no file_path, just get the latest commit
-            paths.append(self.file_path)
+        if paths is None:
+            paths = []
+            if self.file_path:  # if no file_path, just get the latest commit
+                paths.append(self.file_path)
         # note: self.file_path can be a directory
         commits = list(repo.repo.iter_commits(self.branch, paths, max_count=1))
         if commits:
@@ -588,16 +598,17 @@ class CacheEntry:
         if not directives.cache:
             return latest_commit or ""
         full_key = self.cache_key()
-        logger.info("setting cache with %s", full_key)
         if self.commitinfo is None:
             last_commit = self._set_commit_info()
         else:
             last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
         if not directives.store:
             value = "not_stored"  # XXX
+        self.value = CacheValue(value, last_commit, latest_commit or last_commit, self._deps)
+        logger.info("setting cache with %s with %s deps %s", full_key, last_commit, [dep.project_id for dep in self.value.deps.values()])
         cache.set(
             full_key,
-            CacheValue(value, last_commit, latest_commit or last_commit, self._deps),
+            self.value,
             timeout=directives.timeout,
         )
         return last_commit
@@ -637,6 +648,7 @@ class CacheEntry:
         """
         full_key = self.cache_key()
         value = cast(CacheValue, cache.get(full_key))
+        self.value = value
         if value is None:
             logger.info("cache miss for %s", full_key)
             self.hit = False
@@ -692,6 +704,7 @@ class CacheEntry:
                     full_key,
                     value,
                 )
+                self.value = value
                 logger.info("cache hit for %s, updated %s", full_key, latest_commit)
                 self.hit = True
                 return value, None
@@ -854,9 +867,15 @@ class CacheEntry:
     def add_cache_dep(
         self, dep: CacheItemDependency, latest_commit: str, last_commit: str
     ) -> None:
-        dep.latest_commit = latest_commit
-        dep.last_commit = last_commit
-        self._deps[dep.cache_key()] = dep
+        existing = self._deps.get(dep.dep_key())
+        if existing:
+            existing.file_paths.extend(dep.file_paths)
+            existing.last_commits.add(last_commit)
+            existing.latest_commit = latest_commit
+        else:
+            dep.latest_commit = latest_commit
+            dep.last_commits.add(last_commit)
+            self._deps[dep.dep_key()] = dep
         logger.debug("added dep %s on %s", self._deps, self.cache_key())
 
     def make_cache_dep(
@@ -865,19 +884,16 @@ class CacheEntry:
         dep = CacheItemDependency(
             self.project_id,
             self.branch,
-            self.file_path,
+            [self.file_path],
             self.key,
             stale_pull_age,
             self.do_clone,
-            "",
-            "",
         )
         if package and package.discovered:
             # if set then we want to see if the dependency changed by looking for newer tags
             # (instead of pulling from the branch)
             dep.latest_package_url = package.url
         return dep
-
 
 @app.before_request
 def hook():
@@ -1100,6 +1116,7 @@ def _export(
         _export_cache_work,
         latest_commit,
     )
+    assert cache_entry.value
     if not err:
         hit = cache_entry.hit and not post_work
         derrors = False
@@ -1130,9 +1147,9 @@ def _export(
                     deployments.append(djson)
                 hit = hit and dcache_entry.hit
             json_summary["deployments"] = deployments
-        if hit:
+        if cache_entry.value:
             etag = request.headers.get("If-None-Match")
-            if latest_commit and _make_etag(latest_commit) == etag:
+            if etag and cache_entry.value.make_etag() == etag:
                 return "Not Modified", 304
         elif post_work:
             post_work(cache_entry, json_summary)
@@ -1141,9 +1158,10 @@ def _export(
             json_summary, request.args.get("pretty"), sort_keys=False
         )
         if not derrors:
-            # don't set etag if there were errors
+            # don't set caching if there were errors
+            if cache_entry.value:
+                response.headers["Etag"] = cache_entry.value.make_etag()
             if latest_commit:
-                response.headers["Etag"] = _make_etag(latest_commit)
                 max_age = 86400  # one day
             else:
                 max_age = stale_pull_age

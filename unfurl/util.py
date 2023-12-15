@@ -70,19 +70,31 @@ except ImportError:
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
+_package_digest: Optional[str] = None
 
-def get_package_digest() -> Union[git.Repo, str, object]:
+
+def get_package_digest(commit_only=False) -> str:
+    global _package_digest
+    if _package_digest is not None:
+        return _package_digest
+
     from git import Repo
 
     basedir = os.path.dirname(_basepath)
     if os.path.isdir(os.path.join(basedir, ".git")):
-        return Repo(basedir).git.describe("--dirty", "--always", "--match=v*")
+        repo = Repo(basedir)
+        if commit_only:
+            # same as pbr's git_version
+            _package_digest = repo.git.log(n=1, pretty="format:%h")
+        else:
+            _package_digest = repo.git.describe("--dirty", "--always", "--match=v*")
 
     try:
         pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]  # type: ignore  # Ignored because of the try/except
-        return json.loads(pbr.read_text())["git_version"]
+        _package_digest = json.loads(pbr.read_text())["git_version"]
     except:
-        return ""
+        _package_digest = ""
+    return cast(str, _package_digest)
 
 
 class UnfurlError(Exception):
