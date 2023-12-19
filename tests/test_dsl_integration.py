@@ -15,6 +15,8 @@ class Service(tosca.nodes.Root):
         default=tosca.Eval("{{ SELF.url_scheme }}://{{SELF.host }}"),
     )
 
+    parent: "Service" = tosca.find_required_by("connects_to")
+
     connects_to: Optional["Service"] = tosca.Requirement(default=None, relationship=unfurl.relationships.Configures)
 
 
@@ -119,6 +121,15 @@ def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
     assert (
         topology.connection.find_all_required_by(requirement, expected_type) == [topology.service]
     )
+
+    assert (
+        topology.service.find_all_required_by(requirement, expected_type) == []
+    )
+
+    # XXX this is broken because the node_filter match is evaluated too early and so .sources is empty
+    # assert topology.connection.parent == topology.service
+    # print ( topology.connection._instance.template.sources )
+    assert topology.service.parent == None
 
     with pytest.raises(TypeError):
         topology.connection.find_required_by(Service.connects_to, tosca.nodes.Compute)

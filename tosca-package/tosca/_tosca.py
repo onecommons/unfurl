@@ -906,7 +906,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                         f'"{self.name}" on "{self.owner}" was marked as CONSTRAINED but no constraint was set in "_class_init()".'
                     )
             elif default and default not in [MISSING, REQUIRED]:
-                converter.set_requirement_value(req_def, default, self.name)
+                converter.set_requirement_value(req_def, self, default, self.name)
         if super_field:
             default_occurrences = super_field._get_occurrences()
         else:
@@ -2574,7 +2574,6 @@ class ToscaType(_ToscaType):
         for field, value in self.get_instance_fields().values():
             if field.section == "requirements":
                 if value and value is not CONSTRAINED:
-                    # XXX node_filter if value is ref
                     # XXX handle case where value is a type not an instance
                     if not isinstance(value, (list, tuple)):
                         value = [value]
@@ -2582,6 +2581,7 @@ class ToscaType(_ToscaType):
                         req = dict_cls()
                         shorthand = converter.set_requirement_value(
                             req,
+                            field,
                             item,
                             self._name + "_" + field.name + (str(i) if i else ""),
                         )

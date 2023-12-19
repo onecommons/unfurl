@@ -31,6 +31,7 @@ from ._tosca import (
     InstanceProxy,
     ValueType,
     _Tosca_Field,
+    _Ref
 )
 from .loader import restricted_exec, get_module_path
 
@@ -169,7 +170,7 @@ class PythonToYaml:
             self.templates.append(obj)
         return name
 
-    def set_requirement_value(self, req: dict, value, default_node_name: str):
+    def set_requirement_value(self, req: dict, field: _Tosca_Field, value, default_node_name: str):
         node = None
         if isinstance(value, NodeType):
             node = value
@@ -190,8 +191,10 @@ class PythonToYaml:
             elif isinstance(value._target, CapabilityType):
                 node = value._target._node
                 req["capability"] = value._target._local_name
+        elif isinstance(value, _Ref):
+            field.add_node_filter(value)
         else:
-            raise TypeError(f'Invalid value for requirement: "{value}" on {req}"')
+            raise TypeError(f'Invalid value for requirement: "{value}" ({type(value)}) on {field.name}"')
         if node:
             node_name = self.add_template(node, default_node_name)
             req["node"] = node_name
