@@ -184,10 +184,8 @@ class schema(DataConstraint):
 class Namespace(types.SimpleNamespace):
     @classmethod
     def get_defs(cls) -> Dict[str, Any]:
-        ignore = ("__doc__", "__module__", "__dict__", "__weakref__")
+        ignore = ("__doc__", "__module__", "__dict__", "__weakref__", "_tosca_name")
         return {k: v for k, v in cls.__dict__.items() if k not in ignore}
-
-    location: str
 
 
 F = TypeVar("F", bound=Callable[..., Any], covariant=False)
@@ -276,7 +274,7 @@ TOSCA_SIMPLE_TYPES: Dict[str, str] = dict(
     map="Dict",
     list="List",
     version="tosca_version",
-    any="Any",
+    any="object",
     range="Tuple[int, int]",
 )
 TOSCA_SIMPLE_TYPES.update(
@@ -354,6 +352,9 @@ class TypeInfo(NamedTuple):
     types: tuple
     metadata: Any
 
+    def is_sequence(self):
+        return self.collection in (tuple, list)
+
     def instance_check(self, value: Any):
         if self.optional and value is None:
             return True
@@ -404,6 +405,8 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
 
     if as_str:
         types = tuple(to_str(t) for t in types)
+    else:
+        types = tuple(object if t == Any else t for t in types)
     return TypeInfo(optional, collection, types, metadata)
 
 
@@ -753,7 +756,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             return ".target"
         else:
             assert self.tosca_field_type
-            return f".{self.tosca_field_type.value}[.name={self.tosca_name}]"
+            return f".{self.tosca_field_type.value}::[.name={self.tosca_name}]"
 
     def _resolve_class(self, _type):
         assert self.owner, (self, _type)
@@ -2133,6 +2136,99 @@ def _get_field(cls_or_obj, name):
         return cls_or_obj.__dataclass_fields__.get(name)  # type: ignore
 
 
+def _search(
+    prop_ref: Any,
+    axis: str,
+    cls_or_obj=None,
+) -> _Ref:
+    field, req_name = _get_field_from_prop_ref(prop_ref)
+    if field:
+        key = field.as_ref_expr()
+    else:
+        key = req_name  # no field was provided, assume its just a regular property
+    prefix = _get_expr_prefix(cls_or_obj)
+    expr = dict(eval=prefix + axis + "::" + key)
+    if field:
+        ref = FieldProjection(field)
+        ref.expr = expr
+        return ref
+    else:
+        return _Ref(expr)
+
+
+def find_configured_by(
+    field_name: _T,
+    cls_or_obj=None,
+) -> _T:
+    """
+    find_configured_by(field_name: str | FieldProjection)
+
+    Transitively search for ``field_name`` along the ``.configured_by`` axis (see `Special keys`) and return the first match.
+
+    For example:
+
+    .. code-block:: python
+
+        class A(NodeType):
+          pass
+
+        class B(NodeType):
+          url: str
+          connects_to: A = tosca.Requirement(relationship=unfurl.relationships.Configures)
+
+        a = A()
+        b = B(connects_to=a, url="https://example.com")
+
+        >>> a.find_configured_by(B.url)
+        "https://example.com"
+
+    If called during class definition this will return an eval expression.
+    If called as a classmethod or as a free function it will evaluate in the current context.
+
+    Args:
+        field_name (str | FieldProjection): Either the name of the field, or for a more type safety, a reference to the field (e.g. ``B.url`` in the example above).
+
+    Returns:
+        Any: The value of the referenced field
+    """
+    return cast(_T, _search(field_name, ".configured_by", cls_or_obj))
+
+
+def find_hosted_on(
+    field_name: _T,
+    cls_or_obj=None,
+) -> _T:
+    """
+    find_hosted_on(field_name: str | FieldProjection)
+
+    Transitively search for ``field_name`` along the ``.hosted_on`` axis (see `Special keys`) and return the first match.
+
+    .. code-block:: python
+
+        class A(NodeType):
+          url: str
+
+        class B(NodeType):
+          host: A = tosca.Requirement(relationship=tosca.relationships.HostedOn)
+
+        a = A(url="https://example.com")
+        b = B(host=a)
+
+        >>> b.find_hosted_on(A.url)
+        "https://example.com"
+
+    If called during class definition this will return an eval expression.
+    If called as a classmethod or as a free function it will evaluate in the current context.
+
+    Args:
+        field_name (str | FieldProjection): Either the name of the field, or for a more type safety, a reference to the field (e.g. ``A.url`` in the example above).
+
+    Returns:
+        Any: The value of the referenced field
+    """
+    return cast(_T, _search(field_name, ".hosted_on", cls_or_obj))
+
+
 class ToscaType(_ToscaType):
     "Base class for TOSCA type definitions."
     # NB: _name needs to come first for python < 3.10
@@ -2171,9 +2267,10 @@ class ToscaType(_ToscaType):
         ] = self
 
     def __set_name__(self, owner, name):
-        # called when a template is declared as a default value (owner will be class)
+        # called when a template is declared as a default value or inside a Namespace (owner will be class)
         if not self._name:
-            self._name = owner.__name__ + "_" + name
+            parent_name = getattr(owner, "_tosca_name", owner.__name__)
+            self._name = parent_name + "." + name
 
     @classmethod
     def set_to_property_source(cls, requirement: Any, property: Any) -> None:
@@ -2223,6 +2320,30 @@ class ToscaType(_ToscaType):
         raise TypeError(
             f"{requirement} isn't a TOSCA field -- this method should be called from _class_init()"
         )
+
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def find_configured_by(
+            cls,
+            prop_ref: _T,
+        ) -> _T:
+            return cast(_T, None)
+
+    else:
+        find_configured_by = anymethod(find_configured_by, keyword="cls_or_obj")
+
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def find_hosted_on(
+            cls,
+            prop_ref: _T,
+        ) -> _T:
+            return cast(_T, None)
+
+    else:
+        find_hosted_on = anymethod(find_hosted_on, keyword="cls_or_obj")
 
     @staticmethod
     def _interfaces_yaml(
@@ -2523,8 +2644,8 @@ class ToscaType(_ToscaType):
 _TT = TypeVar("_TT", bound="NodeType")
 
 
-# source_requirement set to the types the type checker will see,
-# e.g. Foo.my_requirement
+# set requirement_name to the types the type checker will see,
+# e.g. Foo.my_requirement: T
 def find_required_by(
     requirement_name: Union[str, "CapabilityType", "NodeType", "RelationshipType"],
     expected_type: Union[Type[_TT], None] = None,
@@ -2564,6 +2685,8 @@ def find_required_by(
       class A(NodeType):
         parent: B = find_required_by(B.connects_to, B)
 
+    ``parent`` will default to an eval expression.
+
     Args:
         requirement_name (str | FieldProjection): Either the name of the req, or for a more type safety, a reference to the requirement (e.g. ``B.connects_to`` in the example above).
         expected_type (NodeType, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
@@ -2572,19 +2695,7 @@ def find_required_by(
         NodeType: The node template that is targeting this template via the requirement.
     """
 
-    if isinstance(requirement_name, FieldProjection):
-        source_field = requirement_name.field
-        req_name = requirement_name.field.tosca_name
-    elif isinstance(requirement_name, str):
-        req_name = requirement_name
-        source_field = None
-    elif isinstance(requirement_name, _Tosca_Field):
-        req_name = requirement_name.tosca_name
-        source_field = requirement_name
-    else:
-        raise TypeError(
-            f"{property} isn't a TOSCA field -- this method should be called from _class_init()"
-        )
+    source_field, req_name = _get_field_from_prop_ref(requirement_name)
     if not source_field and expected_type:
         field = expected_type.get_field(req_name)
         if not field:
@@ -2594,6 +2705,7 @@ def find_required_by(
         else:
             raise TypeError(f"Field {req_name} on {expected_type} is not a requirement")
         req_name = source_field.tosca_name
+    cls = None
     if source_field:
         if source_field.tosca_field_type != ToscaFieldType.requirement:
             raise TypeError(f"Field {req_name} is not a requirement")
@@ -2614,12 +2726,43 @@ def find_required_by(
                 raise TypeError(
                     f"{req_name}'s type is incompatible with {cls} -- wrong requirement?"
                 )
-    prefix = ""
-    if isinstance(cls_or_obj, NodeType) and cls_or_obj._name:
-        prefix = "::" + cls_or_obj._name + "::"
+    prefix = _get_expr_prefix(cls_or_obj)
     # XXX elif RelationshipType
     expr = dict(eval=prefix + ".sources::" + req_name)
-    return cast(_TT, _Ref(expr))
+    if not expected_type:
+        ref = _Ref(expr)
+    else:
+        dummy: _Tosca_Field = _Tosca_Field(
+            ToscaFieldType.requirement, name="_required_by", owner=cls
+        )
+        dummy.type = expected_type
+        ref = FieldProjection(dummy)
+        ref.expr = expr
+    return cast(_TT, ref)
+
+
+def _get_field_from_prop_ref(requirement_name) -> Tuple[Optional[_Tosca_Field], str]:
+    if isinstance(requirement_name, FieldProjection):
+        source_field = requirement_name.field
+        req_name = requirement_name.field.tosca_name
+    elif isinstance(requirement_name, str):
+        req_name = requirement_name
+        source_field = None
+    elif isinstance(requirement_name, _Tosca_Field):
+        req_name = requirement_name.tosca_name
+        source_field = requirement_name
+    else:
+        raise TypeError(
+            f"{property} isn't a TOSCA field -- this method should be called from _class_init()"
+        )
+    return source_field, req_name
+
+
+def _get_expr_prefix(cls_or_obj) -> str:
+    if cls_or_obj and isinstance(cls_or_obj, ToscaType) and cls_or_obj._name:
+        return "::" + cls_or_obj._name + "::"
+    # XXX elif isinstance(cls_or_obj, type):  return f"*[type={cls_or_obj._tosca_typename}]::"
+    return ""
 
 
 def find_all_required_by(

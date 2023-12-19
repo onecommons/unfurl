@@ -49,7 +49,16 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
-from tosca._tosca import _Tosca_Field, _ToscaType, global_state, FieldProjection, _Ref
+from tosca._tosca import (
+    _Tosca_Field,
+    _ToscaType,
+    global_state,
+    FieldProjection,
+    _Ref,
+    _BaseDataType,
+    _get_field_from_prop_ref,
+    _get_expr_prefix,
+)
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .logs import getLogger
@@ -259,21 +268,20 @@ set_eval_func("computed", eval_computed)
 
 class ProxyCollection:
     """
-    For proxying properties and attributes with lists and maps.
+    For proxying lists and maps set on a ToscaType template to a value usable by the runtime.
     It will create proxies of Tosca datatypes on demand.
     """
 
-    def __init__(self, collection, field: _Tosca_Field):
+    def __init__(self, collection, type_info: tosca.TypeInfo):
         self._values = collection
-        self._field = field
+        self._type_info = type_info
         self._cache: Dict[str, Any] = {}
 
     def __getitem__(self, key):
         if key in self._cache:
             return self._cache[key]
         val = self._values[key]
-        type_info = self._field.get_type_info()
-        prop_type = type_info.types[0]
+        prop_type = self._type_info.types[0]
         if issubclass(prop_type, tosca.DataType):
             proxy = get_proxy_class(prop_type, DataTypeProxyBase)(val)
             self._cache[key] = proxy
@@ -317,24 +325,50 @@ class ProxyList(ProxyCollection, MutableSequence):
         self._values.insert(index, val)
 
 
-def _proxy_prop(field: _Tosca_Field, value: Any):
-    type_info = field.get_type_info()
+def _proxy_prop(type_info: tosca.TypeInfo, value: Any):
+    # converts a value set on an instance to one usable when globalstate.mode == "runtime"
     prop_type = type_info.types[0]
     if type_info.collection == dict:
-        return ProxyMap(value, field)
+        return ProxyMap(value, type_info)
     elif type_info.collection == list:
-        return ProxyList(value, field)
+        return ProxyList(value, type_info)
     elif issubclass(prop_type, tosca.DataType):
         if isinstance(value, (type(None), prop_type)):
             return value
         elif isinstance(value, MutableMapping):
             return get_proxy_class(prop_type, DataTypeProxyBase)(value)
         else:
-            raise ValueError("can't convert to {prop_type} on {field.name}")
+            raise TypeError(f"can't convert value to {prop_type}: {value}")
+    elif not type_info.instance_check(value):
+        raise TypeError(f"value is not type {prop_type}: {value}")
     return value
 
 
+def _proxy_eval_result(
+    value: Any, _context, Expected: Union[None, type, tosca.TypeInfo] = None
+) -> Any:
+    # convert a value obtained from an eval expression to one usable when globalstate.mode == "runtime"
+    if isinstance(value, EntityInstance):
+        if not Expected:
+            ExpectedToscaType = tosca.ToscaType
+        elif isinstance(Expected, tosca.TypeInfo):
+            ExpectedToscaType = Expected.types[0]
+        elif issubclass(Expected, tosca.ToscaType):
+            ExpectedToscaType = Expected
+        else:
+            raise TypeError(f"expected value to be of type {Expected}")
+        return proxy_instance(value, ExpectedToscaType, _context)
+    elif Expected:
+        if not isinstance(Expected, tosca.TypeInfo):
+            Expected = tosca.pytype_to_tosca_type(Expected)
+        return _proxy_prop(Expected, value)
+    else:
+        return value
+
+
 PT = TypeVar("PT", bound="ToscaType")
+
+T = TypeVar("T")
 
 
 class Cache:
@@ -405,22 +439,64 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             requirement, Expected
         )
         assert isinstance(ref, _Ref)  # actually it will be a _Ref
-        result = Ref(cast(_Ref, ref).expr).resolve_one(self._context)
         expected = Expected or tosca.nodes.Root
-        if isinstance(requirement, str):
-            requirement_name = requirement
+        return self._execute_resolve_one(ref, requirement, expected)
+
+    def _execute_resolve_one(
+        self,
+        ref: _Ref,
+        field_ref: Union[str, FieldProjection],
+        Expected: Union[None, type, tosca.TypeInfo] = None,
+    ) -> Any:
+        """
+        Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
+        """
+        result = Ref(ref.expr).resolve_one(self._context)
+        if Expected and not isinstance(Expected, tosca.TypeInfo):
+            Expected = tosca.pytype_to_tosca_type(Expected)
+        if isinstance(field_ref, str):
+            field_name = field_ref
         else:
-            requirement_name = requirement.tosca_name
-        if not result:
-            raise UnfurlError(f"No {requirement_name} found")
+            field_name = field_ref.tosca_name
+        if result is None:
+            if Expected and not cast(tosca.TypeInfo, Expected).optional:
+                raise UnfurlError(f"No results found for {ref.expr}")
+            return result
         if isinstance(result, MutableMapping):
-            raise UnfurlError(f"More than one {requirement_name} found")
-        proxied = proxy_instance(result, expected, self._context)
-        if not isinstance(proxied, expected):
-            raise UnfurlError(
-                f"Expected type {expected} for {result} for {requirement_name}"
+            if Expected and not cast(tosca.TypeInfo, Expected).is_sequence():
+                # if item is not expected to be a list then the expression unexpectedly returned more than one match
+                # emulate eval expression's matchfirst (?) semantics
+                result = result[0]
+        return _proxy_eval_result(result, self._context, Expected)
+
+    def _search(self, prop_ref: T, search_func: Callable) -> T:
+        field, prop_name = _get_field_from_prop_ref(prop_ref)
+        ref = search_func(
+            field or prop_name,
+            cls_or_obj=cast(Type[tosca.NodeType], self._obj or self._cls),
+        )
+        if field:
+            _type = field.get_type_info_checked()
+        else:
+            _type = None
+        if _type and _type.is_sequence():
+            return cast(
+                T, self._execute_resolve_all(cast(_Ref, ref), prop_name, _type.types[0])
             )
-        return proxied
+        else:
+            return cast(T, self._execute_resolve_one(cast(_Ref, ref), prop_name, _type))
+
+    def find_configured_by(
+        self,
+        prop_ref: T,
+    ) -> T:
+        return self._search(prop_ref, tosca.find_configured_by)
+
+    def find_hosted_on(
+        self,
+        prop_ref: T,
+    ) -> T:
+        return self._search(prop_ref, tosca.find_hosted_on)
 
     def find_all_required_by(
         self,
@@ -433,19 +509,18 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
-        assert isinstance(ref, _Ref)  # actually it will be a _Ref
+        return self._execute_resolve_all(
+            cast(_Ref, ref), requirement, Expected or tosca.nodes.Root
+        )
+
+    def _execute_resolve_all(
+        self,
+        ref: _Ref,
+        field_ref: Union[str, FieldProjection],
+        Expected: Union[None, type, tosca.TypeInfo],
+    ) -> List[Any]:
         result = Ref(cast(_Ref, ref).expr).resolve(self._context)
-        expected = Expected or tosca.nodes.Root
-        if isinstance(requirement, str):
-            requirement_name = requirement
-        else:
-            requirement_name = requirement.tosca_name
-        proxied = [proxy_instance(item, expected, self._context) for item in result]
-        if not all(isinstance(node, expected) for node in proxied):
-            raise UnfurlError(
-                f"Expected type {expected} for {result} for {requirement_name}"
-            )
-        return proxied
+        return [_proxy_eval_result(item, self._context, Expected) for item in result]
 
     if not TYPE_CHECKING:
 
@@ -556,7 +631,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             ):
                 # self._context._trace=2
                 # self._instance.attributes.context._trace=2
-                val = _proxy_prop(field, self._instance.attributes[field.tosca_name])
+                val = _proxy_prop(
+                    field.get_type_info(), self._instance.attributes[field.tosca_name]
+                )
                 self._cache[name] = val
                 return val
             elif field.tosca_field_type == ToscaFieldType.requirement:
@@ -643,7 +720,7 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
             return self._cache[name]
         field = self._cls.__dataclass_fields__.get(name)
         if isinstance(field, _Tosca_Field):
-            proxy = _proxy_prop(field, self._values[name])
+            proxy = _proxy_prop(field.get_type_info(), self._values[name])
             self._cache[name] = proxy
             return proxy
         elif hasattr(self._cls, name):

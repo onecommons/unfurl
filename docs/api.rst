@@ -31,6 +31,10 @@ TOSCA Types
 
 .. autoclass:: ToscaType
 
+  .. automethod:: find_configured_by
+
+  .. automethod:: find_hosted_on
+
   .. automethod:: set_to_property_source
 
 .. autoclass:: NodeType

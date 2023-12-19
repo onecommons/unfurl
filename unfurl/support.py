@@ -94,6 +94,7 @@ class Status(int, Enum):
 
     @property
     def color(self):
+        ":meta private:"
         return {
             Status.unknown: "white",
             Status.ok: "green",
@@ -106,6 +107,9 @@ class Status(int, Enum):
 
 # see "3.4.1 Node States" p74
 class NodeState(int, Enum):
+    """
+    An enumeration representing :tosca_spec:`TOSCA Node States <_Toc50125214>`.
+    """
     initial = 1
     creating = 2
     created = 3

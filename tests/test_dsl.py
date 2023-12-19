@@ -165,7 +165,7 @@ type_reference_yaml = {
                 "instance": {
                     "type": "string",
                     "default": {
-                        "eval": "::[.type=WordPress]::.capabilities[.name=app_endpoint]::ip_address"
+                        "eval": "::[.type=WordPress]::.capabilities::[.name=app_endpoint]::ip_address"
                     },
                 },
             },
@@ -574,7 +574,7 @@ def test_class_init() -> None:
                     "type": "string",
                     "required": False,
                     "default": {
-                        "eval": ".targets::host::.capabilities[.name=os]::distribution"
+                        "eval": ".targets::host::.capabilities::[.name=os]::distribution"
                     },
                 }
             },
