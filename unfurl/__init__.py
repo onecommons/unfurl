@@ -44,7 +44,6 @@ _tosca_types = [
     "interfaces",
     "datatypes",
     "artifacts",
-    "policies",
     "groups",
 ]
 __safe__ = _tosca_types
