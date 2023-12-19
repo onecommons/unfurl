@@ -1147,7 +1147,7 @@ def _export(
                     deployments.append(djson)
                 hit = hit and dcache_entry.hit
             json_summary["deployments"] = deployments
-        if cache_entry.value:
+        if hit or (cache_entry.value and not post_work):
             etag = request.headers.get("If-None-Match")
             if etag and cache_entry.value.make_etag() == etag:
                 return "Not Modified", 304
@@ -1226,7 +1226,6 @@ def get_types():
     _add_types = None
     filename = request.args.get("file", "dummy-ensemble.yaml")
     if request.args.get("cloudmap"):  # e.g. "onecommons/cloudmap"
-
         def _add_types(cache_entry, db):
             err, types = _get_cloudmap_types(request.args.get("cloudmap"), cache_entry)
             if err:
