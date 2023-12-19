@@ -347,6 +347,72 @@
 </dd>
 </dl>
 <dl class="py method">
+<dt class="sig sig-object py" id="tosca.ToscaType.find_configured_by">
+<span class="sig-name descname"><span class="pre">find_configured_by</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">FieldProjection</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.find_configured_by" title="Permalink to this definition"></a></dt>
+<dd><p>Transitively search for <code class="docutils literal notranslate"><span class="pre">field_name</span></code> along the <code class="docutils literal notranslate"><span class="pre">.configured_by</span></code> axis (see <a class="reference internal" href="expressions.html#special-keys"><span class="std std-ref">Special keys</span></a>) and return the first match.</p>
+<p>For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="n">NodeType</span><span class="p">):</span>
+  <span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">B</span><span class="p">(</span><span class="n">NodeType</span><span class="p">):</span>
+  <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>
+  <span class="n">connects_to</span><span class="p">:</span> <span class="n">A</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Requirement</span><span class="p">(</span><span class="n">relationship</span><span class="o">=</span><span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Configures</span><span class="p">)</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">B</span><span class="p">(</span><span class="n">connects_to</span><span class="o">=</span><span class="n">a</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">a</span><span class="o">.</span><span class="n">find_configured_by</span><span class="p">(</span><span class="n">B</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<span class="s2">&quot;https://example.com&quot;</span>
+</pre></div>
+</div>
+<p>If called during class definition this will return an eval expression.
+If called as a classmethod or as a free function it will evaluate in the current context.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>field_name</strong> (<em>str</em><em> | </em><em>FieldProjection</em>) – Either the name of the field, or for a more type safety, a reference to the field (e.g. <code class="docutils literal notranslate"><span class="pre">B.url</span></code> in the example above).</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>The value of the referenced field</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>Any</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tosca.ToscaType.find_hosted_on">
+<span class="sig-name descname"><span class="pre">find_hosted_on</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">FieldProjection</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.find_hosted_on" title="Permalink to this definition"></a></dt>
+<dd><p>Transitively search for <code class="docutils literal notranslate"><span class="pre">field_name</span></code> along the <code class="docutils literal notranslate"><span class="pre">.hosted_on</span></code> axis (see <a class="reference internal" href="expressions.html#special-keys"><span class="std std-ref">Special keys</span></a>) and return the first match.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="n">NodeType</span><span class="p">):</span>
+  <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>
+
+<span class="k">class</span> <span class="nc">B</span><span class="p">(</span><span class="n">NodeType</span><span class="p">):</span>
+  <span class="n">host</span><span class="p">:</span> <span class="n">A</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Requirement</span><span class="p">(</span><span class="n">relationship</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">HostedOn</span><span class="p">)</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">B</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="n">a</span><span class="p">)</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">b</span><span class="o">.</span><span class="n">find_hosted_on</span><span class="p">(</span><span class="n">A</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<span class="s2">&quot;https://example.com&quot;</span>
+</pre></div>
+</div>
+<p>If called during class definition this will return an eval expression.
+If called as a classmethod or as a free function it will evaluate in the current context.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>field_name</strong> (<em>str</em><em> | </em><em>FieldProjection</em>) – Either the name of the field, or for a more type safety, a reference to the field (e.g. <code class="docutils literal notranslate"><span class="pre">A.url</span></code> in the example above).</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>The value of the referenced field</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>Any</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="tosca.ToscaType.set_to_property_source">
 <em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set_to_property_source</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">requirement</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">property</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.set_to_property_source" title="Permalink to this definition"></a></dt>
 <dd><p>Sets the given requirement to the TOSCA template that provided the value of “property”.</p>
@@ -421,6 +487,7 @@ If called as a classmethod or as a free function it will evaluate in the current
   <span class="n">parent</span><span class="p">:</span> <span class="n">B</span> <span class="o">=</span> <span class="n">find_required_by</span><span class="p">(</span><span class="n">B</span><span class="o">.</span><span class="n">connects_to</span><span class="p">,</span> <span class="n">B</span><span class="p">)</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">parent</span></code> will default to an eval expression.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
@@ -1386,7 +1453,7 @@ This will queue a new child job if needed.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.support.NodeState">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.support.</span></span><span class="sig-name descname"><span class="pre">NodeState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.support.NodeState" title="Permalink to this definition"></a></dt>
-<dd><p>An enumeration.</p>
+<dd><p>An enumeration representing <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125214">TOSCA Node States</a>.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="unfurl.support.NodeState.configured">
 <span class="sig-name descname"><span class="pre">configured</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em><a class="headerlink" href="#unfurl.support.NodeState.configured" title="Permalink to this definition"></a></dt>
@@ -1542,11 +1609,6 @@ This will queue a new child job if needed.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="unfurl.support.Status.absent">
 <span class="sig-name descname"><span class="pre">absent</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em><a class="headerlink" href="#unfurl.support.Status.absent" title="Permalink to this definition"></a></dt>
-<dd></dd></dl>
-
-<dl class="py property">
-<dt class="sig sig-object py" id="unfurl.support.Status.color">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">color</span></span><a class="headerlink" href="#unfurl.support.Status.color" title="Permalink to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
