@@ -1208,7 +1208,13 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                     # XXX hack, always set for root type:
                     typeinfo["implementations"] = ["connect", "create"]
                     typeinfo["directives"] = ["substitute"]
+                    if r.metadata.avatar_url:
+                        typeinfo["icon"] = r.metadata.avatar_url
+                    dependencies = notable.get("dependencies")
+                    if dependencies:
+                        typeinfo.setdefault("metadata", {})["components"] = dependencies                        
                     types[typeinfo["name"]] = typeinfo
+                    
     return err, types
 
 
