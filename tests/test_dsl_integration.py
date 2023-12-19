@@ -1,9 +1,12 @@
+import os
 import pytest
 import unfurl
 import tosca
 from unfurl.dsl import runtime_test
+import unfurl.tosca_plugins.expr as expr
 from unfurl.configurators.terraform import tfoutput, tfvar
 from typing import Optional, Type
+from unfurl.util import UnfurlError
 
 
 class Service(tosca.nodes.Root):
@@ -151,10 +154,46 @@ def test_hosted_on():
         )
 
         software = tosca.nodes.SoftwareComponent(host=[server])
+        setattr(software, "architecture", tosca.find_hosted_on(tosca.nodes.Compute.os).architecture)
 
     assert test.software.find_hosted_on(tosca.nodes.Compute.os).architecture == tosca.Eval(
         {"eval": "::test.software::.hosted_on::.capabilities::[.name=os]::architecture"}
     )
+    assert test.software.architecture ==  {'eval': '.hosted_on::.capabilities::[.name=os]::architecture' }
 
     topology = runtime_test(test)
     assert topology.software.find_hosted_on(tosca.nodes.Compute.os).architecture == "x86_64"
+    assert topology.software.architecture == "x86_64"
+
+
+def test_expressions():
+    class Test(tosca.nodes.Root):
+        url: str = expr.uri()
+        path1: str = expr.get_dir(None, "src")
+    class test(tosca.Namespace):
+        service = Service()
+        test_node = Test()
+
+    topology = runtime_test(test)
+    assert expr.get_env("MISSING", "default") == "default"
+    assert not expr.has_env("MISSING")
+    assert expr.get_env("PATH")
+    assert expr.get_nodes_of_type(Service) == [topology.service]
+    assert expr.get_input("MISSING", "default") == "default"
+    with pytest.raises(UnfurlError):
+        assert expr.get_input("MISSING")
+    assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
+    # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
+    assert expr.abspath(topology.service, "test_dsl_integration.py", "src").get() == __file__
+    assert expr.uri(None) != topology.test_node.url
+    assert expr.uri(topology.test_node) == topology.test_node.url
+    assert expr.to_label("fo!oo", replace='_') == 'fo_oo'
+    assert expr.template(topology.test_node, contents="{%if 1 %}{{SELF.url}}{%endif%}") == "#::test.test_node"
+    # XXX test:
+    # "if_expr", or_expr, and_expr
+    # "lookup",
+    # "to_env",
+    # "get_ensemble_metadata",
+    # "negate",
+    # "as_bool",
+    # tempfile

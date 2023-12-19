@@ -2542,6 +2542,8 @@ class ToscaType(_ToscaType):
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for name, value in self.__dict__.items():
             field = fields.get(name)
+            if isinstance(value, FieldProjection):
+                yield name, (value.field, value)
             if isinstance(value, _Tosca_Field):
                 # field assigned directly to the object
                 field = value
@@ -2621,6 +2623,8 @@ class ToscaType(_ToscaType):
                 body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
                     value
                 )
+            elif field.section:
+                assert False, "unexpected section in {field}"
 
         if not converter.safe_mode:
             # safe mode skips adding interfaces because it executes operations to generate the yaml

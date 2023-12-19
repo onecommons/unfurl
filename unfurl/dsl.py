@@ -127,6 +127,7 @@ def runtime_test(namespace: Type[_N]) -> _N:
             count += 1
     assert count == len(node_templates), f"{count}, {len(node_templates)}"
     assert tosca.global_state.mode == "runtime"
+    tosca.global_state.context = ctx
     return clone
 
 
