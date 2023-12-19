@@ -1033,6 +1033,22 @@ class NodeSpec(EntitySpec):
         }
 
     @property
+    def sources(self):
+        dep: Dict[str, Union[EntitySpec, List[EntitySpec]]] = {}
+        for cap in self.capabilities.values():
+            for rel in cap.relationships:
+                if rel.source:
+                    if rel.name in dep:
+                        val = dep[rel.name]
+                        if isinstance(val, list):
+                            val.append(rel.source)
+                        else:
+                            dep[rel.name] = [val, rel.source]
+                    else:
+                        dep[rel.name] = rel.source
+        return dep
+
+    @property
     def requirements(self) -> Dict[str, "RequirementSpec"]:
         if self._requirements is None:
             self._requirements = {}
