@@ -552,10 +552,10 @@ class Convert:
             )
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
-        return self._get_typed_value_repr(schema.type, schema.entry_schema, value)[0]
+        return self._get_typed_value_repr(schema.type, schema.entry_schema, value, schema.metadata)[0]
 
     def _get_typed_value_repr(
-        self, datatype: str, entry_schema, value: Any
+        self, datatype: str, entry_schema, value: Any, metadata: Optional[dict] = None
     ) -> Tuple[str, bool]:
         if value is None:
             return "None", False
@@ -588,10 +588,14 @@ class Convert:
                     )
                 scalar_unit_class = get_scalarunit_class(datatype)
                 assert scalar_unit_class
-                canonical = scalar_unit_class(value).validate_scalar_unit()
-                value, sep, unit = canonical.strip().partition(" ")
+                default_unit = metadata and metadata.get("default_unit")
+                if default_unit and not isinstance(value, str):
+                    unit = cast(str, default_unit)
+                else:
+                    canonical = scalar_unit_class(value).validate_scalar_unit()
+                    value, sep, unit = canonical.strip().partition(" ")
                 self.imports.from_tosca.add(unit)
-                return value + "*" + unit, False
+                return f"{value}*{unit}", False
             if typename:
                 # simple value type
                 if datatype in ["timestamp", "version"]:  # use wrapper type
