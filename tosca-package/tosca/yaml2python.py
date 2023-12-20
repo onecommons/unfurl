@@ -296,6 +296,7 @@ class Convert:
         path: Optional[str] = None,
         write_policy: WritePolicy = WritePolicy.auto,
         base_dir: Optional[str] = None,
+        package_name: str = "service_template",
     ):
         self.template = template
         self.global_names: Dict[str, str] = {}
@@ -320,6 +321,7 @@ class Convert:
         self.write_policy = write_policy
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
+        self.package_name = package_name
 
     def find_repository(self, name) -> Tuple[str, str]:
         if name in ["self"]:
@@ -342,7 +344,7 @@ class Convert:
                     logger.error(
                         'Bad import: can not find repository "%s" in "%s"',
                         name,
-                        self.template.path,
+                        self.template.base_dir,
                     )
             else:
                 logger.warning(
@@ -353,7 +355,7 @@ class Convert:
             return name, url
         return "tosca_repositories." + name, name
 
-    def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str, Tuple[str, str]]:
+    def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str, Tuple[str, str], str]:
         "converts tosca yaml import dict (as `imp`) to python import statement"
         repo = imp.get("repository")
         file = imp.get("file")
@@ -367,11 +369,12 @@ class Convert:
         dirname = filepath.parent
         filename, tosca_name = self._get_name(filepath.stem)  # filename w/o ext
 
+        base_dir = ''
         if repo:
             # generate repo import if repository: key given
-            module_name, _import_path = self.find_repository(repo)
+            module_name, base_dir = self.find_repository(repo)
             # XXX add comment with repo url
-            import_path = PurePath(_import_path)
+            import_path = PurePath(base_dir)
         else:
             # otherwise assume local path
             assert self.template.path
@@ -408,7 +411,7 @@ class Convert:
         import_path = import_path / dirname / filename
 
         full_name = f"{module_name}.{filename}"
-        return import_stmt + "\n", str(import_path), (full_name, python_prefix)
+        return import_stmt + "\n", str(import_path), (full_name, python_prefix), base_dir
 
     def convert_types(
         self, tosca_types: dict, section: str, namespace_prefix="", indent=""
@@ -1412,7 +1415,7 @@ class Convert:
                     req_assignment = rel_assignment
         return req_assignment
 
-    def follow_import(self, import_def: dict, import_path: str, format: bool) -> None:
+    def follow_import(self, import_def: dict, import_path: str, format: bool, base_dir) -> None:
         # the ToscaTemplate has already imported everything, so here we just need to get the import's contents
         # to convert it to Python
         file_path = str(Path(import_path).parent / Path(import_def["file"]).name)
@@ -1433,7 +1436,12 @@ class Convert:
         if "repositories" in self.template.tpl:
             repositories = self.template.tpl["repositories"]
             tpl.setdefault("repositories", {}).update(repositories)
-        if import_def.get("repository") == "unfurl":
+        repository = import_def.get("repository")
+        if repository:
+            package = "tosca_repositories." + re.sub(r"\W", "_", repository)
+        else:
+            package = "service_template"
+        if repository == "unfurl":
             logger.debug("not converting built-in import: %s", import_path)
         elif self.write_policy.can_overwrite(file_path, import_path):
             convert_service_template(
@@ -1442,7 +1450,7 @@ class Convert:
                     yaml_dict_tpl=tpl,
                     import_resolver=self.template.import_resolver,
                     verify=False,
-                    base_dir=self.base_dir,
+                    base_dir=base_dir or self.base_dir,
                 ),
                 self.python_compatible,
                 self._builtin_prefix,
@@ -1450,7 +1458,8 @@ class Convert:
                 custom_defs=self.custom_defs,
                 path=import_path,
                 write_policy=self.write_policy,
-                base_dir=self.base_dir,
+                base_dir=base_dir or self.base_dir,
+                package_name=package,
             )
         else:
             logger.info(
@@ -1463,7 +1472,7 @@ class Convert:
         try:
             package_path = Path(path).parent.relative_to(self.base_dir)
             relpath = str(package_path).strip("/").replace("/", ".").strip(".")
-            package = "service_template"
+            package = self.package_name
             if relpath:
                 package += "." + relpath
         except ValueError:
@@ -1561,6 +1570,7 @@ def convert_service_template(
     path="",
     write_policy: WritePolicy = WritePolicy.auto,
     base_dir=None,
+    package_name="service_template",
 ) -> str:
     src = ""
     imports = Imports()
@@ -1579,17 +1589,19 @@ def convert_service_template(
         path,
         write_policy,
         base_dir,
+        package_name
     )
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):
         for imp_def in imports_tpl:
             if isinstance(imp_def, str):
                 imp_def = dict(file=imp_def)
-            import_src, import_path, (module_name, ns) = converter.convert_import(
+            # base_dir is only set if imp_def has a repository
+            import_src, import_path, (module_name, ns), base_dir = converter.convert_import(
                 imp_def
             )
             loader.install(template.import_resolver)
-            converter.follow_import(imp_def, import_path + ".py", format)
+            converter.follow_import(imp_def, import_path + ".py", format, base_dir)
             package = converter.get_package_name()
             try:
                 module = importlib.import_module(module_name, package)
@@ -1597,7 +1609,7 @@ def convert_service_template(
             except:
                 if module_name[0] == ".":
                     logger.error(
-                        f"error importing {module_name} in {package}", exc_info=True
+                        f"error importing {module_name} in {package} {imp_def}", exc_info=True
                     )
                 else:
                     logger.error(f"error importing {module_name}", exc_info=True)

@@ -73,7 +73,14 @@ class RepositoryFinder(PathFinder):
                         )
                         return None
                 else:
-                    origin_path = os.path.join(repo_path, *names[2:]) + ".py"
+                    origin_path = os.path.join(repo_path, *names[2:])
+                    if os.path.isdir(origin_path) and not os.path.isfile(
+                        origin_path + ".py"
+                    ):
+                        return ModuleSpec(
+                            fullname, None, origin=origin_path, is_package=True
+                        )
+                    origin_path += ".py"
                     assert os.path.isfile(origin_path), origin_path
                     loader = ToscaYamlLoader(fullname, origin_path, modules)
                     spec = spec_from_loader(fullname, loader, origin=origin_path)
