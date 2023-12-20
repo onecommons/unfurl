@@ -764,7 +764,9 @@ class Convert:
                 for req in reqs:
                     name = list(req)[0]
                     self._set_name(name, "requirement")
-            # XXX artifacts
+                artifacts = entity_type.get_value("artifacts") or {}
+                for name in artifacts:
+                    self._set_name(name, "artifact")
             for iname, idef in entity_type.interfaces.items():
                 ops = idef.get("operations") or {}
                 for name in ops:
@@ -816,6 +818,27 @@ class Convert:
                 req_name, req = list(tpl.items())[0]
                 # get the full req including inherited values
                 src += self.add_req(req_name, reqs[req_name], indent, cls_name)
+            artifacts: Dict[str, Artifact] = {}
+            required_artifacts: Dict[str, dict] = {}
+            NodeTemplate.find_artifacts_on_type(toscatype, artifacts, required_artifacts)
+            for artifact in artifacts.values():
+                artifact_name, artifact_src = self.artifact2obj(artifact)
+                if artifact_src:
+                    field_name, tosca_name = self._set_name(artifact_name, "artifact")
+                    cls_name, cls = self.imports.get_type_ref(artifact.type)
+                    assert cls_name
+                    src += f"{indent}{field_name}: {cls_name} = {artifact_src}\n"
+            for required_artifact_name, required_artifact_tpl in required_artifacts.items():
+                cls_name, cls = self.imports.get_type_ref(required_artifact_tpl.get("type", ""))
+                if cls_name:
+                    name, _ = self._get_name(required_artifact_name)
+                    field_name, tosca_name = self._set_name(name, "artifact")
+                    # XXX what to do if field_name != tosca_name?
+                    required = required_artifact_tpl.get("required")
+                    if required:
+                        src += f"{indent}{field_name}: {cls_name}\n"
+                    else:
+                        src += f"{indent}{field_name}: Optional[{cls_name}] = None\n"
 
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
@@ -1362,13 +1385,16 @@ class Convert:
                 src += f"{field.name}=[{', '.join(assignments)}],\n"
         artifacts = []
         for artifact_tosca_name, artifact in node_template.artifacts.items():
+            artifacts_tpl = node_template.entity_tpl.get(node_template.ARTIFACTS)
+            if not artifacts_tpl or artifact_tosca_name not in artifacts_tpl:
+                continue  # defined on the type so skip
             artifact_name, artifact_src = self.artifact2obj(artifact)
             if artifact_src:
                 field = cls.get_field_from_tosca_name(
                     artifact_tosca_name, ToscaFieldType.artifact
                 )
                 if field:
-                    src += f"{artifact_src},\n"
+                    src += f"{artifact_name}={artifact_src},\n"
                 else:
                     artifacts.append((artifact_name, artifact_src))
         src += ")\n"  # close ctor
