@@ -505,6 +505,7 @@ def is_computed(val) -> bool:
         val = val._attributes
     return has_function(val)
 
+
 class _Sentinal:
     def __init__(self, name):
         self.name = name
@@ -807,11 +808,7 @@ class Results(ABC):
 
         property = self.defs.get(key)
         if property:
-            transform = property.schema.metadata.get("transform")
-            if not transform and property.entity.datatype.defs:
-                metadata = property.entity.datatype.defs.get("metadata")
-                if metadata:
-                    transform = metadata.get("transform")
+            transform = self._get_prop_metadata_key(property, "transform")
             if transform:
                 logger.debug(
                     "running transform on %s.%s", self.context.currentResource.name, key
@@ -819,7 +816,18 @@ class Results(ABC):
                 return map_value(transform, self.context.copy(vars=dict(value=value)))
         return value
 
-    def _validate(self, key, value, src=None, propDef=None):
+    @staticmethod
+    def _get_prop_metadata_key(property_def: Property, key):
+        value = property_def.schema.metadata.get(key)
+        if not value and property_def.entity.datatype.defs:
+            metadata = property_def.entity.datatype.defs.get("metadata")
+            if metadata:
+                value = metadata.get(key)
+        return value
+
+    def _validate(self, key: str, value, src=None, propDef: Optional[Property] = None):
+        from .eval import Ref
+
         propDef = propDef or self.defs.get(key)
         if not propDef:
             return True
@@ -836,6 +844,12 @@ class Results(ABC):
                     raise ValidationError(message=msg)
             else:
                 propDef._validate(value)
+                validate_expr = self._get_prop_metadata_key(propDef, "validation")
+                if validate_expr:
+                    if not Ref(
+                        validate_expr, vars=dict(property=key, value=value)
+                    ).resolve_one(self.context):
+                        raise UnfurlError(f"validation failed for {validate_expr}")
             self.context.trace(f'Validated "{key}" on "{resource.name}')
         except Exception as err:
             msg = f'Validation failure while evaluating "{key}" on "{resource.name}": {err}'
