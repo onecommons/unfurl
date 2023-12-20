@@ -80,6 +80,8 @@ from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
+from toscaparser.elements import constraints
+
 
 logger = getLogger("unfurl")
 
@@ -110,6 +112,7 @@ class NodeState(int, Enum):
     """
     An enumeration representing :tosca_spec:`TOSCA Node States <_Toc50125214>`.
     """
+
     initial = 1
     creating = 2
     created = 3
@@ -1462,6 +1465,24 @@ def get_import(arg: RefContext, ctx):
 
 
 set_eval_func("external", get_import)
+
+
+def register_custom_constraint(key, func):
+    class CustomConstraint(constraints.Constraint):
+        constraint_key = key
+        valid_prop_types = constraints.Schema.PROPERTY_TYPES
+
+        def __init__(self, property_name, property_type, constraint):
+            self.property_name = property_name
+            self.property_type = property_type
+            self.constraint_value = constraint[self.constraint_key]
+            self.constraint_value_msg = self.constraint_value
+
+        def _is_valid(self, value):
+            return func(value)
+
+    constraints.constraint_mapping[key] = CustomConstraint
+    return CustomConstraint
 
 
 class _Import:
