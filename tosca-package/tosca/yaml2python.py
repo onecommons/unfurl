@@ -1310,14 +1310,18 @@ class Convert:
             src = f"{cls_name}("
         # always add name because we might not have access to the name reference
         src += f'"{entity_template.name}", '
-        metadata = entity_template.entity_tpl.get("metadata")
+        entity_tpl = entity_template.entity_tpl
+        metadata = entity_tpl.get("metadata")
         if metadata:
+            before_patch = metadata.pop("before_patch", None)
+            if before_patch:
+                entity_tpl = before_patch
             src += f"_metadata={metadata_repr(metadata)},\n"
         # XXX version
         if entity_template.directives:
             src += f"_directives={repr(entity_template.directives)},\n"
         assert entity_template.type_definition
-        properties = entity_template.entity_tpl.get("properties")
+        properties = entity_tpl.get("properties")
         if properties:
             prop_defs = entity_template.type_definition.get_properties_def()
             src += self._get_prop_init_list(properties, prop_defs, cls, indent)

@@ -144,7 +144,9 @@ def _patch(node, patchsrc, quote=False, tpl=None):
     else:
         patch = serialize_value(map_value(patchsrc, ctx))
     logger.trace("patching node %s was %s", node.name, tpl)
+    original = copy.deepcopy(tpl)
     patched = patch_dict(tpl, patch, True)
+    patched.setdefault("metadata", {})["before_patch"] = original
     logger.trace("patched node %s: now %s", node.name, patched)
     return patched
 

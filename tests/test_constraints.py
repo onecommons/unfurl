@@ -32,7 +32,7 @@ def test_constraints():
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
     manifest = local.get_manifest(skip_validation=True, safe_mode=True)
     service_template = manifest.manifest.expanded["spec"]["service_template"]
-    # pprint.pprint(service_template["node_types"])
+    # pprint.pprint(service_template["topology_template"])
     assert service_template["topology_template"] == {
         "node_templates": {
             "myapp": {
@@ -52,6 +52,7 @@ def test_constraints():
             },
             "myapp_proxy": {
                 "type": "ProxyContainerHost",
+                "metadata": {"before_patch": {"type": "ProxyContainerHost"}},
                 "properties": {
                     "backend_url": {
                         "eval": "$SOURCE::.targets::container::url",
