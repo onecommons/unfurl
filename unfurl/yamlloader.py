@@ -68,7 +68,7 @@ from .repo import (
     split_git_url,
     memoized_remote_tags,
 )
-from .packages import UnfurlPackageUpdateNeeded, extract_package, resolve_package
+from .packages import PackageSpec, UnfurlPackageUpdateNeeded, extract_package, get_package_from_url, resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -329,7 +329,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             return None
         if tpl:  # match by url
             # normalize_git_url_hard removes the fragment
-            url = normalize_git_url_hard(tpl["url"])
+            url = tpl["url"]
+            package = get_package_from_url(url)
+            if package:
+                PackageSpec.update_package(self.manifest.package_specs, package)
+                url = package.url
+            url = normalize_git_url_hard(url)
         else:
             url = None
         candidate = None
@@ -357,6 +362,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     ) -> Optional[str]:
         repo_view = self._match_repoview(name, tpl)
         if not repo_view:
+            logger.debug(f"could not find a repository for '{name}' ({tpl})")
             return None
         return self._get_link_to_repo(repo_view, base_path)
 
