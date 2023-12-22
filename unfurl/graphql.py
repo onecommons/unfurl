@@ -1,5 +1,6 @@
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -9,7 +10,16 @@ from typing import (
     cast,
 )
 from typing_extensions import TypedDict, NotRequired, Required
+from toscaparser.common.exception import ExceptionCollector
+from toscaparser.elements.statefulentitytype import StatefulEntityType
+from toscaparser.elements.artifacttype import ArtifactTypeDef
+from toscaparser.elements.relationshiptype import RelationshipType
+from toscaparser.elements.nodetype import NodeType
+from .logs import getLogger
+from .spec import TopologySpec
 from .support import Status
+
+logger = getLogger("unfurl")
 
 JsonType = Dict[str, Any]
 
@@ -179,6 +189,65 @@ class DeploymentEnvironment(TypedDict, total=False):
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier: str=""):
         self.qualifier = qualifier
+
+    def expand_prefix(self, nodetype: str) -> TypeName:
+        # XXX idempotent
+        return TypeName(nodetype.replace("tosca:", "tosca.nodes."))  # XXX
+
+    def _get_extends(
+        self,
+        topology: TopologySpec,
+        typedef: StatefulEntityType,
+        extends: List[TypeName],
+        convert: Optional[Callable]
+    ) -> None:
+        if not typedef:
+            return
+        name = self.expand_prefix(typedef.type)
+        if name not in extends:
+            extends.append(name)
+        if convert and name not in self:
+            convert(topology, typedef, self)
+        ExceptionCollector.collecting = True
+        for p in typedef.parent_types():
+            self._get_extends(topology, p, extends, convert)
+
+    def get_type(self, typename: str) -> Optional[ResourceType]:
+        return self.get(self.expand_prefix(typename))
+
+    def _make_typedef(
+        self, typename: str, custom_defs, all=False
+    ) -> Optional[StatefulEntityType]:
+        # XXX handle fully qualified types
+        typedef = None
+        # prefix is only used to expand "tosca:Type"
+        test_typedef = StatefulEntityType(
+            typename, StatefulEntityType.NODE_PREFIX, custom_defs
+        )
+        if not test_typedef.defs:
+            logger.warning("Missing type definition for %s", typename)
+            return typedef
+        elif "derived_from" not in test_typedef.defs:
+            _source = test_typedef.defs.get("_source")
+            section = isinstance(_source, dict) and _source.get("section")
+            if _source and not section:
+                logger.warning(
+                    'Unable to determine type of %s: missing "derived_from" key', typename
+                )
+            elif section == "node_types":
+                custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
+            elif section == "relationship_types":
+                custom_defs[typename]["derived_from"] = "tosca.relationships.Root"
+        if test_typedef.is_derived_from("tosca.nodes.Root"):
+            typedef = NodeType(typename, custom_defs)
+        elif test_typedef.is_derived_from("tosca.relationships.Root"):
+            typedef = RelationshipType(typename, custom_defs)
+        elif all:
+            if test_typedef.is_derived_from("tosca.artifacts.Root"):
+                typedef = ArtifactTypeDef(typename, custom_defs)
+            else:
+                return test_typedef
+        return typedef
 
 class GraphqlDB(Dict[str, GraphqlObjectsByName]):
     pass
