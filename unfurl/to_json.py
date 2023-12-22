@@ -1793,8 +1793,10 @@ def to_deployment(
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     add_graphql_deployment(manifest, db, dtemplate)
+    db["ResourceType"].update(env_types)  # type: ignore
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
+    db["DeploymentEnvironment"] = env  # type: ignore
     logger.debug("finished exporting deployment %s", localEnv.manifestPath)
     return db
 
