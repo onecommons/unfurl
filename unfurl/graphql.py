@@ -182,7 +182,7 @@ class DeploymentEnvironment(TypedDict, total=False):
       """
       name: str
       connections: ResourceTemplatesByName
-      instances: ResourceTemplatesByName
+      instances: Required[ResourceTemplatesByName]
       primary_provider: ResourceTemplateName
       repositories: JsonType
 

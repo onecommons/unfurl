@@ -1796,6 +1796,9 @@ def to_deployment(
     db["ResourceType"].update(env_types)  # type: ignore
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
+    env_instances = manifest.context.get("instances")
+    if env_instances:
+        env["instances"].update(_set_shared_instances(env_instances))
     db["DeploymentEnvironment"] = env  # type: ignore
     logger.debug("finished exporting deployment %s", localEnv.manifestPath)
     return db
