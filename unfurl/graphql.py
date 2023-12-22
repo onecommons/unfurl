@@ -23,6 +23,7 @@ logger = getLogger("unfurl")
 
 JsonType = Dict[str, Any]
 
+
 class GraphqlObject(TypedDict, total=False):
     name: Required[str]
     __typename: Required[str]
@@ -31,6 +32,7 @@ class GraphqlObject(TypedDict, total=False):
     visibility: NotRequired[str]
     metadata: NotRequired[JsonType]
 
+
 ResourceTemplateName = str
 
 GraphqlObjectsByName = Dict[str, GraphqlObject]
@@ -38,6 +40,7 @@ GraphqlObjectsByName = Dict[str, GraphqlObject]
 TypeName = NewType("TypeName", str)
 # XXX RequirementConstraintName = NewType("RequirementConstraintName", str)
 RequirementConstraintName = str
+
 
 class Deployment(GraphqlObject, total=False):
     """
@@ -54,6 +57,7 @@ class Deployment(GraphqlObject, total=False):
       packages: JSON
     }
     """
+
     primary: str
     resources: List[str]
     deploymentTemplate: str
@@ -63,6 +67,7 @@ class Deployment(GraphqlObject, total=False):
     workflow: str
     deployTime: str
     packages: JsonType
+
 
 class RequirementConstraint(GraphqlObject):
     """
@@ -81,6 +86,7 @@ class RequirementConstraint(GraphqlObject):
         requirementsFilter: [RequirementConstraint!]
     }
     """
+
     resourceType: TypeName
     match: Optional[ResourceTemplateName]
     min: int
@@ -102,9 +108,11 @@ class Requirement(GraphqlObject):
       visibility: String
     }
     """
+
     constraint: RequirementConstraint
     match: Optional[ResourceTemplateName]
     target: NotRequired[str]
+
 
 class ResourceType(GraphqlObject, total=False):
     """
@@ -128,6 +136,7 @@ class ResourceType(GraphqlObject, total=False):
       _sourceinfo: JSON
     }
     """
+
     extends: Required[List[TypeName]]
     badge: NotRequired[str]
     icon: NotRequired[str]
@@ -143,7 +152,7 @@ class ResourceType(GraphqlObject, total=False):
 
 
 class ResourceTemplate(GraphqlObject, total=False):
-    """    
+    """
     type ResourceTemplate {
         name: String!
         title: String
@@ -161,6 +170,7 @@ class ResourceTemplate(GraphqlObject, total=False):
         dependencies: [Requirement!]
       }
     """
+
     type: TypeName
     directives: List[str]
     imported: str
@@ -168,30 +178,35 @@ class ResourceTemplate(GraphqlObject, total=False):
     properties: List[dict]
     dependencies: List[Requirement]
 
+
 ResourceTemplatesByName = Dict[str, ResourceTemplate]
 
+
 class DeploymentEnvironment(TypedDict, total=False):
-      """
-      type DeploymentEnvironment {
-        name: String!
-        connections: [ResourceTemplate!]
-        instances: [ResourceTemplate!]
-        primary_provider: ResourceTemplate
-        repositories: JSON!
-      }
-      """
-      name: str
-      connections: ResourceTemplatesByName
-      instances: Required[ResourceTemplatesByName]
-      primary_provider: ResourceTemplateName
-      repositories: JsonType
+    """
+    type DeploymentEnvironment {
+      name: String!
+      connections: [ResourceTemplate!]
+      instances: [ResourceTemplate!]
+      primary_provider: ResourceTemplate
+      repositories: JSON!
+    }
+    """
+
+    name: str
+    connections: ResourceTemplatesByName
+    instances: Required[ResourceTemplatesByName]
+    primary_provider: Optional[ResourceTemplateName]
+    repositories: JsonType
+
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
-    def __init__(self, qualifier: str=""):
+    def __init__(self, qualifier: str = ""):
         self.qualifier = qualifier
 
-    def expand_prefix(self, nodetype: str) -> TypeName:
+    def expand_typename(self, nodetype: str) -> TypeName:
         # XXX idempotent
+        # XXX lookup type and expand
         return TypeName(nodetype.replace("tosca:", "tosca.nodes."))  # XXX
 
     def _get_extends(
@@ -199,11 +214,11 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         topology: TopologySpec,
         typedef: StatefulEntityType,
         extends: List[TypeName],
-        convert: Optional[Callable]
+        convert: Optional[Callable],
     ) -> None:
         if not typedef:
             return
-        name = self.expand_prefix(typedef.type)
+        name = self.expand_typename(typedef.type)
         if name not in extends:
             extends.append(name)
         if convert and name not in self:
@@ -213,7 +228,12 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             self._get_extends(topology, p, extends, convert)
 
     def get_type(self, typename: str) -> Optional[ResourceType]:
-        return self.get(self.expand_prefix(typename))
+        return self.get(self.expand_typename(typename))
+
+    def get_typename(self, typedef: Optional[StatefulEntityType]) -> TypeName:
+        # typedef might not be in types yet
+        assert typedef
+        return TypeName(typedef.type)
 
     def _make_typedef(
         self, typename: str, custom_defs, all=False
@@ -232,7 +252,8 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             section = isinstance(_source, dict) and _source.get("section")
             if _source and not section:
                 logger.warning(
-                    'Unable to determine type of %s: missing "derived_from" key', typename
+                    'Unable to determine type of %s: missing "derived_from" key',
+                    typename,
                 )
             elif section == "node_types":
                 custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
@@ -249,8 +270,11 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
                 return test_typedef
         return typedef
 
+
 class GraphqlDB(Dict[str, GraphqlObjectsByName]):
-    pass
+    def get_types(self) -> ResourceTypesByName:
+        return cast(ResourceTypesByName, self["ResourceType"])
+
 
 class DeploymentPath(GraphqlObject):
     """
@@ -262,13 +286,16 @@ class DeploymentPath(GraphqlObject):
       incremental_deploy: boolean!
     }
     """
+
     environment: str
     project_id: NotRequired[str]
     pipelines: List[JsonType]
     incremental_deploy: bool
 
+
 class DeploymentPaths(TypedDict):
     DeploymentPath: Dict[str, DeploymentPath]
+
 
 class Deployments(DeploymentPaths):
     deployments: List[GraphqlDB]
