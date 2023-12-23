@@ -29,7 +29,6 @@ from typing import (
     cast,
 )
 from collections import Counter
-from collections.abc import Mapping, MutableSequence
 from urllib.parse import urlparse
 from toscaparser.imports import is_url
 from toscaparser.substitution_mappings import SubstitutionMappings
@@ -42,14 +41,11 @@ from toscaparser.entity_template import EntityTemplate
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
-from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
-from .lock import Lock
 from .plan import _get_templates_from_topology
 from .repo import sanitize_url
-from .runtime import EntityInstance, TopologyInstance
 from .yamlmanifest import YamlManifest
 from .logs import getLogger
 from .spec import (
@@ -57,21 +53,20 @@ from .spec import (
     NodeSpec,
     TopologySpec,
     ToscaSpec,
-    is_function,
     get_nodefilters,
 )
-from .util import to_enum, UnfurlError
-from .support import Status
-from .result import ChangeRecord
+from .util import UnfurlError
 from .localenv import LocalEnv, Project
 
 logger = getLogger("unfurl")
 
 
 from .graphql import (
+    ApplicationBlueprint,
     Deployment,
     DeploymentEnvironment,
     DeploymentPath,
+    DeploymentTemplate,
     GraphqlObject,
     DeploymentPaths,
     GraphqlObjectsByName,
@@ -83,27 +78,20 @@ from .graphql import (
     TypeName,
     ResourceTypesByName,
     GraphqlDB,
-    RequirementConstraintName,
     RequirementConstraint,
     PropertyVisitor,
     is_property_user_visible,
     is_server_only_expression,
-    to_graphql_resource,
+    _project_path,
+    js_timestamp,
 )
 
 CustomDefs = Dict[str, dict]
+TypeDescendents = Dict[str, List[str]]
 
 
 def _print(*args):
     print(*args, file=sys.stderr)
-
-
-def js_timestamp(ts: datetime.datetime) -> str:
-    jsts = ts.isoformat(" ", "seconds")
-    if ts.utcoffset() is None:
-        # if no timezone assume utc and append the missing offset
-        return jsts + "+00:00"
-    return jsts
 
 
 numeric_constraints = {
@@ -377,9 +365,6 @@ def _get_req(req_dict) -> Tuple[str, dict]:
     else:
         assert isinstance(req, dict), f"bad {req} in {req_dict}"
     return name, req
-
-
-TypeDescendents = Dict[str, List[str]]  # Dict[TypeName, List[TypeName]]
 
 
 def find_descendents(descendents: TypeDescendents, typename: str) -> Iterator[str]:
@@ -1129,7 +1114,7 @@ def _generate_primary(
 # if a node type or template is specified, use that, but it needs to be compatible with the generated type
 def _get_or_make_primary(
     spec: ToscaSpec, db: GraphqlDB, nested: bool
-) -> Tuple[str, str]:
+) -> Tuple[str, TypeName]:
     ExceptionCollector.start()  # topology.add_template may generate validation exceptions
     assert spec.template
     topology = spec.template.topology_template
@@ -1140,12 +1125,12 @@ def _get_or_make_primary(
     if topology.substitution_mappings:
         root_type = topology.substitution_mappings.node_type
         root = topology.substitution_mappings._node_template
+    types = db.get_types()
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
         if nested:
             assert spec.topology
-            types = db.get_types()
-            jsontype = types.get_type(root_type.type)
+            jsontype = types.get_type(root_type)
             if not jsontype:
                 jsontype = node_type_to_graphql(spec.topology, root_type, types)
             assert topology.substitution_mappings
@@ -1181,48 +1166,32 @@ def _get_or_make_primary(
         root = _generate_primary(spec, db)
 
     assert root and root.type
-    return root.name, root.type
+    return root.name, types.get_typename(root.type_definition)
 
 
-def blueprint_metadata(spec: ToscaSpec, root_name: str) -> GraphqlObject:
+def blueprint_metadata(spec: ToscaSpec, root_name: str) -> ApplicationBlueprint:
     title, name = _template_title(spec, root_name)
-    blueprint: Dict[str, Any] = dict(name=name, title=title)
-    blueprint["description"] = spec.template.description
+    blueprint = ApplicationBlueprint(
+        name=name, __typename="ApplicationBlueprint", title=title
+    )
+    blueprint["description"] = spec.template.description or ""
     metadata = spec.template.tpl.get("metadata") or {}
     blueprint["livePreview"] = metadata.get("livePreview")
     blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
     blueprint["image"] = metadata.get("image")
     blueprint["projectIcon"] = metadata.get("projectIcon")
     blueprint["primaryDeploymentBlueprint"] = metadata.get("primaryDeploymentBlueprint")
-    return cast(GraphqlObject, blueprint)
+    return blueprint
 
 
 def to_graphql_blueprint(
     spec: ToscaSpec, db: GraphqlDB, nested=False
-) -> Tuple[GraphqlObject, str]:
-    """
-    Returns json object as ApplicationBlueprint
-
-    ApplicationBlueprint: {
-      name: String!
-      title: String
-      description: String
-      primary: ResourceType!
-      primaryDeploymentBlueprint: String
-      deploymentTemplates: [DeploymentTemplate!]
-
-      livePreview: String
-      sourceCodeUrl: String
-      image: String
-      projectIcon: String
-    }
-    """
+) -> Tuple[ApplicationBlueprint, str]:
     # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
     root_name, root_type = _get_or_make_primary(spec, db, nested)
     blueprint = blueprint_metadata(spec, root_name)
-    blueprint["__typename"] = "ApplicationBlueprint"
-    blueprint["primary"] = root_type  # type: ignore
-    blueprint["deploymentTemplates"] = []  # type: ignore
+    blueprint["primary"] = root_type
+    blueprint["deploymentTemplates"] = []
     return blueprint, root_name
 
 
@@ -1286,7 +1255,7 @@ def _generate_env_names(
 
 def get_deployment_blueprints(
     manifest: YamlManifest, blueprint: GraphqlObject, root_name: str, db: GraphqlDB
-) -> dict:
+) -> Dict[str, DeploymentTemplate]:
     """
     The blueprint will include deployement blueprints that follows this syntax in the manifest:
 
@@ -1304,25 +1273,8 @@ def get_deployment_blueprints(
             resourceTemplates: [resource_template_name*]
 
     Returns json object with DeploymentTemplates:
-
-    type DeploymentTemplate {
-      name: String!
-      title: String!
-      slug: String!
-      description: String
-
-      blueprint: ApplicationBlueprint!
-      primary: ResourceTemplate!
-      resourceTemplates: [ResourceTemplate!]
-      cloud: ResourceType
-      environmentVariableNames: [String!]
-
-      source: String
-      projectPath: String!
-      commitTime: String
-    }
     """
-    deployment_blueprints = (
+    deployment_blueprints: Dict[str, dict] = (
         manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
     )
     spec = manifest.tosca
@@ -1331,7 +1283,7 @@ def get_deployment_blueprints(
     for name, tpl in deployment_blueprints.items():
         slug = slugify(name)
         template = tpl.copy()
-        local_resource_templates = {}
+        local_resource_templates: ResourceTemplatesByName = {}
         resource_templates = template.pop("resource_templates", None)
         if resource_templates:
             topology = spec.topology.copy()
@@ -1349,48 +1301,44 @@ def get_deployment_blueprints(
 
         # XXX assert that db["ResourceTemplate"] has already has all the node_templates
         # names of ResourceTemplates:
-        resourceTemplates = sorted(
-            set(db["ResourceTemplate"]) | set(local_resource_templates)
+        resourceTemplates = cast(
+            List[ResourceTemplateName],
+            sorted(set(db["ResourceTemplate"]) | set(local_resource_templates)),
         )
-        primary = tpl.get("primary") or root_name
+        primary: str = tpl.get("primary") or root_name
         env_vars = list(_generate_env_names(spec, primary, db.get_types()))
-        template.update(
-            dict(
-                __typename="DeploymentTemplate",
-                title=tpl.get("title") or name,
-                description=tpl.get("description"),
-                name=name,
-                slug=slug,
-                blueprint=blueprint["name"],
-                primary=primary,
-                resourceTemplates=resourceTemplates,
-                ResourceTemplate=local_resource_templates,
-                environmentVariableNames=env_vars,
-            )
+        dt = DeploymentTemplate(
+            __typename="DeploymentTemplate",
+            title=cast(str, tpl.get("title") or name),
+            description=cast(str, tpl.get("description", "")),
+            name=name,
+            slug=slug,
+            blueprint=blueprint["name"],
+            primary=primary,
+            resourceTemplates=resourceTemplates,
+            ResourceTemplate=local_resource_templates,
+            environmentVariableNames=env_vars,
         )
+        template.update(dt)
         deployment_templates[name] = template
     return deployment_templates
 
 
-def _project_path(url):
-    pp = urlparse(url).path.lstrip("/")
-    if pp.endswith(".git"):
-        return pp[:-4]
-    return pp
-
-
-def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
+def get_blueprint_from_topology(
+    manifest: YamlManifest, db: GraphqlDB
+) -> Tuple[ApplicationBlueprint, DeploymentTemplate]:
     spec = manifest.tosca
     assert spec
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db)
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
-    template = {}
     deployment_blueprint_name = manifest.context.get("deployment_blueprint")
     if deployment_blueprint_name and deployment_blueprint_name in templates:
         deployment_blueprint = templates[deployment_blueprint_name]
         template = deployment_blueprint.copy()
+    else:
+        template = DeploymentTemplate()  # type: ignore
 
     # the deployment template created for this deployment will have a "source" key
     # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
@@ -1401,20 +1349,19 @@ def get_blueprint_from_topology(manifest: YamlManifest, db: GraphqlDB):
             else "untitled"
         )
         slug = slugify(title)
-        template.update(
-            dict(
-                __typename="DeploymentTemplate",
-                title=title,
-                name=slug,
-                slug=slug,
-                description=spec.template.description,
-                # names of ResourceTemplates
-                resourceTemplates=sorted(db["ResourceTemplate"]),
-                ResourceTemplate={},
-                source=deployment_blueprint_name,
-                projectPath=_project_path(manifest.repositories["spec"].url),
-            )
+        dt = DeploymentTemplate(
+            __typename="DeploymentTemplate",
+            title=title,
+            name=slug,
+            slug=slug,
+            description=spec.template.description or "",
+            # names of ResourceTemplates
+            resourceTemplates=sorted(db["ResourceTemplate"]),
+            ResourceTemplate={},
+            source=deployment_blueprint_name,
+            projectPath=_project_path(manifest.repositories["spec"].url),
         )
+        template.update(dt)
         templates[slug] = template
 
     blueprint["deploymentTemplates"] = list(templates)
@@ -1526,122 +1473,6 @@ def _to_graphql(
     return db, manifest, env, connection_types
 
 
-def _add_resources(
-    db: GraphqlDB,
-    relationships: Dict[str, List[Requirement]],
-    root: TopologyInstance,
-    resources: List[GraphqlObject],
-    shadowed: Optional[EntityInstance],
-) -> None:
-    for instance in root.get_self_and_descendants():
-        # don't include the nested template that is a shadow of the outer template
-        if instance is not root and instance is not shadowed:
-            resource = to_graphql_resource(
-                instance, db, relationships, nodetemplate_to_json
-            )
-            if not resource:
-                continue
-            resources.append(resource)
-            if cast(NodeSpec, instance.template).substitution and instance.shadow:
-                assert instance.shadow.root is not instance.root
-                _add_resources(
-                    db,
-                    relationships,
-                    cast(TopologyInstance, instance.shadow.root),
-                    resources,
-                    instance.shadow,
-                )
-
-
-def _add_lastjob(last_job: dict, deployment: Deployment) -> None:
-    readyState = last_job.get("readyState")
-    workflow = last_job.get("workflow")
-    if workflow:
-        deployment["workflow"] = workflow
-    if isinstance(readyState, dict):
-        deployment["status"] = to_enum(
-            Status, readyState.get("effective", readyState.get("local"))
-        )
-        if workflow == "undeploy" and deployment["status"] == Status.ok:
-            deployment["status"] = Status.absent
-    deployment["summary"] = last_job.get("summary", "")
-    deployTimeString = last_job.get("endTime", last_job["startTime"])
-    deployment["deployTime"] = js_timestamp(
-        datetime.datetime.strptime(deployTimeString, ChangeRecord.DateTimeFormat)
-    )
-
-
-def _set_deployment_url(
-    manifest, deployment: Deployment, primary_resource: Optional[GraphqlObject]
-):
-    outputs = manifest.get_saved_outputs()
-    if outputs and "url" in outputs:
-        url = outputs["url"]
-    else:
-        # computed outputs might not be saved, so try to evaluate it now
-        try:
-            url = manifest.rootResource.attributes["outputs"].get("url")
-        except UnfurlError as e:
-            url = None  # this can be raised if the evaluation is unsafe
-            logger.warning(f"export could not evaluate output 'url': {e}")
-
-    if url:
-        deployment["url"] = url
-    elif primary_resource and primary_resource.get("attributes"):
-        for prop in primary_resource["attributes"]:  # type: ignore
-            if prop["name"] == "url":
-                deployment["url"] = prop["value"]
-                break
-
-
-def add_graphql_deployment(
-    manifest: YamlManifest, db: GraphqlDB, dtemplate
-) -> Deployment:
-    name = dtemplate["name"]
-    title = dtemplate.get("title") or name
-    deployment = Deployment(name=name, title=title, __typename="Deployment")
-    templates = cast(ResourceTemplatesByName, db["ResourceTemplate"])
-    relationships: Dict[str, List[Requirement]] = {}
-    for t in templates.values():
-        if "dependencies" in t:
-            for c in t["dependencies"]:
-                if c.get("match"):
-                    relationships.setdefault(c["match"], []).append(c)  # type: ignore
-    assert manifest.rootResource
-    resources: List[GraphqlObject] = []
-    _add_resources(db, relationships, manifest.rootResource, resources, None)
-    db["Resource"] = {r["name"]: r for r in resources}
-    deployment["resources"] = list(db["Resource"])
-    primary_name = deployment["primary"] = dtemplate["primary"]
-    deployment["deploymentTemplate"] = dtemplate["name"]
-    if manifest.lastJob:
-        _add_lastjob(manifest.lastJob, deployment)
-
-    primary_resource = db["Resource"].get(primary_name)
-    _set_deployment_url(manifest, deployment, primary_resource)
-    if primary_resource and primary_resource["title"] == primary_name:
-        primary_resource["title"] = deployment["title"]
-    packages = {}
-    for package_id, repo_dict in Lock(manifest).find_packages():
-        # lock packages to the last deployed version
-        # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
-        version = (
-            repo_dict.get("tag")
-            or repo_dict.get("revision")  # tag or branch explicitly set
-            or repo_dict.get("discovered_revision")
-        )
-        if not version and "discovered_revision" not in repo_dict:
-            # old version of lock section YAML, set missing to True
-            version = "(MISSING)"
-        if version:
-            packages[_project_path(repo_dict["url"])] = dict(version=version)
-    if packages:
-        deployment["packages"] = packages
-
-    db["Deployment"] = {name: deployment}
-    return deployment
-
-
 def to_blueprint(
     localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
 ) -> GraphqlDB:
@@ -1666,7 +1497,7 @@ def to_deployment(
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
-    add_graphql_deployment(manifest, db, dtemplate)
+    db.add_graphql_deployment(manifest, dtemplate, nodetemplate_to_json)
     db["ResourceType"].update(env_types)  # type: ignore
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
@@ -1813,15 +1644,6 @@ def to_environments(
 ) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
-    Each environment is be represented as:
-
-    type DeploymentEnvironment {
-      name: String!
-      connections: [ResourceTemplate!]
-      instances: [ResourceTemplate!]
-      primary_provider: ResourceTemplate
-      repositories: JSON!
-    }
 
     Unlike the other JSON exports, the ResourceTemplates are included inline
     instead of referenced by name (so the json can be included directly into unfurl.yaml).

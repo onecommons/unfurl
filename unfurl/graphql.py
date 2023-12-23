@@ -1,3 +1,4 @@
+import datetime
 from typing import (
     Any,
     Callable,
@@ -13,6 +14,7 @@ from typing_extensions import TypedDict, NotRequired, Required
 from collections.abc import Mapping, MutableSequence
 import os
 import json
+from urllib.parse import urlparse
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.statefulentitytype import StatefulEntityType
@@ -24,11 +26,15 @@ from toscaparser.properties import Property
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.portspectype import PortSpec
-from .runtime import EntityInstance
+from .result import ChangeRecord
+from .yamlmanifest import YamlManifest
+from .runtime import EntityInstance, TopologyInstance
 from .logs import sensitive, is_sensitive, getLogger
-from .spec import TopologySpec, is_function
+from .spec import NodeSpec, TopologySpec, is_function
 from .support import NodeState, Status
-from .localenv import LocalEnv, Project
+from .localenv import Project
+from .lock import Lock
+from .util import to_enum, UnfurlError
 
 logger = getLogger("unfurl")
 
@@ -51,6 +57,63 @@ GraphqlObjectsByName = Dict[str, GraphqlObject]
 TypeName = NewType("TypeName", str)
 # XXX RequirementConstraintName = NewType("RequirementConstraintName", str)
 RequirementConstraintName = str
+
+
+class ApplicationBlueprint(GraphqlObject, total=False):
+    """
+    ApplicationBlueprint: {
+      name: String!
+      title: String
+      description: String
+      primary: ResourceType!
+      primaryDeploymentBlueprint: String
+      deploymentTemplates: [DeploymentTemplate!]
+
+      livePreview: String
+      sourceCodeUrl: String
+      image: String
+      projectIcon: String
+    }
+    """
+
+    primary: TypeName
+    primaryDeploymentBlueprint: Optional[str]
+    deploymentTemplates: List[str]
+    livePreview: Optional[str]
+    sourceCodeUrl: Optional[str]
+    image: Optional[str]
+    projectIcon: Optional[str]
+
+
+class DeploymentTemplate(GraphqlObject, total=False):
+    """
+    type DeploymentTemplate {
+      name: String!
+      title: String!
+      slug: String!
+      description: String
+
+      blueprint: ApplicationBlueprint!
+      primary: ResourceTemplate!
+      resourceTemplates: [ResourceTemplate!]
+      cloud: ResourceType
+      environmentVariableNames: [String!]
+      source: String
+      projectPath: String!
+      commitTime: String
+    }
+    """
+
+    slug: str
+    blueprint: str
+    primary: ResourceTemplateName
+    resourceTemplates: List[ResourceTemplateName]
+    cloud: TypeName
+    environmentVariableNames: List[str]
+    source: NotRequired[Optional[str]]
+    projectPath: str
+    commitTime: str
+    ResourceTemplate: "ResourceTemplatesByName"
 
 
 class Deployment(GraphqlObject, total=False):
@@ -346,6 +409,119 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
                     deployment_paths[path] = obj
         return db
 
+    def add_graphql_deployment(
+        self,
+        manifest: YamlManifest,
+        dtemplate: DeploymentTemplate,
+        nodetemplate_to_json: Callable,
+    ) -> Deployment:
+        name = dtemplate["name"]
+        title = dtemplate.get("title") or name
+        deployment = Deployment(name=name, title=title, __typename="Deployment")
+        templates = cast(ResourceTemplatesByName, self["ResourceTemplate"])
+        relationships: Dict[str, List[Requirement]] = {}
+        for t in templates.values():
+            if "dependencies" in t:
+                for c in t["dependencies"]:
+                    if c.get("match"):
+                        relationships.setdefault(c["match"], []).append(c)  # type: ignore
+        assert manifest.rootResource
+        resources: List[GraphqlObject] = []
+        add_resources(
+            self,
+            relationships,
+            manifest.rootResource,
+            resources,
+            None,
+            nodetemplate_to_json,
+        )
+        self["Resource"] = {r["name"]: r for r in resources}
+        deployment["resources"] = list(self["Resource"])
+        primary_name = deployment["primary"] = dtemplate["primary"]
+        deployment["deploymentTemplate"] = dtemplate["name"]
+        if manifest.lastJob:
+            _add_lastjob(manifest.lastJob, deployment)
+
+        primary_resource = self["Resource"].get(primary_name)
+        _set_deployment_url(manifest, deployment, primary_resource)
+        if primary_resource and primary_resource["title"] == primary_name:
+            primary_resource["title"] = deployment["title"]
+        packages = {}
+        for package_id, repo_dict in Lock(manifest).find_packages():
+            # lock packages to the last deployed version
+            # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
+            version = (
+                repo_dict.get("tag")
+                or repo_dict.get("revision")  # tag or branch explicitly set
+                or repo_dict.get("discovered_revision")
+            )
+            if not version and "discovered_revision" not in repo_dict:
+                # old version of lock section YAML, set missing to True
+                version = "(MISSING)"
+            if version:
+                packages[_project_path(repo_dict["url"])] = dict(version=version)
+        if packages:
+            deployment["packages"] = packages
+
+        self["Deployment"] = {name: deployment}
+        return deployment
+
+
+def _project_path(url):
+    pp = urlparse(url).path.lstrip("/")
+    if pp.endswith(".git"):
+        return pp[:-4]
+    return pp
+
+
+def js_timestamp(ts: datetime.datetime) -> str:
+    jsts = ts.isoformat(" ", "seconds")
+    if ts.utcoffset() is None:
+        # if no timezone assume utc and append the missing offset
+        return jsts + "+00:00"
+    return jsts
+
+
+def _add_lastjob(last_job: dict, deployment: Deployment) -> None:
+    readyState = last_job.get("readyState")
+    workflow = last_job.get("workflow")
+    if workflow:
+        deployment["workflow"] = workflow
+    if isinstance(readyState, dict):
+        deployment["status"] = to_enum(
+            Status, readyState.get("effective", readyState.get("local"))
+        )
+        if workflow == "undeploy" and deployment["status"] == Status.ok:
+            deployment["status"] = Status.absent
+    deployment["summary"] = last_job.get("summary", "")
+    deployTimeString = last_job.get("endTime", last_job["startTime"])
+    deployment["deployTime"] = js_timestamp(
+        datetime.datetime.strptime(deployTimeString, ChangeRecord.DateTimeFormat)
+    )
+
+
+def _set_deployment_url(
+    manifest, deployment: Deployment, primary_resource: Optional[GraphqlObject]
+):
+    outputs = manifest.get_saved_outputs()
+    if outputs and "url" in outputs:
+        url = outputs["url"]
+    else:
+        # computed outputs might not be saved, so try to evaluate it now
+        try:
+            url = manifest.rootResource.attributes["outputs"].get("url")
+        except UnfurlError as e:
+            url = None  # this can be raised if the evaluation is unsafe
+            logger.warning(f"export could not evaluate output 'url': {e}")
+
+    if url:
+        deployment["url"] = url
+    elif primary_resource and primary_resource.get("attributes"):
+        for prop in primary_resource["attributes"]:  # type: ignore
+            if prop["name"] == "url":
+                deployment["url"] = prop["value"]
+                break
+
 
 class Resource(GraphqlObject):
     """
@@ -591,6 +767,35 @@ def is_resource_real(instance):
     ):
         return True
     return False
+
+
+def add_resources(
+    db: GraphqlDB,
+    relationships: Dict[str, List[Requirement]],
+    root: TopologyInstance,
+    resources: List[GraphqlObject],
+    shadowed: Optional[EntityInstance],
+    nodetemplate_to_json: Callable,
+) -> None:
+    for instance in root.get_self_and_descendants():
+        # don't include the nested template that is a shadow of the outer template
+        if instance is not root and instance is not shadowed:
+            resource = to_graphql_resource(
+                instance, db, relationships, nodetemplate_to_json
+            )
+            if not resource:
+                continue
+            resources.append(resource)
+            if cast(NodeSpec, instance.template).substitution and instance.shadow:
+                assert instance.shadow.root is not instance.root
+                add_resources(
+                    db,
+                    relationships,
+                    cast(TopologyInstance, instance.shadow.root),
+                    resources,
+                    instance.shadow,
+                    nodetemplate_to_json,
+                )
 
 
 def to_graphql_resource(
