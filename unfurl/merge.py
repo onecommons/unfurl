@@ -82,6 +82,7 @@ def make_map_with_base(doc, baseDir, cls):
 # other values besides delete not supported because current code can leave those keys in final result
 mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
+
 def merge_dicts(
     b: Mapping,
     a: Mapping,
@@ -296,7 +297,6 @@ def get_template(doc, key, value, path, cls, includes=None):
         if value != "raw" and isinstance(
             template, Mapping
         ):  # raw means no further processing
-
             # if the include path starts with the path to the template
             # throw recursion error
             if not key.include and not key.anchor:
@@ -318,10 +318,10 @@ def get_template(doc, key, value, path, cls, includes=None):
 
 
 def _find_template(
-    doc: MutableMapping, key, path, cls, fail
+    doc: MutableMapping, key, path, cls, fail: bool
 ) -> Optional[Tuple[Any, Optional[List[str]]]]:
-    template = doc
-    templatePath = None
+    template: Optional[MutableMapping] = doc
+    templatePath: Optional[list] = None
     if key.anchor:
         template = find_anchor(doc, key.anchor)
         if template is None:
@@ -349,7 +349,7 @@ def _find_template(
     for index, segment in enumerate(key.pointer):
         if isinstance(template, Sequence):
             # Array indexes should be turned into integers
-            try:
+            try:  # type: ignore # unreachable
                 segment = int(segment)
             except ValueError:
                 pass
@@ -440,7 +440,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
     # first merge any includes includes into cp
     templates: List[Mapping] = []
     assert isinstance(current, Mapping), current
-    for (key, value) in current.items():
+    for key, value in current.items():
         if not isinstance(key, str):
             cp[key] = value
             continue
@@ -527,11 +527,11 @@ def expand_doc(doc, current=None, cls=dict) -> Tuple[Mapping, Mapping]:
             _delete_deleted_keys(expanded)
             return includes, expanded
         if len(missing) == last:  # no progress
-            required_missing = [f"{i.key.key}:{i.value or ''}" for i in missing if not i.key.maybe]
+            required_missing = [
+                f"{i.key.key}:{i.value or ''}" for i in missing if not i.key.maybe
+            ]
             if required_missing:
-                raise UnfurlError(
-                    f"missing includes: {required_missing}"
-                )
+                raise UnfurlError(f"missing includes: {required_missing}")
             # delete missing includes directives
             for path, _includes in includes.items():
                 for i in _includes:
@@ -720,7 +720,7 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
             continue
 
         mergedIncludes: Mapping = {}
-        for (includeKey, includeValue) in value:
+        for includeKey, includeValue in value:
             if includeKey.include:
                 ref = None
                 continue

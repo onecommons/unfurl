@@ -135,7 +135,7 @@ class JobOptions:
 
     parentJob = None
     masterJob: Optional["Job"] = None
-    instance = None
+    instance: Any = None
     workflow = Defaults.workflow
     planOnly = False
     verbose = 0
@@ -1029,13 +1029,11 @@ class Job(ConfigChange):
         * check task if it can be run
         """
         can_run = False
-        reason = ""
+        reason: str = ""
         try:
             if task._errors:
-                can_run = False
                 reason = "Error while creating task"  # XXX + str(_errors)
             elif task.dry_run and not task.configurator.can_dry_run(task):
-                can_run = False
                 reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies()

@@ -33,6 +33,7 @@ from .runtime import (
 )
 from .util import (
     UnfurlError,
+    assert_not_none,
     is_relative_to,
     to_enum,
     sensitive_str,
@@ -42,7 +43,7 @@ from .util import (
 from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
 from .packages import Package, PackageSpec, PackagesType
 from .merge import merge_dicts
-from .result import ChangeRecord
+from .result import ChangeRecord, ResourceRef
 from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
 from .logs import getLogger
 from . import __version__
@@ -104,12 +105,12 @@ class Manifest(AttributeManager):
     def __init__(self, path: Optional[str], localEnv: Optional["LocalEnv"] = None):
         super().__init__(yaml)
         self.localEnv = localEnv
-        self.path = path
+        self.path: Optional[str] = path
         self.repo = self._find_repo()
         self.currentCommitId = self.repo and self.repo.revision
         # self.revisions = RevisionManager(self)
         self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
-        self.tosca = None
+        self.tosca: Optional[ToscaSpec] = None
         self.specDigest = None
         self.repositories: Dict[str, RepoView] = {}
         self.package_specs: List[PackageSpec] = []
@@ -173,7 +174,7 @@ class Manifest(AttributeManager):
 
     def _load_spec(
         self, spec, path, repositories, more_spec, skip_validation, fragment
-    ):
+    ) -> ToscaSpec:
         if "service_template" in spec:
             toscaDef = spec["service_template"] or {}
             fragment += "/service_template"
@@ -407,19 +408,20 @@ class Manifest(AttributeManager):
     def _create_substituted_topology(
         self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
     ) -> Optional[TopologyInstance]:
-        root = parent.root if parent else self.get_root_resource()
-        assert root
+        root = cast(TopologyInstance, parent.root if parent else self.get_root_resource())
         templateName = resourceSpec.get("template", rname)
-        template = cast(NodeSpec, self.load_template(templateName, parent))
+        template = cast(Optional[NodeSpec], self.load_template(templateName, parent))
         if template is None:
-            return self.load_error(
+            self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{rname}'"
-            )  # type: ignore
+            )
+            return None
         substitution = template.substitution
         if substitution is None:
-            return self.load_error(  # type: ignore
+            self.load_error(
                 f"missing substitution in template while instantiating instance '{rname}'"
             )
+            return None
         status = resourceSpec["substitution"]
         operational = self.load_status(status)
         topology_instance = root.create_nested_topology(substitution, operational)
@@ -442,13 +444,13 @@ class Manifest(AttributeManager):
         parent: HasInstancesInstance,
     ) -> NodeInstance:
         # if parent property is set it overrides the parent argument
-        root = parent.root
-        assert root
+        root: ResourceRef = assert_not_none(parent.root)
         pname = resourceSpec.get("parent")
         if pname:
-            parent = root.find_instance(pname)  # type: ignore
-            if parent is None:
+            _parent = root.find_instance(pname)  # type: ignore
+            if _parent is None:
                 self.load_error(f"can not find parent instance {pname} for {rname}")
+            parent = _parent
 
         if resourceSpec.get("substitution"):
             # need to create the nested topology before a NodeInstance that has "imported"

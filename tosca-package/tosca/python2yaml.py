@@ -188,13 +188,15 @@ class PythonToYaml:
             req["relationship"] = rel
             if isinstance(value._target, NodeType):
                 node = value._target
-            elif isinstance(value._target, CapabilityType):
+            elif isinstance(value._target, CapabilityType):  # type: ignore  # XXX
                 node = value._target._node
                 req["capability"] = value._target._local_name
         elif isinstance(value, _Ref):
             field.add_node_filter(value)
         else:
-            raise TypeError(f'Invalid value for requirement: "{value}" ({type(value)}) on {field.name}"')
+            raise TypeError(
+                f'Invalid value for requirement: "{value}" ({type(value)}) on {field.name}"'
+            )
         if node:
             node_name = self.add_template(node, default_node_name)
             req["node"] = node_name

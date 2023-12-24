@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import json
-from typing import Any, Dict, Iterable, List, Tuple, Union, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Sequence, Tuple, Union, Optional, TYPE_CHECKING, cast
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
+    PlanRequest,
     TaskRequest,
     TaskRequestGroup,
     JobRequest,
@@ -119,7 +120,7 @@ class JobReporter:
 
     @staticmethod
     def _list_plan_summary(
-        requests: List[JobRequest],
+        requests: Sequence[Union[PlanRequest, JobRequest]],
         target: NodeInstance,
         parent_summary_list: List[dict],
         include_rendered: bool,
@@ -130,19 +131,18 @@ class JobReporter:
             if isinstance(request, JobRequest):
                 summary_list.extend(JobReporter._job_request_summary([request], None))
                 continue
-            isGroup = isinstance(request, TaskRequestGroup)
-            if isGroup and not request.children:
+            if isinstance(request, TaskRequestGroup) and not request.children:
                 continue  # don't include in the plan
             if request.target is not target:
                 if workflow == "deploy" and not request.include_in_plan():
                     continue
                 # target changed, add it to the parent's list
                 # switch to the "plan" member of the new target
-                target = request.target
+                target = cast(NodeInstance, request.target)
                 summary_list = JobReporter._switch_target(target, parent_summary_list)
-            if isGroup:
-                sequence = []
-                group = {}
+            if isinstance(request, TaskRequestGroup):
+                sequence: List = []
+                group: Dict[str, Any] = {}
                 if request.workflow:
                     group["workflow"] = str(request.workflow)
                 group["sequence"] = sequence
@@ -151,7 +151,8 @@ class JobReporter:
                     request.children, target, sequence, include_rendered, workflow
                 )
             else:
-                summary_list.append(request._summary_dict(include_rendered))
+                if hasattr(request, "_summary_dict"):
+                    summary_list.append(request._summary_dict(include_rendered))
 
     @staticmethod
     def json_plan_summary(
@@ -332,7 +333,7 @@ class JobReporter:
             reason = task.reason or ""
             resource = task.target.nested_name
             if task.status is None:
-                status = ""
+                status = ""  # type: ignore  # unreachable
             else:
                 status = f"[{task.status.color}]{task.status.name.upper()}[/]"
             state = task.target_state and task.target_state.name or ""

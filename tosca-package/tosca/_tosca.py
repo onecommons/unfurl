@@ -507,7 +507,7 @@ class Options:
                 )
             option = option.next
 
-    def __or__(self, __value: "Options") -> "Options":
+    def __or__(self, __value: Union["Options", dict]) -> "Options":
         if isinstance(__value, dict):
             __value = Options(__value)
         elif not isinstance(__value, Options):
@@ -515,7 +515,7 @@ class Options:
         self.next = __value
         return self
 
-    def __ror__(self, __value: "Options") -> "Options":
+    def __ror__(self, __value: Union["Options", dict]) -> "Options":
         if isinstance(__value, dict):
             __value = Options(__value)
         elif not isinstance(__value, Options):
@@ -1040,9 +1040,9 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 not value.type
                 and value.default
                 not in [dataclasses.MISSING, REQUIRED, DEFAULT, CONSTRAINED]
-                and not isinstance(value, (_Ref, _TemplateRef))
+                and not isinstance(value.default, (_Ref, _TemplateRef))
             ):
-                value.type = type(value)
+                value.type = type(value.default)
             return value
         field = _Tosca_Field[_T](None, owner=owner_class, default=value)
         field.name = name
@@ -1514,7 +1514,7 @@ class _Ref:
             else:
                 jinja = f"{self.expr} | map_value"
             return "{{ " + jinja + " }}"
-        return self.expr or ""
+        return self.expr or ""  # type: ignore   # unreachable
 
     def __repr__(self):
         return f"_Ref({self.expr})"

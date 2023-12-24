@@ -347,13 +347,13 @@ class ToscaSpec:
             inputs = None
 
         if isinstance(toscaDef, ToscaTemplate):
-            self.template = toscaDef
+            self.template: ToscaTemplate = toscaDef
             assert self.template.topology_template
             self.topology = TopologySpec(
                 self.template.topology_template, self, None, inputs, path
             )
         else:
-            self.template = None
+            self.template = None  # type: ignore
             topology_tpl = toscaDef.get("topology_template")
             if not topology_tpl:
                 toscaDef["topology_template"] = dict(
@@ -370,7 +370,7 @@ class ToscaSpec:
                 if (
                     not ExceptionCollector.exceptionsCaught()
                     or not self.template
-                    or not self.topology
+                    or not self.topology  # type: ignore
                 ):
                     raise  # unexpected error
 
@@ -806,7 +806,7 @@ class EntitySpec(ResourceRef):
         return self.name
 
     @property
-    def artifacts(self):
+    def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         return {}
 
     def get_template(self, name) -> Optional["EntitySpec"]:
@@ -971,7 +971,7 @@ class NodeSpec(EntitySpec):
         self._capabilities: Optional[Dict[str, "CapabilitySpec"]] = None
         self._requirements: Optional[Dict[str, "RequirementSpec"]] = None
         self._relationships: List["RelationshipSpec"] = []
-        self._artifacts = None
+        self._artifacts: Optional[Dict[str, "ArtifactSpec"]] = None
         self._substitution: Optional["TopologySpec"] = None
         # self._requirement_constraints: Optional[Dict[str, List[str]]] = None
 
@@ -1005,7 +1005,7 @@ class NodeSpec(EntitySpec):
         )
 
     @property
-    def artifacts(self):
+    def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         if self._artifacts is None:
             self._artifacts = {  # type: ignore
                 name: ArtifactSpec(artifact, self)
@@ -1377,7 +1377,7 @@ class RequirementSpec:
         return f"{self.__class__.__name__}('{self.name}'):{self.entity_tpl}"
 
     @property
-    def artifacts(self):
+    def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         return self.parentNode.artifacts
 
     def get_uri(self):
@@ -1429,7 +1429,7 @@ class CapabilitySpec(EntitySpec):
         return self.parentNode
 
     @property
-    def artifacts(self):
+    def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         return self.parentNode.artifacts
 
     def get_interfaces(self) -> List[OperationDef]:

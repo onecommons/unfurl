@@ -15,7 +15,7 @@ from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse
-from .util import UnfurlError, is_relative_to, save_to_file
+from .util import UnfurlError, assert_not_none, is_relative_to, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
@@ -395,7 +395,7 @@ class RepoView:
             repository = Repository(name, tpl)
         assert repository or repo
         self.repository: Repository = repository
-        self.yaml = None
+        self.yaml: Any = None
         self.revision: Optional[str] = None
         self.file_refs: List[str] = []
         self.repo = repo
@@ -513,19 +513,18 @@ class RepoView:
                     logger.verbose("decrypted secret file to %s", target)
 
     def save_secrets(self):
-        assert self.repo
-        return commit_secrets(self.working_dir, self.yaml, self.repo)
+        return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
 
     def commit(self, msg: str, add_all: bool = False) -> int:
         assert not self.read_only
-        assert self.repo
+        repo = assert_not_none(self.repo)
         if self.yaml:
             for saved in self.save_secrets():
-                local_path = str(saved.relative_to(self.repo.working_dir))
-                self.repo.repo.git.add(local_path)
+                local_path = str(saved.relative_to(repo.working_dir))
+                repo.repo.git.add(local_path)
         if add_all:
             self.add_all()
-        self.repo.repo.index.commit(msg)
+        repo.repo.index.commit(msg)
         return 1
 
     def git_status(self):

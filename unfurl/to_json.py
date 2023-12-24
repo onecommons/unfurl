@@ -55,7 +55,7 @@ from .spec import (
     ToscaSpec,
     get_nodefilters,
 )
-from .util import UnfurlError
+from .util import UnfurlError, assert_not_none
 from .localenv import LocalEnv, Project
 
 logger = getLogger("unfurl")
@@ -467,7 +467,7 @@ def requirement_to_graphql(
     name, req, reqobj = _make_req(req_dict)
     if "min" not in reqobj:
         # set defaults
-        reqobj["min"] = 1
+        reqobj["min"] = 1  # type: ignore  # unreachable
         reqobj["max"] = 1
 
     visibility = _requirement_visibility(topology, name, req)
@@ -1363,7 +1363,7 @@ def get_blueprint_from_topology(
             source=deployment_blueprint_name,
             projectPath=_project_path(manifest.repositories["spec"].url),
         )
-        template.update(dt)
+        template.update(dt)  # type: ignore
         templates[slug] = template
 
     blueprint["deploymentTemplates"] = list(templates)
@@ -1484,13 +1484,14 @@ def to_blueprint(
     localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
 ) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv, root_url or "")
-    assert manifest.tosca
-    blueprint, root_name = to_graphql_blueprint(manifest.tosca, db, bool(root_url))
+    blueprint, root_name = to_graphql_blueprint(
+        assert_not_none(manifest.tosca), db, bool(root_url)
+    )
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
     )
     db["DeploymentTemplate"] = deployment_blueprints
-    blueprint["deploymentTemplates"] = list(deployment_blueprints)  # type: ignore
+    blueprint["deploymentTemplates"] = list(deployment_blueprints)
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     return db
 

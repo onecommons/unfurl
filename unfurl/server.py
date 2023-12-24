@@ -647,7 +647,7 @@ class CacheEntry:
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
         """
         full_key = self.cache_key()
-        value = cast(CacheValue, cache.get(full_key))
+        value = cast(Optional[CacheValue], cache.get(full_key))
         self.value = value
         if value is None:
             logger.info("cache miss for %s", full_key)

@@ -587,7 +587,7 @@ def lookup_func(arg, ctx):
           kw2: value
     """
     arg = map_value(arg, ctx)
-    assert_form(arg, test=arg)  # a map with at least one element
+    arg = assert_form(arg, test=arg)  # a map with at least one element
     name = None
     args = None
     kwargs: Dict[str, Any] = {}

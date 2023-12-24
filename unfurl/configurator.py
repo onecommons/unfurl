@@ -468,7 +468,7 @@ class TaskView:
         self.logger = TaskLoggerAdapter(logger, self)  # type: ignore
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
-        self.dry_run = None
+        self.dry_run: Optional[bool] = None
         self.verbose = 0  # set by ConfigView
         # private:
         self._errors: List[
@@ -812,7 +812,7 @@ class TaskView:
     def done(
         self,
         success: Optional[bool] = None,
-        modified: Optional[bool] = None,
+        modified: Optional[Union[Status, bool]] = None,
         status: Optional[Status] = None,
         result: Optional[Union[dict, str]] = None,
         outputs: Optional[

@@ -499,7 +499,7 @@ class Project:
     @staticmethod
     def _find_ensemble_by_path(ensembles, projectRoot, path: str) -> Optional[dict]:
         path = os.path.abspath(path)
-        match = None
+        match: Optional[dict] = None
         for tpl in ensembles:
             file = tpl.get("file")
             if file and os.path.normpath(os.path.join(projectRoot, file)) == path:

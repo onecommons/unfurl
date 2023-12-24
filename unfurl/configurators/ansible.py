@@ -223,7 +223,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         return vars
 
     def _make_playbook(self, playbook, task):
-        assert_form(playbook, MutableSequence)
+        playbook = assert_form(playbook, MutableSequence)
         # XXX use host group instead of localhost depending on operation_host
         hosts = task.operation_host and task.operation_host.name or "localhost"
         if playbook and not "hosts" in playbook[0]:

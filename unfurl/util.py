@@ -15,10 +15,13 @@ from typing import (
     Sequence,
     Set,
     Tuple,
+    Type,
+    TypeVar,
     Union,
     Iterator,
     TYPE_CHECKING,
     cast,
+    overload,
 )
 from typing_extensions import SupportsIndex
 import git
@@ -227,11 +230,36 @@ def to_yaml_text(
     return val
 
 
+_T = TypeVar("_T")
+def assert_not_none(val: Optional[_T]) -> _T:
+    if val is None:
+        raise TypeError(f"Value can't be None")
+    return val
+
+@overload
 def assert_form(
-    src: object, types: Union[type, Tuple[type, ...]] = Mapping, test: bool = True
-) -> object:
+    src: Any, *, test: bool = True
+) -> Mapping:
+    ...
+
+@overload
+def assert_form(
+    src: Any, types: Type[_T], test: bool = True
+) -> _T:
+    ...
+
+# abstract classes can't be Type[_T], fallback to this hack
+@overload
+def assert_form(
+    src: Any, types: Any, test: bool = True
+) -> MutableSequence:
+    ...
+
+def assert_form(
+    src: Any, types = Mapping, test: bool = True
+):
     if not isinstance(src, types) or not test:
-        raise UnfurlError(f"Malformed definition: {src}")
+        raise TypeError(f"Wrong shape: {src} isn't a {types}")
     return src
 
 

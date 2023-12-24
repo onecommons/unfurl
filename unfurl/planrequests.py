@@ -915,7 +915,7 @@ def do_render_requests(
     not_required: List[PlanRequest] = []
     render_requests = collections.deque(flattened_requests)
 
-    notready_group = None
+    notready_group: Any = None
     while render_requests:
         request = render_requests.popleft()
         if request.completed:
@@ -1040,7 +1040,7 @@ def create_instance_from_spec(
         resourceSpec["parent"] = target.name
     elif pname == "HOST":
         if target.parent:
-            resourceSpec["parent"] = target.parent.name
+            resourceSpec["parent"] = target.parent.name  # type: ignore  # unreachable
         else:
             resourceSpec["parent"] = "root"
 

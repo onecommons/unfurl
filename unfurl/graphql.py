@@ -9,6 +9,7 @@ from typing import (
     Optional,
     Tuple,
     TypeVar,
+    Union,
     cast,
 )
 from typing_extensions import TypedDict, NotRequired, Required
@@ -308,15 +309,14 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         return self.get(self.expand_typename(typename))
 
     def get_typename(self, typedef: StatefulEntityType) -> TypeName:
-        # typedef might not be in types yet, but we assume its in custom_defs
-        assert typedef.type in self.custom_defs
+        # typedef might not be in types yet
         return self.expand_typename(typedef.type)
 
     def _make_typedef(
         self, typename: str, custom_defs, all=False
     ) -> Optional[StatefulEntityType]:
         # XXX handle fully qualified types
-        typedef = None
+        typedef: Optional[StatefulEntityType] = None
         # prefix is only used to expand "tosca:Type"
         test_typedef = StatefulEntityType(
             typename, StatefulEntityType.NODE_PREFIX, custom_defs
@@ -571,13 +571,13 @@ def is_server_only_expression(value) -> bool:
     return is_function(value)
 
 
-def is_computed(p) -> bool:  # p: Property | PropertyDef
+def is_computed(p: Union[Property, PropertyDef]) -> bool:
     # XXX be smarter about is_computed() if the user should be able to override the default
     if isinstance(p.schema, Schema):
         metadata = p.schema.metadata
     else:
         metadata = p.schema.get("metadata") or {}
-    return (
+    return bool(
         p.name in ["tosca_id", "state", "tosca_name"]
         or is_server_only_expression(p.value)
         or (p.value is None and is_server_only_expression(p.default))

@@ -402,21 +402,21 @@ class EntityInstance(OperationalInstance, ResourceRef):
     proxy = None
 
     def __init__(
-        self, name="", attributes=None, parent=None, template=None, status=Status.ok
+        self, name="", attributes=None, parent: Optional["EntityInstance"]=None, template=None, status=Status.ok
     ):
         # default to Status.ok because that has the semantics of only relying on dependents
         # note: NodeInstances always a explicit status and so instead default to unknown
         OperationalInstance.__init__(self, status)
         self.name = name
         self._attributes = attributes or {}
-        self.parent = parent
+        self.parent = parent  # type: ignore
         if parent and self.parentRelation:
             p = getattr(parent, self.parentRelation)
             p.append(self)
 
         self.template: EntitySpec = template or self.templateType()  # type: ignore
         assert isinstance(self.template, self.templateType)
-        self._properties = {}
+        self._properties: Dict[str, Any] = {}
 
     @property
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
@@ -826,6 +826,8 @@ class RelationshipInstance(EntityInstance):
             return cast(
                 InstanceKey, f"{self.parent.key}::.relationships::[.name={self.name}]"
             )
+        else:
+            return cast(InstanceKey, self.name)
 
     def merge_props(self, matchfn, delete_if_none=False) -> Dict[str, str]:
         env: Dict[str, str] = {}

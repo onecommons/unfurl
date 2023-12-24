@@ -732,7 +732,7 @@ class DeployPlan(Plan):
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return Reason.update
-                elif jobOptions.upgrade:
+                elif jobOptions.upgrade:  # type: ignore 
                     return Reason.upgrade
 
         reason = self.check_for_repair(instance)

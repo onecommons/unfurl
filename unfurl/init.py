@@ -25,7 +25,7 @@ from .repo import (
     commit_secrets,
     sanitize_url,
 )
-from .util import UnfurlError, get_random_password, substitute_env
+from .util import UnfurlError, assert_not_none, get_random_password, substitute_env
 from .yamlloader import make_yaml, make_vault_lib
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
@@ -636,15 +636,15 @@ class EnsembleBuilder:
         self.home_path = get_home_config_path(options.get("home"))
         self.skeleton_vars = dict((n, v) for n, v in options.get("var", []))
 
-        self.source_project = None  # step 1
-        self.source_path = None  # step 1 relative path in source_project
+        self.source_project: Optional[Project] = None  # step 1
+        self.source_path: Optional[str] = None  # step 1 relative path in source_project
 
-        self.templateVars = None  # step 2
-        self.environment = None  # step 2 environment name
-        self.shared_repo = None  # step 2
+        self.templateVars: Any = None  # step 2
+        self.environment: Any = None  # step 2 environment name
+        self.shared_repo: Any = None  # step 2
 
-        self.dest_project = None  # step 3
-        self.dest_path = None  # step 3 relative path in dest_project
+        self.dest_project: Optional[Project] = None  # step 3
+        self.dest_path: Optional[str] = None  # step 3 relative path in dest_project
 
         self.manifest = None  # final step
         self.logger = logging.getLogger("unfurl")
@@ -668,7 +668,7 @@ class EnsembleBuilder:
 
         # source is a path into the project relative to the current directory
         assert self.source_path
-        source_path = os.path.join(self.source_project.projectRoot, self.source_path)
+        source_path = os.path.join(assert_not_none(self.source_project).projectRoot, self.source_path)
         self.templateVars = _get_ensemble_paths(
             source_path,
             self.source_project,
@@ -699,24 +699,23 @@ class EnsembleBuilder:
         return destDir, manifestName
 
     def _get_inputs_template(self):
-        assert self.source_project
+        project = assert_not_none(self.source_project)
         local_template = os.path.join(
-            self.source_project.projectRoot, DefaultNames.InputsTemplate
+            project.projectRoot, DefaultNames.InputsTemplate
         )
         if os.path.isfile(local_template):
             with open(local_template) as s:
                 return s.read()
         return None
 
-    def _create_ensemble_from_template(self, project, destDir, manifestName):
+    def _create_ensemble_from_template(self, project: Project, destDir, manifestName):
         from unfurl import yamlmanifest
 
-        specProject = self.dest_project
-        assert project
-        assert self.source_project
+        specProject = assert_not_none(self.dest_project)
+        source_project = assert_not_none(self.source_project)
         sourceDir = os.path.normpath(
             os.path.join(
-                self.source_project.projectRoot, self.templateVars["sourceDir"]
+                source_project.projectRoot, self.templateVars["sourceDir"]
             )
         )
         specRepo, relPath, revision, bare = specProject.find_path_in_repos(sourceDir)
@@ -752,12 +751,10 @@ class EnsembleBuilder:
         from unfurl import yamlmanifest
 
         if self.shared_repo:
-            destProject = find_project(self.shared_repo.working_dir, self.home_path)
-            assert destProject
+            destProject: Project = assert_not_none(find_project(self.shared_repo.working_dir, self.home_path))
         else:
-            destProject = self.dest_project
+            destProject = assert_not_none(self.dest_project)
 
-        assert destProject
         assert self.templateVars
         assert not self.manifest
         assert self.dest_path is not None
@@ -793,24 +790,26 @@ class EnsembleBuilder:
             localEnv = templateVars["localEnv"]
             manifest = yamlmanifest.clone(localEnv, targetPath)
 
+        dest_project = assert_not_none(self.dest_project)
         _create_ensemble_repo(
             manifest,
-            self.shared_repo or self.mono and self.dest_project.project_repoview.repo,
+            self.shared_repo or self.mono and dest_project.project_repoview.repo,
             not self.options.get("render"),
         )
 
-        if destProject.projectRoot != self.dest_project.projectRoot:
+        manifest_path: str = assert_not_none(manifest.path)
+        if destProject.projectRoot != dest_project.projectRoot:
             # cross reference each other
             destProject.register_ensemble(
-                manifest.path, managedBy=self.dest_project, context=self.environment
+                manifest_path, managedBy=self.dest_project, context=self.environment
             )
-            self.dest_project.register_ensemble(
-                manifest.path, project=destProject, context=self.environment
+            dest_project.register_ensemble(
+                manifest_path, project=destProject, context=self.environment
             )
         else:
-            destProject.register_ensemble(manifest.path, context=self.environment)
-        destProject.project_repoview.repo.commit_files(
-            [destProject.localConfig.config.path], "Add ensemble"
+            destProject.register_ensemble(manifest_path, context=self.environment)
+        assert_not_none(destProject.project_repoview.repo).commit_files(
+            [assert_not_none(destProject.localConfig.config.path)], "Add ensemble"
         )
         self.manifest = manifest
         return destDir
@@ -904,7 +903,7 @@ class EnsembleBuilder:
                 )
 
         if os.path.isabs(dest):
-            relDestDir = self.dest_project.get_relative_path(dest)
+            relDestDir = assert_not_none(self.dest_project).get_relative_path(dest)
             assert not relDestDir.startswith(".."), relDestDir
         else:
             relDestDir = dest.lstrip("./")
@@ -919,9 +918,8 @@ class EnsembleBuilder:
 
     def has_existing_ensemble(self, sourceProject):
         if self.source_project is not sourceProject and not self.shared_repo:
-            assert self.dest_project
             if "localEnv" in self.templateVars and os.path.exists(
-                Path(self.dest_project.projectRoot) / self.dest_path
+                Path(assert_not_none(self.dest_project).projectRoot) / assert_not_none(self.dest_path)
             ):
                 # the ensemble is already part of the source project repository or a submodule
                 return True
@@ -959,10 +957,9 @@ class EnsembleBuilder:
                 )
 
         destDir = self.create_new_ensemble()
-        assert self.manifest
         if not isRemote and existingSourceProject is not self.source_project:
             # we need to clone the referenced local repos so the new project has access to them
-            clone_local_repos(self.manifest, existingSourceProject, self.source_project)
+            clone_local_repos(self.manifest, existingSourceProject, assert_not_none(self.source_project))
         return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
     def load_ensemble_template(self):
@@ -971,10 +968,9 @@ class EnsembleBuilder:
                 f"Clone with --design not supported: no ensemble template found."
             )
         assert isinstance(self.templateVars["sourceDir"], str)
-        assert self.source_project
         sourceDir = os.path.normpath(
             os.path.join(
-                self.source_project.projectRoot, self.templateVars["sourceDir"]
+                assert_not_none(self.source_project).projectRoot, self.templateVars["sourceDir"]
             )
         )
         # assert ensemble_template_path in dest_project
@@ -1060,7 +1056,7 @@ def clone(
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
     if options.get("empty") and not options.get("design"):
         # don't create an ensemble
-        return "Cloned project to " + builder.dest_project.projectRoot
+        return "Cloned project to " + assert_not_none(builder.dest_project).projectRoot
 
     ##### step 3: examine source for template details and determine shared project
     builder.configure()

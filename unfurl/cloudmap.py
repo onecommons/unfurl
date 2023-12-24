@@ -74,6 +74,7 @@ from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 
+from toscaparser.elements.nodetype import NodeType
 from .spec import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
@@ -86,7 +87,7 @@ from .repo import (
     sanitize_url,
     split_git_url,
 )
-from .util import UnfurlError, unique_name
+from .util import UnfurlError, assert_not_none, unique_name
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
 from .logs import getLogger
@@ -354,12 +355,9 @@ class UnfurlNotable(Notable):
                 Path(localenv.manifestPath).relative_to(Path(self.root_path))
             )
             self.folder, self.file = os.path.split(rel_path)
-            assert manifest.tosca
-            self.fragment = manifest.tosca.fragment
-            spec = manifest.tosca
-            assert spec
-            assert spec.template and spec.template.tpl
-            metadata = spec.template.tpl.get("metadata") or spec.template.tpl or {}
+            spec = assert_not_none(manifest.tosca)
+            self.fragment = spec.fragment
+            metadata = cast(dict, spec.template.tpl.get("metadata") or {})
             self.metadata.update(
                 dict(
                     name=metadata.get("template_name"),
@@ -372,9 +370,8 @@ class UnfurlNotable(Notable):
             if schema_repo:
                 self.metadata["schema"] = schema_repo.url.strip(":")
             if node:
-                assert node.toscaEntityTemplate.type_definition
                 type_dict = node_type_to_graphql(
-                    node.topology, node.toscaEntityTemplate.type_definition, None, True
+                    node.topology, assert_not_none(node.toscaEntityTemplate.type_definition), None, True
                 )
                 self.metadata.update(
                     dict(
@@ -1085,7 +1082,7 @@ class GitlabManager(RepositoryHost):
 
         # create if missing
         if group is None:
-            parent = None
+            parent: Optional[Group] = None
             path_so_far = []
 
             for name in path.split("/"):

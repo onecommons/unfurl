@@ -334,10 +334,10 @@ def _proxy_prop(type_info: tosca.TypeInfo, value: Any):
     elif type_info.collection == list:
         return ProxyList(value, type_info)
     elif issubclass(prop_type, tosca.DataType):
-        if isinstance(value, (type(None), prop_type)):
-            return value
-        elif isinstance(value, MutableMapping):
+        if isinstance(value, MutableMapping):
             return get_proxy_class(prop_type, DataTypeProxyBase)(value)
+        elif isinstance(value, (type(None), prop_type)):
+            return value
         else:
             raise TypeError(f"can't convert value to {prop_type}: {value}")
     elif not type_info.instance_check(value):

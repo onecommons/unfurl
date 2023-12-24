@@ -1123,13 +1123,13 @@ class YamlConfig:
                 return value, None, ""
 
         if key in self._cachedDocIncludes:
-            path, template = self._cachedDocIncludes[key]
+            path, _template = self._cachedDocIncludes[key]
             baseDir = os.path.dirname(path)
             self.baseDirs.append(baseDir)
-            return value, template, baseDir
+            return value, _template, baseDir
 
+        baseDir = self.baseDirs[-1]
         try:
-            baseDir = self.baseDirs[-1]
             if self.loadHook:
                 path, template = self.loadHook(
                     self, templatePath, baseDir, warnWhenNotFound, expanded, None
@@ -1140,7 +1140,7 @@ class YamlConfig:
             msg = f"unable to load document include: {templatePath} (base: {baseDir})"
             if warnWhenNotFound:
                 logger.warning(msg, exc_info=True)
-                template = None  # type: ignore
+                template = None
             else:
                 raise UnfurlError(
                     msg,
