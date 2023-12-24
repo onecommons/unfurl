@@ -575,11 +575,13 @@ def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) 
 def node_type_to_graphql(
     topology: TopologySpec,
     type_definition: StatefulEntityType,
-    types: ResourceTypesByName,
+    types: Optional[ResourceTypesByName],
     summary: bool = False,
     include_matches: bool = True,
 ) -> Optional[ResourceType]:
     custom_defs = topology.topology_template.custom_defs
+    if types is None:
+        types = ResourceTypesByName("", custom_defs)
     raw_type = type_definition.type
     typename = types.get_typename(type_definition)
     jsontype = ResourceType(
@@ -744,10 +746,10 @@ def _update_root_type(
 def to_graphql_nodetypes(spec: ToscaSpec, root_url: str) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
     include_all = bool(root_url)
-    types = ResourceTypesByName(root_url)
     topology = spec.topology
     assert topology
-    custom_defs: Dict[str, dict] = topology.topology_template.custom_defs
+    custom_defs: CustomDefs = topology.topology_template.custom_defs
+    types = ResourceTypesByName(root_url, custom_defs)
     ExceptionCollector.collecting = True
     # create these ones first
     # XXX detect error later if these types are being used elsewhere
@@ -1279,7 +1281,7 @@ def get_deployment_blueprints(
     )
     spec = manifest.tosca
     assert spec and spec.topology
-    deployment_templates = {}
+    deployment_templates: Dict[str, DeploymentTemplate] = {}
     for name, tpl in deployment_blueprints.items():
         slug = slugify(name)
         template = tpl.copy()
@@ -1320,7 +1322,7 @@ def get_deployment_blueprints(
             environmentVariableNames=env_vars,
         )
         template.update(dt)
-        deployment_templates[name] = template
+        deployment_templates[name] = cast(DeploymentTemplate, template)
     return deployment_templates
 
 
@@ -1412,10 +1414,14 @@ def _to_graphql(
     assert spec.topology and tpl
     _add_repositories(db, tpl)
     types = to_graphql_nodetypes(spec, root_url)
-    db["ResourceType"] = types
+    db["ResourceType"] = types  # type: ignore
     db["ResourceTemplate"] = {}
     environment_instances = {}
-    connection_types = ResourceTypesByName(root_url)
+    assert spec.template.topology_template
+    # the ensemble will have merged in its environment's templates and types
+    connection_types = ResourceTypesByName(
+        root_url, spec.template.topology_template.custom_defs
+    )
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
         t = nodetemplate_to_json(node_spec, types)
@@ -1466,10 +1472,11 @@ def _to_graphql(
     if root_url:
         # if include_all, assume this export is for another repository
         # (see get_types in server.py)
-        for t in types.values():
-            add_root_source_info(t, root_url, file_path)
-        for t in connection_types.values():
-            add_root_source_info(t, root_url, file_path)
+        for ty in types.values():
+            add_root_source_info(ty, root_url, file_path)
+        for ty in connection_types.values():
+            if ty:
+                add_root_source_info(ty, root_url, file_path)
     return db, manifest, env, connection_types
 
 
@@ -1658,7 +1665,7 @@ def to_environments(
     db = GraphqlDB.load_db(file)
     environments = {}
     root_url = ""
-    all_connection_types = ResourceTypesByName(root_url)
+    all_connection_types: GraphqlObjectsByName = {}
     assert localEnv.project
     deployment_paths = get_deploymentpaths(localEnv.project)
     env_deployments = {}
@@ -1693,14 +1700,14 @@ def to_environments(
             instances = localEnv.project.contexts[name].get("instances")
             env["instances"].update(_set_shared_instances(instances))
             environments[name] = env
-            all_connection_types.update(env_types)
+            all_connection_types.update(env_types)  # type: ignore # ok to merge qualified names
         except Exception as err:
             logger.error("error exporting environment %s", name, exc_info=True)
             details = "".join(traceback.TracebackException.from_exception(err).format())
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
     db["DeploymentEnvironment"] = environments  # type: ignore
-    db["ResourceType"] = cast(GraphqlObjectsByName, all_connection_types)
+    db["ResourceType"] = all_connection_types
     db["DeploymentPath"] = deployment_paths  # type: ignore
     return db
 

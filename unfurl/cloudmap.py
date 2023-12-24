@@ -340,7 +340,7 @@ class UnfurlNotable(Notable):
     ]
     folders = [DefaultNames.ProjectDirectory, DefaultNames.EnsembleDirectory]
 
-    def __init__(self, root_path: str, folder: str, file: str):
+    def __init__(self, root_path: str, folder: str, file: str) -> None:
         super().__init__(root_path, folder, file)
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
         localenv = LocalEnv(
@@ -374,11 +374,11 @@ class UnfurlNotable(Notable):
             if node:
                 assert node.toscaEntityTemplate.type_definition
                 type_dict = node_type_to_graphql(
-                    node.topology, node.toscaEntityTemplate.type_definition, {}, True
+                    node.topology, node.toscaEntityTemplate.type_definition, None, True
                 )
                 self.metadata.update(
                     dict(
-                        type=filter_dict(type_dict),
+                        type=filter_dict(cast(dict, type_dict)),
                         dependencies=list(self.find_dependencies(node).values()),
                     )
                 )

@@ -8,6 +8,7 @@ from typing import (
     NewType,
     Optional,
     Tuple,
+    TypeVar,
     cast,
 )
 from typing_extensions import TypedDict, NotRequired, Required
@@ -52,7 +53,8 @@ class GraphqlObject(TypedDict, total=False):
 
 ResourceTemplateName = str
 
-GraphqlObjectsByName = Dict[str, GraphqlObject]
+_GraphqlObject_T = TypeVar("_GraphqlObject_T", bound=GraphqlObject, covariant=True)
+GraphqlObjectsByName = Dict[str, _GraphqlObject_T]
 
 TypeName = NewType("TypeName", str)
 # XXX RequirementConstraintName = NewType("RequirementConstraintName", str)
@@ -270,13 +272,14 @@ class DeploymentEnvironment(TypedDict, total=False):
     name: str
     connections: ResourceTemplatesByName
     instances: Required[ResourceTemplatesByName]
-    primary_provider: Optional[ResourceTemplateName]
+    primary_provider: Optional[ResourceTemplate]
     repositories: JsonType
 
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
-    def __init__(self, qualifier: str = ""):
+    def __init__(self, qualifier, custom_defs):
         self.qualifier = qualifier
+        self.custom_defs = custom_defs
 
     def expand_typename(self, nodetype: str) -> TypeName:
         # XXX idempotent
@@ -304,10 +307,10 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def get_type(self, typename: str) -> Optional[ResourceType]:
         return self.get(self.expand_typename(typename))
 
-    def get_typename(self, typedef: Optional[StatefulEntityType]) -> TypeName:
-        # typedef might not be in types yet
-        assert typedef
-        return TypeName(typedef.type)
+    def get_typename(self, typedef: StatefulEntityType) -> TypeName:
+        # typedef might not be in types yet, but we assume its in custom_defs
+        assert typedef.type in self.custom_defs
+        return self.expand_typename(typedef.type)
 
     def _make_typedef(
         self, typename: str, custom_defs, all=False
