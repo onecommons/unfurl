@@ -23,11 +23,14 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.elements.artifacttype import ArtifactTypeDef
 from toscaparser.elements.relationshiptype import RelationshipType
 from toscaparser.elements.nodetype import NodeType
+from toscaparser.imports import is_url
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.portspectype import PortSpec
+from .repo import normalize_git_url_hard
+from .packages import get_package_from_url, get_package_id_from_url
 from .result import ChangeRecord
 from .yamlmanifest import YamlManifest
 from .runtime import EntityInstance, TopologyInstance
@@ -58,7 +61,6 @@ _GraphqlObject_T = TypeVar("_GraphqlObject_T", bound=GraphqlObject, covariant=Tr
 GraphqlObjectsByName = Dict[str, _GraphqlObject_T]
 
 TypeName = NewType("TypeName", str)
-# XXX RequirementConstraintName = NewType("RequirementConstraintName", str)
 RequirementConstraintName = str
 
 
@@ -218,7 +220,7 @@ class ResourceType(GraphqlObject, total=False):
     badge: NotRequired[str]
     icon: NotRequired[str]
     details_url: NotRequired[str]
-    inputsSchema: JsonType
+    inputsSchema: Required[JsonType]
     computedPropertiesSchema: JsonType
     outputsSchema: JsonType
     requirements: Required[List[RequirementConstraint]]
@@ -277,15 +279,78 @@ class DeploymentEnvironment(TypedDict, total=False):
     repositories: JsonType
 
 
+def _get_source_info(source_info: dict) -> Tuple[str, str]:
+    root = source_info["root"]
+    repository = source_info.get("repository")
+    if repository:
+        if repository == "unfurl":
+            root = "unfurl"
+        return root, source_info["file"]
+    else:
+        path = source_info["path"]
+        base = source_info["base"]
+        # make path relative to the import base (not the file that imported)
+        # and include the fragment if present
+        # base and path will both be local file paths
+        file = path[len(base) :].strip("/") + "".join(
+            source_info["file"].partition("#")[1:]
+        )
+        if is_url(root):
+            return root, file
+        # otherwise import relative to main service template
+        return "", file
+
+
+def get_package_url(url):
+    package_id, purl, revision = get_package_id_from_url(url)
+    if package_id:
+        return package_id
+    else:
+        return normalize_git_url_hard(url)
+
+
+def to_type_name(name: str, package_id: str, path: str) -> TypeName:
+    "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types"
+    "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types:aws"
+    "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types:aws#v2.1"
+    if path and path != "service-template.yaml":
+        return TypeName(name + "@" + package_id + ":" + os.path.splitext(path)[0])
+    else:
+        return TypeName(name + "@" + package_id)
+
+
+EXPORT_QUALNAME = os.getenv("UNFURL_EXPORT_QUALNAME")
+
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier, custom_defs):
-        self.qualifier = qualifier
+        self.qualifier = get_package_url(qualifier)
         self.custom_defs = custom_defs
 
     def expand_typename(self, nodetype: str) -> TypeName:
-        # XXX idempotent
+        if not EXPORT_QUALNAME:
+            # expansion disabled
+            return TypeName(nodetype)
+        if "@" in nodetype:
+            # already fully qualified
+            return TypeName(nodetype)
+        nodetype = nodetype.replace("tosca:", "tosca.nodes.")  # special case
         # XXX lookup type and expand
-        return TypeName(nodetype.replace("tosca:", "tosca.nodes."))  # XXX
+        if nodetype in StatefulEntityType.TOSCA_DEF:
+            # starts with "tosca." or "unfurl."
+            return TypeName(nodetype)
+        if nodetype in self.custom_defs:
+            _source = self.custom_defs[nodetype].get("_source")
+            if isinstance(_source, dict):  # could be str or None
+                prefix = _source.get("prefix")
+                if prefix:
+                    nodetype = nodetype[len(prefix) + 1 :]  # strip out prefix
+                url, file = _get_source_info(_source)
+                if url:
+                    url = get_package_url(url)
+                else:
+                    url = self.qualifier
+                return to_type_name(nodetype, url, file)
+        return to_type_name(nodetype, self.qualifier, "")
 
     def _get_extends(
         self,
@@ -312,11 +377,10 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         # typedef might not be in types yet
         return self.expand_typename(typedef.type)
 
-    def _make_typedef(
-        self, typename: str, custom_defs, all=False
-    ) -> Optional[StatefulEntityType]:
-        # XXX handle fully qualified types
+    def _make_typedef(self, typename: str, all=False) -> Optional[StatefulEntityType]:
+        ns, sep, typename = typename.rpartition("@")
         typedef: Optional[StatefulEntityType] = None
+        custom_defs = self.custom_defs
         # prefix is only used to expand "tosca:Type"
         test_typedef = StatefulEntityType(
             typename, StatefulEntityType.NODE_PREFIX, custom_defs

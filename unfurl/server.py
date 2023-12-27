@@ -51,6 +51,8 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
+from .graphql import ResourceTypesByName
+
 from .manifest import relabel_dict
 from .packages import Package, get_package_from_url, is_semver
 
@@ -1191,7 +1193,7 @@ def _get_cloudmap_types(project_id, root_cache_entry):
     if doc is None:
         return err, {}
     repositories_dict = cast(Dict[str, dict], doc.get("repositories") or {})
-    types = {}
+    types: Dict[str, dict] = {}
     for r_dict in repositories_dict.values():
         r = Repository(**r_dict)
         if not r.notable:
@@ -1200,8 +1202,12 @@ def _get_cloudmap_types(project_id, root_cache_entry):
             if notable.get("artifact_type") == "artifact.tosca.ServiceTemplate":
                 typeinfo = notable.get("type")
                 if typeinfo:
+                    name = typeinfo["name"]
                     if "_sourceinfo" not in typeinfo:
                         typeinfo["_sourceinfo"] = dict(file=file_path, url=r.git_url())
+                    if "@" not in name:
+                        local_types = ResourceTypesByName(r.git_url(), {name: typeinfo})
+                        typeinfo["name"] = name = local_types.expand_typename(name)
                     typeinfo["_sourceinfo"]["incomplete"] = True
                     if not typeinfo.get("description") and notable.get("description"):
                         typeinfo["description"] = notable["description"]
@@ -1213,7 +1219,7 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                     dependencies = notable.get("dependencies")
                     if dependencies:
                         typeinfo.setdefault("metadata", {})["components"] = dependencies                        
-                    types[typeinfo["name"]] = typeinfo
+                    types[name] = typeinfo
                     
     return err, types
 

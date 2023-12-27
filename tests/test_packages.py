@@ -5,7 +5,12 @@ from unfurl.__main__ import cli
 import git
 import pytest
 from unfurl.localenv import LocalEnv
-from unfurl.packages import PackageSpec, Package, get_package_id_from_url, get_package_from_url
+from unfurl.packages import (
+    PackageSpec,
+    Package,
+    get_package_id_from_url,
+    get_package_from_url,
+)
 from unfurl.repo import get_remote_tags
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
@@ -14,7 +19,7 @@ from unfurl.yamlmanifest import YamlManifest
 def _apply_package_rules(test_url, env_package_spec):
     package_specs = []
     for key, value in taketwo(env_package_spec.split()):
-        package_specs.append( PackageSpec(key, value, None) )
+        package_specs.append(PackageSpec(key, value, None))
     package = get_package_from_url(test_url)
     assert package
     changed = PackageSpec.update_package(package_specs, package)
@@ -22,31 +27,52 @@ def _apply_package_rules(test_url, env_package_spec):
 
 
 def test_package_rules():
-    test_url = "https://unfurl.cloud/onecommons/blueprints/wordpress" 
+    test_url = "https://unfurl.cloud/onecommons/blueprints/wordpress"
     env_package_spec = "gitlab.com/onecommons/* unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* http://tunnel.abreidenbach.com:3000/onecommons/*#main"
     package, package_specs = _apply_package_rules(test_url, env_package_spec)
-    assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress#main"
+    assert (
+        package.url
+        == "http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress#main"
+    )
 
-    package, package_specs = _apply_package_rules("https://gitlab.com/onecommons/unfurl-types", env_package_spec)
-    assert package.url == "http://tunnel.abreidenbach.com:3000/onecommons/unfurl-types#main"
+    package, package_specs = _apply_package_rules(
+        "https://gitlab.com/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url
+        == "http://tunnel.abreidenbach.com:3000/onecommons/unfurl-types#main"
+    )
 
     env_package_spec = """unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*
     gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/*
     app.dev.unfurl.cloud/* staging.unfurl.cloud/*
     staging.unfurl.cloud/onecommons/* #main"""
 
-    package, package_specs = _apply_package_rules("https://app.dev.unfurl.cloud/onecommons/unfurl-types", env_package_spec)
-    assert package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+    package, package_specs = _apply_package_rules(
+        "https://app.dev.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+    )
 
-    package, package_specs = _apply_package_rules("https://app.dev.unfurl.cloud/user/dashboard", env_package_spec)
+    package, package_specs = _apply_package_rules(
+        "https://app.dev.unfurl.cloud/user/dashboard", env_package_spec
+    )
     assert package.url == "https://staging.unfurl.cloud/user/dashboard.git"
 
     with pytest.raises(UnfurlError) as err:
-        _apply_package_rules("https://app.dev.unfurl.cloud/user/dashboard", "http://tunnel.abreidenbach.com:3000/onecommons/* #main")
+        _apply_package_rules(
+            "https://app.dev.unfurl.cloud/user/dashboard",
+            "http://tunnel.abreidenbach.com:3000/onecommons/* #main",
+        )
     assert "Malformed package spec" in str(err)
 
-    unfurl_spec = PackageSpec("github.com/onecommons/unfurl", "file:///home/unfurl/unfurl", None)
-    unfurl_package = Package("github.com/onecommons/unfurl", "https://github.com/onecommons/unfurl", "v0.9.1")
+    unfurl_spec = PackageSpec(
+        "github.com/onecommons/unfurl", "file:///home/unfurl/unfurl", None
+    )
+    unfurl_package = Package(
+        "github.com/onecommons/unfurl", "https://github.com/onecommons/unfurl", "v0.9.1"
+    )
     assert unfurl_package.url
     changed = PackageSpec.update_package([unfurl_spec], unfurl_package)
     assert changed
@@ -61,7 +87,9 @@ def test_remote_tags():
     assert package_id, (package_id, revision, url)
     assert not url, (package_id, revision, url)
     types_url = "https://unfurl.cloud/onecommons/unfurl-types.git"
-    latest_version_tag = Package("", types_url, None).find_latest_semver_from_repo(get_remote_tags)
+    latest_version_tag = Package("", types_url, None).find_latest_semver_from_repo(
+        get_remote_tags
+    )
     assert latest_version_tag
     # replace gitlab.com/onecommons packages unfurl.cloud/onecommons packages
     package_rules_envvar = "gitlab.com/onecommons/* unfurl.cloud/onecommons/*"
@@ -137,6 +165,7 @@ def test_remote_tags():
         if UNFURL_PACKAGE_RULES:
             os.environ["UNFURL_PACKAGE_RULES"] = UNFURL_PACKAGE_RULES
 
+
 _ENSEMBLE_TPL = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
@@ -158,16 +187,21 @@ def test_unfurl_dependencies():
     assert YamlManifest(ENSEMBLE_UNFURL_PAST)
     with pytest.raises(UnfurlError) as err:
         YamlManifest(ENSEMBLE_UNFURL_FUTURE)
-        assert "github.com/onecommons/unfurl has version 2.0 but incompatible version" in str(err)
+        assert (
+            "github.com/onecommons/unfurl has version 2.0 but incompatible version"
+            in str(err)
+        )
 
 
 if __name__ == "__main__":
     import sys
+
     test_url = sys.argv[1]
-    env_package_spec = sys.argv[2]
     package = get_package_from_url(test_url)
     assert package
     print("initial package", package.package_id, package.url, package.revision)
-    package, package_specs = _apply_package_rules(test_url, env_package_spec)
-    print("applying specs", package_specs)
-    print(f"converted {test_url} to {package.url}")
+    if len(sys.argv) > 2:
+        env_package_spec = sys.argv[2]
+        package, package_specs = _apply_package_rules(test_url, env_package_spec)
+        print("applying specs", package_specs)
+        print(f"converted {test_url} to {package.url}")

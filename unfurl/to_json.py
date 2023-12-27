@@ -540,7 +540,9 @@ def _get_source_info(source_info: dict) -> dict:
     repository = source_info.get("repository")
     if repository:
         _import["repository"] = repository
-        _import["url"] = root
+        _import["url"] = (
+            "github.com/onecommons/unfurl" if repository == "unfurl" else root
+        )
         _import["file"] = source_info["file"]
     else:
         path = source_info["path"]
@@ -575,22 +577,21 @@ def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) 
 def node_type_to_graphql(
     topology: TopologySpec,
     type_definition: StatefulEntityType,
-    types: Optional[ResourceTypesByName],
+    types: ResourceTypesByName,
     summary: bool = False,
     include_matches: bool = True,
 ) -> Optional[ResourceType]:
     custom_defs = topology.topology_template.custom_defs
-    if types is None:
-        types = ResourceTypesByName("", custom_defs)
     raw_type = type_definition.type
     typename = types.get_typename(type_definition)
     jsontype = ResourceType(
         name=typename,  # fully qualified name
         title=type_definition.type.split(".")[-1],  # short, readable name
-        description=type_definition.get_value("description") or "",
+        description=type_definition.get_value("description", "") or "",
         __typename="ResourceType",
         extends=[],
         requirements=[],
+        inputsSchema={},
     )
     types[typename] = jsontype  # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
@@ -743,13 +744,12 @@ def _update_root_type(
             jsontype["requirements"].append(req_json)  # type: ignore
 
 
-def to_graphql_nodetypes(spec: ToscaSpec, root_url: str) -> ResourceTypesByName:
+def to_graphql_nodetypes(
+    spec: ToscaSpec, include_all: bool, types: ResourceTypesByName
+) -> ResourceTypesByName:
     # node types are readonly, so mapping doesn't need to be bijective
-    include_all = bool(root_url)
     topology = spec.topology
     assert topology
-    custom_defs: CustomDefs = topology.topology_template.custom_defs
-    types = ResourceTypesByName(root_url, custom_defs)
     ExceptionCollector.collecting = True
     # create these ones first
     # XXX detect error later if these types are being used elsewhere
@@ -763,7 +763,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, root_url: str) -> ResourceTypesByName:
                     _update_root_type(jsontype, sub_map, nested_topology, types)
 
     descendents: TypeDescendents = {}
-    for typename, defs in custom_defs.items():
+    for typename, defs in types.custom_defs.items():
         parents = defs.get("derived_from", [])
         if isinstance(parents, str):
             parents = (parents,)
@@ -771,7 +771,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, root_url: str) -> ResourceTypesByName:
             descendents.setdefault(parent, []).append(typename)
         if not include_all or types.get_type(typename):
             continue
-        typedef = types._make_typedef(typename, custom_defs)
+        typedef = types._make_typedef(typename)
         if typedef:
             node_type_to_graphql(topology, typedef, types)
 
@@ -783,7 +783,7 @@ def to_graphql_nodetypes(spec: ToscaSpec, root_url: str) -> ResourceTypesByName:
                 if types.get_type(typename):
                     continue
                 # only include our extensions
-                typedef = types._make_typedef(typename, custom_defs)
+                typedef = types._make_typedef(typename)
                 if typedef:
                     node_type_to_graphql(topology, typedef, types)
 
@@ -1122,17 +1122,17 @@ def _get_or_make_primary(
     topology = spec.template.topology_template
     assert topology
     # we need to generate a root template
-    root_type = None
+    root_type: Optional[NodeType] = None
     root = None
     if topology.substitution_mappings:
-        root_type = topology.substitution_mappings.node_type
+        # root_type = topology.substitution_mappings.node_type
         root = topology.substitution_mappings._node_template
     types = db.get_types()
     if root_type:
         properties_tpl = root_type.get_definition("properties") or {}
         if nested:
             assert spec.topology
-            jsontype = types.get_type(root_type)
+            jsontype = types.get_type(root_type.type)
             if not jsontype:
                 jsontype = node_type_to_graphql(spec.topology, root_type, types)
             assert topology.substitution_mappings
@@ -1235,10 +1235,9 @@ def _generate_env_names(
     assert spec.topology
     primary = spec.topology.get_node_template(root_name)
     assert primary
-    custom_defs = spec.template.topology_template.custom_defs
     primary_type = primary.toscaEntityTemplate.type_definition
-    yield from _generate_env_names_from_type("APP", primary_type, custom_defs)
-    # primary.toscaEntityTemplate.type_definition
+    assert primary_type
+    yield from _generate_env_names_from_type("APP", primary_type, types.custom_defs)
     for req in primary_type.get_all_requirements():
         # get the target type
         req_json = requirement_to_graphql(spec.topology, req, types)
@@ -1246,9 +1245,11 @@ def _generate_env_names(
             continue
         name = req_json["name"]
         target_type = cast(TypeName, req_json["resourceType"])
-        typedef = types._make_typedef(target_type, custom_defs)
+        typedef = types._make_typedef(target_type)
         if typedef:
-            yield from _generate_env_names_from_type(name.upper(), typedef, custom_defs)
+            yield from _generate_env_names_from_type(
+                name.upper(), typedef, types.custom_defs
+            )
         else:
             logger.warning(
                 f"unable to generate enviroment variable names for type {target_type}: could not find its type definition."
@@ -1413,14 +1414,16 @@ def _to_graphql(
     tpl = spec.template.tpl
     assert spec.topology and tpl
     _add_repositories(db, tpl)
-    types = to_graphql_nodetypes(spec, root_url)
+    assert spec.template.topology_template
+    url = manifest.repo.url if manifest.repo else spec.topology.path
+    types = ResourceTypesByName(url, spec.template.topology_template.custom_defs)
+    to_graphql_nodetypes(spec, bool(root_url), types)
     db["ResourceType"] = types  # type: ignore
     db["ResourceTemplate"] = {}
     environment_instances = {}
-    assert spec.template.topology_template
     # the ensemble will have merged in its environment's templates and types
     connection_types = ResourceTypesByName(
-        root_url, spec.template.topology_template.custom_defs
+        url, spec.template.topology_template.custom_defs
     )
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
@@ -1546,7 +1549,7 @@ def _node_typename_to_graphql(
     types: ResourceTypesByName,
 ) -> Optional[ResourceType]:
     custom_defs = topology.topology_template.custom_defs
-    typedef = types._make_typedef(reqtypename, custom_defs)
+    typedef = types._make_typedef(reqtypename)
     if typedef:
         return node_type_to_graphql(topology, typedef, types)
     return None

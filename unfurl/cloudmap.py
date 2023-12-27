@@ -75,6 +75,7 @@ import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 
 from toscaparser.elements.nodetype import NodeType
+from .graphql import ResourceTypesByName
 from .spec import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
@@ -96,6 +97,7 @@ from . import DefaultNames
 logger = getLogger("unfurl")
 
 DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
+
 
 # Data classes
 @dataclass
@@ -357,7 +359,7 @@ class UnfurlNotable(Notable):
             self.folder, self.file = os.path.split(rel_path)
             spec = assert_not_none(manifest.tosca)
             self.fragment = spec.fragment
-            metadata = cast(dict, spec.template.tpl.get("metadata") or {})
+            metadata = cast(dict, spec.template.tpl).get("metadata") or {}
             self.metadata.update(
                 dict(
                     name=metadata.get("template_name"),
@@ -370,8 +372,19 @@ class UnfurlNotable(Notable):
             if schema_repo:
                 self.metadata["schema"] = schema_repo.url.strip(":")
             if node:
+                url = (
+                    manifest.repo.url
+                    if manifest.repo
+                    else assert_not_none(spec.topology).path
+                )
+                types = ResourceTypesByName(
+                    url, spec.template.topology_template.custom_defs
+                )
                 type_dict = node_type_to_graphql(
-                    node.topology, assert_not_none(node.toscaEntityTemplate.type_definition), None, True
+                    node.topology,
+                    assert_not_none(node.toscaEntityTemplate.type_definition),
+                    types,
+                    True,
                 )
                 self.metadata.update(
                     dict(
@@ -1261,9 +1274,14 @@ class CloudMap:
                 branch_exists = True
             else:
                 try:
-                    branch_exists = bool(git.cmd.Git().ls_remote(url, branch, heads=True))
+                    branch_exists = bool(
+                        git.cmd.Git().ls_remote(url, branch, heads=True)
+                    )
                 except Exception:
-                    raise UnfurlError(f'Error trying to access cloudmap git repository at "{url}"', saveStack=True)
+                    raise UnfurlError(
+                        f'Error trying to access cloudmap git repository at "{url}"',
+                        saveStack=True,
+                    )
         if branch_exists:  # branch exists
             # clone or checkout branch
             repo, _, _ = local_env.find_or_create_working_dir(url, branch)
