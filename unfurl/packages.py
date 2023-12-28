@@ -313,6 +313,7 @@ class Package:
         self.discovered = False  # the current revision was discovered
         self.missing = False  # if set, failed to find a version tag
         self.locked = False  # current revision set from lock
+        self.original_id = package_id
 
     @property
     def safe_url(self):
