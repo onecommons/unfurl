@@ -1488,7 +1488,11 @@ def _to_graphql(
 
 
 def to_blueprint(
-    localEnv: LocalEnv, root_url: Optional[str] = None, include_all=False, *, file: Optional[str] = None
+    localEnv: LocalEnv,
+    root_url: Optional[str] = None,
+    include_all=False,
+    *,
+    file: Optional[str] = None,
 ) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv, root_url, include_all)
     blueprint, root_name = to_graphql_blueprint(
@@ -1518,7 +1522,7 @@ def to_deployment(
     db["ResourceType"].pop("tosca.nodes.Root")
     env_instances = manifest.context.get("instances")
     if env_instances:
-        env["instances"].update(_set_shared_instances(env_instances))
+        env["instances"].update(_set_shared_instances(env_instances, env_types))
     db["DeploymentEnvironment"] = env  # type: ignore
     logger.debug("finished exporting deployment %s", localEnv.manifestPath)
     return db
@@ -1643,19 +1647,25 @@ def _map_nodefilter_properties(filters, inputsSchemaProperties, jsonprops) -> di
     return jsonprops
 
 
-def _set_shared_instances(instances):
+def _set_shared_instances(instances, types: ResourceTypesByName):
     env_instances = {}
     # imported (aka shared) resources are just a reference and won't be part of the manifest unless referenced
     # so just copy them over now
     if instances:
         for instance_name, value in instances.items():
             if "imported" in value:
+                if types:
+                    value["type"] = types.expand_typename(value["type"])
                 env_instances[instance_name] = value
     return env_instances
 
 
 def to_environments(
-    localEnv: LocalEnv, root_url: Optional[str] = "", environment_filter=None, *, file: Optional[str] = None
+    localEnv: LocalEnv,
+    root_url: Optional[str] = "",
+    environment_filter=None,
+    *,
+    file: Optional[str] = None,
 ) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
@@ -1681,9 +1691,7 @@ def to_environments(
             env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
     assert localEnv.project
     defaults = localEnv.project.contexts.get("defaults")
-    default_imported_instances = _set_shared_instances(
-        defaults and defaults.get("instances")
-    )
+    default_imported_instances = None
     default_manifest_path = localEnv.manifestPath
     for name in localEnv.project.contexts:
         if environment_filter and environment_filter != name:
@@ -1703,9 +1711,13 @@ def to_environments(
             localLocalEnv = localEnv
             blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv, root_url)
             env["name"] = name
+            if default_imported_instances is None:
+                default_imported_instances = _set_shared_instances(
+                    defaults and defaults.get("instances"), env_types
+                )
             env["instances"].update(default_imported_instances)
             instances = localEnv.project.contexts[name].get("instances")
-            env["instances"].update(_set_shared_instances(instances))
+            env["instances"].update(_set_shared_instances(instances, env_types))
             environments[name] = env
             all_connection_types.update(env_types)  # type: ignore # ok to merge qualified names
         except Exception as err:

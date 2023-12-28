@@ -319,7 +319,7 @@ def to_type_name(name: str, package_id: str, path: str) -> TypeName:
         return TypeName(name + "@" + package_id)
 
 
-EXPORT_QUALNAME = os.getenv("UNFURL_EXPORT_QUALNAME")
+EXPORT_QUALNAME = not bool(os.getenv("UNFURL_EXPORT_LOCALNAMES"))
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier, custom_defs):

@@ -1149,7 +1149,7 @@ def _export(
                     deployments.append(djson)
                 hit = hit and dcache_entry.hit
             json_summary["deployments"] = deployments
-        if hit or (cache_entry.value and not post_work):
+        if not derrors and (hit or (cache_entry.value and not post_work)):
             etag = request.headers.get("If-None-Match")
             if etag and cache_entry.value.make_etag() == etag:
                 return "Not Modified", 304
