@@ -1125,7 +1125,7 @@ def _get_or_make_primary(
     root_type: Optional[NodeType] = None
     root = None
     if topology.substitution_mappings:
-        # root_type = topology.substitution_mappings.node_type
+        root_type = topology.substitution_mappings.node_type
         root = topology.substitution_mappings._node_template
     types = db.get_types()
     if root_type:
@@ -1403,11 +1403,12 @@ def _add_repositories(db: dict, tpl: dict):
 
 
 def _to_graphql(
-    localEnv: LocalEnv,
-    root_url: str = "",
+    localenv: LocalEnv,
+    root_url: Optional[str] = None,
+    include_all: bool = False,
 ) -> Tuple[GraphqlDB, YamlManifest, DeploymentEnvironment, ResourceTypesByName]:
     # set skip_validation because we want to be able to dump incomplete service templates
-    manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
+    manifest = localenv.get_manifest(skip_validation=True, safe_mode=True)
     db = GraphqlDB({})
     spec = manifest.tosca
     assert spec
@@ -1415,9 +1416,12 @@ def _to_graphql(
     assert spec.topology and tpl
     _add_repositories(db, tpl)
     assert spec.template.topology_template
-    url = manifest.repo.url if manifest.repo else spec.topology.path
+    if root_url:
+        url: Optional[str] = root_url
+    else:
+        url = manifest.repo.url if manifest.repo else spec.topology.path
     types = ResourceTypesByName(url, spec.template.topology_template.custom_defs)
-    to_graphql_nodetypes(spec, bool(root_url), types)
+    to_graphql_nodetypes(spec, include_all, types)
     db["ResourceType"] = types  # type: ignore
     db["ResourceTemplate"] = {}
     environment_instances = {}
@@ -1472,7 +1476,7 @@ def _to_graphql(
     )
     assert manifest.repo
     file_path = manifest.get_tosca_file_path()
-    if root_url:
+    if root_url and include_all:
         # if include_all, assume this export is for another repository
         # (see get_types in server.py)
         for ty in types.values():
@@ -1484,9 +1488,9 @@ def _to_graphql(
 
 
 def to_blueprint(
-    localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
+    localEnv: LocalEnv, root_url: Optional[str] = None, include_all=False, *, file: Optional[str] = None
 ) -> GraphqlDB:
-    db, manifest, env, env_types = _to_graphql(localEnv, root_url or "")
+    db, manifest, env, env_types = _to_graphql(localEnv, root_url, include_all)
     blueprint, root_name = to_graphql_blueprint(
         assert_not_none(manifest.tosca), db, bool(root_url)
     )
@@ -1501,10 +1505,10 @@ def to_blueprint(
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
 def to_deployment(
-    localEnv: LocalEnv, ignored=None, *, file: Optional[str] = None
+    localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
 ) -> GraphqlDB:
     logger.debug("exporting deployment %s", localEnv.manifestPath)
-    db, manifest, env, env_types = _to_graphql(localEnv)
+    db, manifest, env, env_types = _to_graphql(localEnv, root_url)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
@@ -1651,7 +1655,7 @@ def _set_shared_instances(instances):
 
 
 def to_environments(
-    localEnv: LocalEnv, environment_filter=None, *, file: Optional[str] = None
+    localEnv: LocalEnv, root_url: Optional[str] = "", environment_filter=None, *, file: Optional[str] = None
 ) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
@@ -1668,7 +1672,6 @@ def to_environments(
     # XXX one manifest and blueprint per environment
     db = GraphqlDB.load_db(file)
     environments = {}
-    root_url = ""
     all_connection_types: GraphqlObjectsByName = {}
     assert localEnv.project
     deployment_paths = get_deploymentpaths(localEnv.project)

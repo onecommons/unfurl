@@ -1077,16 +1077,16 @@ def _export(
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
-    args = dict(request.args)
+    args: Dict[str, Any] = dict(request.args)
     if request.headers.get("X-Git-Credentials"):
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
+    args["root_url"] = get_canonical_url(project_id)
+    args["include_all"] = include_all
     if include_all:
-        args["include_all"] = get_canonical_url(project_id)
         extra = "+types"
     else:
-        args["include_all"] = ""
         if args.get("environment") and requested_format == "environments":
             extra = "+" + args["environment"]
         else:
@@ -1436,7 +1436,7 @@ def _do_export(
         return err, None
     assert parent_localenv
     if parent_localenv.project:
-        repo = parent_localenv.project.project_repoview
+        repo: Optional[RepoView] = parent_localenv.project.project_repoview
     else:
         repo = parent_localenv.instance_repoview
     assert repo and repo.repo, (parent_localenv.project, parent_localenv.project and parent_localenv.project.project_repoview, parent_localenv.instance_repoview)
@@ -1461,10 +1461,13 @@ def _do_export(
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     if requested_format == "environments":
-        json_summary = to_json.to_environments(local_env, args.get("environment"))
+        json_summary = to_json.to_environments(local_env, args.get("root_url"), args.get("environment"))
+    elif requested_format == "blueprint":
+        json_summary = to_json.to_blueprint(local_env, args.get("root_url"), args.get("include_all", False))
+    elif requested_format == "deployment":
+        json_summary = to_json.to_deployment(local_env, args.get("root_url"))
     else:
-        exporter = getattr(to_json, "to_" + requested_format)
-        json_summary = exporter(local_env, args.get("include_all"))
+        assert False, requested_format
     return None, json_summary
 
 
