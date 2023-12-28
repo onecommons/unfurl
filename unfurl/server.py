@@ -1436,12 +1436,12 @@ def _do_export(
         return err, None
     assert parent_localenv
     if parent_localenv.project:
-        repo = parent_localenv.project.project_repoview.repo
+        repo = parent_localenv.project.project_repoview
     else:
-        repo = parent_localenv.instanceRepo
-    assert repo
+        repo = parent_localenv.instance_repoview
+    assert repo and repo.repo, (parent_localenv.project, parent_localenv.project and parent_localenv.project.project_repoview, parent_localenv.instance_repoview)
     err, local_env = _make_readonly_localenv(
-        repo.working_dir, deployment_path, parent_localenv
+        repo.repo.working_dir, deployment_path, parent_localenv
     )
     if err:
         return (

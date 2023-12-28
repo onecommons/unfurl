@@ -325,17 +325,18 @@ class Project:
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
-    ) -> Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]]:
+    ) -> Tuple[Optional[RepoView], Optional[str], Optional[bool]]:
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
         candidate = None
         for dir in sorted(self.workingDirs.keys()):
-            repo = self.workingDirs[dir].repo
+            repo_view = self.workingDirs[dir]
+            repo = repo_view.repo
             assert repo
             filePath = repo.find_repo_path(path)
             if filePath is not None:
-                return repo, filePath, repo.revision, False
+                return repo_view, filePath, False
             #  XXX support bare repo and particular revisions
             #  need to make sure path isn't ignored in repo or compare candidates
             # filePath, revision, bare = repo.findPath(path, importLoader)
@@ -344,7 +345,7 @@ class Project:
             #         return repo, filePath, revision, bare
             #     else:  # if it's bare see if we can find a better candidate
             #         candidate = (repo, filePath, revision, bare)
-        return candidate or None, None, None, None
+        return candidate, None, None
 
     def create_working_dir(self, gitUrl: str, ref: Optional[str] = None) -> GitRepo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
@@ -1012,7 +1013,7 @@ class LocalEnv:
         if self.project and not parent:  # only log once
             logger.info("Loaded project at %s", self.project.localConfig.config.path)
         self.toolVersions: dict = {}
-        self.instanceRepo = self._get_instance_repo()
+        self.instance_repoview = self._get_instance_repoview()
         self.config = (
             self.project
             and self.project.localConfig
@@ -1201,15 +1202,17 @@ class LocalEnv:
             # assume its a pointing to an ensemble
             return manifestPath, None
 
-    def _get_instance_repo(self) -> Optional[GitRepo]:
+    def _get_instance_repoview(self) -> Optional[RepoView]:
         if not self.manifestPath:
             return None
         instanceDir = os.path.dirname(self.manifestPath)
         if self.project:
-            repo = self.project.find_path_in_repos(instanceDir)[0]
-            if repo:
-                return repo
-        return Repo.find_containing_repo(instanceDir)
+            return self.project.find_path_in_repos(instanceDir)[0]
+        repo = Repo.find_containing_repo(instanceDir)
+        if repo:
+            return repo.as_repo_view()
+        else:
+            return None
 
     # NOTE returns repos outside of this LocalEnv
     # (every repo found in localRepositories)
@@ -1218,8 +1221,8 @@ class LocalEnv:
             repos = self.project._get_git_repos()
         else:
             repos = []
-        if self.instanceRepo and self.instanceRepo not in repos:
-            return repos + [self.instanceRepo]
+        if self.instance_repoview and self.instance_repoview.repo and self.instance_repoview.repo not in repos:
+            return repos + [self.instance_repoview.repo]
         else:
             return repos
 
@@ -1384,32 +1387,25 @@ class LocalEnv:
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
-        if self.instanceRepo:
-            repo = self.instanceRepo
+        if self.instance_repoview and self.instance_repoview.repo:
+            repo = self.instance_repoview.repo
             filePath = repo.find_repo_path(path)
             if filePath is not None:
                 return repo, filePath, repo.revision, False
 
-        candidate = None
-        repo = None  # type: ignore
+        candidate: Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]] = (None, None, None, None)
+        bare = False
         project = self.project or self.homeProject
         while project:
-            repo, filePath, revision, bare = project.find_path_in_repos(  # type: ignore
+            repoview, filePath, bare = project.find_path_in_repos(  # type: ignore
                 path, importLoader
             )
-            if repo:
+            if repoview:
+                candidate = (repoview.repo, filePath, repoview.revision, bare)
                 if not bare:
-                    return repo, filePath, revision, bare
-                else:
-                    candidate = (repo, filePath, revision, bare)
                     break
             project = project.parentProject
-        if repo:
-            if bare and candidate:
-                return candidate
-            else:
-                return repo, filePath, revision, bare
-        return None, None, None, None
+        return candidate
 
     def link_repo(
         self, base_path: str, name: str, url: str, revision

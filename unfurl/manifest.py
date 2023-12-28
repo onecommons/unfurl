@@ -163,10 +163,10 @@ class Manifest(AttributeManager):
 
     def _find_repo(self) -> Optional["GitRepo"]:
         # check if this path exists in the repo
-        repo = self.localEnv and self.localEnv.instanceRepo
+        repo = self.localEnv and self.localEnv.instance_repoview
         if repo:
             # this check is expensive and not that important so skip
-            return repo
+            return repo.repo
             # path = repo.find_path(self.path)[0]
             # if path and (path, 0) in repo.repo.index.entries:
             #     return repo

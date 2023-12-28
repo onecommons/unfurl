@@ -718,8 +718,8 @@ class EnsembleBuilder:
                 source_project.projectRoot, self.templateVars["sourceDir"]
             )
         )
-        specRepo, relPath, revision, bare = specProject.find_path_in_repos(sourceDir)
-        if not specRepo:
+        spec_repo_view, relPath, bare = specProject.find_path_in_repos(sourceDir)
+        if not spec_repo_view:
             raise UnfurlError(
                 '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
                 % os.path.abspath(sourceDir)
@@ -727,7 +727,7 @@ class EnsembleBuilder:
         manifestPath = write_ensemble_manifest(
             os.path.join(project.projectRoot, destDir),
             manifestName,
-            specRepo,
+            spec_repo_view.repo,
             sourceDir,
             self.templateVars,
             self.options.get("skeleton"),
