@@ -1206,8 +1206,13 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                     if "_sourceinfo" not in typeinfo:
                         typeinfo["_sourceinfo"] = dict(file=file_path, url=r.git_url())
                     if "@" not in name:
-                        local_types = ResourceTypesByName(r.git_url(), {name: typeinfo})
+                        schema = notable.get("schema", r.git_url())
+                        local_types = ResourceTypesByName(schema, {name: typeinfo})
                         typeinfo["name"] = name = local_types.expand_typename(name)
+                        # make sure "extends" are fully qualified
+                        extends = typeinfo.get("extends")
+                        if extends:
+                            typeinfo["extends"] = [local_types.expand_typename(extend) for extend in extends]
                     typeinfo["_sourceinfo"]["incomplete"] = True
                     if not typeinfo.get("description") and notable.get("description"):
                         typeinfo["description"] = notable["description"]

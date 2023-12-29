@@ -43,6 +43,9 @@ from .util import to_enum, UnfurlError
 
 logger = getLogger("unfurl")
 
+# setting UNFURL_EXPORT_LOCALNAMES disables using fulling qualified names when exporting
+EXPORT_QUALNAME = not bool(os.getenv("UNFURL_EXPORT_LOCALNAMES"))
+
 JsonType = Dict[str, Any]
 
 
@@ -317,9 +320,6 @@ def to_type_name(name: str, package_id: str, path: str) -> TypeName:
         return TypeName(name + "@" + package_id + ":" + os.path.splitext(path)[0])
     else:
         return TypeName(name + "@" + package_id)
-
-
-EXPORT_QUALNAME = not bool(os.getenv("UNFURL_EXPORT_LOCALNAMES"))
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier, custom_defs):

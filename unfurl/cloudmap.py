@@ -287,13 +287,14 @@ class Notable:
     folders: Sequence[str] = ()
     artifact_type = EntitySchema.GenericFile
 
-    def __init__(self, root_path: str, folder: str, file: str):
+    def __init__(self, repo_info: Repository, root_path: str, folder: str, file: str):
         self.root_path = root_path
         self.folder = folder
         self.file = file
         self.fragment = ""
         self.metadata: Dict[str, Any] = {}
         self.artifacts: List[ArtifactDict] = []
+        logger.verbose("analyzing %s with %s", file, self)
 
     @property
     def path(self) -> str:
@@ -317,8 +318,10 @@ class Notable:
         return False
 
     @classmethod
-    def init(cls: Type[T], root_path: str, folder: str, file: str) -> Optional[T]:
-        return cls(root_path, folder, file)
+    def init(
+        cls: Type[T], repo_info: Repository, root_path: str, folder: str, file: str
+    ) -> Optional[T]:
+        return cls(repo_info, root_path, folder, file)
 
     def asdict(self) -> Dict[str, Any]:
         metadata = dict(artifact_type=self.artifact_type)
@@ -330,8 +333,8 @@ class ContainerBuilderNotable(Notable):
     files = ("Containerfile", "Dockerfile")
     artifact_type = EntitySchema.ContainerFile
 
-    def __init__(self, root_path: str, folder: str, file: str):
-        super().__init__(root_path, folder, file)
+    def __init__(self, repo_info: Repository, root_path: str, folder: str, file: str):
+        super().__init__(repo_info, root_path, folder, file)
 
 
 class UnfurlNotable(Notable):
@@ -343,8 +346,10 @@ class UnfurlNotable(Notable):
     ]
     folders = [DefaultNames.ProjectDirectory, DefaultNames.EnsembleDirectory]
 
-    def __init__(self, root_path: str, folder: str, file: str) -> None:
-        super().__init__(root_path, folder, file)
+    def __init__(
+        self, repo_info: Repository, root_path: str, folder: str, file: str
+    ) -> None:
+        super().__init__(repo_info, root_path, folder, file)
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
         localenv = LocalEnv(
             self.full_path,
@@ -352,7 +357,7 @@ class UnfurlNotable(Notable):
         )
         if localenv.manifestPath:
             self.artifact_type = self._get_artifacttype(localenv.manifestPath)
-            manifest = localenv.get_manifest()
+            manifest = localenv.get_manifest(skip_validation=True, safe_mode=True)
             rel_path = str(
                 Path(localenv.manifestPath).relative_to(Path(self.root_path))
             )
@@ -372,13 +377,8 @@ class UnfurlNotable(Notable):
             if schema_repo:
                 self.metadata["schema"] = schema_repo.url.strip(":")
             if node:
-                url = (
-                    manifest.repo.url
-                    if manifest.repo
-                    else assert_not_none(spec.topology).path
-                )
                 types = ResourceTypesByName(
-                    url, spec.template.topology_template.custom_defs
+                    repo_info.key, spec.template.topology_template.custom_defs
                 )
                 type_dict = node_type_to_graphql(
                     node.topology,
@@ -402,10 +402,13 @@ class UnfurlNotable(Notable):
             self.artifact_type = EntitySchema.UnfurlProject
 
     @classmethod
-    def init(cls, root_path: str, folder: str, file: str) -> Optional["UnfurlNotable"]:
+    def init(
+        cls, repo_info: Repository, root_path: str, folder: str, file: str
+    ) -> Optional["UnfurlNotable"]:
         try:
-            return UnfurlNotable(root_path, folder, file)
+            return UnfurlNotable(repo_info, root_path, folder, file)
         except UnfurlError:
+            logger.info("analysis failed for %s", file, exc_info=True)
             return None
 
     def find_dependencies(self, node: NodeSpec):
@@ -457,7 +460,8 @@ class Analyzer:
         for folder in cls.folders:
             self.folders[folder] = cls
 
-    def analyze_local(self, rootDir) -> List[Notable]:
+    def analyze_local(self, repo_info: Repository, rootDir) -> List[Notable]:
+        # currently unused
         notables: List[Notable] = []
         for root, dirs, files in os.walk(rootDir):
             notable = None
@@ -468,13 +472,13 @@ class Analyzer:
                 notable_cls = self.folders.get(folder)
                 if notable_cls:
                     if notable_cls not in notables_found:
-                        notable = notable_cls.init(rootDir, rel_root, "")
+                        notable = notable_cls.init(repo_info, rootDir, rel_root, "")
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
                 notable_cls = self.files.get(filename)
                 if notable_cls and notable_cls not in notables_found:
-                    notable = notable_cls.init(rootDir, rel_root, filename)
+                    notable = notable_cls.init(repo_info, rootDir, rel_root, filename)
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -483,6 +487,7 @@ class Analyzer:
 
     def analyze_repo_tree(
         self,
+        repo_info: Repository,
         root_path: str,
         children: List[IndexObject],
         notables: List[Notable],
@@ -500,13 +505,15 @@ class Analyzer:
                 notable_cls = self.folders.get(filename)
                 if notable_cls:
                     if notable_cls not in notables_found:
-                        notable = notable_cls.init(root_path, cast(str, item.path), "")
+                        notable = notable_cls.init(
+                            repo_info, root_path, cast(str, item.path), ""
+                        )
                 else:
                     descend.append(item)
             elif item.type == "blob":
                 notable_cls = self.files.get(filename)
                 if notable_cls and notable_cls not in notables_found:
-                    notable = notable_cls.init(root_path, dirname, filename)
+                    notable = notable_cls.init(repo_info, root_path, dirname, filename)
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -663,7 +670,7 @@ class Directory(_LocalGitRepos):
         repo = git.Repo.clone_from(url or repo_info.git_url(), download_path)
         return GitRepo(repo)
 
-    def analyze_repo(self, repo: GitRepo) -> List[Notable]:
+    def analyze_repo(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
         notables: List[Notable] = []
 
         root = repo.repo.head.commit.tree
@@ -678,7 +685,7 @@ class Directory(_LocalGitRepos):
             # analyze return trees to descend into
             # XXX track and pass depth argument
             for tree in self.analyzer.analyze_repo_tree(
-                repo.working_dir, children, notables
+                repo_info, repo.working_dir, children, notables
             ):
                 if tree.type == "tree" and tree not in seen:
                     items.append(tree)
@@ -692,13 +699,16 @@ class Directory(_LocalGitRepos):
             try:
                 return self.analyze(repo_info, repo)
             except Exception:
-                pass
+                # restore previous
+                repo_info.notable = previous_notables
+                raise
         # no analysis happened, preserve previous analysis
         repo_info.notable = previous_notables
         return None
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
-        notables = self.analyze_repo(repo)
+        notables = self.analyze_repo(repo_info, repo)
+        logger.verbose("analyzing %s", repo_info.key)
         repo_info.add_notables(notables)
         for n in notables:
             for a in n.artifacts:

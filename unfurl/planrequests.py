@@ -1114,11 +1114,11 @@ def create_task_request(
         iDef = _maybe_mock(iDef, resource.template)
         assert iDef
         # merge inputs
-        if inputs:
+        if inputs and iDef.inputs:
             cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
             inputs = cls(iDef.inputs, **inputs)
         else:
-            inputs = iDef.inputs or {}
+            inputs = iDef.inputs or inputs or {}
         if iDef.invoke:
             # get the implementation from the operation specified with the "invoke" key
             iinterface, sep, iaction = iDef.invoke.rpartition(".")
