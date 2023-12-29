@@ -529,7 +529,7 @@ class _LocalGitRepos:
                     continue
                 url = get_remote_git_url(remote.url)
                 self.remotes.setdefault(url, []).append(remote)
-                logger.debug(f"found git repo {url} in {working_dir}")
+                logger.trace(f"found git repo {url} in {working_dir}")
             self.repos[working_dir] = repo
         return None
 
@@ -723,6 +723,7 @@ class RepositoryHost:
     path: str = ""
     canonical_url: str = ""
     dryrun: bool = False
+    repo_filter: str = ""
 
     def has_repository(self, repo_info: Repository) -> bool:
         return False
@@ -742,6 +743,13 @@ class RepositoryHost:
         Returns True has a change was made to the repository host.
         """
         return False
+
+    def match_repo_filter(self, git_url) -> bool:
+        if self.repo_filter:
+            if git_url.endswith(".git"):
+                git_url = git_url[:-4]
+            return git_url == self.repo_filter
+        return True
 
     def fetch_repo(
         self, push_url: str, dest: Repository, local: "Directory"
@@ -784,13 +792,20 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
 
     def __init__(
-        self, name: str, local_repo_root: str = "", namespace: str = ""
+        self,
+        name: str,
+        local_repo_root: str = "",
+        namespace: str = "",
+        repo_filter: str = "",
     ) -> None:
         _LocalGitRepos.__init__(self, local_repo_root)
         self.name = name
         self.path = namespace
+        self.repo_filter = repo_filter
 
     def has_repository(self, repo_info: Repository) -> bool:
+        if self.repo_filter:
+            return self.match_repo_filter(repo_info.key)
         return repo_info.git in self.remotes
 
     def include_local_repo(self, repo: GitRepo) -> bool:
@@ -809,6 +824,10 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     continue
                 # prefer "canonical" remote
                 remote = _LocalGitRepos._choose_remote(repo.repo.remotes, "canonical")
+                if self.repo_filter and not self.match_repo_filter(
+                    get_remote_git_url(remote.url)
+                ):
+                    continue
                 assert repo.repo.working_dir
                 if not os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
                     repo.pull(remote.name)
@@ -867,9 +886,16 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
 
 
 class GitlabManager(RepositoryHost):
-    def __init__(self, name: str, config: Dict[str, str], namespace: str = "") -> None:
+    def __init__(
+        self,
+        name: str,
+        config: Dict[str, str],
+        namespace: str = "",
+        repo_filter: str = "",
+    ) -> None:
         self.name = name
         self.visibility = config.get("visibility", "any")
+        self.repo_filter = repo_filter
         url = config["url"]
         parts = urlparse(url)
         user, sep, host = parts.netloc.rpartition("@")
@@ -899,6 +925,8 @@ class GitlabManager(RepositoryHost):
             return "public"
 
     def has_repository(self, repo_info: Repository) -> bool:
+        if self.repo_filter:
+            return self.match_repo_filter(repo_info.key)
         if repo_info.git.startswith(self.hostname) and repo_info.match_path(self.path):
             return True
         return False
@@ -930,6 +958,13 @@ class GitlabManager(RepositoryHost):
         # XXX delete removed projects
         repositories = directory.repositories
         for p in projects:
+            if self.repo_filter:
+                git_url, scheme = self._git_url(p)
+                if not self.match_repo_filter(git_url):  # git_url is r.key
+                    logger.trace(
+                        "skipping %s, doesn't match %s", git_url, self.repo_filter
+                    )
+                    continue
             dest_proj: Project = self.gitlab.projects.get(p.id)
             if (
                 self.visibility == "public"
@@ -1172,6 +1207,12 @@ class GitlabManager(RepositoryHost):
         else:
             return url
 
+    def _git_url(self, project: Project):
+        # strip out url scheme
+        parts = urlparse(self.canonize(project.http_url_to_repo))
+        git_url = parts.netloc + parts.path
+        return git_url, parts.scheme
+
     def gitlab_project_to_repository(self, project: Project) -> Repository:
         kw = {}
         # XXX
@@ -1190,10 +1231,8 @@ class GitlabManager(RepositoryHost):
             **kw,
         )
         metadata.set_lastupdate()
-        # strip out url scheme
-        parts = urlparse(self.canonize(project.http_url_to_repo))
-        git_url = parts.netloc + parts.path
-        protocols = [parts.scheme]
+        git_url, scheme = self._git_url(project)
+        protocols = [scheme]
         if project.ssh_url_to_repo:
             protocols.append("ssh")
         repository = Repository(
@@ -1302,6 +1341,7 @@ class CloudMap:
         namespace: str,
         repos_root: str,
         visibility: Optional[str] = None,
+        repo_filter: str = "",
     ) -> RepositoryHost:
         environment = local_env.get_context().get("cloudmaps", {})
         hosts = environment.get("hosts", {})
@@ -1322,14 +1362,14 @@ class CloudMap:
                 raise UnfurlError(f"no repository host named {name} found")
         if host_config["type"] == "local":
             return LocalRepositoryHost(
-                name, host_config.get("clone_root", clone_root), namespace
+                name, host_config.get("clone_root", clone_root), namespace, repo_filter
             )
 
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]
         config = local_env.map_value(host_config, environment.get("variables"))
         if visibility:
             config["visibility"] = visibility
-        return GitlabManager(name, config, namespace)
+        return GitlabManager(name, config, namespace, repo_filter)
 
     def from_host(self, host: RepositoryHost) -> bool:
         host.from_host(self.directory)

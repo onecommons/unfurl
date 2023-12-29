@@ -939,7 +939,10 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 @click.option(
-    "--design", default=False, is_flag=True, help="Set up project for blueprint development."
+    "--design",
+    default=False,
+    is_flag=True,
+    help="Set up project for blueprint development.",
 )
 @click.option(
     "--use-environment",
@@ -1176,7 +1179,6 @@ def _yaml_to_python(
     from .yamlloader import ImportResolver
     from .manifest import Manifest
 
-
     if python_target_version:
         python_target_version = int(python_target_version.split(".")[-1])
 
@@ -1248,7 +1250,7 @@ def _yaml_to_python(
     default="auto",
     type=click.Choice(["older", "never", "always", "auto"]),
     help="Overwrite existing files (Default: auto)",
-    envvar="UNFURL_OVERWRITE_POLICY"
+    envvar="UNFURL_OVERWRITE_POLICY",
 )
 @click.option(
     "--python-target",
@@ -1414,7 +1416,7 @@ def help(ctx, cmd=""):
 @click.option(
     "--cloud-server",
     envvar="UNFURL_CLOUD_SERVER",
-    help='Unfurl Cloud server URL to connect to.',
+    help="Unfurl Cloud server URL to connect to.",
 )
 @click.option(
     "--cors",
@@ -1422,7 +1424,15 @@ def help(ctx, cmd=""):
     help='enable CORS with origin (e.g. "*")',
 )
 def serve(
-    ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, cloud_server, **options
+    ctx,
+    port,
+    address,
+    secret,
+    clone_root,
+    project_or_ensemble_path,
+    cors,
+    cloud_server,
+    **options,
 ):
     """Run unfurl as a server."""
     options.update(ctx.obj)
@@ -1435,7 +1445,15 @@ def serve(
         os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
     from .server import serve as _serve
 
-    _serve(address, port, secret, clone_root, project_or_ensemble_path, options, cloud_server)
+    _serve(
+        address,
+        port,
+        secret,
+        clone_root,
+        project_or_ensemble_path,
+        options,
+        cloud_server,
+    )
 
 
 @cli.command(short_help="Manage a cloud map")
@@ -1459,7 +1477,12 @@ def serve(
 @click.option(
     "--namespace",
     default=None,
-    help="Limit sync to the given repositories that match the given pattern.",
+    help="Limit sync to repositories in this folder or group.",
+)
+@click.option(
+    "--repository",
+    default="",
+    help="Limit sync to this one repository.",
 )
 @click.option(
     "--clone-root",
@@ -1505,6 +1528,7 @@ def cloudmap(
     skip_analysis: bool = False,
     force: bool = False,
     dryrun: bool = False,
+    repository: str = "",
     **options,
 ):
     """Manage a cloud map.
@@ -1522,7 +1546,7 @@ def cloudmap(
         print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
         return
     host = CloudMap.get_host(
-        localEnv, host_name, namespace or "", clone_root or "", visibility
+        localEnv, host_name, namespace or "", clone_root or "", visibility, repository
     )
     cloud_map = CloudMap.from_name(
         localEnv, cloudmap, clone_root or "", host.name, namespace or "", skip_analysis
