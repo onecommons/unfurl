@@ -123,7 +123,7 @@ app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
     os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
 )
 app.config["CACHE_CONTROL_SERVE_STALE"] = int(
-    os.environ.get("CACHE_CONTROL_SERVE_STALE") or 0 # 2592000 (1 month)
+    os.environ.get("CACHE_CONTROL_SERVE_STALE") or 0  # 2592000 (1 month)
 )
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
 if not cors:
@@ -606,8 +606,15 @@ class CacheEntry:
             last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
         if not directives.store:
             value = "not_stored"  # XXX
-        self.value = CacheValue(value, last_commit, latest_commit or last_commit, self._deps)
-        logger.info("setting cache with %s with %s deps %s", full_key, last_commit, [dep.project_id for dep in self.value.deps.values()])
+        self.value = CacheValue(
+            value, last_commit, latest_commit or last_commit, self._deps
+        )
+        logger.info(
+            "setting cache with %s with %s deps %s",
+            full_key,
+            last_commit,
+            [dep.project_id for dep in self.value.deps.values()],
+        )
         cache.set(
             full_key,
             self.value,
@@ -896,6 +903,7 @@ class CacheEntry:
             # (instead of pulling from the branch)
             dep.latest_package_url = package.url
         return dep
+
 
 @app.before_request
 def hook():
@@ -1212,7 +1220,10 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                         # make sure "extends" are fully qualified
                         extends = typeinfo.get("extends")
                         if extends:
-                            typeinfo["extends"] = [local_types.expand_typename(extend) for extend in extends]
+                            typeinfo["extends"] = [
+                                local_types.expand_typename(extend)
+                                for extend in extends
+                            ]
                     typeinfo["_sourceinfo"]["incomplete"] = True
                     if not typeinfo.get("description") and notable.get("description"):
                         typeinfo["description"] = notable["description"]
@@ -1223,9 +1234,9 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                         typeinfo["icon"] = r.metadata.avatar_url
                     dependencies = notable.get("dependencies")
                     if dependencies:
-                        typeinfo.setdefault("metadata", {})["components"] = dependencies                        
+                        typeinfo.setdefault("metadata", {})["components"] = dependencies
                     types[name] = typeinfo
-                    
+
     return err, types
 
 
@@ -1237,6 +1248,7 @@ def get_types():
     _add_types = None
     filename = request.args.get("file", "dummy-ensemble.yaml")
     if request.args.get("cloudmap"):  # e.g. "onecommons/cloudmap"
+
         def _add_types(cache_entry, db):
             err, types = _get_cloudmap_types(request.args.get("cloudmap"), cache_entry)
             if err:
@@ -1444,7 +1456,11 @@ def _do_export(
         repo: Optional[RepoView] = parent_localenv.project.project_repoview
     else:
         repo = parent_localenv.instance_repoview
-    assert repo and repo.repo, (parent_localenv.project, parent_localenv.project and parent_localenv.project.project_repoview, parent_localenv.instance_repoview)
+    assert repo and repo.repo, (
+        parent_localenv.project,
+        parent_localenv.project and parent_localenv.project.project_repoview,
+        parent_localenv.instance_repoview,
+    )
     err, local_env = _make_readonly_localenv(
         repo.repo.working_dir, deployment_path, parent_localenv
     )
@@ -1466,9 +1482,13 @@ def _do_export(
     if cache_entry:
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     if requested_format == "environments":
-        json_summary = to_json.to_environments(local_env, args.get("root_url"), args.get("environment"))
+        json_summary = to_json.to_environments(
+            local_env, args.get("root_url"), args.get("environment")
+        )
     elif requested_format == "blueprint":
-        json_summary = to_json.to_blueprint(local_env, args.get("root_url"), args.get("include_all", False))
+        json_summary = to_json.to_blueprint(
+            local_env, args.get("root_url"), args.get("include_all", False)
+        )
     elif requested_format == "deployment":
         json_summary = to_json.to_deployment(local_env, args.get("root_url"))
     else:
@@ -1643,7 +1663,9 @@ def _make_requirement(dependency) -> dict:
 def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
     imports: List[dict] = []
     for key, value in patch.items():
-        if key in ["type", "directives", "imported"]:
+        if key == "type":
+            tpl[key] = value.split("@")[0]
+        elif key in ["directives", "imported"]:
             tpl[key] = value
         elif key == "_sourceinfo":
             imports.append(value)

@@ -54,7 +54,7 @@ spec:
 patch = """
 [{{
     "name": "container_service",
-    "type": "unfurl.nodes.ContainerService",
+    "type": "ContainerService@gitlab.com/onecommons/unfurl-types",
     "title": "container_service",
     "description": "",
     "_sourceinfo": {{
