@@ -427,6 +427,23 @@ def parse_merge_key(key) -> Optional[MergeKey]:
     return MergeKey(original, not not maybe, include, anchor, relative, tuple(parts))
 
 
+def _copy_item(value):
+    if isinstance(value, MutableMapping):
+        return copy_dict(value, type(value))
+    elif isinstance(value, (list, tuple)):
+        return copy_list(value, type(value))
+    else:
+        return value
+
+def copy_list(current: Sequence, cls=list) -> Sequence:
+     return cls(_copy_item(i) for i in current)
+
+def copy_dict(current: Mapping, cls=dict) -> MutableMapping:
+    cp = cls()
+    for key, value in current.items():
+        cp[key] = _copy_item(value)
+    return cp
+
 def expand_dict(doc, path, includes, current, cls=dict):
     """
     Return a copy of `doc` that expands include directives.

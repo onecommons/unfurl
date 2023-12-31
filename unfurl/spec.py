@@ -18,7 +18,7 @@ from .util import (
 )
 from .eval import Ref, SafeRefContext, map_value, analyze_expr
 from .result import ExternalValue, ResourceRef, ResultsList, serialize_value
-from .merge import patch_dict, merge_dicts
+from .merge import copy_dict, patch_dict, merge_dicts
 from .logs import get_console_log_level
 from .support import is_template, ContainerImage
 from toscaparser.topology_template import TopologyTemplate
@@ -144,7 +144,7 @@ def _patch(node, patchsrc, quote=False, tpl=None):
     else:
         patch = serialize_value(map_value(patchsrc, ctx))
     logger.trace("patching node %s was %s", node.name, tpl)
-    original = copy.deepcopy(tpl)
+    original = copy_dict(tpl)
     patched = patch_dict(tpl, patch, True)
     patched.setdefault("metadata", {})["before_patch"] = original
     logger.trace("patched node %s: now %s", node.name, patched)
