@@ -355,7 +355,9 @@ class Convert:
             return name, url
         return "tosca_repositories." + name, name
 
-    def convert_import(self, imp: Dict[str, str]) -> Tuple[str, str, Tuple[str, str], str]:
+    def convert_import(
+        self, imp: Dict[str, str]
+    ) -> Tuple[str, str, Tuple[str, str], str]:
         "converts tosca yaml import dict (as `imp`) to python import statement"
         repo = imp.get("repository")
         file = imp.get("file")
@@ -369,7 +371,7 @@ class Convert:
         dirname = filepath.parent
         filename, tosca_name = self._get_name(filepath.stem)  # filename w/o ext
 
-        base_dir = ''
+        base_dir = ""
         if repo:
             # generate repo import if repository: key given
             module_name, base_dir = self.find_repository(repo)
@@ -411,7 +413,12 @@ class Convert:
         import_path = import_path / dirname / filename
 
         full_name = f"{module_name}.{filename}"
-        return import_stmt + "\n", str(import_path), (full_name, python_prefix), base_dir
+        return (
+            import_stmt + "\n",
+            str(import_path),
+            (full_name, python_prefix),
+            base_dir,
+        )
 
     def convert_types(
         self, tosca_types: dict, section: str, namespace_prefix="", indent=""
@@ -552,7 +559,9 @@ class Convert:
             )
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
-        return self._get_typed_value_repr(schema.type, schema.entry_schema, value, schema.metadata)[0]
+        return self._get_typed_value_repr(
+            schema.type, schema.entry_schema, value, schema.metadata
+        )[0]
 
     def _get_typed_value_repr(
         self, datatype: str, entry_schema, value: Any, metadata: Optional[dict] = None
@@ -820,7 +829,9 @@ class Convert:
                 src += self.add_req(req_name, reqs[req_name], indent, cls_name)
             artifacts: Dict[str, Artifact] = {}
             required_artifacts: Dict[str, dict] = {}
-            NodeTemplate.find_artifacts_on_type(toscatype, artifacts, required_artifacts)
+            NodeTemplate.find_artifacts_on_type(
+                toscatype, artifacts, required_artifacts
+            )
             for artifact in artifacts.values():
                 artifact_name, artifact_src = self.artifact2obj(artifact)
                 if artifact_src:
@@ -828,8 +839,13 @@ class Convert:
                     cls_name, cls = self.imports.get_type_ref(artifact.type)
                     assert cls_name
                     src += f"{indent}{field_name}: {cls_name} = {artifact_src}\n"
-            for required_artifact_name, required_artifact_tpl in required_artifacts.items():
-                cls_name, cls = self.imports.get_type_ref(required_artifact_tpl.get("type", ""))
+            for (
+                required_artifact_name,
+                required_artifact_tpl,
+            ) in required_artifacts.items():
+                cls_name, cls = self.imports.get_type_ref(
+                    required_artifact_tpl.get("type", "")
+                )
                 if cls_name:
                     name, _ = self._get_name(required_artifact_name)
                     field_name, tosca_name = self._set_name(name, "artifact")
@@ -1449,7 +1465,9 @@ class Convert:
                     req_assignment = rel_assignment
         return req_assignment
 
-    def follow_import(self, import_def: dict, import_path: str, format: bool, base_dir) -> None:
+    def follow_import(
+        self, import_def: dict, import_path: str, format: bool, base_dir
+    ) -> None:
         # the ToscaTemplate has already imported everything, so here we just need to get the import's contents
         # to convert it to Python
         file_path = str(Path(import_path).parent / Path(import_def["file"]).name)
@@ -1623,7 +1641,7 @@ def convert_service_template(
         path,
         write_policy,
         base_dir,
-        package_name
+        package_name,
     )
     imports_tpl = tpl.get("imports")
     if imports_tpl and isinstance(imports_tpl, list):
@@ -1631,9 +1649,12 @@ def convert_service_template(
             if isinstance(imp_def, str):
                 imp_def = dict(file=imp_def)
             # base_dir is only set if imp_def has a repository
-            import_src, import_path, (module_name, ns), base_dir = converter.convert_import(
-                imp_def
-            )
+            (
+                import_src,
+                import_path,
+                (module_name, ns),
+                base_dir,
+            ) = converter.convert_import(imp_def)
             loader.install(template.import_resolver)
             converter.follow_import(imp_def, import_path + ".py", format, base_dir)
             package = converter.get_package_name()
@@ -1643,7 +1664,8 @@ def convert_service_template(
             except:
                 if module_name[0] == ".":
                     logger.error(
-                        f"error importing {module_name} in {package} {imp_def}", exc_info=True
+                        f"error importing {module_name} in {package} {imp_def}",
+                        exc_info=True,
                     )
                 else:
                     logger.error(f"error importing {module_name}", exc_info=True)
@@ -1694,6 +1716,11 @@ def convert_service_template(
                 src += converter.flush_pending_defs()
                 if template_src:
                     src += template_src + "\n"
+        if topology.substitution_mappings and topology.substitution_mappings.node:
+            root_template = converter.imports.get_local_ref(
+                topology.substitution_mappings.node
+            )
+            src += f"__root__ = {root_template}\n"
 
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src

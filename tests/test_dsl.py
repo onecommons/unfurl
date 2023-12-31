@@ -309,6 +309,8 @@ def test_example_wordpress():
 example_helloworld_yaml = """
 description: Template for deploying a single server with predefined properties.
 topology_template:
+  substitution_mappings:
+    node: db_server
   node_templates:
     db_server:
       type: tosca.nodes.Compute
@@ -335,7 +337,7 @@ example_helloworld_python = '''
 """Template for deploying a single server with predefined properties."""
 import tosca
 from tosca import *  # imports GB, MB scalars, tosca_version
-db_server = tosca.nodes.Compute(
+__root__ = tosca.nodes.Compute(
     "db_server",
     host=tosca.capabilities.Compute(
         num_cpus=1,

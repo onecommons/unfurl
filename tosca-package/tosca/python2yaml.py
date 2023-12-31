@@ -31,7 +31,7 @@ from ._tosca import (
     InstanceProxy,
     ValueType,
     _Tosca_Field,
-    _Ref
+    _Ref,
 )
 from .loader import restricted_exec, get_module_path
 
@@ -170,7 +170,9 @@ class PythonToYaml:
             self.templates.append(obj)
         return name
 
-    def set_requirement_value(self, req: dict, field: _Tosca_Field, value, default_node_name: str):
+    def set_requirement_value(
+        self, req: dict, field: _Tosca_Field, value, default_node_name: str
+    ):
         node = None
         if isinstance(value, NodeType):
             node = value
@@ -283,12 +285,20 @@ class PythonToYaml:
                     obj._docstrings = _docstrings  # type: ignore
                 as_yaml = obj._cls_to_yaml(self)  # type: ignore
                 self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
+                if name == "__root__":
+                    topology_sections.setdefault(
+                        "substitution_mappings", self.yaml_cls()
+                    ).update(dict(node_type=obj.tosca_type_name()))
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
                 if (isinstance(obj, NodeType) or obj._name) and not isinstance(
                     obj, InstanceProxy
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                     self.add_template(obj, name, current_module)
+                    if name == "__root__":
+                        topology_sections.setdefault(
+                            "substitution_mappings", self.yaml_cls()
+                        ).update(dict(node=obj._name or name))
             else:
                 section = getattr(obj, "_template_section", "")
                 to_yaml = getattr(obj, "to_yaml", None)

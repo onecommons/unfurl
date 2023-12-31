@@ -156,7 +156,7 @@ class ToscaYamlLoader(Loader):
 
 
 class ImmutableModule(ModuleType):
-    __always_safe__ = ("__safe__", "__all__", "__name__", "__package__", "__file__")
+    __always_safe__ = ("__safe__", "__all__", "__name__", "__package__", "__file__", "__root__")
 
     def __init__(self, name="__builtins__", **kw):
         ModuleType.__init__(self, name)
