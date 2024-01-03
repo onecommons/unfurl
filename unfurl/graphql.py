@@ -377,8 +377,8 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         # typedef might not be in types yet
         return self.expand_typename(typedef.type)
 
-    def _make_typedef(self, typename: str, all=False) -> Optional[StatefulEntityType]:
-        ns, sep, typename = typename.rpartition("@")
+    def _make_typedef(self, name: str, all=False) -> Optional[StatefulEntityType]:
+        typename, sep, ns = name.partition("@")
         typedef: Optional[StatefulEntityType] = None
         custom_defs = self.custom_defs
         # prefix is only used to expand "tosca:Type"
@@ -386,7 +386,7 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             typename, StatefulEntityType.NODE_PREFIX, custom_defs
         )
         if not test_typedef.defs:
-            logger.warning("Missing type definition for %s", typename)
+            logger.warning("Missing type definition for %s", name)
             return typedef
         elif "derived_from" not in test_typedef.defs:
             _source = test_typedef.defs.get("_source")
