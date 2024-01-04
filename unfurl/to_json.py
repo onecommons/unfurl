@@ -87,7 +87,7 @@ from .graphql import (
 )
 
 CustomDefs = Dict[str, dict]
-TypeDescendents = Dict[str, List[str]]
+TypeDescendants = Dict[str, List[str]]
 
 
 def _print(*args):
@@ -143,6 +143,8 @@ def map_constraint(jsonType, constraint, schema):
             return {prefix + suffix: value}
         elif key == "length":
             return {"min" + suffix: value, "max" + suffix: value}
+        else:
+            assert False
 
 
 def map_constraints(jsonType, constraints, schema):
@@ -367,7 +369,7 @@ def _get_req(req_dict) -> Tuple[str, dict]:
     return name, req
 
 
-def find_descendents(descendents: TypeDescendents, typename: str) -> Iterator[str]:
+def find_descendents(descendents: TypeDescendants, typename: str) -> Iterator[str]:
     if typename in descendents:
         for child in descendents[typename]:
             yield child
@@ -379,7 +381,7 @@ def _find_req_typename(
     typename: TypeName,
     reqname: str,
     topology: TopologySpec,
-    descendents: Optional[TypeDescendents],
+    descendents: Optional[TypeDescendants],
 ) -> TypeName:
     # find the name of the resource type that is the target of "reqname" on "typename"
     # have types[typename] go first
@@ -391,7 +393,7 @@ def _find_req_typename(
     if not descendents:
         return TypeName("")
 
-    for subtype in find_descendents(descendents, typename):
+    for subtype in find_descendents(descendents, types.get_localname(typename)):
         t = types.get_type(subtype)
         if not t:
             t = _node_typename_to_graphql(subtype, topology, types)
@@ -414,7 +416,7 @@ def _make_req(
     topology: Optional[TopologySpec] = None,
     types: Optional[ResourceTypesByName] = None,
     typename: Optional[TypeName] = None,
-    descendents: Optional[TypeDescendents] = None,
+    descendents: Optional[TypeDescendants] = None,
 ) -> Tuple[str, dict, RequirementConstraint]:
     name, req = _get_req(req_dict)
     reqobj = RequirementConstraint(  # type: ignore
@@ -762,7 +764,7 @@ def to_graphql_nodetypes(
                 if jsontype:
                     _update_root_type(jsontype, sub_map, nested_topology, types)
 
-    descendents: TypeDescendents = {}
+    descendents: TypeDescendants = {}
     for typename, defs in types.custom_defs.items():
         parents = defs.get("derived_from", [])
         if isinstance(parents, str):
@@ -1566,7 +1568,7 @@ def _node_typename_to_graphql(
 def annotate_requirements(
     topology: TopologySpec,
     types: ResourceTypesByName,
-    descendents: TypeDescendents,
+    descendents: TypeDescendants,
 ) -> None:
     for jsontype in list(types.values()):  # _annotate_requirement() might modify types
         for req in jsontype.get("requirements") or []:
@@ -1580,7 +1582,7 @@ def _annotate_requirement(
     reqtypename: TypeName,
     topology: TopologySpec,
     types: ResourceTypesByName,
-    descendents: Optional[TypeDescendents],
+    descendents: Optional[TypeDescendants],
 ) -> None:
     # req is a RequirementConstraint dict
     if "node_filter" not in req:
@@ -1601,6 +1603,7 @@ def _annotate_requirement(
     if not reqtype:
         reqtype = _node_typename_to_graphql(reqtypename, topology, types)
         if not reqtype:
+            logger.error("couldn't find %s while annotating requirements", reqtypename)
             return
 
     # node_filter properties might refer to properties that are only present on some subtypes

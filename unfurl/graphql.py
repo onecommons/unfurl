@@ -321,6 +321,7 @@ def to_type_name(name: str, package_id: str, path: str) -> TypeName:
     else:
         return TypeName(name + "@" + package_id)
 
+
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier, custom_defs):
         self.qualifier = get_package_url(qualifier)
@@ -377,8 +378,12 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         # typedef might not be in types yet
         return self.expand_typename(typedef.type)
 
+    @staticmethod
+    def get_localname(typename: str):
+        return typename.partition("@")[0]
+
     def _make_typedef(self, name: str, all=False) -> Optional[StatefulEntityType]:
-        typename, sep, ns = name.partition("@")
+        typename = self.get_localname(name)
         typedef: Optional[StatefulEntityType] = None
         custom_defs = self.custom_defs
         # prefix is only used to expand "tosca:Type"
