@@ -768,6 +768,7 @@ class RepositoryHost:
         repo = local.find_repo(push_url, self.name)
         if not repo:
             repo = local.find_repo(dest.git, self.name)
+        missing = not repo
         if not repo:
             repo = local.clone_repo(dest, push_url)
         remote_name = self.name or "origin"
@@ -776,7 +777,9 @@ class RepositoryHost:
         except ValueError:
             dest_remote = git.Remote.create(repo.repo, remote_name, push_url)
         else:
-            if normalize_git_url(dest_remote.url) != normalize_git_url(dest.git_url()):
+            if normalize_git_url(dest_remote.url, hard=3) != normalize_git_url(
+                dest.git_url(), hard=3
+            ):
                 logger.warning(
                     f"{dest_remote.url} doesn't match {dest.git_url()} for remote '{remote_name}' in {repo.working_dir}"
                 )
@@ -792,7 +795,11 @@ class RepositoryHost:
                     )
             except ValueError:
                 git.Remote.create(repo.repo, canonical_remote_name, dest.git_url())
-        dest_remote.fetch()  # XXX use the revision in dest
+        if not missing:  # if it wasn't just cloned
+            dest_remote.fetch()  # XXX use the revision in dest
+            repo.checkout(
+                f"{remote_name}/{dest.default_branch}"
+            )  # XXX use the revision in dest
         return repo
 
 
@@ -997,8 +1004,16 @@ class GitlabManager(RepositoryHost):
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(dest_proj)
-                repo = self.fetch_repo(remote_url, r, directory)
-                directory.maybe_analyze(r, repo, previous.notable if previous else {})
+                try:
+                    repo = self.fetch_repo(remote_url, r, directory)
+                except Exception:
+                    logger.error(
+                        "Error retrieving content for %s", r.key, exc_info=True
+                    )
+                else:
+                    directory.maybe_analyze(
+                        r, repo, previous.notable if previous else {}
+                    )
 
     def _get_projects_from_group(self, group, projects):
         for p in group.projects.list(iterator=True):
