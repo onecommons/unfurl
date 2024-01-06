@@ -94,13 +94,13 @@ __all__ = [
     "get_home_config_path",
     "is_version_unreleased",
     "version_tuple",
+    # same as _tosca_types (but __all__ can't be an expression):
     "nodes",
     "capabilities",
     "relationships",
     "interfaces",
     "datatypes",
     "artifacts",
-    "policies",
     "groups",
 ]
 
