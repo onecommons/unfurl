@@ -1482,7 +1482,7 @@ def serve(
 @click.option(
     "--repository",
     default="",
-    help="Limit sync to this one repository.",
+    help="Limit sync to this one repository (matches key).",
 )
 @click.option(
     "--clone-root",

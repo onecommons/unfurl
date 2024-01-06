@@ -75,6 +75,7 @@ import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 
 from toscaparser.elements.nodetype import NodeType
+from toscaparser.nodetemplate import NodeTemplate
 from .graphql import ResourceTypesByName
 from .spec import NodeSpec, ToscaSpec
 
@@ -380,18 +381,25 @@ class UnfurlNotable(Notable):
                 types = ResourceTypesByName(
                     repo_info.key, spec.template.topology_template.custom_defs
                 )
-                type_dict = node_type_to_graphql(
-                    node.topology,
-                    assert_not_none(node.toscaEntityTemplate.type_definition),
-                    types,
-                    True,
+                type_dict = cast(
+                    dict,
+                    node_type_to_graphql(
+                        node.topology,
+                        assert_not_none(node.toscaEntityTemplate.type_definition),
+                        types,
+                        True,
+                    ),
                 )
-                self.metadata.update(
-                    dict(
-                        type=filter_dict(cast(dict, type_dict)),
-                        dependencies=list(self.find_dependencies(node).values()),
+                if type_dict:
+                    type_dict.pop("__typename", None)
+                    self.metadata.update(
+                        dict(
+                            type=filter_dict(type_dict),
+                            dependencies=list(
+                                self.find_dependencies(node, types).values()
+                            ),
+                        )
                     )
-                )
                 image_name = self.find_image_dependency(node)
                 if image_name:
                     self.artifacts.append(
@@ -411,10 +419,12 @@ class UnfurlNotable(Notable):
             logger.info("analysis failed for %s", file, exc_info=True)
             return None
 
-    def find_dependencies(self, node: NodeSpec):
+    def find_dependencies(self, node: NodeSpec, types: ResourceTypesByName):
         return {
-            name: req.get("node")
-            for name, req in node.toscaEntityTemplate.missing_requirements.items()
+            name: types.expand_typename(req.get("node"))
+            for name, req in cast(
+                NodeTemplate, node.toscaEntityTemplate
+            ).missing_requirements.items()
         }
 
     def find_image_dependency(self, node: NodeSpec):
@@ -438,6 +448,7 @@ class UnfurlNotable(Notable):
 
     def _get_root_node(self, spec: ToscaSpec) -> Optional[NodeSpec]:
         topology = spec.template.topology_template
+        assert topology
         node = topology.substitution_mappings and topology.substitution_mappings.node
         if node:
             assert spec.topology
@@ -701,7 +712,9 @@ class Directory(_LocalGitRepos):
             except Exception:
                 # restore previous
                 repo_info.notable = previous_notables
-                raise
+                logger.error(
+                    "Unexpected error analyzing %s.", repo_info.key, exc_info=True
+                )
         # no analysis happened, preserve previous analysis
         repo_info.notable = previous_notables
         return None
