@@ -1224,12 +1224,13 @@ class GitlabManager(RepositoryHost):
         return git_url, parts.scheme
 
     def gitlab_project_to_repository(self, project: Project) -> Repository:
+        logger.verbose("getting %s", project.http_url_to_repo)
         kw = {}
         # XXX
         # if project.license:
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
-        # if project.avatar_url:
-        #     kw["avatar_url"] = project.avatar_url
+        if project.avatar_url:
+            kw["avatar_url"] = project.avatar_url
         if project.issues_enabled:
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
 
@@ -1252,7 +1253,7 @@ class GitlabManager(RepositoryHost):
             protocols=protocols,
             path=project.path_with_namespace,
             default_branch=project.default_branch,
-            # internal_id=str(project.get_id()),
+            internal_id=str(project.get_id()),
             project_url=self.canonize(project.web_url),
             metadata=metadata,
             private=self._get_project_visibility(project) != "public",
