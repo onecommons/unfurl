@@ -685,6 +685,8 @@ class GitRepo(Repo):
             else:
                 # clear credentials
                 new_url = sanitize_url(remote.url, False)
+            if new_url == remote.url:
+                return
             remote.set_url(new_url, remote.url)
             self.url = new_url
             if fetch_only:
