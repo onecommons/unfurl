@@ -1597,7 +1597,7 @@ def _annotate_requirement(
             req["match"] = match
         elif list(match)[0] == "get_nodes_of_type":
             # override the resourceType
-            req["resourceType"] = match["get_nodes_of_type"]
+            req["resourceType"] = types.expand_typename(match["get_nodes_of_type"])
 
     reqtype = types.get(reqtypename)
     if not reqtype:
