@@ -1656,7 +1656,9 @@ def convert_service_template(
                 base_dir,
             ) = converter.convert_import(imp_def)
             loader.install(template.import_resolver)
-            converter.follow_import(imp_def, import_path + ".py", format, base_dir)
+            if not imp_def["file"].endswith(".py"):
+                # if we aren't importing a python file, try to convert it to python
+                converter.follow_import(imp_def, import_path + ".py", format, base_dir)
             package = converter.get_package_name()
             try:
                 module = importlib.import_module(module_name, package)
