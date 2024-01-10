@@ -1073,6 +1073,7 @@ def _generate_primary(
 ) -> NodeTemplate:
     base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
+    assert topology
     # generate a node type and node template that represents root of the topology
     # generate a type that exposes the topology's inputs and outputs as properties and attributes
     attributes = {  # XXX is this computed?
@@ -1095,7 +1096,6 @@ def _generate_primary(
     else:
         roots = None
     nodetype_tpl["requirements"] = requirements
-
     topology.custom_defs[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
     tpl["type"] = primary_name
@@ -1385,10 +1385,12 @@ def _add_repositories(db: dict, tpl: dict):
     imports_tpl = tpl.get("imports")
     repositories = {}
     repositories_tpl = tpl.get("repositories") or {}
-    types_repo = repositories_tpl.get("types")
-    if types_repo:  # only export types, avoid built-in repositories
-        repositories["types"] = types_repo
-        repositories["types"]["file"] = "dummy-ensemble.yaml"
+    # only export well-known type repositories, avoid built-in repositories
+    for type_repos in ("types", "std"):
+        types_repo = repositories_tpl.get(type_repos)
+        if types_repo:
+            repositories[type_repos] = types_repo
+            repositories[type_repos]["file"] = "dummy-ensemble.yaml"
     if imports_tpl and isinstance(imports_tpl, list):
         for imp_def in imports_tpl:
             if isinstance(imp_def, dict) and "repository" in imp_def:
