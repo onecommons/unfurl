@@ -91,7 +91,8 @@ def render_compose(
         service.setdefault("environment", {}).update(env)
     if not service_name:
         service_name = container.get("container_name", ContainerImage.split(image)[0])
-    return dict(services={to_kubernetes_label(service_name): service})
+    assert service_name
+    return dict(services={cast(str, to_kubernetes_label(service_name)): service})
 
 
 def get_ingress_extras(task, ingress_extras):
