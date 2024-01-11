@@ -136,6 +136,12 @@ jobs:
             type=ref,event=tag,suffix=-server-cached
             type=raw,value=latest,suffix=-server-cached,enable={{is_default_branch}}
 
+      - name: Extract short sha
+        id: extract
+        # GH's github.sha is the full ref hash, not the short one
+        run: |
+          (echo ${{ github.sha }} | head -c 8; echo) >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
@@ -147,7 +153,7 @@ jobs:
           file: ./docker/Dockerfile.server-cached
           push: true
           build-args: |
-            FROM_TAG=${{ github.ref_name }}-server
+            FROM_TAG=${{ steps.extract.outputs.sha_short }}-server
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
