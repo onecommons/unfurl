@@ -140,7 +140,7 @@ jobs:
         id: extract
         # GH's github.sha is the full ref hash, not the short one
         run: |
-          echo "sha_short=$(echo "${{ github.sha }}" | head -c 8)" >> $GITHUB_OUTPUT
+          echo "sha_short=$(echo "${{ github.sha }}" | head -c 7)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
