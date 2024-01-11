@@ -108,6 +108,7 @@ jobs:
 
   publish_ghcr_server_nginx:
     runs-on: ubuntu-latest
+    needs: publish_ghcr_server
     steps:
       - name: Fetch repo
         uses: actions/checkout@v3
@@ -146,10 +147,7 @@ jobs:
           file: ./docker/Dockerfile.server-cached
           push: true
           build-args: |
-            HELM_VERSION=${{ env.HELM_VERSION }}
-            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
-            GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
-            KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
+            FROM_TAG=${{ github.ref_name }}-server
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
