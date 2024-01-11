@@ -340,8 +340,8 @@ KOMPOSE2 = """\
                 configure:
                   implementation: Kompose
                   inputs:
-                    files: 
-                      - "{{ 'fixtures/noversion.yaml' | abspath }}"
+                    files:
+                      docker-compose.yml: "{{ 'fixtures/noversion.yaml' | abspath }}"
                     env: "{{ '.configured_by::env' | eval }}"
 """
 
