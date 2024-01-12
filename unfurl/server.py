@@ -193,9 +193,7 @@ def _set_local_projects(repo_views, local_projects, clone_root):
         remote = repo_view.repo.find_remote(host=server_host)
         if remote:
             parts = urlparse(remote.url)
-            project_id = parts.path.strip("/")
-            if project_id.endswith(".git"):
-                project_id = project_id[:-4]
+            project_id = project_id_from_urlresult(parts)
             if project_id in local_projects:
                 # unless the existing one is inside the clone_root
                 if not is_relative_to(local_projects[project_id], clone_root):
@@ -265,6 +263,13 @@ def get_project_id(request):
     return ""
 
 
+def project_id_from_urlresult(urlparse_result) -> str:
+    project_id = urlparse_result.path.strip("/")
+    if project_id.endswith(".git"):
+        project_id = project_id[:-4]
+    return project_id
+
+
 def get_current_project_id() -> str:
     current_git_url = app.config.get("UNFURL_CURRENT_GIT_URL")
     if not current_git_url:
@@ -274,10 +279,7 @@ def get_current_project_id() -> str:
     parts = urlparse(current_git_url)
     if parts.hostname != server_host:
         return ""
-    project_id = parts.path.strip("/")
-    if project_id.endswith(".git"):
-        project_id = project_id[:-4]
-    return project_id
+    return project_id_from_urlresult(parts)
 
 
 def local_developer_mode() -> bool:
@@ -519,8 +521,12 @@ class CacheEntry:
         if local_developer_mode():
             if not self.repo:
                 self._set_project_repo()
-            if self.repo and self.repo.is_dirty():
-                return self.repo
+            if self.repo:
+                try:
+                    if self.repo.is_dirty():
+                        return self.repo
+                except Exception:
+                    self.repo = None
 
         branch = self.branch or DEFAULT_BRANCH
         repo_key = (
@@ -2366,7 +2372,8 @@ class ServerCacheResolver(SimpleCacheResolver):
             )
             return self._get_link_to_repo(repo_view, base_path)
         else:
-            project_id, branch = self._project_id_from_repo(repo_view)
+            project_id = project_id_from_urlresult(urlparse(repo_view.url))
+            branch = self._branch_from_repo(repo_view)
             err, working_dir = get_working_dir(
                 project_id, branch, "", root_entry=None, latest_commit=None
             )
@@ -2406,7 +2413,17 @@ class ServerCacheResolver(SimpleCacheResolver):
 
         # private if the repo isn't on the server or the project has a local copy of the repository
         # XXX handle remote repositories
-        private = not repo_view.url.startswith(base_url) or repo_view.repo
+        private = not repo_view.url.startswith(base_url)
+        project_id = project_id_from_urlresult(urlparse(repo_view.url))
+        if private:
+            logger.trace(
+                f"load yaml {file_name} for {url} isn't on {base_url}, skipping cache."
+            )
+        elif repo_view.repo or _get_local_project_dir(project_id):
+            private = True
+            logger.trace(f"load yaml {file_name} for {url}: local repository found.")
+        if private:
+            return super().load_yaml(url, fragment, ctx)
 
         # if the repo is private, use the base implementation
         # otherwise use the server cache to resolve the url to a local repo clone and load the file from it
@@ -2431,7 +2448,7 @@ class ServerCacheResolver(SimpleCacheResolver):
         if not private:
             # assert repo_view.package # local repositories
             # if the revision doesn't look like a version_tag treat as branch
-            project_id, branch = self._project_id_from_repo(repo_view)
+            branch = self._branch_from_repo(repo_view)
             cache_entry = CacheEntry(
                 project_id,
                 branch,
@@ -2476,7 +2493,7 @@ class ServerCacheResolver(SimpleCacheResolver):
 
         if private:
             logger.trace(
-                f"load yaml for {url}: server falling back to private with {repo_view.repo} {err}"
+                f"load yaml {file_name} for {url}: server falling back to private with {repo_view.repo} {err}"
             )
             doc, cacheable = super().load_yaml(url, fragment, ctx)
             # XXX support private cache deps (need to save last_commit, provide repo_view.working_dir)
@@ -2485,7 +2502,7 @@ class ServerCacheResolver(SimpleCacheResolver):
 
         return doc, cacheable
 
-    def _project_id_from_repo(self, repo_view):
+    def _branch_from_repo(self, repo_view):
         if repo_view.package and not repo_view.package.has_semver(True):
             branch = repo_view.package.revision_tag or DEFAULT_BRANCH
         elif repo_view.revision:
@@ -2496,8 +2513,4 @@ class ServerCacheResolver(SimpleCacheResolver):
                 branch = revision
             else:
                 branch = DEFAULT_BRANCH
-
-        project_id = urlparse(repo_view.url).path.strip("/")
-        if project_id.endswith(".git"):
-            project_id = project_id[:-4]
-        return project_id, branch
+        return branch
