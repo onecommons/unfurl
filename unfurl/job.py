@@ -484,8 +484,8 @@ class ConfigTask(TaskView, ConfigChange):
     #     for d in self.dependencies:
     #         d.refresh(self)
 
-    def find_missing_dependencies(self):
-        missing = []
+    def find_missing_dependencies(self) -> Tuple[List[Operational], str]:
+        missing: List[Operational] = []
         reason = ""
         # XXX this logic should be replaced with entry_state on check and delete operations
         if self.configSpec.operation not in ["check", "delete"] and (
@@ -495,7 +495,7 @@ class ConfigTask(TaskView, ConfigChange):
             missing, reason = _dependency_check(self)
 
             if not missing:
-                reason = _dependency_check(self.target, self.configSpec.entry_state)
+                missing, reason = _dependency_check(self.target, self.configSpec.entry_state)
         return missing, reason
 
     @property
@@ -562,7 +562,7 @@ class ConfigTask(TaskView, ConfigChange):
 
 def _dependency_check(
     instance: Operational, state: Optional[NodeState] = None, operational=False
-):
+) -> Tuple[List[Operational], str]:
     missing = []
     for dep in instance.get_operational_dependencies():
         if dep.required:
@@ -575,7 +575,6 @@ def _dependency_check(
                     missing.append(dep)
             elif operational and not dep.operational:  # operational == ok or degraded
                 missing.append(dep)
-
     if missing:
         reason = "required dependencies not operational: %s" % ", ".join(
             [f"{dep.name} is {dep.status.name}" for dep in missing]

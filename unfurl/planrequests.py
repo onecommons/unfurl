@@ -108,7 +108,7 @@ class ConfigurationSpec:
         self.dependencies = dependencies
         self.interface = interface
         self.entry_state = cast(
-            NodeState, to_enum(NodeState, entry_state, NodeState.creating)
+            NodeState, to_enum(NodeState, entry_state, NodeState.created)
         )
         self.base_dir = base_dir
 
