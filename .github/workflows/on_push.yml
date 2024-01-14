@@ -69,15 +69,15 @@ jobs:
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
           .tox/$PY_V/bin/mypy unfurl
-      - name: build docs
-        if: matrix.python == 3.9
-        run: tox -e docs -- -W
-      - name: upload docs
-        if: matrix.python == 3.9
-        uses: actions/upload-artifact@v3
-        with:
-          name: DocumentationHTML
-          path: .tox/docs/html/
+      # - name: build docs
+      #   if: matrix.python == 3.9
+      #   run: tox -e docs -- -W
+      # - name: upload docs
+      #   if: matrix.python == 3.9
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: DocumentationHTML
+      #     path: .tox/docs/html/
 
   publish_dockerhub:
     needs: test
