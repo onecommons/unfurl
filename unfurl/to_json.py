@@ -773,7 +773,7 @@ def to_graphql_nodetypes(
             descendents.setdefault(parent, []).append(typename)
         if not include_all or types.get_type(typename):
             continue
-        typedef = types._make_typedef(typename)
+        typedef = types._make_typedef(typename, get_local=False)
         if typedef:
             node_type_to_graphql(topology, typedef, types)
 

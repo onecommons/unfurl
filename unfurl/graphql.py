@@ -382,8 +382,8 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def get_localname(typename: str):
         return typename.partition("@")[0]
 
-    def _make_typedef(self, name: str, all=False) -> Optional[StatefulEntityType]:
-        typename = self.get_localname(name)
+    def _make_typedef(self, name: str, all=False, get_local=True) -> Optional[StatefulEntityType]:
+        typename = self.get_localname(name) if get_local else name
         typedef: Optional[StatefulEntityType] = None
         custom_defs = self.custom_defs
         # prefix is only used to expand "tosca:Type"
