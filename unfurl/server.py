@@ -452,6 +452,7 @@ CacheWorkCallable = Callable[
     ["CacheEntry", Optional[str]], Tuple[Optional[Any], Any, bool]
 ]
 
+PullCacheEntry = Tuple[float, str]
 
 def pull(repo: GitRepo, branch: str) -> str:
     action = "pulled"
@@ -549,19 +550,12 @@ class CacheEntry:
         val = cache.get(repo_key)
         if val:
             logger.debug(f"pull cache hit found for {repo_key}: {val}")
-            last_check, action = cast(Tuple[float, str], val)
+            last_check, action = cast(PullCacheEntry, val)
             self.pull_state = action
             if action == "detached":
                 # using a local development repo that's on a different branch or
                 # we checked out a tag not a branch, no pull is needed
                 return self.checked_repo
-            if stale_ok_age and last_check - time.time() <= stale_ok_age:
-                # last_check was recent enough, no need to pull if the local clone still exists
-                if not self.repo:
-                    self._set_project_repo()
-                if self.repo:
-                    logger.trace(f"recent pull for {action} {repo_key}")
-                    return self.repo
 
             if action == "in_flight":
                 logger.debug(f"pull inflight for {repo_key}")
@@ -571,10 +565,18 @@ class CacheEntry:
                     val = cache.get(repo_key)
                     if not val:
                         break  # cache was cleared?
-                    last_check, action = cast(Tuple[float, str], val)
+                    last_check, action = cast(PullCacheEntry, val)
                     if action != "in_flight":  # finished, assume repo is up-to-date
                         self.pull_state = action
                         return self.checked_repo
+
+            if stale_ok_age and time.time() - last_check <= stale_ok_age:
+                # last_check was recent enough, no need to pull if the local clone still exists
+                if not self.repo:
+                    self._set_project_repo()
+                if self.repo:
+                    logger.trace(f"recent pull for {action} {repo_key}")
+                    return self.repo
 
         cache.set(repo_key, (time.time(), "in_flight"))
         try:
@@ -728,7 +730,7 @@ class CacheEntry:
                     return value, None
             if at_latest:
                 # repo was up-to-date, so treat as a cache hit
-                logger.info("cache hit for %s with %s", full_key, latest_commit)
+                logger.info("cache hit for %s with %s", full_key, latest_commit or cached_latest_commit)
                 self.hit = True
                 return value, None
 
