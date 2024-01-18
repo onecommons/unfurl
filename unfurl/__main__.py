@@ -1288,8 +1288,15 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
         return
 
     exporter = getattr(to_json, "to_" + format)
+    assert local_env
     # $UNFURL_EXPORT_ARG for internal testing
-    jsonSummary = exporter(local_env, os.getenv("UNFURL_EXPORT_ARG"), file=file)
+    root_url = os.getenv("UNFURL_EXPORT_ARG")
+    if format == "blueprint":
+        jsonSummary = to_json.to_blueprint(
+            local_env, root_url, bool(root_url), file=file
+        )
+    else:
+        jsonSummary = exporter(local_env, root_url, file=file)
     output = json.dumps(jsonSummary, indent=2)
     if file and (overwrite != "never" or not os.path.exists(file)):
         with open(file, "w") as f:
