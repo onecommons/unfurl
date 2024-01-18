@@ -455,8 +455,8 @@ CacheWorkCallable = Callable[
 
 def pull(repo: GitRepo, branch: str) -> str:
     action = "pulled"
-    firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
     try:
+        firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
         # use shallow_since so we don't remove commits we already fetched
         repo.pull(
             revision=branch,
@@ -464,9 +464,13 @@ def pull(repo: GitRepo, branch: str) -> str:
             shallow_since=str(firstCommit.committed_date),
         )
     except git.exc.GitCommandError as e:  # type: ignore
-        if "You are not currently on a branch." in e.stderr:
-            # we cloned a tag, not a branch, set action so we remember this
+        if (
+            "You are not currently on a branch." in e.stderr
+            or "bad revision" in e.stderr
+        ):
+            # its a local development repo or we cloned a tag, not a branch, set action so we remember this
             action = "detached"
+            logger.verbose("Found detached repository at %s", repo.working_dir)
         else:
             raise
     return action
@@ -490,6 +494,7 @@ class CacheEntry:
     hit: Optional[bool] = None
     directives: Optional[CacheDirective] = None
     value: Optional[CacheValue] = None
+    pull_state: Optional[str] = None
 
     def _set_project_repo(self) -> Optional[GitRepo]:
         self.repo = _get_project_repo(
@@ -524,8 +529,14 @@ class CacheEntry:
             if self.repo:
                 try:
                     if self.repo.is_dirty():
+                        # don't pull if working dir is dirty
                         return self.repo
                 except Exception:
+                    logger.error(
+                        "dirty check failed for repository %s",
+                        self.repo.working_dir,
+                        exc_info=True,
+                    )
                     self.repo = None
 
         branch = self.branch or DEFAULT_BRANCH
@@ -539,7 +550,9 @@ class CacheEntry:
         if val:
             logger.debug(f"pull cache hit found for {repo_key}: {val}")
             last_check, action = cast(Tuple[float, str], val)
+            self.pull_state = action
             if action == "detached":
+                # using a local development repo that's on a different branch or
                 # we checked out a tag not a branch, no pull is needed
                 return self.checked_repo
             if stale_ok_age and last_check - time.time() <= stale_ok_age:
@@ -547,6 +560,7 @@ class CacheEntry:
                 if not self.repo:
                     self._set_project_repo()
                 if self.repo:
+                    logger.trace(f"recent pull for {action} {repo_key}")
                     return self.repo
 
             if action == "in_flight":
@@ -559,6 +573,7 @@ class CacheEntry:
                         break  # cache was cleared?
                     last_check, action = cast(Tuple[float, str], val)
                     if action != "in_flight":  # finished, assume repo is up-to-date
+                        self.pull_state = action
                         return self.checked_repo
 
         cache.set(repo_key, (time.time(), "in_flight"))
@@ -576,6 +591,7 @@ class CacheEntry:
             else:
                 logger.info(f"pulling repo for {repo_key}")
                 action = pull(repo, branch)
+            self.pull_state = action
             cache.set(repo_key, (time.time(), action))
             return repo
         except Exception:
@@ -606,10 +622,21 @@ class CacheEntry:
         if not directives.cache:
             return latest_commit or ""
         full_key = self.cache_key()
-        if self.commitinfo is None:
-            last_commit = self._set_commit_info()
-        else:
-            last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
+        try:
+            if self.commitinfo is None:
+                last_commit = self._set_commit_info()
+            else:
+                last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
+        except git.exc.GitCommandError as e:  # type: ignore
+            # this can happen if the repository is detached or on a different branch (in developer mode)
+            # e.g.   cmdline: git rev-list --max-count=1 main -- ensemble.yaml
+            #        stderr: 'fatal: bad revision 'main''
+            logger.debug(
+                "set_cache for %s couldn't get commit info",
+                full_key,
+                exc_info=True,
+            )
+            return latest_commit or ""
         if not directives.store:
             value = "not_stored"  # XXX
         self.value = CacheValue(
@@ -766,14 +793,20 @@ class CacheEntry:
             # NB: work shouldn't modify the working directory
             err, value, cacheable = work(self, latest_commit)
         except Exception as exc:
-            logger.error("unexpected error doing work for cache", exc_info=True)
+            loc = f" ({self.repo.working_dir})" if self.repo else ""
+            logger.error(
+                "unexpected error doing work for cache: %s%s",
+                self.cache_key(),
+                loc,
+                exc_info=True,
+            )
             err = exc
             value = None
         if err:
             self.directives = CacheDirective(latest_commit=latest_commit, store=False)
             return err, value, self.directives
         if not self.repo or self.strict:
-            # self.strict might re-clone the repo
+            # if self.strict then this might re-clone the repo
             self._set_project_repo()
         assert self.repo
         latest = self.repo.revision
@@ -1132,7 +1165,6 @@ def _export(
         _export_cache_work,
         latest_commit,
     )
-    assert cache_entry.value
     if not err:
         hit = cache_entry.hit and not post_work
         derrors = False
@@ -1165,7 +1197,7 @@ def _export(
             json_summary["deployments"] = deployments
         if not derrors and (hit or (cache_entry.value and not post_work)):
             etag = request.headers.get("If-None-Match")
-            if etag and cache_entry.value.make_etag() == etag:
+            if etag and cache_entry.value and cache_entry.value.make_etag() == etag:
                 return "Not Modified", 304
         elif post_work:
             post_work(cache_entry, json_summary)
