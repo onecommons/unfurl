@@ -13,12 +13,12 @@
               container: "{{ SELF.container }}"
               image: "{{ SELF.container_image }}" # overrides the container image
               files:
-                # files that aren't named docker-compose.yml are converted to configmaps
+                # TODO: files that aren't named docker-compose.yml are converted to configmaps
                 "docker-compose.yml": # overrides "container" and "image"
                     services:
                       app:
                         image: app:latest
-                "filename.txt": contents
+                "filename.txt": contents  
               registry_url: "{{ SELF.registry_url }}"
               # if set, create a pull secret:
               registry_user: "{{ SELF.registry_user }}"
@@ -29,8 +29,7 @@
               labels: {} # added to the docker service, see https://kompose.io/user-guide/#labels
               annotations: {} # annotations to add to the metadata section
               ingress_extras: {} # merge into ingress record
-              # XXX
-              # env: "{{ SELF.env }}" # currently only container.environment is supported
+              env: {} # merged with container.environment
 """
 
 from typing import cast, Union, Optional, List, Dict, Any
@@ -62,6 +61,7 @@ class KomposeInputs(ShellInputs):
     annotations: Union[None, Dict[str, Any]] = None
     expose: Optional[bool] = None
     ingress_extras: Union[None, Dict[str, Any]] = None
+    env: Union[None, Dict[str, str]] = None
 
 
 def _get_service(compose: dict, service_name: Optional[str] = None):
@@ -75,16 +75,24 @@ def _add_labels(service: dict, labels: dict):
     service.setdefault("labels", {}).update(labels)
 
 
-def render_compose(container: dict, image="", service_name=None):
-    service = dict(restart="always")
+def render_compose(
+    container: dict,
+    image="",
+    service_name: Optional[str] = None,
+    env: Optional[dict] = None,
+):
+    service: Dict[str, Any] = dict(restart="always")
     service.update({k: v for k, v in container.items() if v is not None})
     if image:
         service["image"] = image
     else:
         image = service["image"]
+    if env:
+        service.setdefault("environment", {}).update(env)
     if not service_name:
         service_name = container.get("container_name", ContainerImage.split(image)[0])
-    return dict(services={to_kubernetes_label(service_name): service})
+    assert service_name
+    return dict(services={cast(str, to_kubernetes_label(service_name)): service})
 
 
 def get_ingress_extras(task, ingress_extras):
@@ -132,16 +140,22 @@ class KomposeConfigurator(ShellConfigurator):
 
     def render(self, task):
         """
-        1. Render the docker_compose template if neccessary
+        1. Render the docker_compose template if necessary
         2. Render the kubernetes resources using kompose
-        3. create docker-registy pull secret
+        3. create docker-registry pull secret
         """
         if task.inputs.get("files") and task.inputs["files"].get("docker-compose.yml"):
             compose = task.inputs["files"]["docker-compose.yml"]
+            if isinstance(compose, str):
+                compose = yaml.load(compose)
+            assert isinstance(compose, dict)
         else:
             container = task.inputs.get_copy("container") or {}
             compose = render_compose(
-                container, task.inputs.get("image"), task.inputs.get("service_name")
+                container,
+                task.inputs.get("image"),
+                task.inputs.get("service_name"),
+                task.inputs.get("env"),
             )
 
         service_name = self._validate(task, compose)
@@ -205,7 +219,7 @@ class KomposeConfigurator(ShellConfigurator):
             labels["kompose.service.expose"] = expose
         _add_labels(main_service, labels)
 
-        # map files to configmap
+        # map "files" to configmap
         # XXX
         # env-file creates configmap - it'd be nice if these could be secrets instead:
         # replace configMapKeyRef with secretKeyRef

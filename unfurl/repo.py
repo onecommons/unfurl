@@ -879,6 +879,8 @@ class GitRepo(Repo):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
+        # note: if you get git.exc.GitCommandError with "git diff: unknown option `cached'"
+        # it's because: https://stackoverflow.com/questions/69470009/git-diff-cached-unknown-option-cached
 
     def pull(
         self, remote="origin", revision=None, ff_only=True, with_exceptions=False, **kw
