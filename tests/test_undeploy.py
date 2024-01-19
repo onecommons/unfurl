@@ -414,3 +414,39 @@ def test_protected():
     path = Path(__file__).parent / "examples" / "protected-ensemble.yaml"
     jobs = isolated_lifecycle(str(path), STEPS)
     list(jobs)
+
+manifest_delete_failed_node = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      my_host:
+        derived_from: tosca:Root
+        capabilities:
+          host:
+            type: tosca.capabilities.Compute
+
+    topology_template:
+      node_templates:
+        my_host:
+          type: my_host
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation: exit 1
+                  inputs:
+                    done:
+                      modified: true
+                delete:
+                  implementation: exit 0
+"""
+
+def test_delete_failed_node():
+    STEPS = (
+        Step("deploy", Status.error, changed=1),
+        Step("undeploy", Status.absent, changed=1),
+    )
+    manifest = YamlManifest(manifest_delete_failed_node)
+    list(lifecycle(manifest, STEPS))

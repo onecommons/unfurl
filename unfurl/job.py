@@ -318,6 +318,10 @@ class ConfigTask(TaskView, ConfigChange):
                 self.target.local_status = (
                     Status.error if self.required else Status.degraded
                 )
+                if self.target.created is None:
+                    # even though this might not have been actually created, set this so undeploy knows that this node is managed by the ensemble
+                    # because you still might want to remove it if possible
+                    self.target.created = self.changeId
                 return True
             elif result.modified is None:
                 self.target.local_status = Status.unknown

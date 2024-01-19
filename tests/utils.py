@@ -88,7 +88,8 @@ def _check_job(job, i, step):
     step.step = i
     step_str = step.name
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
-    assert job.status == Status.ok, f"{step_str} is {job.status.name}"
+    expected_job_status = Status.error if step.target_status == Status.error else Status.ok
+    assert job.status == expected_job_status, f"{step_str} is {job.status.name}"
     summary = job.json_summary()
     print(step_str)
     print(job.json_summary(True))
