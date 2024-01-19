@@ -24,7 +24,7 @@ from .planrequests import (
     JobRequest,
 )
 from .support import Status
-from .logs import getLogger, getConsole
+from .logs import SensitiveFilter, getLogger, getConsole
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -372,7 +372,7 @@ class JobReporter:
             state = task.target_state and task.target_state.name or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:
-                result = escape(f"Output: {task.result.result}")
+                result = escape(f"Output: {SensitiveFilter.redact(task.result.result)}")
             else:
                 result = ""
             table.add_row(

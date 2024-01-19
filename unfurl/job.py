@@ -17,7 +17,6 @@ from typing import (
     List,
     Dict,
     Mapping,
-    MutableMapping,
     Optional,
     Sequence,
     Tuple,
@@ -39,7 +38,7 @@ from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import EntityInstance, TopologyInstance, Operational, OperationalInstance
-from .logs import end_collapsible, start_collapsible, getLogger
+from .logs import SensitiveFilter, end_collapsible, start_collapsible, getLogger
 from .configurator import (
     TaskView,
     ConfiguratorResult,
@@ -549,6 +548,8 @@ class ConfigTask(TaskView, ConfigChange):
                 + self._failed_paths
                 if os.path.exists(path)
             ]
+            if self.result and self.result.result:
+                summary["output"] = SensitiveFilter.redact(self.result.result)
 
         if asJson:
             return summary
@@ -628,7 +629,11 @@ class Job(ConfigChange):
         return self.rootResource.attributes["outputs"]
 
     def is_filtered(self) -> bool:
-        return bool(self.jobOptions.instance or self.jobOptions.instances or self.jobOptions.template)
+        return bool(
+            self.jobOptions.instance
+            or self.jobOptions.instances
+            or self.jobOptions.template
+        )
 
     def run_query(self, query: Union[str, Mapping], trace: int = 0) -> list:
         from .eval import eval_for_func, RefContext

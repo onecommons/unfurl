@@ -115,10 +115,9 @@ class ConfiguratorResult:
                     filter(
                         None,
                         [
-                            # mypy isn't happy with the following lines, but they should work fine
-                            self.success and "success",  # type: ignore
-                            self.modified and "modified",  # type: ignore
-                            self.status is not None and self.status.name,  # type: ignore
+                            self.success and "success" or "",
+                            self.modified and "modified" or "",
+                            self.status is not None and self.status.name or "",
                         ],
                     )
                 )
