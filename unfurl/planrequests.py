@@ -200,7 +200,7 @@ class PlanRequest:
         self.dependencies.extend(dependencies)
         return self.dependencies
 
-    def get_operation_artifacts(self):
+    def get_operation_artifacts(self) -> List["JobRequest"]:
         return []
 
     def include_in_plan(self):
@@ -493,7 +493,7 @@ class TaskRequest(PlanRequest):
                 )
         return None
 
-    def get_operation_artifacts(self):
+    def get_operation_artifacts(self) -> List["JobRequest"]:
         artifacts = []
         if self.configSpec.dependencies:
             for artifact in self.configSpec.dependencies:
@@ -567,8 +567,8 @@ class TaskRequestGroup(PlanRequest):
         self.starting_status = target.local_status
         self.children: List[PlanRequest] = []
 
-    def get_operation_artifacts(self):
-        artifacts = []
+    def get_operation_artifacts(self) -> List["JobRequest"]:
+        artifacts: List[JobRequest] = []
         for req in self.children:
             artifacts.extend(req.get_operation_artifacts())
         return artifacts
@@ -969,7 +969,7 @@ def _filter_config(opts, config, target):
     return config, None
 
 
-def filter_task_request(jobOptions, req):
+def filter_task_request(jobOptions, req: TaskRequest) -> Optional[TaskRequest]:
     configSpec = req.configSpec
     configSpecName = configSpec.name
     configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)
@@ -1034,7 +1034,10 @@ def find_parent_resource(
 
 
 def create_instance_from_spec(
-    _manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec: MutableMapping[str, Any]
+    _manifest: "Manifest",
+    target: EntityInstance,
+    rname: str,
+    resourceSpec: MutableMapping[str, Any],
 ):
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
@@ -1071,7 +1074,9 @@ def create_instance_from_spec(
     else:
         parent = target.root
     # note: if resourceSpec[parent] is set it overrides the parent keyword
-    return _manifest.create_node_instance(rname, cast(dict, resourceSpec), parent=parent)
+    return _manifest.create_node_instance(
+        rname, cast(dict, resourceSpec), parent=parent
+    )
 
 
 def _maybe_mock(iDef, template):

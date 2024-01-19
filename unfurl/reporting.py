@@ -2,7 +2,20 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import json
-from typing import Any, Dict, Iterable, List, Literal, Sequence, Tuple, Union, Optional, TYPE_CHECKING, cast, overload
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Sequence,
+    Tuple,
+    Union,
+    Optional,
+    TYPE_CHECKING,
+    cast,
+    overload,
+)
+from typing_extensions import Literal
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
     PlanRequest,
@@ -18,7 +31,6 @@ from rich import box
 from rich.segment import Segment
 from rich.markup import escape
 import re
-import os
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
@@ -111,7 +123,7 @@ class JobReporter:
         node = dict(
             instance=target.name,
             status=str(target.status),
-            state=str(target.state),  # type: ignore
+            state=str(target.state),
             managed=target.created,
             plan=new_summary_list,
         )
@@ -174,8 +186,9 @@ class JobReporter:
           }
         """
         summary: List[dict] = []
-        for (m, requests) in job.external_requests:  # type: ignore
-            summary.extend(JobReporter._job_request_summary(requests, m))
+        if job.external_requests:
+            for m, requests in job.external_requests:
+                summary.extend(JobReporter._job_request_summary(requests, m))
         JobReporter._list_plan_summary(job.plan_requests, None, summary, include_rendered, job.workflow)  # type: ignore
         if not pretty:
             return summary
@@ -203,7 +216,7 @@ class JobReporter:
         ...
 
     @staticmethod
-    def stats(tasks, asMessage = False):
+    def stats(tasks, asMessage=False):
         # note: the status of the task, not the target resource
         key = (
             lambda t: Status.error

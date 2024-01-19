@@ -612,7 +612,7 @@ class Job(ConfigChange):
         self.unexpectedAbort: Optional[UnfurlError] = None
         self.workDone: Dict[int, ConfigTask] = collections.OrderedDict()
         self.timeElapsed: float = 0
-        self.plan_requests: Optional[List[TaskRequestGroup]] = None
+        self.plan_requests: Optional[List[Union[TaskRequest, TaskRequestGroup]]] = None
         self.task_count = 0
         self.external_requests: Optional[List[Tuple[Any, List[JobRequest]]]] = None
         self.external_jobs: Optional[List["Job"]] = None
@@ -628,7 +628,7 @@ class Job(ConfigChange):
         return self.rootResource.attributes["outputs"]
 
     def is_filtered(self) -> bool:
-        return self.instance or self.instances or self.template  # type: ignore
+        return bool(self.jobOptions.instance or self.jobOptions.instances or self.jobOptions.template)
 
     def run_query(self, query: Union[str, Mapping], trace: int = 0) -> list:
         from .eval import eval_for_func, RefContext
@@ -849,7 +849,7 @@ class Job(ConfigChange):
         ]
         self.instances = self.jobOptions.instances
 
-    def create_plan(self) -> List[TaskRequestGroup]:
+    def create_plan(self) -> List[Union[TaskRequest, TaskRequestGroup]]:
         self.validate_job_options()
         joboptions = self.jobOptions
         self._update_joboption_instances()
@@ -865,11 +865,12 @@ class Job(ConfigChange):
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
-        request_artifacts = []
+        request_artifacts: List[JobRequest] = []
         for r in plan_requests:
-            artifacts = r.get_operation_artifacts()
-            if artifacts:
-                request_artifacts.extend(artifacts)
+            if r:
+                artifacts = r.get_operation_artifacts()
+                if artifacts:
+                    request_artifacts.extend(artifacts)
 
         # remove duplicates
         artifact_jobs = list({ajr.name: ajr for ajr in request_artifacts}.values())
@@ -879,16 +880,16 @@ class Job(ConfigChange):
         for key, reqs in itertools.groupby(artifact_jobs, lambda r: id(r.root)):
             # external manifest activating an instance via artifact reification
             # XXX or substitution mapping -- but unique inputs require dynamically creating ensembles??
-            reqs = list(reqs)  # type: ignore
+            reqs_list = list(reqs)
             externalManifest = self.manifest._importedManifests.get(key)
             if externalManifest:
-                external_requests.append((externalManifest, reqs))
+                external_requests.append((externalManifest, reqs_list))
             else:
-                # run artifact jobs as a seperate external job since we need to run them
+                # run artifact jobs as a separate external job since we need to run them
                 # before the render stage of this job
-                external_requests.append((self.manifest, reqs))
+                external_requests.append((self.manifest, reqs_list))
 
-        self.external_requests = external_requests  # type: ignore
+        self.external_requests = external_requests
         self.plan_requests = plan_requests
         return self.plan_requests[:]
 
