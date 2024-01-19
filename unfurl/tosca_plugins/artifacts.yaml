@@ -163,7 +163,7 @@ topology_template:
           type: artifact.AsdfTool
           file: kompose
           properties:
-            version: v1.26.1
+            version: "1.26.1"
 
         google-auth:
           type: artifact.PythonPackage
