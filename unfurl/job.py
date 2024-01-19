@@ -490,10 +490,11 @@ class ConfigTask(TaskView, ConfigChange):
     #     for d in self.dependencies:
     #         d.refresh(self)
 
-    def find_missing_dependencies(self):
-        missing = []
+    def find_missing_dependencies(
+        self, not_ready: Sequence[PlanRequest]
+    ) -> Tuple[List[Operational], str]:
+        missing: List[Operational] = []
         reason = ""
-        # XXX this logic should be replaced with entry_state on check and delete operations
         if self.configSpec.operation not in ["check", "delete"] and (
             self.reason not in [Reason.force, Reason.run]
         ):
@@ -501,7 +502,10 @@ class ConfigTask(TaskView, ConfigChange):
             missing, reason = _dependency_check(self)
 
             if not missing:
-                reason = _dependency_check(self.target, self.configSpec.entry_state)
+                # XXX revisit entry_state, applying it only to dependencies is confusing
+                missing, reason = _dependency_check(
+                    self.target, self.configSpec.entry_state, not_ready=not_ready
+                )
         return missing, reason
 
     @property
@@ -567,24 +571,52 @@ class ConfigTask(TaskView, ConfigChange):
         return f"ConfigTask({self.target}:{self.name})"
 
 
+def _is_waiting_for(
+    not_ready: Sequence[PlanRequest], dep: EntityInstance, instance: Operational
+) -> bool:
+    for req in not_ready:
+        if (
+            req.target == dep
+            or req.target == dep.parent
+            or (dep.parent and req.target == dep.parent.parent)
+        ):
+            for req_dep in req.dependencies:
+                if req_dep.target == instance:
+                    return True
+    return False
+
+
 def _dependency_check(
-    instance: Operational, state: Optional[NodeState] = None, operational=False
-):
+    instance: Operational,
+    state: Optional[NodeState] = None,
+    operational=False,
+    not_ready: Sequence[PlanRequest] = (),
+) -> Tuple[List[Operational], str]:
     missing = []
     for dep in instance.get_operational_dependencies():
         if dep.required:
             if dep.local_status == Status.error:
-                # we only want to consider local_status especially for the case of subsequent runs
-                # trying to repair a failed deployment.
                 missing.append(dep)
             elif state and dep.state:
                 if not dep.has_state(state):
                     missing.append(dep)
             elif operational and not dep.operational:  # operational == ok or degraded
                 missing.append(dep)
-
+            elif not dep.is_computed() and dep.local_status not in [
+                Status.ok,
+                Status.degraded,
+            ]:
+                # we only want to consider local_status especially for the case of subsequent runs
+                # trying to repair a failed deployment.
+                if not _is_waiting_for(not_ready, cast(EntityInstance, dep), instance):
+                    # TOSCA doesn't have a way to set which individual operations and workflows depend on which requirements
+                    # so rely on this heuristic to break common deadlocks:
+                    # if dependant hasn't run because it has a live dependency on this instance
+                    # don't mark it as missing, instead assume this instance should go first.
+                    missing.append(dep)
     if missing:
-        reason = "required dependencies not operational: %s" % ", ".join(
+        ready = "operational" if operational else "ready"
+        reason = f"required dependencies not {ready}: %s" % ", ".join(
             [f"{dep.name} is {dep.status.name}" for dep in missing]
         )
     else:
@@ -718,7 +750,7 @@ class Job(ConfigChange):
         while ready or notReady or self.jobRequestQueue:
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
-            self.apply(ready)
+            self.apply(ready, notReady)
 
             # the jobRequestQueue will have jobs that were added dynamically by a configurator
             # but were not yielding inside runTask
@@ -905,6 +937,7 @@ class Job(ConfigChange):
     def apply(
         self,
         reqs: Sequence[Union[JobRequest, PlanRequest]],
+        not_ready: Sequence[PlanRequest],
         depth: int = 0,
     ) -> Optional[ConfigTask]:
         task = None
@@ -920,7 +953,7 @@ class Job(ConfigChange):
                 continue
             if isinstance(req, TaskRequestGroup):
                 # XXX this shouldn't happen now
-                task = self.apply(req.children, depth)
+                task = self.apply(req.children, not_ready, depth)
             elif isinstance(req, SetStateRequest):
                 logger.debug("Setting state with %s", req)
                 self._set_state(req)
@@ -932,7 +965,9 @@ class Job(ConfigChange):
                     _task, success = req.task, req.task.local_status != Status.error
                 else:
                     workflow = req.group.workflow if req.group else None
-                    _task, success = self._run_operation(req, workflow, depth)
+                    _task, success = self._run_operation(
+                        req, workflow, not_ready, depth
+                    )
                 if not _task:
                     if req.is_final_for_workflow:
                         # we didn't need to run this one, but we need to finalize the workflow
@@ -1036,7 +1071,9 @@ class Job(ConfigChange):
 
         return True, "proceed"
 
-    def can_run_task(self, task: ConfigTask) -> Tuple[bool, str]:
+    def can_run_task(
+        self, task: ConfigTask, not_ready: Sequence[PlanRequest]
+    ) -> Tuple[bool, str]:
         """
         Checked at runtime right before each task is run
 
@@ -1052,13 +1089,7 @@ class Job(ConfigChange):
             elif task.dry_run and not task.configurator.can_dry_run(task):
                 reason = "dry run not supported"
             else:
-                missing, reason = task.find_missing_dependencies()
-                task.logger.debug(
-                    "find missing %s %s %s",
-                    missing,
-                    task.configSpec.entry_state,
-                    task.configSpec.entry_state > NodeState.initial,
-                )
+                missing, reason = task.find_missing_dependencies(not_ready)
                 if not missing:
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
@@ -1160,7 +1191,11 @@ class Job(ConfigChange):
         return True, "passed"
 
     def _run_operation(
-        self, req: PlanRequest, workflow: Optional[str], depth: int
+        self,
+        req: PlanRequest,
+        workflow: Optional[str],
+        not_ready: Sequence[PlanRequest],
+        depth: int,
     ) -> Tuple[Optional[ConfigTask], bool]:
         assert isinstance(req, TaskRequest)
         if req.required is False:  # set after should_run() is called
@@ -1196,7 +1231,7 @@ class Job(ConfigChange):
                 resource.state = req.startState
             startingState = resource.state
             self.add_work(task)
-            self.run_task(task, depth)
+            self.run_task(task, not_ready, depth)
 
             # if # task succeeded but didn't update nodestate
             if task.result and task.result.success and resource.state == startingState:
@@ -1258,7 +1293,9 @@ class Job(ConfigChange):
             return task, task_success
         return None, False
 
-    def run_task(self, task: ConfigTask, depth: int = 0) -> ConfigTask:
+    def run_task(
+        self, task: ConfigTask, not_ready: Sequence[PlanRequest], depth: int = 0
+    ) -> ConfigTask:
         """
         During each task run:
         * Notification of metadata changes that reflect changes made to resources
@@ -1271,7 +1308,7 @@ class Job(ConfigChange):
         """
         task.target.root.set_attribute_manager(task._attributeManager)
         errors: Optional[str] = None
-        ok, errors = self.can_run_task(task)
+        ok, errors = self.can_run_task(task, not_ready)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
@@ -1297,7 +1334,7 @@ class Job(ConfigChange):
                         return result.task.finished(
                             ConfiguratorResult(False, False, result=err_msg)
                         )
-                    change = self.apply(ready, depth + 1)
+                    change = self.apply(ready, not_ready, depth + 1)
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job

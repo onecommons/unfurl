@@ -77,6 +77,39 @@ spec:
 manifestContent = _manifestTemplate % "ok"
 manifestErrorContent = _manifestTemplate % "error"
 
+static_dep_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      my_host_type:
+        derived_from: tosca:Root
+        capabilities:
+          host:
+            type: tosca.capabilities.Compute
+
+    topology_template:
+      node_templates:
+        my_host:
+          type: my_host_type
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: exit 1
+
+        my_node:
+          type: tosca.nodes.SoftwareComponent
+          requirements:
+          - host: my_host
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation: echo "Here"
+"""
+
 
 def test_digests(caplog):
     path = __file__ + "/../examples/digest-ensemble.yaml"
@@ -238,7 +271,7 @@ class DependencyTest(unittest.TestCase):
         self.assertEqual(
             dependencies,
             job.manifest.manifest.config["changes"][2]["dependencies"],
-            job.manifest.manifest.config["changes"]
+            job.manifest.manifest.config["changes"],
         )
 
         self.assertEqual(
@@ -324,3 +357,65 @@ class DependencyTest(unittest.TestCase):
                 "tasks": [],
             },
         )
+
+
+def test_static_dependencies():
+    """"""
+    manifest = YamlManifest(static_dep_manifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))  # deploy
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary(add_rendered=True)
+    assert summary == {
+        "job": {
+            "id": "A01110000000",
+            "status": "error",
+            "total": 2,
+            "ok": 0,
+            "error": 2,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                "status": "error",
+                "target": "my_host",
+                "operation": "configure",
+                "template": "my_host",
+                "type": "my_host_type",
+                "targetStatus": "unknown",
+                "targetState": "configuring",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+                "rendered_paths": [],
+                "output": {
+                    "args": "exit 1",
+                    "cmd": "exit 1",
+                    "error": None,
+                    "returncode": 1,
+                    "stderr": "",
+                    "stdout": "",
+                    "timeout": None,
+                },
+            },
+            {
+                "status": "error",
+                "target": "my_node",
+                "operation": "create",
+                "template": "my_node",
+                "type": "tosca.nodes.SoftwareComponent",
+                "targetStatus": "pending",
+                "targetState": "creating",
+                "changed": False,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+                "rendered_paths": [],
+                "output": "could not run: required dependencies not ready: my_host is unknown",
+            },
+        ],
+    }

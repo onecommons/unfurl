@@ -108,9 +108,7 @@ class ConfigurationSpec:
         self.artifact = primary
         self.dependencies = dependencies
         self.interface = interface
-        self.entry_state = cast(
-            NodeState, to_enum(NodeState, entry_state, NodeState.creating)
-        )
+        self.entry_state = cast(NodeState, to_enum(NodeState, entry_state))
         self.base_dir = base_dir
 
     def find_invalidate_inputs(self, inputs):
