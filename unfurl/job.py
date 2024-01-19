@@ -24,6 +24,7 @@ from typing import (
     Union,
     cast,
     TYPE_CHECKING,
+    overload,
 )
 from .support import (
     Status,
@@ -133,14 +134,14 @@ class JobOptions:
         message=None,
     )
 
-    parentJob = None
+    parentJob: Optional["Job"] = None
     masterJob: Optional["Job"] = None
     instance: Any = None
     workflow = Defaults.workflow
     planOnly = False
     verbose = 0
     message: Optional[str] = None
-    commit = False
+    commit: bool = False
     push = False
     template: Optional[str] = None
     add: bool = True
@@ -154,6 +155,8 @@ class JobOptions:
     upgrade: bool = False
     dryrun: bool = False
     skip_save: bool = False
+    dirty: str = "auto"
+    instances: Optional[List[Union[str, Dict[str, Any]]]] = None
 
     defaults = dict(
         global_defaults,
@@ -525,15 +528,14 @@ class ConfigTask(TaskView, ConfigChange):
             configurator = self.configSpec.className
 
         status = None if self.status is None else self.status.name
-        summary = dict(
+        targetStatus = None if self.target_status is None else self.target_status.name
+        summary: Dict[str, Any] = dict(
             status=status,
             target=self.target.name,
             operation=self.configSpec.operation,
             template=self.target.template.name,
             type=self.target.template.type,
-            targetStatus=None
-            if self.target_status is None
-            else self.target_status.name,
+            targetStatus=targetStatus,
             targetState=self.target_state and self.target_state.name or None,
             changed=self.modified_target,
             configurator=configurator,
@@ -601,9 +603,9 @@ class Job(ConfigChange):
     ) -> None:
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
-        super().__init__(self.parentJob, self.startTime, Status.ok, previousId)  # type: ignore
-        self.dry_run = jobOptions.dryrun
+        super().__init__(jobOptions.parentJob, self.startTime, Status.ok, previousId)
         self.jobOptions = jobOptions
+        self.dry_run = jobOptions.dryrun
         self.manifest = manifest
         self.rootResource = rootResource
         self.jobRequestQueue: List[JobRequest] = []
@@ -623,7 +625,7 @@ class Job(ConfigChange):
                 yield task
 
     def get_outputs(self) -> Any:
-        return self.rootResource.attributes["outputs"]  # type: ignore
+        return self.rootResource.attributes["outputs"]
 
     def is_filtered(self) -> bool:
         return self.instance or self.instances or self.template  # type: ignore
@@ -641,21 +643,18 @@ class Job(ConfigChange):
     ) -> ConfigTask:
         task = ConfigTask(self, configSpec, target, reason=reason)
         try:
-            task.configurator # make sure it runs before task.inputs
+            task.configurator  # make sure it runs before task.inputs
             task.inputs
         except Exception:
             UnfurlTaskError(task, "unable to create task")
         return task
 
     def validate_job_options(self) -> None:
-        if (
+        if self.jobOptions.instance and not self.rootResource.find_resource(
             self.jobOptions.instance
-            and not self.rootResource.find_resource(  # type: ignore  # mypy doesn't like the way JobOptions is defined
-                self.jobOptions.instance  # type: ignore
-            )
         ):
             logger.warning(
-                'selected instance not found: "%s"', self.jobOptions.instance  # type: ignore
+                'selected instance not found: "%s"', self.jobOptions.instance
             )
 
     def render(self) -> Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]:
@@ -781,22 +780,29 @@ class Job(ConfigChange):
             req.task.finished(ConfiguratorResult(False, False, result=message))
             self.add_work(req.task)
 
-    def _run(self, ready: List[PlanRequest], notReady: List[PlanRequest], errors: List[PlanRequest]) -> None:
+    def _run(
+        self,
+        ready: List[PlanRequest],
+        notReady: List[PlanRequest],
+        errors: List[PlanRequest],
+    ) -> None:
         jobOptions = self.jobOptions
         try:
             display.verbosity = jobOptions.verbose
             self._run_requests((ready, notReady, errors))
         except JobAborted as e:
-            self.local_status = Status.error  # type: ignore
+            self.local_status = Status.error
             logger.error("Aborting job: %s", e)
         except Exception:
-            self.local_status = Status.error  # type: ignore
+            self.local_status = Status.error
             self.unexpectedAbort = UnfurlError(
                 "unexpected exception while running job", True, True
             )
         self._apply_workfolders()
 
-    def run(self, rendered: Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]) -> None:
+    def run(
+        self, rendered: Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]
+    ) -> None:
         manifest = self.manifest
         startTime = perf_counter()
         jobOptions = self.jobOptions
@@ -806,10 +812,10 @@ class Job(ConfigChange):
                 if not jobOptions.out:  # type: ignore
                     # out is used by unit tests to avoid writing to disk
                     manifest.lock()
-                if jobOptions.dirty == "auto":  # type: ignore  # default to false if committing
-                    checkIfClean = jobOptions.commit  # type: ignore
+                if jobOptions.dirty == "auto":  # default to false if committing
+                    checkIfClean = jobOptions.commit
                 else:
-                    checkIfClean = jobOptions.dirty == "abort"  # type: ignore
+                    checkIfClean = jobOptions.dirty == "abort"
                 if checkIfClean:
                     for repo in manifest.repositories.values():
                         if repo.is_dirty():
@@ -830,18 +836,18 @@ class Job(ConfigChange):
             task.apply_work_folders()
 
     def _update_joboption_instances(self) -> None:
-        if not self.jobOptions.instances:  # type: ignore
+        if not self.jobOptions.instances:
             return
         # process any instances that are a full resource spec
-        self.jobOptions.instances = [  # type: ignore
+        self.jobOptions.instances = [
             resourceSpec
             if isinstance(resourceSpec, str)
             else create_instance_from_spec(
                 self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
             ).name
-            for resourceSpec in self.jobOptions.instances  # type: ignore
+            for resourceSpec in self.jobOptions.instances
         ]
-        self.instances = self.jobOptions.instances  # type: ignore
+        self.instances = self.jobOptions.instances
 
     def create_plan(self) -> List[TaskRequestGroup]:
         self.validate_job_options()
@@ -1120,7 +1126,7 @@ class Job(ConfigChange):
         elif req.configSpec.operation == "restart" and not resource.present:
             return False, "instance can't be restart"
 
-        if self.jobOptions.force:  # type: ignore  # always run
+        if self.jobOptions.force:  # always run
             return True, "passed"
 
         # Note: workflow is only set when request is a child of a TaskGroupRequest generated by the plan
@@ -1183,7 +1189,7 @@ class Job(ConfigChange):
             self.run_task(task, depth)
 
             # if # task succeeded but didn't update nodestate
-            if task.result and task.result.success and resource.state == startingState:  # type: ignore
+            if task.result and task.result.success and resource.state == startingState:
                 if req.startState is not None:
                     # advance the state if a startState was set in the TaskRequest
                     resource.state = NodeState(req.startState + 1)
@@ -1298,12 +1304,12 @@ class Job(ConfigChange):
     def add_work(self, task: ConfigTask) -> None:
         key = id(task)
         self.workDone[key] = task
-        if self.parentJob:  # type: ignore
-            self.parentJob.add_work(task)  # type: ignore
+        if self.jobOptions.parentJob:
+            self.jobOptions.parentJob.add_work(task)
 
     def increment_task_count(self) -> int:
-        if self.parentJob:  # type: ignore
-            return self.parentJob.increment_task_count()  # type: ignore
+        if self.jobOptions.parentJob:
+            return self.jobOptions.parentJob.increment_task_count()
         else:
             self.task_count += 1
         return self.task_count
@@ -1318,6 +1324,13 @@ class Job(ConfigChange):
     ###########################################################################
     # Job Reporting methods
     ###########################################################################
+    @overload
+    def stats(self) -> Dict[str, int]:
+        ...
+
+    @overload
+    def stats(self, asMessage: bool) -> Union[Dict[str, int], str]:
+        ...
 
     def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
         return JobReporter.stats(self.workDone.values(), asMessage)
@@ -1349,10 +1362,10 @@ class Job(ConfigChange):
     def json_summary(
         self, pretty: bool = False, external: bool = False, add_rendered: bool = False
     ) -> Union[str, Dict[str, Any]]:
-        job = dict(id=self.changeId, status=self.status.name)
-        job.update(self.stats())  # type: ignore
+        job: Dict[str, Any] = dict(id=self.changeId, status=self.status.name)
+        job.update(self.stats())
         if not self.startTime:  # skip if startTime was explicitly set
-            job["timeElapsed"] = self.timeElapsed  # type: ignore
+            job["timeElapsed"] = self.timeElapsed
         summary = dict(
             job=job,
             outputs=serialize_value(self.get_outputs()),
@@ -1468,7 +1481,7 @@ def start_job(manifestPath=None, _opts=None):
     errors = list(job._yield_serious_errors(rendered[2]))
     if errors:
         logger.error("Aborting job: there were errors during rendering: %s", errors)
-        job.local_status = Status.error  # type: ignore
+        job.local_status = Status.error
     return job, rendered, count and not errors
 
 

@@ -10,6 +10,7 @@ from typing import (
     Iterator,
     List,
     Mapping,
+    MutableMapping,
     Optional,
     Sequence,
     Set,
@@ -129,6 +130,7 @@ class ConfigurationSpec:
         className: str = self.className
         if ":" in className:
             from .dsl import DslMethodConfigurator
+
             module_name, qualname, action = className.split(":")
             module = importlib.import_module(module_name)
             cls_name, sep, func_name = qualname.rpartition(".")
@@ -872,7 +874,7 @@ def _render_request(
         return bool(dependent_refs), None
     elif error:
         task.fail_work_folders()
-        task._reset() # rollback changes
+        task._reset()  # rollback changes
         task.logger.warning("Configurator render failed", exc_info=error_info)
         return None, error
     else:
@@ -1032,7 +1034,7 @@ def find_parent_resource(
 
 
 def create_instance_from_spec(
-    _manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec
+    _manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec: MutableMapping[str, Any]
 ):
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
@@ -1069,7 +1071,7 @@ def create_instance_from_spec(
     else:
         parent = target.root
     # note: if resourceSpec[parent] is set it overrides the parent keyword
-    return _manifest.create_node_instance(rname, resourceSpec, parent=parent)
+    return _manifest.create_node_instance(rname, cast(dict, resourceSpec), parent=parent)
 
 
 def _maybe_mock(iDef, template):

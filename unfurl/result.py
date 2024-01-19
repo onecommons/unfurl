@@ -265,7 +265,7 @@ class ChangeRecord:
         )
 
     @staticmethod
-    def is_change_id(test: str) -> Optional[Match]:
+    def is_change_id(test: Any) -> Optional[Match]:
         if not isinstance(test, str):
             return None
         return re.match("^A[A-Za-z0-9]{11}$", test)

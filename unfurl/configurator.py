@@ -7,6 +7,7 @@ from typing import (
     Dict,
     Generator,
     List,
+    MutableMapping,
     Optional,
     Tuple,
     Union,
@@ -1118,7 +1119,7 @@ class TaskView:
         newResourceSpecs = []
         for resourceSpec in instances:
             # we might have items that aren't resource specs
-            if not isinstance(resourceSpec, Mapping):
+            if not isinstance(resourceSpec, MutableMapping):
                 continue
             # XXX deepcopy fails in test_terraform
             # originalResourceSpec = copy.deepcopy(resourceSpec)

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import json
-from typing import Any, Dict, Iterable, List, Sequence, Tuple, Union, Optional, TYPE_CHECKING, cast
+from typing import Any, Dict, Iterable, List, Literal, Sequence, Tuple, Union, Optional, TYPE_CHECKING, cast, overload
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
     PlanRequest,
@@ -182,8 +182,28 @@ class JobReporter:
         else:
             return json.dumps(summary, indent=2)
 
+    @overload
     @staticmethod
-    def stats(tasks, asMessage: bool = False) -> Union[Dict[str, int], str]:
+    def stats(tasks, asMessage: Literal[False]) -> Dict[str, int]:
+        ...
+
+    @overload
+    @staticmethod
+    def stats(tasks) -> Dict[str, int]:
+        ...
+
+    @overload
+    @staticmethod
+    def stats(tasks, asMessage: Literal[True]) -> str:
+        ...
+
+    @overload
+    @staticmethod
+    def stats(tasks, asMessage: bool) -> Union[Dict[str, int], str]:
+        ...
+
+    @staticmethod
+    def stats(tasks, asMessage = False):
         # note: the status of the task, not the target resource
         key = (
             lambda t: Status.error
