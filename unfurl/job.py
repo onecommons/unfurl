@@ -597,7 +597,7 @@ def _dependency_check(
         if dep.required:
             if dep.local_status == Status.error:
                 missing.append(dep)
-            elif state and dep.state:
+            elif state:
                 if not dep.has_state(state):
                     missing.append(dep)
             elif operational and not dep.operational:  # operational == ok or degraded
@@ -615,7 +615,7 @@ def _dependency_check(
                     # don't mark it as missing, instead assume this instance should go first.
                     missing.append(dep)
     if missing:
-        ready = "operational" if operational else "ready"
+        ready = "operational" if operational else state.name if state else "ready"
         reason = f"required dependencies not {ready}: %s" % ", ".join(
             [f"{dep.name} is {dep.status.name}" for dep in missing]
         )
@@ -1139,13 +1139,15 @@ class Job(ConfigChange):
         """
         resource = req.target
         assert resource
+        entry_state = req.configSpec.entry_state
         logger.trace(
-            "checking operation entry test on %s: current state %s start state %s op %s workflow %s",
+            "checking operation entry test on %s: current state %s start state %s op %s workflow %s%s",
             resource.key,
             resource.state,
             req.startState,
             req.configSpec.operation,
             workflow,
+            f" entry_state: {entry_state}" if entry_state else ""
         )
         if req.configSpec.operation == "check":
             missing, reason = _dependency_check(resource, operational=True)
