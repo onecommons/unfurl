@@ -857,18 +857,18 @@ def test_property_inheritance():
         (
             dict(file="../foo.yaml", namespace_prefix="ns"),
             "from .. import foo as ns",
-            "/path/to/../foo",
+            "/path/foo",
         ),
         (
             dict(file="foo.yaml", namespace_prefix="foo"),
             "from . import foo",
             "/path/to/foo",
         ),
-        (dict(file="../foo.yaml"), "from ..foo import *", "/path/to/../foo"),
+        (dict(file="../foo.yaml"), "from ..foo import *", "/path/foo"),
         (
             dict(file="../../foo.yaml"),
             "from ...foo import *",
-            "/path/to/../../foo",
+            "/foo",
         ),
     ],
 )

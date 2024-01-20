@@ -415,7 +415,7 @@ class Convert:
         full_name = f"{module_name}.{filename}"
         return (
             import_stmt + "\n",
-            str(import_path),
+            os.path.normpath(str(import_path)),
             (full_name, python_prefix),
             base_dir,
         )
@@ -1481,6 +1481,7 @@ class Convert:
 
         assert self.template.tpl is not None
         tpl = self.template.nested_tosca_tpls[file_path]
+        file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
         tpl["tosca_definitions_version"] = self.template.tpl[
             "tosca_definitions_version"
