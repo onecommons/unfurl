@@ -1099,6 +1099,8 @@ class Convert:
     def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
         if op.invoke:
             return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs)
+        if not op._source:
+            op._source = self.base_dir
         kw = (
             self.template.import_resolver.find_implementation(op)
             if self.template.import_resolver
@@ -1544,7 +1546,7 @@ class Convert:
         except:
             # print(self.imports.prelude() + src)
             logger.error(
-                f"error executing generated source for {full_name}", exc_info=True
+                f"error executing generated source for {full_name} in {self.base_dir}", exc_info=True
             )
         finally:
             # not in safe_mode, delete from sys.modules if present since source might not be complete

@@ -1220,8 +1220,8 @@ def _set_config_spec_args(
     kw: ConfigurationSpecKeywords,
     guessing: str,
     template: Optional[EntitySpec],
-    base_dir,
-    dry_run,
+    base_dir: str,
+    dry_run: bool,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if no artifact or className, an error
     artifact = kw.get("primary")
@@ -1301,8 +1301,9 @@ def _get_config_spec_args_from_implementation(
     iDef: OperationDef,
     inputs: Mapping[str, Any],
     template: Optional[EntitySpec],
-    operation_host,
-    dry_run=False,
+    operation_host: Optional[str],
+    dry_run: bool = False,
+    safe_mode: bool = False,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
@@ -1339,6 +1340,8 @@ def _get_config_spec_args_from_implementation(
     # if not operation_instance:
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
+    if not base_dir:
+        base_dir = template.base_dir if template else "."
     kw["base_dir"] = base_dir
     artifact = None
     guessing = ""
@@ -1368,4 +1371,6 @@ def _get_config_spec_args_from_implementation(
     else:
         kw["dependencies"] = []
 
+    if safe_mode:
+        return kw
     return _set_config_spec_args(kw, guessing, template, base_dir, dry_run)

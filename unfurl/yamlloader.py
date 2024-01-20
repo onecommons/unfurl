@@ -68,7 +68,13 @@ from .repo import (
     split_git_url,
     memoized_remote_tags,
 )
-from .packages import PackageSpec, UnfurlPackageUpdateNeeded, extract_package, get_package_from_url, resolve_package
+from .packages import (
+    PackageSpec,
+    UnfurlPackageUpdateNeeded,
+    extract_package,
+    get_package_from_url,
+    resolve_package,
+)
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -320,7 +326,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         from . import configurators  # need to import configurators to get short names
 
         inputs = op.inputs if op.inputs is not None else {}
-        return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
+        if not op._source and self.manifest:
+            op._source = self.manifest.get_base_dir()
+        return cast(
+            Optional[Dict[str, Any]],
+            _get_config_spec_args_from_implementation(
+                op, inputs, None, None, safe_mode=self.get_safe_mode()
+            ),
+        )
 
     def _match_repoview(
         self, name: str, tpl: Optional[Dict[str, Any]]
@@ -634,7 +647,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 self.manifest.packages,
                 self.manifest.package_specs,
                 remote_tags_check,
-                lock_dict
+                lock_dict,
             )
 
     def resolve_to_local_path(
@@ -775,11 +788,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         path: str,
         repo_view: Optional[RepoView],
         base_dir: str,
-        yaml_dict = dict,
+        yaml_dict=dict,
     ):
         if path.endswith(".py"):
             from .dsl import convert_to_yaml
             import tosca._tosca
+
             tosca._tosca.yaml_cls = yaml_dict
 
             return convert_to_yaml(self, contents, path, repo_view, base_dir)

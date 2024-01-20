@@ -311,9 +311,8 @@ def check_class_registry(kind: str) -> bool:
     return kind in _ClassRegistry or kind in _shortNameRegistry
 
 
-# XXX: can't infer arg "default"'s type for now
 def lookup_class(
-    kind: str, apiVersion: Optional[str] = None, default: Optional[str] = None
+    kind: str
 ) -> object:
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
