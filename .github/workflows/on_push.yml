@@ -71,7 +71,7 @@ jobs:
           .tox/$PY_V/bin/mypy unfurl
       - name: build docs
         if: matrix.python == 3.9
-        run: tox -e docs -- -W
+        run: tox -e docs -- -W --keep-going
       - name: upload docs
         if: matrix.python == 3.9
         uses: actions/upload-artifact@v3
