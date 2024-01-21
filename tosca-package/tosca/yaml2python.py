@@ -66,6 +66,7 @@ value_indent = 2
 
 try:
     from ruamel.yaml.comments import CommentedMap
+    from ruamel.yaml.scalarstring import LiteralScalarString, FoldedScalarString
 
     def __repr__(self):
         return dict.__repr__(self)
@@ -75,6 +76,13 @@ try:
     pprint.PrettyPrinter._dispatch[  # type: ignore
         CommentedMap.__repr__
     ] = pprint.PrettyPrinter._pprint_dict  # type: ignore
+
+    pprint.PrettyPrinter._dispatch[  # type: ignore
+        LiteralScalarString.__repr__
+    ] = pprint.PrettyPrinter._pprint_str  # type: ignore
+    pprint.PrettyPrinter._dispatch[  # type: ignore
+        FoldedScalarString.__repr__
+    ] = pprint.PrettyPrinter._pprint_str  # type: ignore
 except ImportError:
     pass
 
@@ -117,7 +125,7 @@ def has_function(obj: object, seen=None) -> bool:
 
 def value2python_repr(value, quote=False) -> str:
     if sys.version_info.minor > 7:
-        pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)  # type: ignore
+        pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)  # type: ignore  # for py3.7 mypy
     else:
         pprinted = pprint.pformat(value, compact=True, indent=value_indent)
     if not quote:
@@ -836,6 +844,7 @@ class Convert:
                 artifact_name, artifact_src = self.artifact2obj(artifact)
                 if artifact_src:
                     field_name, tosca_name = self._set_name(artifact_name, "artifact")
+                    assert artifact.type
                     cls_name, cls = self.imports.get_type_ref(artifact.type)
                     assert cls_name
                     src += f"{indent}{field_name}: {cls_name} = {artifact_src}\n"
@@ -854,7 +863,7 @@ class Convert:
                     if required:
                         src += f"{indent}{field_name}: {cls_name}\n"
                     else:
-                        src += f"{indent}{field_name}: Optional[{cls_name}] = None\n"
+                        src += f"{indent}{field_name}: {self._make_union(cls_name, 'None')} = None\n"
 
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
@@ -881,7 +890,6 @@ class Convert:
             return class_decl + f"{indent}pass"
 
     def _add_operations(self, nodetype: StatefulEntityType, indent: str) -> str:
-        # XXX add environment, etc. to decorator
         src = ""
         default_ops = []
         for iname, interface in nodetype.interfaces.items():
@@ -895,8 +903,10 @@ class Convert:
 
         defaulted = False
         declared_ops = []
+        declared_default_ops = []
         declared_interfaces: Optional[Dict] = nodetype.get_value("interfaces")
         declared_requirements = []
+        declared_default = False
         if declared_interfaces:
             for iname, interface in declared_interfaces.items():
                 requirements = interface.get("requirements")
@@ -906,10 +916,13 @@ class Convert:
                     ops = interface["operations"]
                 else:
                     ops = interface
+                if iname == "default":
+                    declared_default = True
                 for oname, op in ops.items():
                     if op:
                         declared_ops.append((iname, oname))
-
+                    else:
+                        declared_default_ops.append((iname, oname))
         if declared_requirements:
             # include inherited interface_requirements
             src += f"{indent}_interface_requirements = {value2python_repr(nodetype.get_interface_requirements())}\n"
@@ -919,9 +932,12 @@ class Convert:
                 op_id = (op.interfacename, op.name)
                 if op_id in declared_ops and op_id not in default_ops:
                     src += self.operation2func(op, indent, default_ops) + "\n"
-                elif op.name == "default" and not defaulted:
-                    defaulted = True  # only generate once
-                    src += self.operation2func(op, indent, default_ops) + "\n"
+                elif op.name == "default" and not defaulted and default_ops:
+                    # only add default operation if it was declared on this class
+                    # or this class declared operations that used the default (so needs to override the decorator's apply_to)
+                    if declared_default_ops or declared_default:
+                        defaulted = True  # only generate once
+                        src += self.operation2func(op, indent, default_ops) + "\n"
         return src
 
     def add_properties_decl(
@@ -1032,7 +1048,10 @@ class Convert:
         nodetype = req.get("node")
         if nodetype:
             # req['node'] can be a node_template instead of a type
-            if nodetype in self.topology["node_templates"]:
+            if (
+                self.topology.get("node_templates")
+                and nodetype in self.topology["node_templates"]
+            ):
                 entity_tpl = cast(dict, self.topology["node_templates"][nodetype])
                 match = self.template_reference(nodetype, "node")
                 if default:
@@ -1109,7 +1128,7 @@ class Convert:
         cmd = ""
         if kw is None:
             if isinstance(op.implementation, dict):
-                artifact = op.implementation["primary"]
+                artifact = op.implementation.get("primary")
                 kw = op.implementation.copy()
             else:
                 artifact = op.implementation
@@ -1157,18 +1176,28 @@ class Convert:
         if op.name == "default":
             apply_to = ", ".join([f'"{op[0]}.{op[1]}"' for op in default_ops])
             decorator.append(f"apply_to=[{apply_to}]")
-        # XXX other kw: dependencies
-        for imp_key in ("timeout", "operation_host", "environment"):
+        for imp_key in (
+            "timeout",
+            "operation_host",
+            "environment",
+            "outputs",
+            "dependencies",
+            "entry_state",
+            "invoke",
+        ):
             imp_val = kw.get(imp_key)
             if imp_val is not None:
-                decorator.append(f"{imp_key}={value2python_repr(imp_val)}")
+                if (
+                    imp_key != "dependencies" or imp_val
+                ):  # dependencies is always a list, skip if empty
+                    decorator.append(f"{imp_key}={value2python_repr(imp_val)}")
         if decorator:  # add decorator
             src += f"{indent}@operation({', '.join(decorator)})\n"
 
         # XXX add arguments declared on the interface definition
         # XXX declare configurator/artifact as the return value
-        args = "self, **kw"
-        src += f"{indent}def {name}({args}):\n"
+        args = "self, **kw: Any"
+        src += f"{indent}def {name}({args}) -> Any:\n"
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
