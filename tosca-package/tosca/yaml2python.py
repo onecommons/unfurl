@@ -27,6 +27,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -292,6 +293,8 @@ class Imports:
 
 
 class Convert:
+    convert_built_in = False
+
     def __init__(
         self,
         template: ToscaTemplate,
@@ -1496,7 +1499,12 @@ class Convert:
         return req_assignment
 
     def follow_import(
-        self, import_def: dict, import_path: str, format: bool, base_dir
+        self,
+        import_def: dict,
+        import_path: str,
+        format: bool,
+        base_dir,
+        converted: Optional[Set[str]],
     ) -> None:
         # the ToscaTemplate has already imported everything, so here we just need to get the import's contents
         # to convert it to Python
@@ -1524,7 +1532,7 @@ class Convert:
             package = "tosca_repositories." + re.sub(r"\W", "_", repository)
         else:
             package = "service_template"
-        if repository == "unfurl":
+        if repository == "unfurl" and not self.convert_built_in:
             logger.debug("not converting built-in import: %s", import_path)
         elif self.write_policy.can_overwrite(file_path, import_path):
             convert_service_template(
@@ -1543,6 +1551,7 @@ class Convert:
                 write_policy=self.write_policy,
                 base_dir=base_dir or self.base_dir,
                 package_name=package,
+                converted=converted,
             )
         else:
             logger.info(
@@ -1574,7 +1583,8 @@ class Convert:
         except:
             # print(self.imports.prelude() + src)
             logger.error(
-                f"error executing generated source for {full_name} in {self.base_dir}", exc_info=True
+                f"error executing generated source for {full_name} in {self.base_dir}",
+                exc_info=True,
             )
         finally:
             # not in safe_mode, delete from sys.modules if present since source might not be complete
@@ -1654,12 +1664,15 @@ def convert_service_template(
     write_policy: WritePolicy = WritePolicy.auto,
     base_dir=None,
     package_name="service_template",
+    converted: Optional[Set[str]] = None,
 ) -> str:
     src = ""
     imports = Imports()
     if not builtin_prefix:
         imports._set_builtin_imports()
         imports._set_ext_imports()
+    if converted is None:
+        converted = set()
     tpl = cast(Dict[str, Any], template.tpl)
     _tosca.global_state.mode = "spec"
     converter = Convert(
@@ -1689,7 +1702,11 @@ def convert_service_template(
             loader.install(template.import_resolver)
             if not imp_def["file"].endswith(".py"):
                 # if we aren't importing a python file, try to convert it to python
-                converter.follow_import(imp_def, import_path + ".py", format, base_dir)
+                if import_path not in converted:
+                    converter.follow_import(
+                        imp_def, import_path + ".py", format, base_dir, converted
+                    )
+                    converted.add(import_path)
             package = converter.get_package_name()
             try:
                 module = importlib.import_module(module_name, package)
@@ -1779,7 +1796,7 @@ def convert_service_template(
         overwrite, unchanged = write_policy.can_overwrite_compare(
             template.path, path, src
         )
-        if overwrite:
+        if overwrite and not unchanged:
             try:
                 with open(path, "w") as po:
                     logger.info("writing to %s", path)
