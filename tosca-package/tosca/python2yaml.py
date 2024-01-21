@@ -141,14 +141,14 @@ class PythonToYaml:
         repositories = {}
         for repo, p in self.imports:
             _import = dict(file=str(p))
-            if repo:
+            if repo and repo != "service_template":
                 _import["repository"] = repo
                 if not self.import_resolver:
                     repositories[repo] = dict(url=self.repos[repo].as_uri())
                 elif not self.import_resolver.get_repository(repo, None):
                     # the repository wasn't found, but don't add it here (this is probably an error)
                     logger.warning(
-                        f"Added an import in {repo} but could not find {repo} in {[r.name for r in self.import_resolver.manifest.repositories]}."
+                        f"Added an import in {repo} but could not find {repo} in {list(self.import_resolver.manifest.repositories)}."
                     )
             imports.append(_import)
         if repositories:

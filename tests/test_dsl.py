@@ -963,6 +963,7 @@ def test_sandbox(capsys):
         "import sys; sys.version_info",
         "from tosca import python2yaml",
         "import tosca_repositories.missing_repository",
+        "from tosca._tosca import global_state; foo = global_state; foo.safe_mode",
         """from tosca.python2yaml import ALLOWED_MODULE, missing
 str(ALLOWED_MODULE)
     """,
@@ -998,6 +999,7 @@ math.__loader__.create_module = 'pown'""",
 tosca.nodes.Root = 1""",
         """import tosca
 tosca.nodes.Root._type_name = 'pown'""",
+        """from unfurl.support import to_label; to_label('d')""",
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
@@ -1008,6 +1010,8 @@ tosca.nodes.Root._type_name = 'pown'""",
         """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
         """import math; math.floor(1.0)""",
+        """from unfurl.configurators.templates.dns import unfurl_relationships_DNSRecords""",
+        """from unfurl.tosca_plugins import k8s; k8s.kube_artifacts""",
         """import tosca
 node = tosca.nodes.Root()
 node._name = "test"
