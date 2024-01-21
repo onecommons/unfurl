@@ -592,9 +592,7 @@ class Results(ABC):
     This also allows us to track changes to the returned structure.
     """
 
-    __slots__ = ("_attributes", "context", "_deleted", "validate", "defs")
-
-    applyTemplates = True
+    __slots__ = ("_attributes", "context", "_deleted", "validate", "defs", "applyTemplates")
 
     @abstractmethod
     def _values(self) -> Iterator:
@@ -620,6 +618,7 @@ class Results(ABC):
         assert not isinstance(serializedOriginal, Results), serializedOriginal
         self._attributes = serializedOriginal.copy()
         self._deleted: dict = {}
+        self.applyTemplates = True
         if not isinstance(resourceOrCxt, RefContext):
             ctx = RefContext(resourceOrCxt)
         else:

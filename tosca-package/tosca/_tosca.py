@@ -202,7 +202,7 @@ class OperationFunc(Protocol):
     operation_host: Optional[str]
     environment: Optional[Dict[str, str]]
     dependencies: Optional[List[Union[str, Dict[str, Any]]]]
-    outputs: Optional[Dict[str, str]]
+    outputs: Optional[Dict[str, Optional[str]]]
     entry_state: Optional[str]
     invoke: Optional[str]
 
@@ -214,7 +214,7 @@ def operation(
     operation_host: Optional[str] = None,
     environment: Optional[Dict[str, str]] = None,
     dependencies: Optional[List[Union[str, Dict[str, Any]]]] = None,
-    outputs: Optional[Dict[str, str]] = None,
+    outputs: Optional[Dict[str, Optional[str]]] = None,
     entry_state: Optional[str] = None,
     invoke: Optional[str] = None,
 ) -> Callable[[Callable], Callable]:

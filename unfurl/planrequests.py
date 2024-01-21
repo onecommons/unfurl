@@ -1195,7 +1195,7 @@ def set_default_command(
     if not operation_host or operation_host == "localhost":
         className = "unfurl.configurators.shell.ShellConfigurator"
         if shell:
-            shellArgs = dict(command=implementation)
+            shellArgs: Dict[str, Any] = dict(command=implementation)
         else:
             shellArgs = dict(command=[implementation])
     else:

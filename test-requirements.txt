@@ -12,5 +12,5 @@ pytest-cov
 pytest-xdist[psutil]
 pytest-profiling
 # type checking (python 3.7 support ends at 1.4.1)
-mypy >= 1.4.1, <= 1.6.1
+mypy >= 1.4.1, <= 1.8.0
 types-PyYAML
