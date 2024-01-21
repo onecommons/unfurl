@@ -49,6 +49,7 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
+import tosca.loader
 from tosca._tosca import (
     _Tosca_Field,
     _ToscaType,
@@ -165,6 +166,7 @@ def convert_to_yaml(
     safe_mode = import_resolver.get_safe_mode()
     write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
     module_name = package + "." + Path(path).stem
+    tosca.loader.install(import_resolver, base_dir)
     yaml_src = python_src_to_yaml_obj(
         contents,
         namespace,
@@ -178,8 +180,7 @@ def convert_to_yaml(
         import_resolver,
     )
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
-        print("converted ", path, "to:")
-        pprint.pprint(yaml_src)
+        logger.debug("converted %s to:\n%s", path, pprint.pformat(yaml_src), extra=dict(truncate=0))
     return yaml_src
 
 
