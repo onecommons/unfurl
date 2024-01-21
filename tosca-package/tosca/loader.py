@@ -158,7 +158,14 @@ class ToscaYamlLoader(Loader):
 
 
 class ImmutableModule(ModuleType):
-    __always_safe__ = ("__safe__", "__all__", "__name__", "__package__", "__file__", "__root__")
+    __always_safe__ = (
+        "__safe__",
+        "__all__",
+        "__name__",
+        "__package__",
+        "__file__",
+        "__root__",
+    )
 
     def __init__(self, name="__builtins__", **kw):
         ModuleType.__init__(self, name)
@@ -200,7 +207,14 @@ class DeniedModule(ImmutableModule):
             # the import machinery will try to access attributes on the fromlist
             # pretend it is a DeniedModule to defer ImportErrors until access
             return DeniedModule(__name, (), __package__=name)
-        raise ImportError("Import of " + name + " is not permitted", name=name)
+        try:
+            __package__ = object.__getattribute__(self, "__package__")
+        except:
+            raise ImportError("Import of " + name + " is not permitted", name=name)
+        else:
+            raise ImportError(
+                f"Import of {name} in {__package__} is not permitted", name=name
+            )
 
 
 def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
@@ -264,7 +278,9 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
             try:
                 setattr(parent_module, child, module)
             except AttributeError:
-                msg = f"Cannot set an attribute on {parent!r} for child module {child!r}"
+                msg = (
+                    f"Cannot set an attribute on {parent!r} for child module {child!r}"
+                )
                 logger.warning(msg)
     return module
 
@@ -394,6 +410,7 @@ ALLOWED_MODULES = (
     "string",
     "DateTime",
     "unfurl",
+    "urllib.parse",
 )
 
 # XXX have the unfurl package set these:

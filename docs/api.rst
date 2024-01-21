@@ -69,6 +69,19 @@ Other
 .. autofunction:: set_evaluation_mode
 
 
+Utility Functions
+~~~~~~~~~~~~~~~~~
+
+.. automodule:: unfurl.tosca_plugins.functions
+   :members:
+
+Eval Expression Functions
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: unfurl.tosca_plugins.expr
+  :members:
+  :undoc-members:
+
 API for writing configurators
 -----------------------------
 

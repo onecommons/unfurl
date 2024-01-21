@@ -46,8 +46,6 @@ import warnings
 import codecs
 import io
 from contextlib import contextmanager
-import string
-import random
 from click.termui import unstyle
 
 from shutil import which
@@ -486,26 +484,6 @@ def truncate_str(v: str) -> str:
 
 def clean_output(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(value))
-
-
-def get_random_password(
-    count=12,
-    prefix="uv",
-    extra=None,
-    valid_chars="",
-    start=string.ascii_letters,
-):
-    srandom = random.SystemRandom()
-    if not valid_chars:
-        valid_chars = string.ascii_letters + string.digits
-    if extra is None:
-        extra = "%()*+,-./<>?=^_~"
-    if not start:
-        start = valid_chars
-    source = valid_chars + extra
-    return prefix + "".join(
-        srandom.choice(source if i else start) for i in range(count)
-    )
 
 
 @contextmanager

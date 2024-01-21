@@ -3,7 +3,7 @@ import pytest
 import unfurl
 import tosca
 from unfurl.dsl import runtime_test
-import unfurl.tosca_plugins.expr as expr
+from unfurl.tosca_plugins import expr,functions
 from unfurl.configurators.terraform import tfoutput, tfvar
 from typing import Optional, Type
 from unfurl.util import UnfurlError
@@ -187,7 +187,7 @@ def test_expressions():
     assert expr.abspath(topology.service, "test_dsl_integration.py", "src").get() == __file__
     assert expr.uri(None) != topology.test_node.url
     assert expr.uri(topology.test_node) == topology.test_node.url
-    assert expr.to_label("fo!oo", replace='_') == 'fo_oo'
+    assert functions.to_label("fo!oo", replace='_') == 'fo_oo'
     assert expr.template(topology.test_node, contents="{%if 1 %}{{SELF.url}}{%endif%}") == "#::test.test_node"
     # XXX test:
     # "if_expr", or_expr, and_expr
