@@ -20,20 +20,25 @@ except ImportError:
 from tosca.python2yaml import PythonToYaml, python_src_to_yaml_obj
 from toscaparser.elements.entity_type import EntityType
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
+from unfurl.manifest import Manifest
 from toscaparser.tosca_template import ToscaTemplate
 import tosca
+import unfurl
 
 
-def _to_python(yaml_str: str):
-    tosca_yaml = load_yaml(yaml, yaml_str)
+def _to_python(yaml_str: str, python_target_version=None, write_policy = tosca.WritePolicy.never, manifest = None):
+    tosca_yaml = load_yaml(yaml, yaml_str, readonly=True)  # export uses readonly yaml parser
     tosca_yaml["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
     if "topology_template" not in tosca_yaml:
         tosca_yaml["topology_template"] = dict(
             node_templates={}, relationship_templates={}
         )
-    import_resolver = ImportResolver(None)  # type: ignore
+    import_resolver = ImportResolver(manifest)  # type: ignore
+    import_resolver.readonly = True
     src = yaml2python.yaml_to_python(
-        __file__, tosca_dict=tosca_yaml, import_resolver=import_resolver
+        __file__, tosca_dict=tosca_yaml, import_resolver=import_resolver,
+        python_target_version=python_target_version,
+        write_policy=write_policy
     )
     return src, tosca_yaml
 
@@ -1018,13 +1023,16 @@ def test_write_policy():
     with open(test_path, "w") as f:
         f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file")+src)
     try:
+        # hasn't changed so it can't be overwritten
         assert tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
         can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare("ignore", test_path, src + "# ignore\n#\n")
         assert can_write, unchanged == (True, True)
         assert tosca.WritePolicy.auto.deny_message(unchanged) == 'overwrite policy is "auto" but the contents have not changed'
         can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare("ignore", test_path, "# ignore\nimport tosca\n")
         assert can_write, unchanged == (True, False)
+        # mark the output file as modified after the time recorded in the comment
         os.utime(test_path, (time.time() + 5, time.time() + 5))
+        # it's changed, so don't overwrite it
         assert not tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
     finally:
         os.remove(test_path)
@@ -1062,3 +1070,26 @@ if __name__ == "__main__":
     _generate_builtin(
         yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext"
     )
+    # regenerate template modules:
+    yaml2python.Convert.convert_built_in = True
+    path = os.path.abspath(os.path.dirname(unfurl.__file__))
+    yaml_src = f"""
+    repositories:
+      unfurl:
+        url: file:{path}
+    imports:
+      - repository: unfurl
+        file: configurators/templates/helm.yaml
+      - repository: unfurl
+        file: configurators/templates/dns.yaml
+      - repository: unfurl
+        file: configurators/templates/docker.yaml
+      - repository: unfurl
+        file: tosca_plugins/artifacts.yaml
+      - repository: unfurl
+        file: tosca_plugins/k8s.yaml
+      - repository: unfurl
+        file: tosca_plugins/googlecloud.yaml
+    """
+    manifest = Manifest(path)
+    _to_python(yaml_src, 7, tosca.WritePolicy.always, manifest)
