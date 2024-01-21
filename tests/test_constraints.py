@@ -261,7 +261,7 @@ def test_computed_properties():
             "computed": "https://foo.com",
             "url": "https://foo.com",
             "ports": {
-                "protocol": None,
+                "protocol": "tcp",
                 "target": 8080,
                 "target_range": None,
                 "source": 80,
@@ -271,7 +271,7 @@ def test_computed_properties():
             "data_list": [
                 {
                     "ports": {
-                        "protocol": None,
+                        "protocol": "tcp",
                         "target": 8080,
                         "target_range": None,
                         "source": 80,

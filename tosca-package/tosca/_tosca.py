@@ -21,6 +21,7 @@ from typing import (
     Generic,
     Iterator,
     Mapping,
+    MutableMapping,
     NamedTuple,
     Sequence,
     Set,
@@ -42,13 +43,14 @@ from typing_extensions import (
     Annotated,
     Literal,
     Self,
+    TypeAlias
 )
+
 import sys
 import logging
 
 logger = logging.getLogger("tosca")
 
-from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements.datatype import DataType as ToscaParserDataType
 from .scalars import *
 
@@ -70,7 +72,8 @@ global_state = _LocalState()
 
 yaml_cls = dict
 
-JsonType = Union[None, int, str, bool, List["JsonType"], Dict[str, "JsonType"]]
+JsonObject: TypeAlias = Dict[str, Any]
+JsonType: TypeAlias = Union[None, int, str, bool, Sequence["JsonType"], Mapping[str, "JsonType"]]
 
 
 @contextmanager
@@ -2797,7 +2800,7 @@ class NodeType(ToscaType):
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
 
-    _directives: List[str] = dataclasses.field(default_factory=list)
+    _directives: List[str] = field(default_factory=list)
     "List of this node template's TOSCA directives"
 
     @classmethod

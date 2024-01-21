@@ -199,7 +199,6 @@ class Imports:
                 "MISSING",
                 "DEFAULT",
                 "CONSTRAINED",
-                "PortSpec",
                 "Requirement",
                 "ToscaInputs",
                 "ToscaOutputs",

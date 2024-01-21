@@ -10,6 +10,7 @@ class Base(tosca.nodes.Root):
     url: str  # test that a derived class safely override a property with a computed property
 
 
+port80 = tosca.datatypes.NetworkPortDef(80)
 class Test(Base):
     url_scheme: str
     host: str
@@ -27,7 +28,7 @@ class Test(Base):
     def run(self, task: TaskView) -> bool:
         DoneDict()  # this is from an unsafe module, test that its available in this context
         self.computed = self.url
-        self.data.ports.source = tosca.datatypes.NetworkPortDef(80)
+        self.data.ports.source = port80
         self.data.ports.target = tosca.datatypes.NetworkPortDef(8080)
         self.int_list.append(1)
         self.int_list.append(2)
@@ -36,7 +37,7 @@ class Test(Base):
         self.a_requirement.copy_of_extra = extra  # type: ignore
 
         self.data_list.append(MyDataType())
-        self.data_list[0].ports.source = tosca.datatypes.NetworkPortDef(80)
+        self.data_list[0].ports.source = port80
         self.data_list[0].ports.target = tosca.datatypes.NetworkPortDef(8080)
         return True
 
@@ -52,7 +53,7 @@ class Test(Base):
 
 class MyDataType(tosca.DataType):
     ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
-        factory=lambda: tosca.datatypes.NetworkPortSpec(**tosca.PortSpec.make(80))
+        factory=lambda: tosca.datatypes.NetworkPortSpec(source=port80, target=port80)
     )
 
 
