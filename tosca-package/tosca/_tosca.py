@@ -70,6 +70,24 @@ class _LocalState(threading.local):
 
 global_state = _LocalState()
 
+def safe_mode() -> bool:
+    """This function returns True if running within the Python safe mode sandbox."""
+    return global_state.safe_mode
+
+def global_state_mode() -> str:
+    """
+    This function returns the execution state (either "spec" or "runtime") that the current thread is in."""
+    return global_state.mode
+
+def global_state_context() -> Any:
+    """
+    This function returns orchestrator-specific runtime state for the current thread (or None).
+    """
+    if global_state.safe_mode:
+        return None
+    else:
+        return global_state.context
+
 yaml_cls = dict
 
 JsonObject: TypeAlias = Dict[str, Any]

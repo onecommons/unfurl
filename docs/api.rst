@@ -68,6 +68,12 @@ Other
 
 .. autofunction:: set_evaluation_mode
 
+.. autofunction:: safe_mode
+
+.. autofunction:: global_state_mode
+
+.. autofunction:: global_state_context
+
 
 Utility Functions
 ~~~~~~~~~~~~~~~~~

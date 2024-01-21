@@ -11,6 +11,7 @@ except ImportError:
     sys.path.insert(0, vendor_dir)
     import toscaparser
 from ._tosca import *
+from ._tosca import _Ref
 
 from .builtin_types import nodes
 from .builtin_types import interfaces
@@ -22,6 +23,10 @@ from .builtin_types import policies
 from .builtin_types import groups
 
 __all__ = [
+    "_Ref",
+    "safe_mode",
+    "global_state_mode",
+    "global_state_context",
     "nodes",
     "capabilities",
     "relationships",
@@ -102,6 +107,7 @@ __all__ = [
     "Tibps",
     "Time",
     "ToscaParserDataType",
+    "ToscaType",
     "ToscaInputs",
     "ToscaOutputs",
     "US",
