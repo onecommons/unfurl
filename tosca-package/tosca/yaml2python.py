@@ -701,14 +701,14 @@ class Convert:
             fieldparams.append(f'name="{toscaname}"')
         assert isinstance(propdef.schema, dict)
         prop = Property(propdef.name, None, propdef.schema, self.custom_defs)
-        typename = self._prop_type(prop.schema)
-        if not propdef.required:
-            typename = self._make_union(typename, "None")
         default_value: Any = MISSING
         if "default" in propdef.schema:
             default_value = propdef.schema["default"]
         elif not propdef.required:
             default_value = None
+        typename = self._prop_type(prop.schema)
+        if not propdef.required or default_value is None:
+            typename = self._make_union(typename, "None")
 
         if prop.schema.title:
             fieldparams.append(f"title={value2python_repr(prop.schema.title, True)}")
@@ -1774,7 +1774,7 @@ def convert_service_template(
 
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
-    if not builtin_prefix:
+    if not builtin_prefix and imports.get_all():
         src += f"\n__all__= {value2python_repr(imports.get_all(), True)}"
     if builtin_prefix == "unfurl.":
         imports.from_tosca.add("Namespace")
