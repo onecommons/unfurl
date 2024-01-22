@@ -34,6 +34,8 @@
 
 from typing import cast, Union, Optional, List, Dict, Any
 from toscaparser.elements.portspectype import PortSpec
+from ..result import serialize_value
+from ..configurator import TaskView
 from .shell import ShellConfigurator, ShellInputs
 from .k8s import make_pull_secret, mark_sensitive
 from ..util import UnfurlTaskError, which
@@ -59,12 +61,12 @@ class KomposeInputs(ShellInputs):
     registry_password: Optional[str] = None
     labels: Union[None, Dict[str, str]] = None
     annotations: Union[None, Dict[str, Any]] = None
-    expose: Optional[bool] = None
+    expose: Union[bool,str,None] = None
     ingress_extras: Union[None, Dict[str, Any]] = None
     env: Union[None, Dict[str, str]] = None
 
 
-def _get_service(compose: dict, service_name: Optional[str] = None):
+def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
     if service_name:
         return compose["services"][service_name]
     else:
@@ -138,7 +140,7 @@ class KomposeConfigurator(ShellConfigurator):
             )
         return service_name
 
-    def render(self, task):
+    def render(self, task: TaskView):
         """
         1. Render the docker_compose template if necessary
         2. Render the kubernetes resources using kompose
@@ -153,9 +155,9 @@ class KomposeConfigurator(ShellConfigurator):
             container = task.inputs.get_copy("container") or {}
             compose = render_compose(
                 container,
-                task.inputs.get("image"),
-                task.inputs.get("service_name"),
-                task.inputs.get("env"),
+                task.inputs.get_copy("image"),
+                task.inputs.get_copy("service_name"),
+                task.inputs.get_copy("env"),
             )
 
         service_name = self._validate(task, compose)
@@ -216,7 +218,7 @@ class KomposeConfigurator(ShellConfigurator):
             labels["kompose.image-pull-secret"] = pull_secret_name
         expose = task.inputs.get("expose")
         if expose:
-            labels["kompose.service.expose"] = expose
+            labels["kompose.service.expose"] = "true" if isinstance(expose, bool) else expose
         _add_labels(main_service, labels)
 
         # map "files" to configmap
@@ -228,7 +230,7 @@ class KomposeConfigurator(ShellConfigurator):
         # if there's a volume mapping that points to file use --volumes=configMap option,
         # (see https://github.com/kubernetes/kompose/pull/1216)
         task.logger.debug("writing docker-compose:\n%s", compose)
-        cwd.write_file(compose, "docker-compose.yml")
+        cwd.write_file(serialize_value(compose), "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
         ingress_extras = get_ingress_extras(
             task, task.inputs.get_copy("ingress_extras")
