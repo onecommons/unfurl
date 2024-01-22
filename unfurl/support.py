@@ -820,13 +820,13 @@ set_eval_func(
     safe=True,
 )
 
-def get_ensemble_metadata(arg, ctx):
+def get_ensemble_metadata(arg, ctx: RefContext):
     if not ctx.task:
         return {}
     ensemble = ctx.task._manifest
     metadata = dict(
         deployment=ensemble.deployment,
-        job=ctx.task.job.changeId,
+        job=cast(Any, ctx.task).job.changeId,
     )
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()
@@ -838,7 +838,7 @@ def get_ensemble_metadata(arg, ctx):
         key = map_value(arg, ctx)
         if key == "project_namespace_subdomain" and ensemble.repo:
             return ".".join(
-                reversed(os.path.dirname(ensemble.repo.project_path()).split("/"))
+                reversed(os.path.dirname(ensemble.repo.project_path().lower()).split("/"))
             )
         return metadata.get(key, "")
     else:
