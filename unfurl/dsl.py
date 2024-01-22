@@ -167,6 +167,8 @@ def convert_to_yaml(
     write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
     module_name = package + "." + Path(path).stem
     tosca.loader.install(import_resolver, base_dir)
+    if os.getenv("UNFURL_TEST_SAFE_LOADER") == "never":
+        safe_mode = False
     yaml_src = python_src_to_yaml_obj(
         contents,
         namespace,

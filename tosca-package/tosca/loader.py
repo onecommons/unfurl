@@ -625,7 +625,9 @@ def restricted_exec(
 ) -> CompileResult:
     # package is the full name of module
     # path is base_dir to the root of the package
-    if FORCE_SAFE_MODE and not safe_mode:
+    if FORCE_SAFE_MODE == "never":
+        safe_mode = False
+    elif FORCE_SAFE_MODE and not safe_mode:
         safe_mode = True
         if FORCE_SAFE_MODE in ["warn", "stacktrace"]:
             logger.warning(
