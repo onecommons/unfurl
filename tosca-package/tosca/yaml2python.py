@@ -3,7 +3,7 @@
 """
 Converts a TOSCA service template from YAML to Python.
 
-Repositories are resolved with by creating a`tosca_repository` directory with symlinks to the source.
+Repositories are resolved with by creating a`tosca_repositories` directory with symlinks to the source.
 Imports to followed and converted in-place.
 
 Usage:
@@ -1568,7 +1568,7 @@ class Convert:
             if relpath:
                 package += "." + relpath
         except ValueError:
-            package = "tosca_repository." + os.path.basename(os.path.dirname(path))
+            package = "tosca_repositories." + os.path.basename(os.path.dirname(path))
         return package
 
     def execute_source(self, src: str, namespace: Dict[str, Any]):

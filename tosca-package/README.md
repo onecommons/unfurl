@@ -309,7 +309,7 @@ TOSCA's YAML syntax allows names that are not valid Python identifiers so the DS
 
 ### Imports and repositories
 
-We translate TOSCA imports statements as relative imports in Python or, if a repository was specified, as a Python import in a package named "tosca_repository.<repository_name>". For example:
+We translate TOSCA imports statements as relative imports in Python or, if a repository was specified, as a Python import in a package named "tosca_repositories.<repository_name>". For example:
 
 ```yaml
   imports:
@@ -339,7 +339,7 @@ from tosca_repositories.my_repo.bar.foo import *
 from tosca_repositories.my_repo.bar import foo
 ```
 
-`unfurl export` will resolve imports from a repository by creating a`tosca_repository` directory with a symlink to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
+`unfurl export` will resolve imports from a repository by creating a`tosca_repositories` directory with a symlink to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
 
 ## Usage
 

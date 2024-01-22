@@ -154,7 +154,7 @@ def convert_to_yaml(
         else:
             # make sure tosca_repository symlink exists
             name = repo_view.get_link(base_dir)[0]
-            package = "tosca_repository." + name
+            package = "tosca_repositories." + name
     else:
         package_path = Path(get_base_dir(path)).relative_to(base_dir)
         relpath = str(package_path).replace("/", ".").strip(".")
