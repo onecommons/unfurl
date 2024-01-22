@@ -454,6 +454,7 @@ CacheWorkCallable = Callable[
 
 PullCacheEntry = Tuple[float, str]
 
+
 def pull(repo: GitRepo, branch: str) -> str:
     action = "pulled"
     try:
@@ -583,6 +584,14 @@ class CacheEntry:
             if not self.repo:
                 self._set_project_repo()
             repo = self.repo
+            if repo:
+                logger.info(f"pulling repo for {repo_key}")
+                try:
+                    action = pull(repo, branch)
+                except Exception:
+                    logger.info(f"pull failed for {repo_key}, clearing project")
+                    repo = None
+                    _clear_project(self.project_id)
             if not repo:
                 if self.do_clone:
                     logger.info(f"cloning repo for {repo_key}")
@@ -590,9 +599,6 @@ class CacheEntry:
                     action = "cloned"
                 else:
                     raise UnfurlError(f"missing repo at {repo_key}")
-            else:
-                logger.info(f"pulling repo for {repo_key}")
-                action = pull(repo, branch)
             self.pull_state = action
             cache.set(repo_key, (time.time(), action))
             return repo
@@ -657,21 +663,23 @@ class CacheEntry:
         )
         return last_commit
 
-    def _pull_if_missing_commit(self, commit: str) -> None:
+    def _pull_if_missing_commit(self, commit: str) -> GitRepo:
         try:
-            self.checked_repo.repo.commit(commit)
+            repo = self.checked_repo
+            repo.repo.commit(commit)
+            return repo
         except Exception:
             # commit not in repo, repo probably is out of date
-            self.pull(cache)  # raises if pull fails
+            return self.pull(cache)  # raises if pull fails
 
     def is_commit_older_than(self, older: str, newer: str) -> bool:
         if older == newer:
             return False
-        self._pull_if_missing_commit(newer)
+        self.repo = self._pull_if_missing_commit(newer)
         # if "older..newer" is true iter_commits (git rev-list) will list
         # newer commits up to and including "newer", newest first
         # otherwise the list will be empty
-        if list(self.checked_repo.repo.iter_commits(f"{older}..{newer}", max_count=1)):
+        if list(self.repo.repo.iter_commits(f"{older}..{newer}", max_count=1)):
             return True
         return False
 
@@ -730,7 +738,11 @@ class CacheEntry:
                     return value, None
             if at_latest:
                 # repo was up-to-date, so treat as a cache hit
-                logger.info("cache hit for %s with %s", full_key, latest_commit or cached_latest_commit)
+                logger.info(
+                    "cache hit for %s with %s",
+                    full_key,
+                    latest_commit or cached_latest_commit,
+                )
                 self.hit = True
                 return value, None
 
@@ -890,9 +902,9 @@ class CacheEntry:
                     # if we have a local copy of the repo
                     # make sure we pulled latest_commit before doing the work
                     if not latest_commit:
-                        self.pull(cache, self.stale_pull_age)
+                        self.repo = self.pull(cache, self.stale_pull_age)
                     else:
-                        self._pull_if_missing_commit(latest_commit)
+                        self.repo = self._pull_if_missing_commit(latest_commit)
                 elif self.do_clone:
                     self.repo = self.pull(cache)  # this will clone the repo
             except Exception as pull_err:
@@ -1350,15 +1362,16 @@ def clear_project():
 
 
 def _clear_project(project_id):
-    found = False
-    for visibility in ["public", "private"]:
-        project_dir = _get_project_repo_dir(project_id, "", dict(visibility=visibility))
-        if os.path.isdir(project_dir):
-            found = True
-            logger.info("clear_project: removing %s", project_dir)
-            rmtree(project_dir, logger)
-    if not found:
-        logger.info("clear_project: %s not found", project_id)
+    if not local_developer_mode():
+        found = False
+        for visibility in ["public", "private"]:
+            project_dir = _get_project_repo_dir(project_id, "", dict(visibility=visibility))
+            if os.path.isdir(project_dir):
+                found = True
+                logger.info("clear_project: removing %s", project_dir)
+                rmtree(project_dir, logger)
+        if not found:
+            logger.info("clear_project: %s not found", project_id)
     cleared = clear_cache(cache, project_id + ":")
     if cleared is None:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred")

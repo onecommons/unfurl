@@ -176,6 +176,7 @@ def set_up_deployment(runner, deployment):
 
     # we need a bare repo for push to work
     os.system("git clone --bare remote remote.git")
+    assert repo.repo.create_remote("origin", "../remote.git")
     port = _next_port()
 
     os.makedirs("server")
@@ -524,7 +525,7 @@ def test_server_update_deployment():
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
 
-            os.system("git pull --commit --no-edit ../remote.git")
+            assert not os.system("git pull --commit --no-edit origin main")
             with open("unfurl.yaml", "r") as f:
                 data = yaml.load(f.read())
                 # check that the environment was added and an ensemble was created
@@ -543,5 +544,17 @@ def test_server_update_deployment():
                 p.terminate()
                 p.join()
 
-if __name__ == "__main__":
-    print(server.pull(GitRepo(Repo(".")), "v0.6.3"))
+# XXX test that server recovers from an upstream repo that had a force push or tags that changed
+# def test_force_push():
+#   assert repo.repo.create_tag("v1.0", message="tag v1")
+    # ...
+    # change a tag ref, which will cause GitRepo.pull() to fail like so:
+    # git.exc.GitCommandError: Cmd('git') failed due to: exit code(1)
+    #   cmdline: git pull origin v1.0.0 --tags --update-shallow --ff-only --shallow-since=1648458328
+    #   stderr: 'From http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress
+    # * tag               v1.0.0     -> FETCH_HEAD
+    # ! [rejected]        v1.0.0     -> v1.0.0  (would clobber existing tag)'
+#   assert not os.system("git tag -d v1.0")
+#   assert not os.system("git push --delete origin v1.0")
+#   assert not os.system("git tag v1.0 -m'retag'")
+#   assert not os.system("git push --tags origin")
