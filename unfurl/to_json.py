@@ -393,22 +393,24 @@ def _find_req_typename(
     if not descendents:
         return TypeName("")
 
+    matches = []
     for subtype in find_descendents(descendents, types.get_localname(typename)):
         t = types.get_type(subtype)
         if not t:
             t = _node_typename_to_graphql(subtype, topology, types)
             if not t:
                 continue
-        # mark_leaf_types() sets the "implementations" key, assume its has already been called
-        if "requirements" not in t or not t["implementations"]:
-            continue  # not a leaf type
+        if "requirements" not in t or t.get("metadata", {}).get("alias"):
+            continue
         assert typename in t["extends"]
         # type is typename or derived from typename
         for target_reqs in t["requirements"]:
             if target_reqs["name"] == reqname:
-                return target_reqs["resourceType"]
+                match = target_reqs["resourceType"]
+                matches.append(match)
 
-    return TypeName("")  # not found
+    # we want a leaf type, so choose the last one
+    return matches[-1] if matches else TypeName("")
 
 
 def _make_req(
@@ -795,9 +797,9 @@ def to_graphql_nodetypes(
         if not types.get_type(type_definition.type):
             node_type_to_graphql(topology, type_definition, types)
 
-    mark_leaf_types(types)
     assert spec.topology
     annotate_requirements(spec.topology, types, descendents)
+    mark_leaf_types(types)
 
     return types
 
@@ -1599,7 +1601,15 @@ def _annotate_requirement(
             req["match"] = match
         elif list(match)[0] == "get_nodes_of_type":
             # override the resourceType
-            req["resourceType"] = types.expand_typename(match["get_nodes_of_type"])
+            type_match = match["get_nodes_of_type"]
+            reqtype = types.get(reqtypename)
+            if not reqtype:
+                reqtype = _node_typename_to_graphql(type_match, topology, types)
+            if reqtype:
+                req["resourceType"] = TypeName(reqtype["name"])
+            else:
+                logger.error("couldn't find type for get_nodes_of_type %s", type_match)
+                req["resourceType"] = types.expand_typename(type_match)
 
     reqtype = types.get(reqtypename)
     if not reqtype:
