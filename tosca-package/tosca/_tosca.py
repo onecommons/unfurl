@@ -1499,10 +1499,10 @@ _make_field_doc(Artifact)
 
 
 class _Ref:
-    def __init__(self, expr: Union["_Ref", Dict[str, Any]]):
+    def __init__(self, expr: Union["_Ref", str, Dict[str, Any]]):
         if isinstance(expr, _Ref):
             expr = expr.expr
-        self.expr: Dict[str, Any] = expr
+        self.expr: Union[str, Dict[str, Any]] = expr
 
     def set_source(self):
         if isinstance(self.expr, dict):
@@ -1516,15 +1516,16 @@ class _Ref:
         # that applies ``func`` to each item.
         # assumes ``func`` is an expression function that takes one argument and sets that argument to ``$item``.
         assert self.expr
-        assert isinstance(func.expr, dict)
-        ref = copy.deepcopy(self.expr)
-        map_expr = copy.deepcopy(func.expr)
-        inner = map_expr and map_expr["eval"]
-        assert isinstance(inner, dict)
-        name = next(iter(inner))  # assume first key is the function name
-        inner[name] = {"eval": "$item"}
-        ref["foreach"] = map_expr
-        return _Ref(ref)
+        if isinstance(func.expr, dict) and isinstance(self.expr, dict):
+            ref = copy.deepcopy(self.expr)
+            map_expr = copy.deepcopy(func.expr)
+            inner = map_expr and map_expr["eval"]
+            if isinstance(inner, dict):
+                name = next(iter(inner))  # assume first key is the function name
+                inner[name] = {"eval": "$item"}
+                ref["foreach"] = map_expr
+                return _Ref(ref)
+        raise ValueError(f"cannot map {self.expr} with {func.expr}")
 
     def __str__(self) -> str:
         # represent this as a jina2 expression so we can embed _Refs in f-strings
@@ -1555,8 +1556,11 @@ class _Ref:
         return False
 
 
-def Eval(expr) -> Any:
-    return _Ref(expr)
+def Eval(expr: Any) -> Any:  # XXX Union[str, List[Any], Dict[str, Any]]
+    if global_state.mode == "runtime":
+        return expr
+    else:
+        return _Ref(expr)
 
 
 # XXX class RefList(Ref)
@@ -1594,7 +1598,7 @@ class FieldProjection(_Ref):
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
         expr = field.as_ref_expr()
-        if parent and parent.expr:
+        if parent and isinstance(parent.expr, dict) and "eval" in parent.expr:
             # XXX map to tosca name but we can't do this now because it might be too early to resolve the attribute's type
             expr = parent.expr["eval"] + "::" + expr
         super().__init__(dict(eval=expr))
@@ -2809,7 +2813,8 @@ def find_all_required_by(
         List[tosca.NodeType]:
     """
     ref = cast(_Ref, find_required_by(requirement_name, expected_type, cls_or_obj))
-    ref.expr["foreach"] = "$true"
+    if isinstance(ref.expr, dict):  # XXX
+        ref.expr["foreach"] = "$true"
     return cast(List[_TT], ref)
 
 
