@@ -250,6 +250,10 @@ class DslMethodConfigurator(Configurator):
         obj = proxy_instance(task.target, self.cls, task.inputs.context)
         return obj._invoke(self.func, task)
 
+    def can_dry_run(self, task):
+        if self.configurator:
+            return self.configurator.can_dry_run(task)
+        return False
 
 def eval_computed(arg, ctx):
     """
@@ -603,7 +607,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         except KeyError:
             pass
         field = self._get_field(name)
-        if not field:
+        if not field or not isinstance(field, _Tosca_Field):
             if name in ["_name", "_metadata", "_directives"]:
                 # XXX other special attributes
                 return getattr(self._instance.template.toscaEntityTemplate, name[1:])
@@ -626,7 +630,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 return val
             elif name in self._instance.attributes:  # untyped properties
                 return self._instance.attributes[name]
-        elif isinstance(field, _Tosca_Field):
+        else:
             if field.tosca_field_type in (
                 ToscaFieldType.property,
                 ToscaFieldType.attribute,
