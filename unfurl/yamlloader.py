@@ -780,6 +780,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             assert repo_view  # urls must have a repo_view
             path = self._resolve_repo_to_path(repo_view, base, file_name)
             is_file = True
+            base = repo_view.working_dir
         return self._really_load_yaml(path, is_file, fragment, repo_view, base)
 
     def _convert_to_yaml(
@@ -820,16 +821,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
+                if toscaparser.imports.is_url(base_dir):
+                    base_dir = get_base_dir(path)
                 doc = self._convert_to_yaml(
                     contents, path, repo_view, base_dir, yaml_dict
                 )
-                base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
                         # self.expand is true when doing a TOSCA import (see Manifest._load_spec())
                         doc = YamlConfig(
                             doc,
-                            base_dir,
+                            get_base_dir(path),  # needs this as base_dir
                             loadHook=partial(
                                 self.manifest.load_yaml_include,
                                 repository_root=base_dir,
