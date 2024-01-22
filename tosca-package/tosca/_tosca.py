@@ -2447,7 +2447,13 @@ class ToscaType(_ToscaType):
 
     @staticmethod
     def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
-        dict_cls = converter and converter.yaml_cls or yaml_cls
+        if converter:
+            dict_cls = converter.yaml_cls
+            if converter.safe_mode:
+                # safe mode skips adding operation implementation because it executes operations to generate the yaml
+                return dict_cls(implementation="safe_mode")
+        else:
+            dict_cls = yaml_cls
         try:
             result = operation(_ToscaTypeProxy(cls_or_self))
         except:
@@ -2525,11 +2531,9 @@ class ToscaType(_ToscaType):
                         # a property that is also declared as an attribute
                         item = {field.tosca_name: field._to_attribute_yaml()}
                         body.setdefault("attributes", {}).update(item)
-        if not converter or not converter.safe_mode:
-            # safe mode skips adding interfaces because it executes operations to generate the yaml
-            interfaces = cls._interfaces_yaml(cls, cls, converter)
-            if interfaces:
-                body["interfaces"] = interfaces
+        interfaces = cls._interfaces_yaml(cls, cls, converter)
+        if interfaces:
+            body["interfaces"] = interfaces
 
         if not body:  # skip this
             return {}
@@ -2651,12 +2655,10 @@ class ToscaType(_ToscaType):
             elif field.section:
                 assert False, "unexpected section in {field}"
 
-        if not converter.safe_mode:
-            # safe mode skips adding interfaces because it executes operations to generate the yaml
-            # this only adds interfaces defined directly on this object
-            interfaces = self._interfaces_yaml(self, self.__class__, converter)
-            if interfaces:
-                body["interfaces"] = interfaces
+        # this only adds interfaces defined directly on this object
+        interfaces = self._interfaces_yaml(self, self.__class__, converter)
+        if interfaces:
+            body["interfaces"] = interfaces
 
         return body
 

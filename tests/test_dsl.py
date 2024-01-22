@@ -217,6 +217,21 @@ default_operations_yaml = (
           check:
   """
 )
+default_operations_safemode_yaml = (
+    default_operations_types_yaml
+    + """
+    interfaces:
+      defaults:
+        implementation: safe_mode
+      Standard:
+        operations:
+          delete:
+      Install:
+        operations:
+          check:
+  """
+)
+
 
 default_operations_python = """
 import unfurl
@@ -248,7 +263,7 @@ def test_default_operations():
     # in safe_mode python parses ok but operations aren't executed and the yaml is missing interfaces
     tosca_tpl3 = _to_yaml(default_operations_python, True)
     assert (
-        load_yaml(yaml, default_operations_types_yaml)["node_types"]
+        load_yaml(yaml, default_operations_safemode_yaml)["node_types"]
         == tosca_tpl3["node_types"]
     )
 
