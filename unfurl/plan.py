@@ -558,7 +558,7 @@ class Plan:
                     yield taskRequest
         if not task_found:
             logger.verbose(
-                f'No operations for workflow "{workflow}" defined for instance "{resource.nested_name}"'
+                f'No operations for workflow "{workflow}" defined for instance "{resource.nested_name}" (type "{resource.type}")'
             )
         if group:
             if custom_workflow:

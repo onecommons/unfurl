@@ -821,12 +821,12 @@ set_eval_func(
 )
 
 def get_ensemble_metadata(arg, ctx: RefContext):
-    if not ctx.task:
+    if not ctx.task or not ctx.task.job:
         return {}
     ensemble = ctx.task._manifest
     metadata = dict(
         deployment=ensemble.deployment,
-        job=cast(Any, ctx.task).job.changeId,
+        job=ctx.task.job.changeId,
     )
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()

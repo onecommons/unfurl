@@ -955,11 +955,11 @@ def do_render_requests(
     return ready, notReady, errors
 
 
-def _filter_config(opts, config, target):
+def _filter_config(opts: "JobOptions", config: "ConfigurationSpec", target):
     if opts.readonly and config.workflow != "discover":
         return None, "read only"
-    if opts.requiredOnly and not config.required:
-        return None, "required"
+    # if opts.requiredOnly and not config.required:
+    #     return None, "required"
     if opts.instance and target.name != opts.instance:
         return None, f"instance {opts.instance}"
     if opts.instances and target.name not in opts.instances:
@@ -967,7 +967,7 @@ def _filter_config(opts, config, target):
     return config, None
 
 
-def filter_task_request(jobOptions, req: TaskRequest) -> Optional[TaskRequest]:
+def filter_task_request(jobOptions: "JobOptions", req: TaskRequest) -> Optional[TaskRequest]:
     configSpec = req.configSpec
     configSpecName = configSpec.name
     configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)

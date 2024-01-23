@@ -127,7 +127,7 @@ class JobOptions:
         dryrun=False,
         planOnly=False,
         readonly=False,  # only run configurations that won't alter the system
-        requiredOnly=False,
+        requiredOnly=False,  # XXX not implemented
         commit=False,
         dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
@@ -155,6 +155,7 @@ class JobOptions:
     dryrun: bool = False
     skip_save: bool = False
     dirty: str = "auto"
+    readonly: bool = False
     instances: Optional[List[Union[str, Dict[str, Any]]]] = None
 
     defaults = dict(
@@ -377,6 +378,7 @@ class ConfigTask(TaskView, ConfigChange):
         # don't set the changeId until we're finish so that we have a higher changeid
         # than nested tasks and jobs that ran
         # (task that never run will have the same changeId as its parent)
+        assert self.job
         self.set_task_id(self.job.increment_task_count())
         # XXX2 if attributes changed validate using attributesSchema
         # XXX2 Check that configuration provided the metadata that it declared (check postCondition)

@@ -25,10 +25,16 @@ from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncat
 
 if TYPE_CHECKING:
     from .manifest import Manifest, ChangeRecordRecord
-    from .job import ConfigTask
+    from .job import ConfigTask, Job
 
 
-from .support import AttributeManager, Status, ResourceChanges, Priority, set_context_vars
+from .support import (
+    AttributeManager,
+    Status,
+    ResourceChanges,
+    Priority,
+    set_context_vars,
+)
 from .result import (
     ChangeRecord,
     ResultsList,
@@ -476,7 +482,7 @@ class TaskView:
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._manifest = manifest
-        self.messages: List[object] = []
+        self.messages: List[Any] = []
         self._addedResources: List[NodeInstance] = []
         self._dependenciesChanged = False
         self.dependencies: List["Operational"] = dependencies or []
@@ -484,8 +490,10 @@ class TaskView:
         self._workFolders: Dict[str, WorkFolder] = {}
         self._failed_paths: List[str] = []
         self._rendering = False
-        self._environ: object = None
+        # (_environ type is object because of _initializing_environ)
+        self._environ: Optional[object] = None
         self._attributeManager: AttributeManager = None  # type: ignore
+        self.job: Optional["Job"] = None
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
 
@@ -964,8 +972,9 @@ class TaskView:
         if not operation:
             operation = f"{self.configSpec.interface}.{self.configSpec.operation}"
         if isinstance(operation, str):
+            assert self.job
             taskRequest = create_task_request(
-                self.job.jobOptions,  # type: ignore
+                self.job.jobOptions,
                 operation,
                 resource,
                 "subtask: " + self.configSpec.name,
@@ -1116,6 +1125,7 @@ class TaskView:
         errors: List[UnfurlTaskError] = []
         newResources = []
         newResourceSpecs = []
+        updated_resources = []
         for resourceSpec in instances:
             # we might have items that aren't resource specs
             if not isinstance(resourceSpec, MutableMapping):
@@ -1170,8 +1180,8 @@ class TaskView:
             self.logger.info("add resources %s", newResources)
 
             jobRequest = JobRequest(newResources, errors)
-            if self.job:  # type: ignore
-                self.job.jobRequestQueue.append(jobRequest)  # type: ignore
+            if self.job:
+                self.job.jobRequestQueue.append(jobRequest)
             return jobRequest, errors
         return None, errors
 
@@ -1297,7 +1307,9 @@ class Dependency(Operational):
                 return True
             return result[0] != self.expected
         else:
-            return self.expected != Ref(self.expr).resolve(RefContext(self.target), self.wantList)
+            return self.expected != Ref(self.expr).resolve(
+                RefContext(self.target), self.wantList
+            )
 
     def refresh(self, config: "ConfigTask") -> None:
         if self.expected is not None:
