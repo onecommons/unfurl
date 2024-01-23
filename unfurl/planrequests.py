@@ -1040,18 +1040,26 @@ def create_instance_from_spec(
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:
-        resourceSpec["parent"] = target.name
+        pname = resourceSpec["parent"] = target.name
     elif pname == "HOST":
         if target.parent:
-            resourceSpec["parent"] = target.parent.name  # type: ignore  # unreachable
+            pname = resourceSpec["parent"] = target.parent.name  # type: ignore  # unreachable
         else:
-            resourceSpec["parent"] = "root"
+            pname = resourceSpec["parent"] = "root"
 
     if isinstance(resourceSpec.get("template"), dict):
         # inline node template, add it to the spec
         tname = resourceSpec["template"].pop("name", rname)
+        template = resourceSpec["template"]
+        if pname and pname != "root":
+            requirements = template.setdefault("requirements", [])
+            for req in requirements:
+                if "host" in req:
+                    break  # don't mess with this
+            else:
+                requirements.append(dict(host=pname))
         nodeSpec = target.template.topology.add_node_template(
-            tname, resourceSpec["template"]
+            tname, template
         )
         resourceSpec["template"] = nodeSpec.name
 

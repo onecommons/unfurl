@@ -1146,14 +1146,19 @@ class TaskView:
             try:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
+                    discovered = "" if existingResource is self.target else "dynamic"
                     if updated:
                         self.logger.info(
-                            "updating dynamic instance %s", existingResource.name
+                            f"updating {discovered} instance %s parent: {existingResource.parent and existingResource.parent.name}",
+                            existingResource.name,
                         )
                     else:
                         self.logger.debug(
-                            "no change to dynamic instance %s", existingResource.name
+                            f"no change to {discovered} instance %s",
+                            existingResource.name,
                         )
+                    if not discovered:
+                        updated_resources.append(existingResource)
                 else:
                     newResource = create_instance_from_spec(
                         self._manifest, self.target, rname, resourceSpec
@@ -1178,7 +1183,7 @@ class TaskView:
             self._resourceChanges.add_resources(newResourceSpecs)
             self._addedResources.extend(newResources)
             self.logger.info("add resources %s", newResources)
-
+        if newResourceSpecs:  # XXX or updated_resources:
             jobRequest = JobRequest(newResources, errors)
             if self.job:
                 self.job.jobRequestQueue.append(jobRequest)
