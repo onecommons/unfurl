@@ -154,8 +154,11 @@ def save_task(task, skip_result=False):
         output["target"] = task.target.key
     save_status(task, output)
     output["implementation"] = save_config_spec(task.configSpec)
-    if task._resolved_inputs:  # only serialize resolved inputs
-        output["inputs"] = serialize_value(task._resolved_inputs)
+    try:
+        if task._resolved_inputs:  # only serialize resolved inputs
+            output["inputs"] = serialize_value(task._resolved_inputs)
+    except Exception:
+        logger.error("Error while saving task %s, serializing inputs failed", task, exc_info=True)
     changes = save_resource_changes(task._resourceChanges)
     if changes:
         output["changes"] = changes
