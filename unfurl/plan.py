@@ -1040,7 +1040,7 @@ def find_explicit_operation_hosts(template, interface):
                 yield operation_host
 
 
-def interface_requirements_ok(spec, template):
+def interface_requirements_ok(spec: ToscaSpec, template: NodeSpec):
     reqs = template.get_interface_requirements()
     if reqs:
         assert isinstance(reqs, list)
@@ -1048,7 +1048,7 @@ def interface_requirements_ok(spec, template):
             if not any(
                 [
                     rel.is_compatible_type(req)
-                    for rel in spec.topology.default_relationships
+                    for rel in cast(TopologySpec, spec.topology).default_relationships
                 ]
             ):
                 logger.debug(

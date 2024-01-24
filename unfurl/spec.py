@@ -888,6 +888,9 @@ class EntitySpec(ResourceRef):
     def tpl(self) -> dict:
         return self.toscaEntityTemplate.entity_tpl
 
+    def get_interface_requirements(self) -> List[str]:
+        return self.toscaEntityTemplate.get_interface_requirements()
+
     def find_props(self, attributes):
         yield from find_props(attributes, self.propertyDefs)
 
@@ -1004,11 +1007,6 @@ class NodeSpec(EntitySpec):
                 tpl = list(req.entity_tpl.values())[0]
                 relationship.toscaEntityTemplate.entity_tpl = tpl
             return relationship
-
-    def get_interface_requirements(self):
-        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
-            self.toscaEntityTemplate.entity_tpl
-        )
 
     @property
     def artifacts(self) -> Dict[str, "ArtifactSpec"]:
@@ -1589,6 +1587,20 @@ class TopologySpec(EntitySpec):
                 for relSpec in self.relationship_templates.values()
                 if relSpec.toscaEntityTemplate.default_for
             ]
+            if not self.primary_provider:
+                # no cloud provider specified assume at least this default connection can happen
+                generic = RelationshipSpec(
+                    RelationshipTemplate(
+                        dict(
+                            type="unfurl.relationships.ConnectsTo.ComputeMachines",
+                            default_for=True,
+                        ),
+                        "_default_provider",
+                        self.topology_template.custom_defs,
+                    ),
+                    self,
+                )
+                self._defaultRelationships.append(generic)
         return self._defaultRelationships
 
     @property

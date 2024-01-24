@@ -286,8 +286,11 @@ relationship_types:
           Passed to ansible as host vars
           See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters
 
-  unfurl.relationships.ConnectsTo.CloudAccount:
+  unfurl.relationships.ConnectsTo.ComputeMachines:
     derived_from: tosca.relationships.ConnectsTo
+
+  unfurl.relationships.ConnectsTo.CloudAccount:
+    derived_from: unfurl.relationships.ConnectsTo.ComputeMachines
     # valid_target_types: [unfurl.capabilities.Endpoint.CloudAccount]
 
   unfurl.relationships.ConnectsTo.GoogleCloudProject:
