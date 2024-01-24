@@ -533,6 +533,12 @@ class ToscaSpec:
             or typeName in EntityType.TOSCA_DEF
         )
 
+    def find_type(self, name: str) -> Optional[StatefulEntityType]:
+        if self.template.topology_template:
+            return self.template.topology_template.find_type(name)
+        else:
+            return None
+
     def load_instances(self, toscaDef, tpl):
         """
         Creates node templates for any instances defined in the spec

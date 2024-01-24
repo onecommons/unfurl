@@ -841,7 +841,7 @@ def add_capabilities_as_attributes(schema, nodetype, custom_defs: CustomDefs):
         schema[cap.name] = tosca_type_to_jsonschema(custom_defs, propdefs, cap.type)
 
 
-def _get_typedef(name: str, custom_defs: CustomDefs) -> Optional[StatefulEntityType]:
+def _get_typedef(name: str, custom_defs: CustomDefs) -> Optional[Dict[str, Any]]:
     # XXX check if fully qualified
     typedef = custom_defs.get(name)
     if not typedef:

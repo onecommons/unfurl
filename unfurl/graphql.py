@@ -20,17 +20,15 @@ from urllib.parse import urlparse
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.statefulentitytype import StatefulEntityType
-from toscaparser.elements.artifacttype import ArtifactTypeDef
-from toscaparser.elements.relationshiptype import RelationshipType
-from toscaparser.elements.nodetype import NodeType
 from toscaparser.imports import is_url
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.portspectype import PortSpec
+from toscaparser.topology_template import find_type
 from .repo import normalize_git_url_hard
-from .packages import get_package_from_url, get_package_id_from_url
+from .packages import get_package_id_from_url
 from .result import ChangeRecord
 from .yamlmanifest import YamlManifest
 from .runtime import EntityInstance, TopologyInstance
@@ -384,36 +382,9 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
 
     def _make_typedef(self, name: str, all=False, get_local=True) -> Optional[StatefulEntityType]:
         typename = self.get_localname(name) if get_local else name
-        typedef: Optional[StatefulEntityType] = None
-        custom_defs = self.custom_defs
-        # prefix is only used to expand "tosca:Type"
-        test_typedef = StatefulEntityType(
-            typename, StatefulEntityType.NODE_PREFIX, custom_defs
-        )
-        if not test_typedef.defs:
+        typedef = find_type(typename, self.custom_defs)
+        if not typedef:
             logger.warning("Missing type definition for %s", name)
-            return typedef
-        elif "derived_from" not in test_typedef.defs:
-            _source = test_typedef.defs.get("_source")
-            section = isinstance(_source, dict) and _source.get("section")
-            if _source and not section:
-                logger.warning(
-                    'Unable to determine type of %s: missing "derived_from" key',
-                    typename,
-                )
-            elif section == "node_types":
-                custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
-            elif section == "relationship_types":
-                custom_defs[typename]["derived_from"] = "tosca.relationships.Root"
-        if test_typedef.is_derived_from("tosca.nodes.Root"):
-            typedef = NodeType(typename, custom_defs)
-        elif test_typedef.is_derived_from("tosca.relationships.Root"):
-            typedef = RelationshipType(typename, custom_defs)
-        elif all:
-            if test_typedef.is_derived_from("tosca.artifacts.Root"):
-                typedef = ArtifactTypeDef(typename, custom_defs)
-            else:
-                return test_typedef
         return typedef
 
 
