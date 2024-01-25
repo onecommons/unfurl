@@ -812,7 +812,12 @@ class Results(ABC):
                 logger.debug(
                     "running transform on %s.%s", self.context.currentResource.name, key
                 )
-                return map_value(transform, self.context.copy(vars=dict(value=value)))
+                try:
+                    return map_value(transform, self.context.copy(vars=dict(value=value)))
+                except Exception:
+                    logger.error(
+                        "transform on %s.%s failed.", self.context.currentResource.name, key, exc_info=True
+                    )
         return value
 
     @staticmethod
