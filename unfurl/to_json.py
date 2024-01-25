@@ -980,6 +980,7 @@ def nodetemplate_to_json(
     if "imported" in nodetemplate.entity_tpl:
         json["imported"] = nodetemplate.entity_tpl.get("imported")
     if metadata:
+        metadata.pop("before_patch", None)
         json["metadata"] = metadata
 
     visitor = PropertyVisitor()

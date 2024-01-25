@@ -1104,6 +1104,7 @@ class Convert:
             fieldparams.append(f"node_filter={value2python_repr(node_filter, True)}")
         metadata = req.get("metadata")
         if metadata:
+            metadata.pop("before_patch", None)
             fieldparams.append(f"metadata={metadata_repr(metadata)}")
         if fieldparams or explicit:
             if default:
