@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 import importlib
 import pprint
+import re
 import types
 from typing import (
     Any,
@@ -144,16 +145,20 @@ def convert_to_yaml(
     import_resolver.expand = False
     namespace: Dict[str, Any] = {}
     logger.trace(
-        f"converting Python to YAML: {path} in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}"
+        f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"
     )
     if repo_view and repo_view.repository:
-        package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
+        if repo_view.repo:
+            root_path = repo_view.working_dir
+        else:
+            root_path = base_dir
+        package_path = Path(get_base_dir(path)).relative_to(root_path)
         relpath = str(package_path).strip("/").replace("/", ".")
         if repo_view.repository.name == "unfurl":
             package = "unfurl."
         else:
-            # make sure tosca_repository symlink exists
-            name = repo_view.get_link(base_dir)[0]
+            name = re.sub(r"\W", "_", repo_view.repository.name)
+            assert name.isidentifier(), name
             package = "tosca_repositories." + name
     else:
         package_path = Path(get_base_dir(path)).relative_to(base_dir)
