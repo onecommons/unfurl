@@ -54,7 +54,6 @@ from .util import (
     to_enum,
     wrap_sensitive_value,
     sensitive,
-    truncate_str,
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
@@ -1032,7 +1031,7 @@ class TaskView:
                     "setting attribute %s on %s with %s",
                     key,
                     existingResource.name,
-                    truncate_str(value),
+                    value,
                 )
             updated = True
 

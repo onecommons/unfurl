@@ -21,8 +21,9 @@ inputs:
 # see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
+from ..logs import truncate
 from ..configurator import Status, TaskView
-from ..util import which, truncate_str, clean_output
+from ..util import which, clean_output
 from . import TemplateConfigurator, TemplateInputs
 import os
 import sys
@@ -43,6 +44,9 @@ import subprocess
 
 if TYPE_CHECKING:
     from ..job import ConfigTask
+
+# logging to file doesn't logging.truncate, so manually truncate potentially huge output
+FILELOG_TRUNCATE_LENGTH = 10000
 
 
 class ShellInputs(TemplateInputs):
@@ -235,11 +239,14 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.info(
                     "shell task return code: %s, stderr: %s",
                     result.returncode,
-                    truncate_str(result.stderr),
+                    truncate(result.stderr, FILELOG_TRUNCATE_LENGTH),
                 )
         else:
             task.logger.info("shell task run success: %s", result.cmd)
-            task.logger.debug("shell task output: %s", truncate_str(result.stdout))
+            task.logger.debug(
+                "shell task output: %s",
+                truncate(result.stdout, FILELOG_TRUNCATE_LENGTH),
+            )
         return not error
 
     def _process_result(self, task, result, cwd):

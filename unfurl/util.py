@@ -475,13 +475,6 @@ def get_base_dir(path: str) -> str:
         return os.path.normpath(os.path.dirname(path))
 
 
-def truncate_str(v: str) -> str:
-    s = str(v)
-    if len(s) > 1000:
-        return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
-    return v
-
-
 def clean_output(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(value))
 

@@ -498,11 +498,11 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                     msg = f'missing variable: "{match.group(1)}"'
             value = f"<<Error rendering template: {msg}>>"
             if ctx.strict:
-                log.debug(value, exc_info=True)
+                log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
                 raise UnfurlError(value)
             else:
                 log.warning(value[2:100] + "... see debug log for full report")
-                log.debug(value, exc_info=True)
+                log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
                 if ctx.task:
                     UnfurlTaskError(ctx.task, msg)
         else:
@@ -541,7 +541,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     return value
 
 
-def _template_func(args, ctx):
+def _template_func(args, ctx: RefContext):
     args = map_value(args, ctx, False)  # don't apply templates yet
     if isinstance(args, Mapping) and "path" in args:
         path = args["path"]
@@ -553,6 +553,7 @@ def _template_func(args, ctx):
             path = get_path(ctx, path, "src")
         if not os.path.isabs(path):
             path = get_path(ctx, path, "src")
+        ctx.trace("loading template from", path)
         with open(path) as f:
             value = f.read()
     else:

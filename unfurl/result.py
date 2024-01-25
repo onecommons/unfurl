@@ -37,9 +37,9 @@ from .util import (
     dump,
     wrap_sensitive_value,
 )
-from .logs import sensitive
+from .logs import sensitive, getLogger
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 
 def _get_digest(value, kw):
@@ -809,7 +809,7 @@ class Results(ABC):
         if property:
             transform = self._get_prop_metadata_key(property, "transform")
             if transform:
-                logger.debug(
+                logger.trace(
                     "running transform on %s.%s", self.context.currentResource.name, key
                 )
                 try:

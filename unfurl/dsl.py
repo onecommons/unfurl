@@ -144,7 +144,7 @@ def convert_to_yaml(
     import_resolver.expand = False
     namespace: Dict[str, Any] = {}
     logger.trace(
-        f"converting {path} to Python in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}"
+        f"converting Python to YAML: {path} in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}"
     )
     if repo_view and repo_view.repository:
         package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
