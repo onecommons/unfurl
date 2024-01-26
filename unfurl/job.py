@@ -1527,9 +1527,18 @@ def start_job(manifestPath=None, _opts=None):
         )
         return None, None, False
 
-    job = _plan(manifest, opts)
-    rendered, count = _render(job)
-    errors = list(job._yield_serious_errors(rendered[2]))
+    try:
+        job = _plan(manifest, opts)
+        rendered, count = _render(job)
+        errors = list(job._yield_serious_errors(rendered[2]))
+    except Exception as e:
+        logger.error(
+            "could not create job: %s",
+            str(e),
+            exc_info=opts.verbose >= 2,
+        )
+        return None, None, False
+
     if errors:
         logger.error("Aborting job: there were errors during rendering: %s", errors)
         job.local_status = Status.error

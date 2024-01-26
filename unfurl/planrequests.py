@@ -1275,7 +1275,10 @@ def _set_config_spec_args(
             klass = lookup_class(className)
     except Exception:
         klass = None
-        logger.debug("exception while instantiating %s", className, exc_info=True)
+        if guessing:
+            logger.debug("exception instantiating %s while guessing at operation implementation", className, exc_info=True)
+        else:
+            raise UnfurlError(f"exception while instantiating {className}")
 
     # invoke configurator classmethod to give configurator a chance to customize configspec (e.g. add dependencies)
     if klass:
