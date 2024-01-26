@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping, MutableSequence, MutableMapping
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, ABCMeta
 from datetime import datetime, timedelta
 import io
 import logging
@@ -584,7 +584,17 @@ class ResultsItem(Result):
             return new
 
 
-class Results(ABC):
+class CollectionProxy:
+    _values: Any
+
+class ProxyableType(ABCMeta):
+    def __instancecheck__(cls, inst):
+        """Implement isinstance(inst, cls)."""
+        if isinstance(inst, CollectionProxy):
+            return isinstance(inst._values, cls)
+        return ABCMeta.__instancecheck__(cls, inst)
+
+class Results(ABC, metaclass=ProxyableType):
     """
     Evaluating expressions are not guaranteed to be idempotent (consider quoting)
     and resolving the whole tree up front can lead to evaluations of circular references unless the

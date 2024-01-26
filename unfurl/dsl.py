@@ -65,7 +65,7 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .logs import getLogger
 from .eval import RefContext, set_eval_func, Ref
-from .result import Results, ResultsItem, ResultsMap
+from .result import Results, ResultsItem, ResultsMap, CollectionProxy
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
 from .repo import RepoView
@@ -279,12 +279,11 @@ def eval_computed(arg, ctx):
 set_eval_func("computed", eval_computed)
 
 
-class ProxyCollection:
+class ProxyCollection(CollectionProxy):
     """
     For proxying lists and maps set on a ToscaType template to a value usable by the runtime.
     It will create proxies of Tosca datatypes on demand.
     """
-
     def __init__(self, collection, type_info: tosca.TypeInfo):
         self._values = collection
         self._type_info = type_info
