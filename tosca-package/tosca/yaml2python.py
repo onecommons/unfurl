@@ -840,7 +840,7 @@ class Convert:
             artifacts: Dict[str, Artifact] = {}
             required_artifacts: Dict[str, dict] = {}
             NodeTemplate.find_artifacts_on_type(
-                toscatype, artifacts, required_artifacts
+                toscatype, artifacts, required_artifacts, False
             )
             for artifact in artifacts.values():
                 artifact_name, artifact_src = self.artifact2obj(artifact)
