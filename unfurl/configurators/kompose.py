@@ -34,6 +34,7 @@
 
 from typing import cast, Union, Optional, List, Dict, Any
 from toscaparser.elements.portspectype import PortSpec
+from ..tosca_plugins.functions import to_dns_label
 from ..result import serialize_value
 from ..configurator import TaskView
 from .shell import ShellConfigurator, ShellInputs
@@ -42,13 +43,14 @@ from ..util import UnfurlTaskError, which
 from ..yamlloader import yaml
 from ..merge import merge_dicts
 from ..projectpaths import Folders
-from ..support import to_kubernetes_label, ContainerImage, Reason
+from ..support import ContainerImage, Reason
 import os
 import os.path
 from pathlib import Path
 
 
 TIMEOUT = 180  # default timeout in seconds (3 minutes)
+NAMEMAX = 52  # max service name length
 
 
 class KomposeInputs(ShellInputs):
@@ -61,7 +63,7 @@ class KomposeInputs(ShellInputs):
     registry_password: Optional[str] = None
     labels: Union[None, Dict[str, str]] = None
     annotations: Union[None, Dict[str, Any]] = None
-    expose: Union[bool,str,None] = None
+    expose: Union[bool, str, None] = None
     ingress_extras: Union[None, Dict[str, Any]] = None
     env: Union[None, Dict[str, str]] = None
 
@@ -94,7 +96,9 @@ def render_compose(
     if not service_name:
         service_name = container.get("container_name", ContainerImage.split(image)[0])
     assert service_name
-    return dict(services={cast(str, to_kubernetes_label(service_name)): service})
+    # service names are more constrained than generic kubernetes labels, treat as dns host name
+    # the max is 63 but give kompose some room to append to the name
+    return dict(services={cast(str, to_dns_label(service_name, max=NAMEMAX)): service})
 
 
 def get_ingress_extras(task, ingress_extras):
@@ -137,6 +141,11 @@ class KomposeConfigurator(ShellConfigurator):
             raise UnfurlTaskError(
                 task,
                 f'docker-compose.yml does not specify a container image: "{compose}"',
+            )
+        if service_name != to_dns_label(service_name, max=NAMEMAX):
+            raise UnfurlTaskError(
+                task,
+                f'malformed service name: "{service_name}": must not exceed {NAMEMAX} characters and match [a-z0-9]([-a-z0-9]*[a-z0-9])?',
             )
         return service_name
 
@@ -200,7 +209,7 @@ class KomposeConfigurator(ShellConfigurator):
 
         registry_password = task.inputs.get("registry_password")
         if registry_password:
-            pull_secret_name = f"{service_name}-registry-secret"
+            pull_secret_name = f"{service_name}-rgstryscrt"
             registry_url = task.inputs.get("registry_url")
             # XXX validate registry_url, shouldn't be a full url
             registry_user = task.inputs.get("registry_user")
@@ -218,7 +227,9 @@ class KomposeConfigurator(ShellConfigurator):
             labels["kompose.image-pull-secret"] = pull_secret_name
         expose = task.inputs.get("expose")
         if expose:
-            labels["kompose.service.expose"] = "true" if isinstance(expose, bool) else expose
+            labels["kompose.service.expose"] = (
+                "true" if isinstance(expose, bool) else expose
+            )
         _add_labels(main_service, labels)
 
         # map "files" to configmap
