@@ -967,7 +967,9 @@ def _filter_config(opts: "JobOptions", config: "ConfigurationSpec", target):
     return config, None
 
 
-def filter_task_request(jobOptions: "JobOptions", req: TaskRequest) -> Optional[TaskRequest]:
+def filter_task_request(
+    jobOptions: "JobOptions", req: TaskRequest
+) -> Optional[TaskRequest]:
     configSpec = req.configSpec
     configSpecName = configSpec.name
     configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)
@@ -1058,9 +1060,7 @@ def create_instance_from_spec(
                     break  # don't mess with this
             else:
                 requirements.append(dict(host=pname))
-        nodeSpec = target.template.topology.add_node_template(
-            tname, template
-        )
+        nodeSpec = target.template.topology.add_node_template(tname, template)
         resourceSpec["template"] = nodeSpec.name
 
     if resourceSpec.get("readyState") and "created" not in resourceSpec:
@@ -1276,7 +1276,11 @@ def _set_config_spec_args(
     except Exception:
         klass = None
         if guessing:
-            logger.debug("exception instantiating %s while guessing at operation implementation", className, exc_info=True)
+            logger.debug(
+                "exception instantiating %s while guessing at operation implementation",
+                className,
+                exc_info=True,
+            )
         else:
             raise UnfurlError(f"exception while instantiating {className}")
 
@@ -1352,7 +1356,9 @@ def _get_config_spec_args_from_implementation(
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
     if not base_dir:
-        base_dir = template.base_dir if template else "."
+        base_dir = getattr(iDef.ntype.defs, "base_dir", None)
+        if not base_dir:
+            base_dir = template.base_dir if template else "."
     kw["base_dir"] = base_dir
     artifact = None
     guessing = ""

@@ -839,6 +839,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                             readonly=self.readonly,
                         ).expanded
                     doc.path = path
+                    doc.base_dir = get_base_dir(path)
             if fragment and doc:
                 return _refResolver.resolve_fragment(doc, fragment), cacheable
             else:

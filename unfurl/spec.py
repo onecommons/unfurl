@@ -896,8 +896,9 @@ class EntitySpec(ResourceRef):
 
     @property
     def base_dir(self) -> str:
-        if self.toscaEntityTemplate._source:
-            return self.toscaEntityTemplate._source
+        base_dir = getattr(self.toscaEntityTemplate.entity_tpl, "base_dir", self.toscaEntityTemplate._source)
+        if base_dir:
+            return base_dir
         elif self.spec:
             return self.spec.base_dir
         else:
