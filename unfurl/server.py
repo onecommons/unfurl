@@ -1114,7 +1114,7 @@ def json_response(obj, pretty, **dump_args):
     return current_app.response_class(f"{dumps(obj, **dump_args)}\n", mimetype=mimetype)
 
 
-# /export?format=environments&include_deployments=true&latest_commit=foo&project_id=bar&branch=main
+# /export?format=environments&include_all_deployments=true&latest_commit=foo&project_id=bar&branch=main
 @app.route("/export")
 def export():
     requested_format = request.args.get("format", "deployment")
@@ -1715,6 +1715,7 @@ def _make_requirement(dependency) -> dict:
 
 def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
     imports: List[dict] = []
+    title = None
     for key, value in patch.items():
         if key == "type":
             tpl[key] = value.split("@")[0]
@@ -1724,7 +1725,7 @@ def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
             imports.append(value)
         elif key == "title":
             if value != patch["name"]:
-                tpl.setdefault("metadata", {})["title"] = value
+                title = value
         elif key == "metadata":
             tpl.setdefault("metadata", {}).update(value)
         elif key == "properties":
@@ -1749,6 +1750,8 @@ def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
             ]
             if requirements or "requirements" in tpl:
                 tpl["requirements"] = requirements
+    if title:  # give "title" priority over "metadata/title"
+        tpl.setdefault("metadata", {})["title"] = title
     return imports
 
 
