@@ -22,6 +22,7 @@ from typing import (
     Optional,
     Any,
     NewType,
+    overload,
 )
 from typing_extensions import TypedDict, Unpack
 from urllib.parse import quote, quote_plus
@@ -70,11 +71,8 @@ class DNSLabelKwArgs(TypedDict, total=False):
     digestlen: int
 
 
-class K8sLabelKwArgs(DNSLabelKwArgs, total=False):
+class LabelKwArgs(DNSLabelKwArgs, total=False):
     start: str
-
-
-class LabelKwArgs(K8sLabelKwArgs, total=False):
     allowed: str
     replace: str
     end: Optional[str]
@@ -104,6 +102,18 @@ def _validate_allowed(chars):
 
 
 # mypy: enable-incomplete-feature=Unpack
+
+
+@overload
+def to_label(arg: Union[str, list], **kw: Unpack[LabelKwArgs]) -> str:
+    ...
+
+
+@overload
+def to_label(arg: Mapping, **kw: Unpack[LabelKwArgs]) -> dict:
+    ...
+
+
 def to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
     r"""Convert a string to a label with the given constraints.
         If a dictionary, all keys and string values are converted.
@@ -208,13 +218,44 @@ def to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
         return arg
 
 
+@overload
 def to_dns_label(
-    arg: LabelArg,
-    allowed=r"\w-",
-    start=r"\w",
+    arg: Union[str, list],
+    *,
+    allowed=r"[a-zA-Z0-9-]",
+    start="[a-zA-Z]",
     replace="--",
     case="lower",
-    end=r"\w",
+    end="[a-zA-Z0-9]",
+    max=63,
+    **kw: Unpack[DNSLabelKwArgs],
+) -> str:
+    ...
+
+
+@overload
+def to_dns_label(
+    arg: Mapping,
+    *,
+    allowed=r"[a-zA-Z0-9-]",
+    start="[a-zA-Z]",
+    replace="--",
+    case="lower",
+    end="[a-zA-Z0-9]",
+    max=63,
+    **kw: Unpack[DNSLabelKwArgs],
+) -> dict:
+    ...
+
+
+def to_dns_label(
+    arg: LabelArg,
+    *,
+    allowed=r"[a-zA-Z0-9-]",
+    start="[a-zA-Z]",
+    replace="--",
+    case="lower",
+    end="[a-zA-Z0-9]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
 ):
@@ -237,14 +278,46 @@ def to_dns_label(
     )
 
 
+@overload
 def to_kubernetes_label(
-    arg: LabelArg,
-    allowed=r"\w_.-",
+    arg: Union[str, list],
+    *,
+    allowed=r"\w.-",
     case="any",
     replace="__",
-    end=r"\w",
+    start="[a-zA-Z0-9]",
+    end="[a-zA-Z0-9]",
     max=63,
-    **kw: Unpack[K8sLabelKwArgs],
+    **kw: Unpack[DNSLabelKwArgs],
+) -> str:
+    ...
+
+
+@overload
+def to_kubernetes_label(
+    arg: Mapping,
+    *,
+    allowed=r"\w.-",
+    case="any",
+    replace="__",
+    start="[a-zA-Z0-9]",
+    end="[a-zA-Z0-9]",
+    max=63,
+    **kw: Unpack[DNSLabelKwArgs],
+) -> dict:
+    ...
+
+
+def to_kubernetes_label(
+    arg: LabelArg,
+    *,
+    allowed=r"\w.-",
+    case="any",
+    replace="__",
+    start="[a-zA-Z0-9]",
+    end="[a-zA-Z0-9]",
+    max=63,
+    **kw: Unpack[DNSLabelKwArgs],
 ):
     """
     See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
@@ -252,24 +325,63 @@ def to_kubernetes_label(
     Invalid characters are replaced with "__".
     """
     return to_label(
-        arg, allowed=allowed, replace=replace, end=end, max=max, case=case, **kw
+        arg,
+        allowed=allowed,
+        replace=replace,
+        end=end,
+        max=max,
+        case=case,
+        start=start,
+        **kw,
     )
+
+
+@overload
+def to_googlecloud_label(
+    arg: Union[str, list],
+    *,
+    allowed=r"\w-",
+    case="lower",
+    replace="__",
+    start="[a-zA-Z]",
+    max=63,
+    **kw: Unpack[DNSLabelKwArgs],
+) -> str:
+    ...
+
+
+@overload
+def to_googlecloud_label(
+    arg: Mapping,
+    *,
+    allowed=r"\w-",
+    case="lower",
+    replace="__",
+    start="[a-zA-Z]",
+    max=63,
+    **kw: Unpack[DNSLabelKwArgs],
+) -> dict:
+    ...
 
 
 def to_googlecloud_label(
     arg: LabelArg,
-    allowed=r"\w_-",
+    *,
+    allowed=r"\w-",
     case="lower",
     replace="__",
+    start="[a-zA-Z]",
     max=63,
-    **kw: Unpack[K8sLabelKwArgs],
+    **kw: Unpack[DNSLabelKwArgs],
 ):
     """
     See https://cloud.google.com/resource-manager/docs/labels-overview
 
     Invalid characters are replaced with "__".
     """
-    return to_label(arg, allowed=allowed, case=case, replace=replace, max=max, **kw)
+    return to_label(
+        arg, allowed=allowed, case=case, replace=replace, max=max, start=start, **kw
+    )
 
 
 def get_random_password(
@@ -321,7 +433,7 @@ def urljoin(
     path: Optional[str] = None,
     query: Optional[str] = None,
     frag: Optional[str] = None,
-):
+) -> Optional[str]:
     """
     Evaluate a list of url components to a relative or absolute URL,
     where the list is ``[scheme, host, port, path, query, fragment]``.
