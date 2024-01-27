@@ -883,10 +883,11 @@ class TaskView:
         strict: bool = True,
         vars: Optional[dict] = None,
         throw: bool = False,
+        trace: Optional[int] = None,
     ) -> Union[Any, Result, List[Result], None]:
         # XXX pass resolveExternal to context?
         try:
-            result = Ref(query, vars=vars, trace=2).resolve(
+            result = Ref(query, vars=vars, trace=trace).resolve(
                 self.inputs.context, wantList, strict
             )
         except Exception:

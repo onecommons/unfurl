@@ -37,7 +37,13 @@ from .support import (
 from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
-from .runtime import EntityInstance, TopologyInstance, Operational, OperationalInstance
+from .runtime import (
+    EntityInstance,
+    RelationshipInstance,
+    TopologyInstance,
+    Operational,
+    OperationalInstance,
+)
 from .logs import SensitiveFilter, end_collapsible, start_collapsible, getLogger
 from .configurator import (
     TaskView,
@@ -291,7 +297,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.target_state = self.target.state
         self.set_envvars()
 
-    def _update_status(self, result) -> bool:
+    def _update_status(self, result: ConfiguratorResult) -> bool:
         """
         Update the instances status with the result of the operation.
         If status wasn't explicitly set but the operation changed the instance's configuration
@@ -327,7 +333,14 @@ class ConfigTask(TaskView, ConfigChange):
             elif result.modified is None:
                 self.target.local_status = Status.unknown
                 return True
-            # otherwise doesn't modify target status
+        elif result.modified and isinstance(self.target, RelationshipInstance):
+            # success, modified but no explicit status set
+            # and target is a relationship so only needs to run one operation
+            # so we can set the target's status now
+            self.target.local_status = get_success_status(
+                cast(Job, self.job).jobOptions.workflow
+            )
+        # otherwise doesn't need to modify target status (we'll do that when the workflow ends)
         return False
 
     def _update_last_change(self, result: ConfiguratorResult) -> bool:
@@ -986,7 +999,7 @@ class Job(ConfigChange):
                         raise JobAborted(
                             f"Critical task failed: {task.name} for {task.target.name}"
                         )
-                # note: task won't be return from _run_operation is the target's workflow state was set
+                # task won't be returned from _run_operation if it doesn't run, so use req
                 if req and req.is_final_for_workflow and req.completed:
                     req.finish_workflow()
 
@@ -1149,7 +1162,7 @@ class Job(ConfigChange):
             req.startState,
             req.configSpec.operation,
             workflow,
-            f" entry_state: {entry_state}" if entry_state else ""
+            f" entry_state: {entry_state}" if entry_state else "",
         )
         if req.configSpec.operation == "check":
             missing, reason = _dependency_check(resource, operational=True)
