@@ -408,7 +408,9 @@ class Manifest(AttributeManager):
     def _create_substituted_topology(
         self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
     ) -> Optional[TopologyInstance]:
-        root = cast(TopologyInstance, parent.root if parent else self.get_root_resource())
+        root = cast(
+            TopologyInstance, parent.root if parent else self.get_root_resource()
+        )
         templateName = resourceSpec.get("template", rname)
         template = cast(Optional[NodeSpec], self.load_template(templateName, parent))
         if template is None:
@@ -545,8 +547,24 @@ class Manifest(AttributeManager):
             instance._properties = properties
         return instance
 
-    def status_summary(self):
-        def summary(instance, indent):
+    @staticmethod
+    def is_instantiated(resource, checkstatus=True) -> bool:
+        if "virtual" in resource.template.directives:
+            return False
+        if not resource.last_change and (
+            not resource.local_status
+            or (
+                checkstatus
+                and resource.local_status in [Status.unknown, Status.ok, Status.pending]
+            )
+        ):
+            return False
+        return True
+
+    def status_summary(self, verbose=False):
+        def summary(instance, indent, show_virtual=True):
+            instantiated = self.is_instantiated(instance)
+            computed = " computed " if verbose and instance.is_computed() else ""
             status = "" if instance.status is None else instance.status.name
             state = instance.state and instance.state.name or ""
             if instance.created:
@@ -556,12 +574,27 @@ class Manifest(AttributeManager):
                     created = f"created by {instance.created}"
             else:
                 created = ""
-            output.append(f"{' ' * indent}{instance} {status} {state} {created}")
-            indent += 4
+            if verbose:
+                instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')({instance.type})"
+            else:
+                instance_label = repr(instance)
+            local = (
+                f"({'None' if instance.local_status is None else instance.local_status.name})"
+                if verbose
+                else ""
+            )
+            if instantiated or verbose:
+                vlabel = "" if instantiated else " virtual"
+                output.append(
+                    f"{' ' * indent}{instance_label}{vlabel}{computed} {status}{local} {state} {created}"
+                )
+                indent += 4
+            elif show_virtual:
+                output.append(f"{' ' * indent}{instance_label} virtual{computed}")
+                indent += 4
             if isinstance(instance, HasInstancesInstance):
                 for rel in instance.requirements:
-                    if rel.local_status is not None:
-                        summary(rel, indent)
+                    summary(rel, indent, False)
                 if getattr(instance.template, "substitution", None) and instance.shadow:
                     summary(instance.shadow.root, indent)
                 for child in instance.instances:

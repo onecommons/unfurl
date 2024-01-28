@@ -1318,7 +1318,8 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     help="Use this environment.",
 )
 def status(ctx, ensemble, **options):
-    """Show the status of deployed resources in the given ensemble."""
+    """Show the status of deployed resources in the given ensemble.\n
+    (Use global -v for verbose display.)"""
     options.update(ctx.obj)
     localEnv = LocalEnv(
         ensemble,
@@ -1328,8 +1329,10 @@ def status(ctx, ensemble, **options):
     )
     logger = logging.getLogger("unfurl")
     manifest = localEnv.get_manifest()
-    summary = manifest.status_summary()
-    logger.info("Status summary:\n%s", summary, extra=dict(truncate=0))
+    verbose = ctx.obj["verbose"] > 0
+    summary = manifest.status_summary(verbose)
+    vstr = " (verbose) " if verbose else ""
+    logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
     query = options.get("query")
     if query:
         trace = options.get("trace")

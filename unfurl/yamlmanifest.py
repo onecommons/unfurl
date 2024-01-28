@@ -158,7 +158,9 @@ def save_task(task, skip_result=False):
         if task._resolved_inputs:  # only serialize resolved inputs
             output["inputs"] = serialize_value(task._resolved_inputs)
     except Exception:
-        logger.error("Error while saving task %s, serializing inputs failed", task, exc_info=True)
+        logger.error(
+            "Error while saving task %s, serializing inputs failed", task, exc_info=True
+        )
     changes = save_resource_changes(task._resourceChanges)
     if changes:
         output["changes"] = changes
@@ -289,6 +291,7 @@ def clone(localEnv: LocalEnv, destPath) -> ReadOnlyManifest:
     clone.manifest.path = destPath
     return clone
 
+
 def _match_deployment_blueprints(deployment_blueprints, context):
     primary_provider_name = context.get("primary_provider", "primary_provider")
     connections = context.get("connections") or {}
@@ -299,6 +302,7 @@ def _match_deployment_blueprints(deployment_blueprints, context):
         if tpl.get("cloud") == primary_provider["type"]:
             return name
     return None
+
 
 class YamlManifest(ReadOnlyManifest):
     _operationIndex: Optional[Dict[Tuple[str, str], str]] = None
@@ -328,8 +332,14 @@ class YamlManifest(ReadOnlyManifest):
             manifest.get("spec", {}).get("deployment_blueprints") or {}
         )
         if deployment_blueprints:
-            if not deployment_blueprint and localEnv and localEnv.manifest_context_name != "defaults":
-                deployment_blueprint = _match_deployment_blueprints(deployment_blueprints, self.context)
+            if (
+                not deployment_blueprint
+                and localEnv
+                and localEnv.manifest_context_name != "defaults"
+            ):
+                deployment_blueprint = _match_deployment_blueprints(
+                    deployment_blueprints, self.context
+                )
             if deployment_blueprint:
                 if self._add_deployment_blueprint_template(
                     deployment_blueprints, deployment_blueprint, more_spec
@@ -727,15 +737,7 @@ class YamlManifest(ReadOnlyManifest):
     def _save_entity_if_instantiated(
         self, resource, checkstatus=True
     ) -> Optional[Tuple[str, Dict]]:
-        if "virtual" in resource.template.directives:
-            return None
-        if not resource.last_change and (
-            not resource.local_status
-            or (
-                checkstatus
-                and resource.local_status in [Status.unknown, Status.ok, Status.pending]
-            )
-        ):
+        if not self.is_instantiated(resource, checkstatus):
             # no reason to serialize entities that haven't been instantiated
             return None
         return self.save_entity_instance(resource)
@@ -779,11 +781,7 @@ class YamlManifest(ReadOnlyManifest):
 
         if resource._artifacts:
             # assumes names are unique!
-            artifacts = list(
-                filter(
-                    None, map(self.save_artifact, resource._artifacts)
-                )
-            )
+            artifacts = list(filter(None, map(self.save_artifact, resource._artifacts)))
             if artifacts:
                 status["artifacts"] = CommentedMap(artifacts)
 

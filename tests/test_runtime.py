@@ -259,6 +259,18 @@ class OperationalInstanceTest(unittest.TestCase):
         aggregateError.dependencies = []
         self.assertEqual(aggregateError.status, Status.ok)
 
+        aggregate = OperationalInstance(Status.ok)
+        aggregate.dependencies = [OperationalInstance("pending", "required")]
+        self.assertEqual(aggregate.status, Status.pending)
+
+        aggregateError = OperationalInstance(Status.ok)
+        aggregateError.dependencies = [OperationalInstance("absent", "required")]
+        self.assertEqual(aggregateError.status, Status.error)
+
+        aggregate = OperationalInstance(Status.absent)
+        aggregate.dependencies = [OperationalInstance("absent", "required")]
+        self.assertEqual(aggregate.status, Status.absent)
+
     def test_nodestate(self):
         # considered active if status is error and not node state set
         assert OperationalInstance(Status.error).active

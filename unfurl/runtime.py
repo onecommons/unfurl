@@ -633,7 +633,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return state
 
     def __repr__(self):
-        return f"{self.__class__}('{self.nested_name}')"
+        return f"{self.__class__.__name__}('{self.nested_name}')"
 
 
 class HasInstancesInstance(EntityInstance):
