@@ -1698,9 +1698,11 @@ def _patch_deployment_blueprint(
                 # assume the patch has the complete set and replace the current set
                 old_node_templates = current.get("resource_templates", {})
                 new_node_templates = {}
+                assert manifest.tosca and manifest.tosca.topology
+                namespace = manifest.tosca.topology.topology_template.custom_defs
                 for name, val in prop.items():
                     tpl = old_node_templates.get(name, {})
-                    _update_imports(imports, _patch_node_template(val, tpl))
+                    _update_imports(imports, _patch_node_template(val, tpl, namespace))
                     new_node_templates[name] = tpl
                 current["resource_templates"] = new_node_templates
     return imports
@@ -1713,16 +1715,27 @@ def _make_requirement(dependency) -> dict:
     return req
 
 
-def _patch_node_template(patch: dict, tpl: dict) -> List[dict]:
+def _patch_node_template(patch: dict, tpl: dict, namespace) -> List[dict]:
     imports: List[dict] = []
     title = None
     for key, value in patch.items():
         if key == "type":
-            tpl[key] = value.split("@")[0]
+            import_def = patch.get("_sourceinfo")
+            if namespace:
+                local = namespace.get_local_name(value)
+                if not local:  # not found, need to import
+                    if import_def:
+                        prefix = import_def.get("prefix")
+                        imports.append(import_def)
+                        if prefix:
+                            local = f"{prefix}.{value}"
+                tpl[key] = local or value
+            else:
+                tpl[key] = value.split("@")[0]
+                if import_def:
+                    imports.append(import_def)
         elif key in ["directives", "imported"]:
             tpl[key] = value
-        elif key == "_sourceinfo":
-            imports.append(value)
         elif key == "title":
             if value != patch["name"]:
                 title = value
@@ -1832,7 +1845,7 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                                 # connections keys can be a string or null
                                 tpl = {}
                             _update_imports(
-                                imports, _patch_node_template(node_patch, tpl)
+                                imports, _patch_node_template(node_patch, tpl, None)
                             )
                             new_target[node_name] = tpl
                         environment[key] = new_target  # replace
@@ -1960,7 +1973,9 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                     else:
                         doc = doc[key]
             if not deleted:
-                _update_imports(imports, _patch_node_template(patch_inner, doc))
+                assert manifest.tosca and manifest.tosca.topology
+                namespace = manifest.tosca.topology.topology_template.custom_defs
+                _update_imports(imports, _patch_node_template(patch_inner, doc, namespace))
     assert manifest.manifest and manifest.manifest.config and manifest.repo
     _apply_imports(
         manifest.manifest.config["spec"]["service_template"],

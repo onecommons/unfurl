@@ -5,7 +5,9 @@ types:
       nested-imported-repo:
         url: file:.
     node_types:
-      A.nodes.types:
+      Nested:
+        derived_from: tosca.nodes.Root
+      nodes.types:
         derived_from: tosca.nodes.Root
         artifacts:
           my_file_artifact: ../my_apps_files/operation_artifact.txt

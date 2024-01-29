@@ -11,6 +11,7 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    TYPE_CHECKING
 )
 from typing_extensions import TypedDict, NotRequired, Required
 from collections.abc import Mapping, MutableSequence
@@ -30,14 +31,16 @@ from toscaparser.topology_template import find_type
 from .repo import normalize_git_url_hard
 from .packages import get_package_id_from_url
 from .result import ChangeRecord
-from .yamlmanifest import YamlManifest
 from .runtime import EntityInstance, TopologyInstance
 from .logs import sensitive, is_sensitive, getLogger
 from .spec import NodeSpec, TopologySpec, is_function
-from .support import NodeState, Status
-from .localenv import Project
 from .lock import Lock
 from .util import to_enum, UnfurlError
+from .support import NodeState, Status
+
+if TYPE_CHECKING:
+    from .yamlmanifest import YamlManifest
+    from .localenv import Project
 
 logger = getLogger("unfurl")
 
@@ -142,7 +145,7 @@ class Deployment(GraphqlObject, total=False):
     resources: List[str]
     deploymentTemplate: str
     url: str
-    status: Status
+    status: "Status"
     summary: str
     workflow: str
     deployTime: str
@@ -290,25 +293,28 @@ def _get_source_info(source_info: dict) -> Tuple[str, str]:
     else:
         path = source_info["path"]
         base = source_info["base"]
-        # make path relative to the import base (not the file that imported)
-        # and include the fragment if present
-        # base and path will both be local file paths
-        file = path[len(base) :].strip("/") + "".join(
-            source_info["file"].partition("#")[1:]
-        )
+        if path:
+            # make path relative to the import base (not the file that imported)
+            # and include the fragment if present
+            # base and path will both be local file paths
+            file = path[len(base or "") :].strip("/") + "".join(
+                source_info["file"].partition("#")[1:]
+            )
+        else:
+            file = source_info["file"]
         if is_url(root):
             return root, file
         # otherwise import relative to main service template
         return "", file
 
 
-def get_package_url(url):
+def get_package_url(url: str) -> str:
+    "Convert the given url to a package id or if it can't be converted, normalize the URL."
     package_id, purl, revision = get_package_id_from_url(url)
     if package_id:
         return package_id
     else:
         return normalize_git_url_hard(url)
-
 
 def to_type_name(name: str, package_id: str, path: str) -> TypeName:
     "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types"
@@ -319,6 +325,14 @@ def to_type_name(name: str, package_id: str, path: str) -> TypeName:
     else:
         return TypeName(name + "@" + package_id)
 
+def get_source_info(root_url, info):
+    url, path = _get_source_info(info)
+    # use root_url if no repository
+    package_id = get_package_url(url or root_url)
+    if path and path != "service-template.yaml":
+        return package_id + ":" + os.path.splitext(path)[0]
+    else:
+        return package_id
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier, custom_defs):
@@ -340,9 +354,22 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         if nodetype in self.custom_defs:
             _source = self.custom_defs[nodetype].get("_source")
             if isinstance(_source, dict):  # could be str or None
+                # newest
+                local_name = _source.get("local_name")
+                namespace_id = _source.get("namespace_id")
+                if local_name:
+                    if namespace_id:
+                        self.global_name = f"{local_name}@{namespace_id}"
+                    else:
+                        self.global_name = local_name                
+                # old:
                 prefix = _source.get("prefix")
                 if prefix:
                     nodetype = nodetype[len(prefix) + 1 :]  # strip out prefix
+                # new:
+                local_name = _source.get("local_name")
+                if local_name:
+                    nodetype = local_name
                 url, file = _get_source_info(_source)
                 if url:
                     url = get_package_url(url)
@@ -360,7 +387,7 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
     ) -> None:
         if not typedef:
             return
-        name = self.expand_typename(typedef.type)
+        name = self.get_typename(typedef)
         if name not in extends:
             extends.append(name)
         if convert and name not in self:
@@ -373,8 +400,9 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         return self.get(self.expand_typename(typename))
 
     def get_typename(self, typedef: StatefulEntityType) -> TypeName:
+        return TypeName(typedef.global_name)
         # typedef might not be in types yet
-        return self.expand_typename(typedef.type)
+        # return self.expand_typename(typedef.type)
 
     @staticmethod
     def get_localname(typename: str):
@@ -424,7 +452,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
 
     @staticmethod
     def get_deployment_paths(
-        project: Project, existing: Optional[str] = None
+        project: "Project", existing: Optional[str] = None
     ) -> "DeploymentPaths":
         """
         Deployments identified by their file path.
@@ -454,7 +482,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
 
     def add_graphql_deployment(
         self,
-        manifest: YamlManifest,
+        manifest: "YamlManifest",
         dtemplate: DeploymentTemplate,
         nodetemplate_to_json: Callable,
     ) -> Deployment:
@@ -584,8 +612,8 @@ class Resource(GraphqlObject):
 
     url: str
     template: ResourceTemplateName
-    status: Optional[Status]
-    state: Optional[NodeState]
+    status: Optional["Status"]
+    state: Optional["NodeState"]
     attributes: List[dict]
     computedProperties: List[dict]
     connections: List[Requirement]

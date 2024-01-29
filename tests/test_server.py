@@ -414,7 +414,9 @@ def test_populate_cache(runner):
         assert res.status_code == 200
         assert res.content == b"OK"
 
-
+@unittest.skipIf(
+    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
+)
 def test_server_update_deployment():
     runner = CliRunner()
     with runner.isolated_filesystem():

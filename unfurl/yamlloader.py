@@ -446,6 +446,19 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         return Repository(name, tpl)
 
+    def get_repository_url(self, importsLoader, repository_name, package: Optional[dict]=None):
+        from .graphql import get_source_info
+        if repository_name:
+            url = super().get_repository_url(importsLoader, repository_name)
+        elif self.manifest and self.manifest.repo and self.manifest.path:
+            url = self.manifest.repo.get_url_with_path(self.manifest.get_base_dir(), True)
+        else:
+            url = ""
+        if package:
+           # return a global namespace id for this import
+           return get_source_info(url, package)
+        return url
+
     confine_user_paths = True
 
     def _has_path_escaped(self, path, repository_name=None, base=None):

@@ -254,12 +254,14 @@ class ToscaSyntaxTest(unittest.TestCase):
         local_env = LocalEnv(path)
         manifest = local_env.get_manifest()
 
-        self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
+        self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls), list(manifest.tosca.template.nested_tosca_tpls))
         assert "imported-repo" in manifest.tosca.template.repositories
         assert "nested-imported-repo" in manifest.tosca.template.repositories, [
             tosca_tpl.get("repositories")
             for tosca_tpl in manifest.tosca.template.nested_tosca_tpls.values()
         ]
+        assert ['A.Nested', 'A.nodes.types', 'A.Test'
+                ] == list(manifest.tosca.template.topology_template.custom_defs)
 
         runner = Runner(manifest)
         output = io.StringIO()

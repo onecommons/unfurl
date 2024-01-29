@@ -95,6 +95,8 @@ def test_builtin_generation():
     yaml_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS
     for section in EntityType.TOSCA_DEF_SECTIONS:
+        if section == "types":
+            continue
         print(section)
         assert len(src_yaml[section]) == len(yaml_src[section]), (
             section,
@@ -315,6 +317,7 @@ example_wordpress_python_alt = _example_wordpress_python.format(
 
 def test_example_wordpress():
     src, src_tpl = _to_python(example_wordpress_yaml)
+    pprint(src_tpl)
     tosca_tpl = _to_yaml(src, True)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 

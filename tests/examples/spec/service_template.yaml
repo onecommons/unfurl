@@ -12,7 +12,7 @@ repositories:
     url: git@github.com:onecommons/unfurl.git
 node_types:
   Test:
-    derived_from: tosca.nodes.Root
+    derived_from: Nested
     properties:
       defaultexpession:
         type: string

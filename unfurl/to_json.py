@@ -536,6 +536,7 @@ def template_visibility(t: EntitySpec, discovered):
 
 
 def _get_source_info(source_info: dict) -> dict:
+    # file, url, prefix, repository_name
     _import = {}
     root = source_info["root"]
     prefix = source_info.get("prefix")
@@ -585,7 +586,7 @@ def node_type_to_graphql(
     summary: bool = False,
     include_matches: bool = True,
 ) -> Optional[ResourceType]:
-    custom_defs = topology.topology_template.custom_defs
+    custom_defs = topology.topology_template.custom_defs  # XXX
     raw_type = type_definition.type
     typename = types.get_typename(type_definition)
     jsontype = ResourceType(
@@ -773,6 +774,7 @@ def to_graphql_nodetypes(
             parents = (parents,)
         for parent in parents:
             descendents.setdefault(parent, []).append(typename)
+        # XXX get namespace for typename from all_namespaces if _source.get("namespace_id") and global_ns
         if not include_all or types.get_type(typename):
             continue
         typedef = types._make_typedef(typename, get_local=False)
@@ -1131,6 +1133,7 @@ def _get_or_make_primary(
     root = None
     if topology.substitution_mappings:
         root_type = topology.substitution_mappings.node_type
+        # XXX different namespace
         root = topology.substitution_mappings._node_template
     types = db.get_types()
     if root_type:
@@ -1438,6 +1441,7 @@ def _to_graphql(
     )
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
+        # XXX default templates can be from different namespace
         t = nodetemplate_to_json(node_spec, types)
         if t.get("visibility") == "omit":
             continue
@@ -1563,6 +1567,7 @@ def _node_typename_to_graphql(
     topology: TopologySpec,
     types: ResourceTypesByName,
 ) -> Optional[ResourceType]:
+    # XXX!
     custom_defs = topology.topology_template.custom_defs
     typedef = types._make_typedef(reqtypename)
     if typedef:
