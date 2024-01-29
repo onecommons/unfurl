@@ -7,21 +7,21 @@ TOSCA functions and other stand-alone functions
 
 Stand-alone functions don't need to be wrapped in an "eval"
 
-  =================== ========================================================
-  Key                 Value
-  =================== ========================================================
-  `concat`            ``[ string* ]``
-  `get_artifact`      ``[ instance_name, artifact_name]``
-  `get_attribute`     ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
-  `get_env`           :regexp:`[ name, default? return ] | name`
-  `get_input`         ``name``
-  `get_nodes_of_type` ``type_name``
-  `get_property`      ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
-  `has_env`           ``name``
-  `join`              ``[ string+, delimiter? ]``
-  `q`                 ``any``
-  `token`             ``[ string, token, index]``
-  =================== ========================================================
+  ============================  ========================================================
+  Key                           Value
+  ============================  ========================================================
+  `concat`                      ``[ string* ]``
+  `get_artifact`                ``[ instance_name, artifact_name]``
+  `get_attribute`               ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
+  :std:ref:`get_env`            :regexp:`[ name, default? return ] | name`
+  :std:ref:`get_input`          ``name``
+  :std:ref:`get_nodes_of_type`  ``type_name``
+  `get_property`                ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
+  :std:ref:`has_env`            ``name``
+  `join`                        ``[ string+, delimiter? ]``
+  `q`                           ``any``
+  `token`                       ``[ string, token, index]``
+  ============================  ========================================================
 
 concat
 ^^^^^^
@@ -115,44 +115,44 @@ token
 Expression Functions
 ~~~~~~~~~~~~~~~~~~~~
 
-  ======================  ===============================================
-  Key                     Value
-  ======================  ===============================================
-  `abspath`               path | [path, location, mkdir?]
-  `and`                   [test+]
-  `eq`                    [a, b]
-  external                name
-  `file`                  (see below)
-  foreach                 {key?, value?}
-  `get_dir`               location | [location, mkdir?]
-  `is_function_defined`   function name
-  `if`                    (see below)
-  local                   name
-  `lookup`                (see below)
-  `or`                    [test+]
-  `not`                   expr
-  `python`                path#function_name | module.function_name
-  `secret`                name
-   :std:ref:`sensitive`   any
-  `tempfile`              (see below)
-  `template`              contents
-  `to_dns_label`          string or map or list
-  `to_googlecloud_label`  string or map or list
-  `to_kubernetes_label`   string or map or list
-  `to_label`              string or map or list
-  `urljoin`               [scheme, host, port?, path?, query?, fragment?]
-  `validate`              [contents, schema]
-  ======================  ===============================================
+  ===============================  ==================================================
+  Key                              Value
+  ===============================  ==================================================
+  :std:ref:`abspath`               path | [path, location, mkdir?]
+  `and`                            [test+]
+  `eq`                             [a, b]
+  external                         name
+  `file`                           (see below)
+  foreach                          {key?, value?}
+  :std:ref:`get_dir`               location | [location, mkdir?]
+  `is_function_defined`            function name
+  `if`                             (see below)
+  local                            name
+  :std:ref:`lookup`                (see below)
+  `or`                             [test+]
+  `not`                            expr
+  `python`                         path#function_name | module.function_name
+  `secret`                         name
+   :std:ref:`sensitive`            any
+  :std:ref:`tempfile`              (see below)
+  :std:ref:`template`              contents
+  :std:ref:`to_dns_label`          string or map or lists
+  :std:ref:`to_googlecloud_label`  string or map or list
+  :std:ref:`to_kubernetes_label`   string or map or list
+  :std:ref:`to_label`              string or map or list
+  :std:ref:`urljoin`               [scheme, host, port?, path?, query?, fragment?]
+  `validate`                       [contents, schema]
+  ===============================  ==================================================
 
 abspath
 ^^^^^^^
 
   :path: A file path
-  :location: (optional) A named folder (see `get_dir`)
+  :location: (optional) A named folder (see :std:ref:`get_dir`)
   :mkdir: (default: false) If true, create the folder if missing.
 
   Get the absolute path to the given path. If ``location`` is supplied it will be
-  relative to that location (see `get_dir`) otherwise it will be relative to the current directory.
+  relative to that location (see :std:ref:`get_dir`) otherwise it will be relative to the current directory.
 
   Also available as a jinja2 filter.
 
@@ -409,7 +409,7 @@ Evaluate file or inline contents as an Ansible-flavored Jinja2 template.
 to_dns_label
 ^^^^^^^^^^^^
 
-Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
+Convert the given argument (see :std:ref:`to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
 The maximum length of each label is 63 characters and can include
 alphanumeric characters and hyphens but a domain name must not commence or end with a hyphen.
 
@@ -418,7 +418,7 @@ Invalid characters are replaced with "--".
 to_googlecloud_label
 ^^^^^^^^^^^^^^^^^^^^
 
-Convert the given argument (see `to_label` for full description) to a kubernetes label 
+Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
 following the rules found here https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
 
 Invalid characters are replaced with "__".
@@ -426,7 +426,7 @@ Invalid characters are replaced with "__".
 to_kubernetes_label
 ^^^^^^^^^^^^^^^^^^^
 
-Convert the given argument (see `to_label` for full description) to a kubernetes label 
+Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
 following the rules found here https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
 
 Invalid characters are replaced with "__".

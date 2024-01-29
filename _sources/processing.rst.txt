@@ -83,8 +83,8 @@ Filters
   :eval: Evaluates the given `expression <eval expressions>` or function. Equivalent to `resolve_one`
          For example: ``{{ "::instance1::anAttribute" | eval }}``
   :map_value: Resolves any `eval expressions` or template strings embedded in the given map or list. Equivalent to :py:func:`unfurl.eval.map_value`.
-  :abspath: see `abspath`
-  :get_dir: see `get_dir`
+  :abspath: see :std:ref:`abspath`
+  :get_dir: see :std:ref:`get_dir`
   :which: Returns the full path to the given executable, like the ``which`` shell command.
 
 Lookup plugins

@@ -68,6 +68,25 @@ Other
 
 .. autofunction:: set_evaluation_mode
 
+.. autofunction:: safe_mode
+
+.. autofunction:: global_state_mode
+
+.. autofunction:: global_state_context
+
+
+Utility Functions
+~~~~~~~~~~~~~~~~~
+
+.. automodule:: unfurl.tosca_plugins.functions
+   :members:
+
+Eval Expression Functions
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: unfurl.tosca_plugins.expr
+  :members:
+  :undoc-members:
 
 API for writing configurators
 -----------------------------
