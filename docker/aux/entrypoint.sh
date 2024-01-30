@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eux
+
 # start nginx
 nginx -g "daemon off;" &
 

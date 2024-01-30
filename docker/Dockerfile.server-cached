@@ -9,9 +9,9 @@ RUN apt-get -qq update && \
     apt-get -qq --no-install-recommends install -y nginx gosu && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
-ENV CACHE_CONTROL_SERVE_STALE=1
+ENV CACHE_CONTROL_SERVE_STALE=2592000
 
 # copy custom entrypoint and nginx config for caching
 COPY docker/aux/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/aux/entrypoint.sh  /entrypoint.sh
-ENTRYPOINT /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
