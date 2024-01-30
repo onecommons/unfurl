@@ -1,5 +1,6 @@
+ARG FROM_IMAGE=ghcr.io/onecommons/unfurl
 ARG FROM_TAG=latest-server
-FROM ghcr.io/onecommons/unfurl:${FROM_TAG}
+FROM ${FROM_IMAGE}:${FROM_TAG}
 
 # nginx needs to run as root
 # entrypoint drops to unfurl user after
