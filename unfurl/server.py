@@ -347,7 +347,7 @@ def _clone_repo(project_id: str, branch: str, args: dict) -> GitRepo:
 
 
 _cache_inflight_sleep_duration = 0.2
-_cache_inflight_timeout = float(
+_cache_inflight_timeout = int(
     os.getenv("UNFURL_SERVE_CACHE_TIMEOUT") or 120
 )  # should match request timeout
 
@@ -579,7 +579,7 @@ class CacheEntry:
                     logger.trace(f"recent pull for {action} {repo_key}")
                     return self.repo
 
-        cache.set(repo_key, (time.time(), "in_flight"))
+        cache.set(repo_key, (time.time(), "in_flight"), _cache_inflight_timeout)
         try:
             if not self.repo:
                 self._set_project_repo()
@@ -790,7 +790,7 @@ class CacheEntry:
                             return cache_value.value, True
                         break  # missing, so inflight work must have failed, continue with our work
 
-        cache.set(self._inflight_key(), (latest_commit, time.time()))
+        cache.set(self._inflight_key(), (latest_commit, time.time()), _cache_inflight_timeout)
         return None, False
 
     def _cancel_inflight(self, cache: Cache):

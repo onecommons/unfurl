@@ -331,7 +331,7 @@ class RunTest(unittest.TestCase):
         assert "runtime" in lock and len(lock["repositories"]) == 0
         self.assertEqual(
             manifest2.lastJob["summary"],
-            "2 tasks (2 changed, 2 ok, 0 failed, 0 unknown, 0 skipped)",
+            "2 tasks (2 changed, 2 ok, 0 failed, 0 blocked, 0 unknown, 0 skipped)",
         )
         output2 = io.StringIO()
         job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
