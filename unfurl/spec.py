@@ -6,6 +6,7 @@ TOSCA implementation
 import copy
 import sys
 from toscaparser.elements.interfaces import OperationDef
+from toscaparser.elements.nodetype import NodeType
 from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
@@ -1243,6 +1244,7 @@ class NodeSpec(EntitySpec):
         self, req_tpl: dict, nodetype: Optional[str]
     ) -> Set["NodeSpec"]:
         "Return a list of nodes that match this requirement's constraints"
+        nodetype = NodeType(nodetype, req_tpl.get("!namespace_node", self.toscaEntityTemplate.custom_def)).global_name
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):
             if is_function(c):
@@ -1277,7 +1279,7 @@ class RelationshipSpec(EntitySpec):
         # its RelationshipType has valid_target_types
         if not template:
             template = get_default_topology().topology_template.relationship_templates[
-                0
+                "_default"
             ]
             spec = ToscaSpec(get_default_topology())
             topology = spec.topology
