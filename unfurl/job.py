@@ -240,6 +240,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.modified_target = False
         self.target_status = target.status
         self.target_state = target.state
+        self.blocked = False
 
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml, self)
@@ -818,6 +819,8 @@ class Job(ConfigChange):
                     self.jobOptions.workflow == "deploy" and not req.include_in_plan()
                 ):  # we don't want to run these
                     continue
+                if req.task:
+                    req.task.blocked = True
                 message = req.get_notready_message()
                 self._add_unrendered_task(req, message)
 
