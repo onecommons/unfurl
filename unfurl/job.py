@@ -967,6 +967,9 @@ class Job(ConfigChange):
                 continue
             if req.group and req.group.has_errors():
                 req.set_error("previous operation failed")
+                if req.task:
+                    req.task.blocked = True
+                    self.add_work(req.task)
                 logger.debug("Skipping task %s because previous operation failed", req)
                 continue
             if isinstance(req, TaskRequestGroup):
@@ -1108,7 +1111,10 @@ class Job(ConfigChange):
                 reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies(not_ready)
-                if not missing:
+                if missing:
+                    task.blocked = True
+                else:
+                    task.blocked = False
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
                         reason = f"invalid inputs: {str(errors)}"
