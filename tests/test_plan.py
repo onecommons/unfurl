@@ -204,7 +204,7 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
                     "reason": "add",
                 }
             ]
-        blocked = 1 if compute_status == "error" else 0
+        blocked = 2 if compute_status == "error" else 0
         expected_summary = {
             "job": {
                 "id": "A01110000000",

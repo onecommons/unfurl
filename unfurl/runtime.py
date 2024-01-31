@@ -633,7 +633,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return state
 
     def __repr__(self):
-        return f"{self.__class__.__name__}('{self.nested_name}')"
+        return f"{self.__class__.__name__}('{self.nested_key}')"
 
 
 class HasInstancesInstance(EntityInstance):
@@ -848,9 +848,6 @@ class RelationshipInstance(EntityInstance):
             else:
                 env[name] = val
         return env
-
-    def __repr__(self):
-        return f"RelationshipInstance('{self.nested_name}')"
 
 
 class ArtifactInstance(EntityInstance):
