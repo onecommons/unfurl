@@ -574,10 +574,9 @@ class Manifest(AttributeManager):
                     created = f"created by {instance.created}"
             else:
                 created = ""
+            instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
             if verbose:
-                instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')({instance.type})"
-            else:
-                instance_label = repr(instance)
+                instance_label  += f"({instance.type})"
             local = (
                 f"({'None' if instance.local_status is None else instance.local_status.name})"
                 if verbose
@@ -599,6 +598,9 @@ class Manifest(AttributeManager):
                     summary(instance.shadow.root, indent)
                 for child in instance.instances:
                     summary(child, indent)
+                if verbose:
+                    for child in instance.artifacts.values():
+                        summary(child, indent)
 
         output: List[str] = []
         summary(self.rootResource, 0)

@@ -152,8 +152,8 @@ class DockerTest(unittest.TestCase):
         # pickled = pickle.dumps(runner.manifest, -1)
         # manifest2 = pickle.loads(pickled)
 
-        run1 = runner.run(JobOptions(instance="test1"))
-        assert len(run1.workDone) == 1, run1.workDone
+        run1 = runner.run(JobOptions(instance="test1", starttime=1))
+        assert run1.json_summary()["job"] == {'id': 'A01110000000', 'status': 'error', 'total': 3, 'ok': 0, 'error': 1, 'unknown': 0, 'skipped': 0, 'blocked': 2, 'changed': 2}
         tasks = list(run1.workDone.values())
         assert run1.rootResource.query("::test1::.artifacts::image::.repository::credential::user") == 'a_user'
         assert run1.rootResource.query("::test1::registry_user") == "a_user"
