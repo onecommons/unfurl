@@ -219,20 +219,28 @@ class JobReporter:
     def stats(tasks, asMessage=False):
         # note: the status of the task, not the target resource
         key = (
-            lambda t: Status.error
-            if t.target_status == Status.error
-            else t._localStatus or Status.unknown
+            lambda t: Status.absent
+            if t.blocked
+            else (
+                Status.error
+                if t.target_status == Status.error
+                else t._localStatus or Status.unknown
+            )
         )
         tasks = sorted(tasks, key=key)  # type: ignore
         stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
             if not k:  # is a Status
                 stats["skipped"] = len(list(g))
+            elif k == Status.absent:
+                stats["blocked"] = len(list(g))
             else:
                 stats[k.name] = len(list(g))
         stats["changed"] = len([t for t in tasks if t.modified_target])
         if asMessage:
-            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
+            if "blocked" not in stats:
+                stats["blocked"] = 0
+            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {blocked} blocked, {unknown} unknown, {skipped} skipped)".format(
                 **stats
             )
         return stats
@@ -357,9 +365,12 @@ class JobReporter:
 
         for i, task in enumerate(job.workDone.values()):
             if task.result:
-                task_success = (
-                    "[green]success[/]" if task.result.success else "[red]failed[/]"
-                )
+                if task.result.success:
+                    task_success = "[green]success[/]"
+                elif task.blocked:
+                    task_success = "[red]blocked[/]"
+                else:
+                    task_success = "[red]failed[/]"
             else:
                 task_success = "[white]skipped[/]"
             operation = task.configSpec.operation

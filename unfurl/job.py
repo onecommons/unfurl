@@ -240,6 +240,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.modified_target = False
         self.target_status = target.status
         self.target_state = target.state
+        self.blocked = False
 
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml, self)
@@ -818,6 +819,8 @@ class Job(ConfigChange):
                     self.jobOptions.workflow == "deploy" and not req.include_in_plan()
                 ):  # we don't want to run these
                     continue
+                if req.task:
+                    req.task.blocked = True
                 message = req.get_notready_message()
                 self._add_unrendered_task(req, message)
 
@@ -964,6 +967,9 @@ class Job(ConfigChange):
                 continue
             if req.group and req.group.has_errors():
                 req.set_error("previous operation failed")
+                if req.task:
+                    req.task.blocked = True
+                    self.add_work(req.task)
                 logger.debug("Skipping task %s because previous operation failed", req)
                 continue
             if isinstance(req, TaskRequestGroup):
@@ -1105,7 +1111,10 @@ class Job(ConfigChange):
                 reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies(not_ready)
-                if not missing:
+                if missing:
+                    task.blocked = True
+                else:
+                    task.blocked = False
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
                         reason = f"invalid inputs: {str(errors)}"
