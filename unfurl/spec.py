@@ -29,7 +29,7 @@ from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.policy import Policy
 from toscaparser.properties import Property
-from toscaparser.elements.entity_type import EntityType
+from toscaparser.elements.entity_type import EntityType, Namespace
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 import toscaparser.workflow
 import toscaparser.imports
@@ -428,7 +428,7 @@ class ToscaSpec:
 
     def load_decorators(self) -> CommentedMap:
         decorators = CommentedMap()
-        for path, import_tpl in self.template.nested_tosca_tpls.items():
+        for import_tpl, namespace_id in self.template.nested_tosca_tpls.values():
             imported = import_tpl.get("decorators")
             if imported:
                 decorators = cast(CommentedMap, merge_dicts(decorators, imported))
@@ -618,7 +618,7 @@ class ToscaSpec:
         if len(matches) == 1:
             match = list(matches)[0]
             capabilities = relTpl.get_matching_capabilities(
-                match.toscaEntityTemplate, capability
+                match.toscaEntityTemplate, capability, req_def
             )
             if capabilities:
                 return match.toscaEntityTemplate, capabilities[0]
@@ -897,7 +897,11 @@ class EntitySpec(ResourceRef):
 
     @property
     def base_dir(self) -> str:
-        base_dir = getattr(self.toscaEntityTemplate.entity_tpl, "base_dir", self.toscaEntityTemplate._source)
+        base_dir = getattr(
+            self.toscaEntityTemplate.entity_tpl,
+            "base_dir",
+            self.toscaEntityTemplate._source,
+        )
         if base_dir:
             return base_dir
         elif self.spec:
@@ -1244,7 +1248,14 @@ class NodeSpec(EntitySpec):
         self, req_tpl: dict, nodetype: Optional[str]
     ) -> Set["NodeSpec"]:
         "Return a list of nodes that match this requirement's constraints"
-        nodetype = NodeType(nodetype, req_tpl.get("!namespace_node", self.toscaEntityTemplate.custom_def)).global_name
+        if isinstance(self.toscaEntityTemplate.custom_def, Namespace) and req_tpl.get(
+            "!namespace-node"
+        ):
+            node_type_namespace = self.toscaEntityTemplate.custom_def.find_namespace(
+                req_tpl.get("!namespace-node")
+            )
+            nodetype = NodeType(nodetype, node_type_namespace).global_name
+
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):
             if is_function(c):
@@ -1337,6 +1348,7 @@ class RelationshipSpec(EntitySpec):
         if defaultFor == self.toscaEntityTemplate.ANY and capability.name == "feature":
             # XXX get_matching_capabilities() buggy in this case
             return True  # optimization
+        # XXX defaultFor might be type, resolve to global
         if (
             defaultFor == self.toscaEntityTemplate.ANY
             or defaultFor == nodeTemplate.name
@@ -1499,7 +1511,7 @@ class TopologySpec(EntitySpec):
                 continue  # invalidate template
             nodeTemplate = NodeSpec(template, self)
             self.node_templates[template.name] = nodeTemplate
-        for template in topology.relationship_templates:
+        for template in topology.relationship_templates.values():
             relTemplate = RelationshipSpec(template, self)
             self.relationship_templates[template.name] = relTemplate
         inputs = inputs or {}

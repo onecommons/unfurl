@@ -400,7 +400,7 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         return self.get(self.expand_typename(typename))
 
     def get_typename(self, typedef: StatefulEntityType) -> TypeName:
-        return TypeName(typedef.global_name)
+        return TypeName(typedef.global_name if EXPORT_QUALNAME else typedef.type)
         # typedef might not be in types yet
         # return self.expand_typename(typedef.type)
 
@@ -409,7 +409,7 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         return typename.partition("@")[0]
 
     def _make_typedef(self, name: str, all=False, get_local=True) -> Optional[StatefulEntityType]:
-        typename = self.get_localname(name) if get_local else name
+        typename = self.get_localname(name) if get_local or not EXPORT_QUALNAME else name
         typedef = find_type(typename, self.custom_defs)
         if not typedef:
             logger.warning("Missing type definition for %s", name)

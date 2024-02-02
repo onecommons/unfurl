@@ -109,9 +109,15 @@ def map_constraint(jsonType, constraint, schema):
     if unit and key != "in_range":
         scalar_class = get_scalarunit_class(schema["$toscatype"])
         # value has already been converted to the base unit, now we need to convert it back to the default_unit
-        value = scalar_class(
-            str(value) + scalar_class.SCALAR_UNIT_DEFAULT
-        ).get_num_from_scalar_unit(unit)
+        if scalar_class:
+            value = scalar_class(
+                str(value) + scalar_class.SCALAR_UNIT_DEFAULT
+            ).get_num_from_scalar_unit(unit)
+        else:
+            logger.warning(
+                "ignoring 'default_unit' metadata on property because type '%s' is not a scalar-unit",
+                schema["$toscatype"],
+            )
     if key == "schema":
         return value
     elif key == "pattern":

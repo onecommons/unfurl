@@ -1519,7 +1519,7 @@ class Convert:
                 return
 
         assert self.template.tpl is not None
-        tpl = self.template.nested_tosca_tpls[file_path]
+        tpl, namespace_id = self.template.nested_tosca_tpls[file_path]
         file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
         tpl["tosca_definitions_version"] = self.template.tpl[

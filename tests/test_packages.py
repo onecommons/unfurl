@@ -120,7 +120,7 @@ def test_remote_tags():
                 defaults={
                     "repositories": {
                         "gitlab.com/onecommons/unfurl-types": dict(
-                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.7.4"
+                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.7.5"
                         )
                     }
                 }
