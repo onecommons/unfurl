@@ -1,5 +1,7 @@
 import unittest
 import os
+
+import pytest
 import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
@@ -637,3 +639,67 @@ spec:
         )
         # chooses myCluster instead of the cluster with the "default" directive
         assert relationshipSpec.target.name == "myCluster"
+
+
+prefixed_k8s_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/k8s.yaml
+        namespace_prefix: k8s
+      - repository: unfurl
+        file: configurators/templates/dns.yaml
+        namespace_prefix: dns
+
+    node_types:
+      MyNamespace:
+        # test unfurl.nodes._K8sResourceHost resolves
+        derived_from: k8s.unfurl.nodes.K8sNamespace
+        # requirements
+        # capabilities
+        interfaces:
+          Install:
+            operations:
+              check:
+                implementation: kubectl
+
+      MyZone:
+        derived_from: dns.unfurl.nodes.DNSZone
+        properties:
+          records:
+            description: make sure overloaded properties resolve datatypes correctly
+            default:
+              record1:
+                 type: TXT
+            metadata:
+              my_metadata: test
+
+    topology_template:
+      node_templates:
+        myNamespace:
+          type: MyNamespace
+
+        myResource:
+          type: %sunfurl.nodes.K8sResource
+          requirements:
+          - host: myNamespace
+
+        myDNS:
+          type: MyZone
+          properties:
+            name: test
+            provider: {}
+            records:
+              t1:
+                type: A
+                value: 10.10.10.1
+      """
+
+def test_namespaces():
+    manifest = YamlManifest(prefixed_k8s_manifest % "k8s.")
+    assert manifest
+    with pytest.raises(UnfurlValidationError) as err:
+        YamlManifest(prefixed_k8s_manifest % "")  # no prefix

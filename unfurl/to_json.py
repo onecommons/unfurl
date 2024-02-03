@@ -30,7 +30,7 @@ from typing import (
 )
 from collections import Counter
 from urllib.parse import urlparse
-from toscaparser.imports import is_url
+from toscaparser.imports import is_url, SourceInfo
 from toscaparser.substitution_mappings import SubstitutionMappings
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
@@ -80,6 +80,8 @@ from .graphql import (
     GraphqlDB,
     RequirementConstraint,
     PropertyVisitor,
+    ImportDef,
+    get_import_def,
     is_property_user_visible,
     is_server_only_expression,
     _project_path,
@@ -541,38 +543,9 @@ def template_visibility(t: EntitySpec, discovered):
     return "inherit"
 
 
-def _get_source_info(source_info: dict) -> dict:
-    # file, url, prefix, repository_name
-    _import = {}
-    root = source_info["root"]
-    prefix = source_info.get("prefix")
-    if prefix:
-        _import["prefix"] = prefix
-    repository = source_info.get("repository")
-    if repository:
-        _import["repository"] = repository
-        _import["url"] = (
-            "github.com/onecommons/unfurl" if repository == "unfurl" else root
-        )
-        _import["file"] = source_info["file"]
-    else:
-        path = source_info["path"]
-        base = source_info["base"]
-        # make path relative to the import base (not the file that imported)
-        # and include the fragment if present
-        # base and path will both be local file paths
-        _import["file"] = path[len(base) :].strip("/") + "".join(
-            source_info["file"].partition("#")[1:]
-        )
-        if is_url(root):
-            _import["url"] = root
-        # otherwise import relative to main service template
-    return _import
-
-
 def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) -> None:
     # if the type wasn't imported add source info pointing at the root service template
-    source_info = cast(dict, jsontype.get("_sourceinfo"))
+    source_info = cast(ImportDef, jsontype.get("_sourceinfo"))
     if not source_info:
         # not an import, type defined in main service template file
         # or it's an import relative to the root, just include the root import because it will in turn import this import
@@ -626,7 +599,7 @@ def node_type_to_graphql(
     if raw_type in custom_defs:
         _source = custom_defs[raw_type].get("_source")
         if isinstance(_source, dict):  # could be str or None
-            jsontype["_sourceinfo"] = _get_source_info(_source)
+            jsontype["_sourceinfo"] = get_import_def(cast(SourceInfo, _source))
 
     if type_definition.defs is None:
         logger.warning("%s is missing type definition", type_definition.type)
@@ -783,6 +756,7 @@ def to_graphql_nodetypes(
         # XXX get namespace for typename from all_namespaces if _source.get("namespace_id") and global_ns
         if not include_all or types.get_type(typename):
             continue
+        # set get_local to False because templates can declare fully qualified type names
         typedef = types._make_typedef(typename, get_local=False)
         if typedef:
             node_type_to_graphql(topology, typedef, types)

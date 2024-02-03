@@ -86,7 +86,7 @@ delete_patch = """
 
 _static_server_port = 8090
 _server_port = 8091
-CLOUD_TEST_SERVER = "https://unfurl.cloud"  # if changed, need to set package rules # "https://unfurl.cloud"
+CLOUD_TEST_SERVER = "https://gitlab.com"  # if changed, need to set package rules # "https://unfurl.cloud"
 
 
 #  Increment port just in case server ports aren't closed in time for next test

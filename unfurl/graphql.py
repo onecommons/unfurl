@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.statefulentitytype import StatefulEntityType
-from toscaparser.imports import is_url
+from toscaparser.imports import is_url, SourceInfo
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.scalarunit import get_scalarunit_class
@@ -197,6 +197,12 @@ class Requirement(GraphqlObject):
     target: NotRequired[str]
 
 
+class ImportDef(TypedDict):
+    file: str
+    repository: NotRequired[str]
+    prefix: NotRequired[str]
+    url: NotRequired[str]  # added after creation
+
 class ResourceType(GraphqlObject, total=False):
     """
     type ResourceType {
@@ -230,8 +236,8 @@ class ResourceType(GraphqlObject, total=False):
     requirements: Required[List[RequirementConstraint]]
     implementations: List[str]
     implementation_requirements: List[TypeName]
-    _sourceinfo: JsonType
     directives: List[str]
+    _sourceinfo: Optional[ImportDef]
 
 
 class ResourceTemplate(GraphqlObject, total=False):
@@ -283,8 +289,37 @@ class DeploymentEnvironment(TypedDict, total=False):
     repositories: JsonType
 
 
-def _get_source_info(source_info: dict) -> Tuple[str, str]:
+def get_import_def(source_info: SourceInfo) -> ImportDef:
+    # (source_info is created by toscaparser.imports.ImportsLoader.get_source)
     root = source_info["root"]
+    repository = source_info.get("repository")
+    url = None
+    if repository:
+        url = (
+            "github.com/onecommons/unfurl" if repository == "unfurl" else root
+        )
+        file = source_info["file"]
+    else:
+        path = source_info["path"]
+        base = source_info["base"]
+        # make path relative to the import base (not the file that imported)
+        # and include the fragment if present
+        # base and path will both be local file paths
+        file = path[len(base) :].strip("/") + "".join(
+            source_info["file"].partition("#")[1:]
+        )
+        if root and is_url(root):
+            url = root
+        # otherwise import relative to main service template
+    import_def = ImportDef(file=file)
+    if repository:
+        import_def["repository"] = repository
+    if url:
+        import_def["url"] = url
+    return import_def
+
+def _get_url_from_source_info(source_info: SourceInfo) -> Tuple[str, str]:
+    root = source_info["root"] or ""
     repository = source_info.get("repository")
     if repository:
         if repository == "unfurl":
@@ -307,7 +342,6 @@ def _get_source_info(source_info: dict) -> Tuple[str, str]:
         # otherwise import relative to main service template
         return "", file
 
-
 def get_package_url(url: str) -> str:
     "Convert the given url to a package id or if it can't be converted, normalize the URL."
     package_id, purl, revision = get_package_id_from_url(url)
@@ -325,8 +359,9 @@ def to_type_name(name: str, package_id: str, path: str) -> TypeName:
     else:
         return TypeName(name + "@" + package_id)
 
-def get_source_info(root_url, info):
-    url, path = _get_source_info(info)
+# called by get_repository_url
+def get_namespace_id(root_url: str, info: SourceInfo):
+    url, path = _get_url_from_source_info(info)
     # use root_url if no repository
     package_id = get_package_url(url or root_url)
     if path and path != "service-template.yaml":
@@ -354,28 +389,13 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         if nodetype in self.custom_defs:
             _source = self.custom_defs[nodetype].get("_source")
             if isinstance(_source, dict):  # could be str or None
-                # newest
                 local_name = _source.get("local_name")
                 namespace_id = _source.get("namespace_id")
                 if local_name:
                     if namespace_id:
-                        self.global_name = f"{local_name}@{namespace_id}"
+                        return TypeName(f"{local_name}@{namespace_id}")
                     else:
-                        self.global_name = local_name                
-                # old:
-                prefix = _source.get("prefix")
-                if prefix:
-                    nodetype = nodetype[len(prefix) + 1 :]  # strip out prefix
-                # new:
-                local_name = _source.get("local_name")
-                if local_name:
-                    nodetype = local_name
-                url, file = _get_source_info(_source)
-                if url:
-                    url = get_package_url(url)
-                else:
-                    url = self.qualifier
-                return to_type_name(nodetype, url, file)
+                        return TypeName(local_name)
         return to_type_name(nodetype, self.qualifier, "")
 
     def _get_extends(
