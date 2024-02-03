@@ -187,12 +187,11 @@ class PlanRequest:
     def set_error(self, msg: str):
         self.error = msg
         if self.task:
-            self.task.local_status = Status.error
-            self.task.result = msg
+            self.task.finished(self.task.done(False, False, Status.error, result=msg))
 
     @property
     def root(self) -> Optional["EntityInstance"]:
-        return self.target.root if self.target else None
+        return cast(EntityInstance, self.target.root) if self.target else None
 
     def add_dependencies(self, dependencies: List["Dependency"]) -> List["Dependency"]:
         self.dependencies.extend(dependencies)
@@ -627,7 +626,7 @@ class JobRequest:
         self.update = update
 
     def set_error(self, msg: str):
-        self.errors.append(UnfurlError(msg))  # type: ignore
+        cast(list, self.errors).append(UnfurlError(msg))
 
     def get_instance_specs(self):
         if self.update:

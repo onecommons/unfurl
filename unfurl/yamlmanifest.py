@@ -30,7 +30,7 @@ from codecs import open
 from ansible.parsing.dataloader import DataLoader
 
 if TYPE_CHECKING:
-    from .job import Job
+    from .job import Job, ConfigTask
 
 logger = getLogger("unfurl")
 
@@ -129,7 +129,7 @@ def save_result(value):
         return value
 
 
-def save_task(task, skip_result=False):
+def save_task(task: "ConfigTask", skip_result=False):
     """
     Convert dictionary suitable for serializing as yaml
       or creating a Changeset.
