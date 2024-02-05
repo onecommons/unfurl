@@ -428,6 +428,8 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
                         return TypeName(f"{local_name}@{namespace_id}")
                     else:
                         return TypeName(local_name)
+            else:
+                return TypeName(f"{nodetype}@{self.custom_defs.namespace_id}")
         return to_type_name(nodetype, self.qualifier, "")
 
     def _get_extends(
