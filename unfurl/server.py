@@ -1250,7 +1250,7 @@ def _export(
             return err
 
 
-def _get_cloudmap_types(project_id, root_cache_entry):
+def _get_cloudmap_types(project_id: str, root_cache_entry: CacheEntry):
     err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
     if doc is None:
         return err, {}
@@ -1266,10 +1266,10 @@ def _get_cloudmap_types(project_id, root_cache_entry):
                 if typeinfo:
                     name = typeinfo["name"]
                     if "_sourceinfo" not in typeinfo:
-                        typeinfo["_sourceinfo"] = dict(file=file_path, url=r.git_url())
+                        typeinfo["_sourceinfo"] = ImportDef(file=file_path, url=r.git_url())
                     if "@" not in name:
-                        schema = notable.get("schema", r.git_url())
-                        local_types = ResourceTypesByName(schema, {name: typeinfo})
+                        schema = cast(str, notable.get("schema", r.git_url()))
+                        local_types = ResourceTypesByName(schema, Namespace({},""))
                         typeinfo["name"] = name = local_types.expand_typename(name)
                         # make sure "extends" are fully qualified
                         extends = typeinfo.get("extends")
@@ -1301,10 +1301,11 @@ def get_types():
     # request.args.getlist("implements")
     _add_types = None
     filename = request.args.get("file", "dummy-ensemble.yaml")
-    if request.args.get("cloudmap"):  # e.g. "onecommons/cloudmap"
+    cloudmap_project_id = request.args.get("cloudmap")
+    if cloudmap_project_id:  # e.g. "onecommons/cloudmap"
 
         def _add_types(cache_entry, db):
-            err, types = _get_cloudmap_types(request.args.get("cloudmap"), cache_entry)
+            err, types = _get_cloudmap_types(cloudmap_project_id, cache_entry)
             if err:
                 return err
             db["ResourceType"].update(types)

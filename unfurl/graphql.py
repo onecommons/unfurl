@@ -204,6 +204,7 @@ class ImportDef(TypedDict):
     repository: NotRequired[str]
     prefix: NotRequired[str]
     url: NotRequired[str]  # added after creation
+    incomplete: NotRequired[bool] # added by cloudmap in server
 
 
 class ResourceType(GraphqlObject, total=False):
@@ -402,7 +403,7 @@ def get_namespace_id(root_url: str, info: SourceInfo):
 
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
-    def __init__(self, qualifier, custom_defs):
+    def __init__(self, qualifier: str, custom_defs: Namespace):
         self.qualifier = get_package_url(qualifier)
         self.custom_defs = custom_defs
 

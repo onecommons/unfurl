@@ -518,6 +518,10 @@ def requirement_to_graphql(
                             )
                             if target_types:
                                 nodetype = target_types[0]
+                    else:
+                        return None  # XXX else rel is a typename, look up type and find its target_types
+                else:
+                    return None  # XXX else rel is an inline relationship template, look up type and find its target_types
     if not nodetype:
         logger.warning(
             "skipping requirement constraint %s, there was no type specified ", req_dict
@@ -549,7 +553,7 @@ def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) 
     source_info = cast(ImportDef, jsontype.get("_sourceinfo"))
     if not source_info:
         if jsontype["name"] in StatefulEntityType.TOSCA_DEF:
-            return # built-in type
+            return  # built-in type
         # not an import, type defined in main service template file
         # or it's an import relative to the root, just include the root import because it will in turn import this import
         jsontype["_sourceinfo"] = dict(
@@ -785,7 +789,6 @@ def to_graphql_nodetypes(
     assert spec.topology
     annotate_requirements(spec.topology, types, descendents)
     mark_leaf_types(types)
-
     return types
 
 
@@ -1413,14 +1416,14 @@ def _to_graphql(
         url: Optional[str] = root_url
     else:
         url = manifest.repo.url if manifest.repo else spec.topology.path
-    types = ResourceTypesByName(url, spec.template.topology_template.custom_defs)
+    types = ResourceTypesByName(url or "", spec.template.topology_template.custom_defs)
     to_graphql_nodetypes(spec, include_all, types)
     db["ResourceType"] = types  # type: ignore
     db["ResourceTemplate"] = {}
     environment_instances = {}
     # the ensemble will have merged in its environment's templates and types
     connection_types = ResourceTypesByName(
-        url, spec.template.topology_template.custom_defs
+        url or "", spec.template.topology_template.custom_defs
     )
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
@@ -1437,7 +1440,6 @@ def _to_graphql(
             connection_types[typename] = types[typename]
         else:
             db["ResourceTemplate"][name] = t
-
     connections: Dict[ResourceTemplateName, ResourceTemplate] = {}
     assert spec.topology
     for relationship_spec in spec.topology.relationship_templates.values():
@@ -1519,7 +1521,10 @@ def to_deployment(
     if env_instances:
         env["instances"].update(_set_shared_instances(env_instances, env_types))
     db["DeploymentEnvironment"] = env  # type: ignore
-    logger.debug(f"finished exporting deployment %s in {perf_counter() - start_time:.3f}s)", localEnv.manifestPath)
+    logger.debug(
+        f"finished exporting deployment %s in {perf_counter() - start_time:.3f}s)",
+        localEnv.manifestPath,
+    )
     return db
 
 
