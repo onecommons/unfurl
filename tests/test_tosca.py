@@ -3,6 +3,7 @@ import unittest
 import os
 
 import pytest
+from unfurl.graphql import ImportDef, get_local_type
 import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
@@ -15,6 +16,7 @@ from unfurl.yamlloader import make_vault_lib
 from unfurl.spec import find_env_vars
 import io
 from click.testing import CliRunner
+
 
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
@@ -197,10 +199,20 @@ class ToscaSyntaxTest(unittest.TestCase):
         ):
             assert testSensitive.template.propertyDefs[name].schema["type"] == toscaType
 
-        envvars = set(find_env_vars(testSensitive.template.find_props(testSensitive.attributes)))
-        self.assertEqual(envvars, set([
-            ("TEST_VAR", "foo"), ("VAR1", "more"), 
-            ('ADDRESS', '10.0.0.1'), ('PRIVATE_ADDRESS', '10.0.0.1')]))
+        envvars = set(
+            find_env_vars(testSensitive.template.find_props(testSensitive.attributes))
+        )
+        self.assertEqual(
+            envvars,
+            set(
+                [
+                    ("TEST_VAR", "foo"),
+                    ("VAR1", "more"),
+                    ("ADDRESS", "10.0.0.1"),
+                    ("PRIVATE_ADDRESS", "10.0.0.1"),
+                ]
+            ),
+        )
         outputIp = job.get_outputs()["server_ip"]
         self.assertEqual(outputIp, "10.0.0.1")
         assert isinstance(outputIp, sensitive_str), type(outputIp)
@@ -257,14 +269,19 @@ class ToscaSyntaxTest(unittest.TestCase):
         local_env = LocalEnv(path)
         manifest = local_env.get_manifest()
 
-        self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls), list(manifest.tosca.template.nested_tosca_tpls))
+        self.assertEqual(
+            2,
+            len(manifest.tosca.template.nested_tosca_tpls),
+            list(manifest.tosca.template.nested_tosca_tpls),
+        )
         assert "imported-repo" in manifest.tosca.template.repositories
         assert "nested-imported-repo" in manifest.tosca.template.repositories, [
             tosca_tpl.get("repositories")
             for tosca_tpl, namespace_id in manifest.tosca.template.nested_tosca_tpls.values()
         ]
-        assert ['A.Nested', 'A.nodes.types', 'A.Test'
-                ] == list(manifest.tosca.template.topology_template.custom_defs)
+        assert ["A.Nested", "A.nodes.types", "A.Test"] == list(
+            manifest.tosca.template.topology_template.custom_defs
+        )
 
         runner = Runner(manifest)
         output = io.StringIO()
@@ -322,7 +339,11 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(os.path.normpath(selfPath), base)
 
         repoPath = _get_base_dir(ctx, "nested-imported-repo")
-        self.assertEqual(os.path.normpath(repoPath), base, f"{repoPath} vs {base} vs {os.path.abspath('./')}")
+        self.assertEqual(
+            os.path.normpath(repoPath),
+            base,
+            f"{repoPath} vs {base} vs {os.path.abspath('./')}",
+        )
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_workflows(self):
@@ -348,9 +369,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["changed"], 4)
         # print(job._json_plan_summary(True))
         plan_summary = job._json_plan_summary(include_rendered=False)
-        assert plan_summary[0]["instance"] == "__artifact__configurator-artifacts--kubernetes.core"
+        assert (
+            plan_summary[0]["instance"]
+            == "__artifact__configurator-artifacts--kubernetes.core"
+        )
         plan_summary.pop(0)
-        self.assertEqual(plan_summary,
+        self.assertEqual(
+            plan_summary,
             [
                 {
                     "instance": "stagingCluster",
@@ -448,7 +473,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'UnknownFieldError' in str(err.exception)
+        assert "UnknownFieldError" in str(err.exception)
 
 
 class AbstractTemplateTest(unittest.TestCase):
@@ -705,10 +730,29 @@ spec:
                 value: 10.10.10.1
       """
 
+
 def test_namespaces(caplog):
     with caplog.at_level(logging.DEBUG):
         manifest = YamlManifest(prefixed_k8s_manifest % "k8s.", "fakefile.yaml")
         assert manifest
         assert 'No definition for type "MyHostedOn" found' not in caplog.text
+
+        namespace = manifest.tosca.topology.topology_template.custom_defs
+        mock_importdef = ImportDef(file="", url="https://foo.com", prefix="dns")
+        assert ("dns.unfurl.nodes.DNSZone", None) == get_local_type(
+            namespace, "unfurl.nodes.DNSZone@unfurl:configurators/templates/dns", mock_importdef
+        )
+        # avoids prefix clash:
+        assert ("dns1.UnknownType", mock_importdef) == get_local_type(
+            namespace, "UnknownType@foo.com", mock_importdef
+        )
+        assert mock_importdef["prefix"] == "dns1"
+        # generate prefix:
+        mock_importdef.pop("prefix")
+        assert ("foo_com_.UnknownType", mock_importdef) == get_local_type(
+            namespace, "UnknownType@foo.com", mock_importdef
+        )
+        assert mock_importdef["prefix"] == "foo_com_"
+
     with pytest.raises(UnfurlValidationError) as err:
         YamlManifest(prefixed_k8s_manifest % "")  # no prefix

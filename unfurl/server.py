@@ -51,8 +51,7 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from .graphql import ResourceTypesByName
-
+from .graphql import ImportDef, ResourceTypesByName, get_local_type
 from .manifest import relabel_dict
 from .packages import Package, get_package_from_url, is_semver
 
@@ -78,6 +77,7 @@ from . import to_json
 from . import init
 from .cloudmap import Repository, RepositoryDict
 from toscaparser.common.exception import FatalToscaImportError
+from toscaparser.elements.entity_type import Namespace
 
 
 __logfile = os.getenv("UNFURL_LOGFILE")
@@ -790,7 +790,9 @@ class CacheEntry:
                             return cache_value.value, True
                         break  # missing, so inflight work must have failed, continue with our work
 
-        cache.set(self._inflight_key(), (latest_commit, time.time()), _cache_inflight_timeout)
+        cache.set(
+            self._inflight_key(), (latest_commit, time.time()), _cache_inflight_timeout
+        )
         return None, False
 
     def _cancel_inflight(self, cache: Cache):
@@ -1365,7 +1367,9 @@ def _clear_project(project_id):
     if not local_developer_mode():
         found = False
         for visibility in ["public", "private"]:
-            project_dir = _get_project_repo_dir(project_id, "", dict(visibility=visibility))
+            project_dir = _get_project_repo_dir(
+                project_id, "", dict(visibility=visibility)
+            )
             if os.path.isdir(project_dir):
                 found = True
                 logger.info("clear_project: removing %s", project_dir)
@@ -1584,14 +1588,14 @@ def create_provider():
     return _patch_ensemble(body, True, project_id, False)
 
 
-def _update_imports(current: List[dict], new: List[dict]) -> List[dict]:
+def _update_imports(current: List[ImportDef], new: List[ImportDef]) -> List[ImportDef]:
     current.extend(new)
     return current
 
 
 def _apply_imports(
     template: dict,
-    patch: List[dict],
+    patch: List[ImportDef],
     repo_url: str,
     root_file_path: str,
     repositories=None,
@@ -1601,7 +1605,7 @@ def _apply_imports(
     #   - file, repository, prefix
     # repositories:
     #     repo_name: url
-    imports = []
+    imports: List[dict] = []
     if not repositories:
         repositories = template.get("repositories") or {}
     for source_info in patch:
@@ -1626,7 +1630,8 @@ def _apply_imports(
                     patch_repositories[repository] = repositories[repository] = dict(
                         url=root
                     )
-            _import["repository"] = repository
+            if repository:
+                _import["repository"] = repository
         else:
             if root and normalize_git_url_hard(root) != normalize_git_url_hard(
                 repo_url
@@ -1646,7 +1651,8 @@ def _apply_imports(
                     patch_repositories[repository] = repositories[repository] = dict(
                         url=root
                     )
-                _import["repository"] = repository
+                if repository:
+                    _import["repository"] = repository
             else:
                 if file == root_file_path:
                     # type defined in the root template, no need to import
@@ -1679,13 +1685,14 @@ def _add_imports(imports: List[dict], template: dict, repositories: dict):
 
 def _patch_deployment_blueprint(
     patch: dict, manifest: "YamlManifest", deleted: bool
-) -> List[dict]:
+) -> List[ImportDef]:
     deployment_blueprint = patch["name"]
     doc = manifest.manifest.config
+    assert doc
     deployment_blueprints = doc.setdefault("spec", {}).setdefault(
         "deployment_blueprints", {}
     )
-    imports: List[dict] = []
+    imports: List[ImportDef] = []
     current = deployment_blueprints.setdefault(deployment_blueprint, {})
     if deleted:
         del deployment_blueprints[deployment_blueprint]
@@ -1715,25 +1722,20 @@ def _make_requirement(dependency) -> dict:
     return req
 
 
-def _patch_node_template(patch: dict, tpl: dict, namespace) -> List[dict]:
-    imports: List[dict] = []
+def _patch_node_template(
+    patch: dict, tpl: dict, namespace: Optional[Namespace]
+) -> List[ImportDef]:
+    imports: List[ImportDef] = []
     title = None
     for key, value in patch.items():
         if key == "type":
-            import_def = patch.get("_sourceinfo")
-            if namespace:
-                local = namespace.get_local_name(value)
-                if not local:  # not found, need to import
-                    if import_def:
-                        prefix = import_def.get("prefix")
-                        imports.append(import_def)
-                        if prefix:
-                            local = f"{prefix}.{value}"
-                tpl[key] = local or value
-            else:
-                tpl[key] = value.split("@")[0]
-                if import_def:
-                    imports.append(import_def)
+            # type's value will be a global name
+            local, import_def = get_local_type(
+                namespace, value, cast(Optional[ImportDef], patch.get("_sourceinfo"))
+            )
+            if import_def:
+                imports.append(import_def)
+            tpl[key] = local
         elif key in ["directives", "imported"]:
             tpl[key] = value
         elif key == "title":
@@ -1833,7 +1835,7 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                 if name in environments:
                     del environments[name]
             else:
-                imports: List[dict] = []
+                imports: List[ImportDef] = []
                 environment = environments.setdefault(name, {})
                 for key in patch_inner:
                     if key == "instances" or key == "connections":
@@ -1940,7 +1942,7 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
 
 
 def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
-    imports: List[dict] = []
+    imports: List[ImportDef] = []
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
@@ -1975,7 +1977,9 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
             if not deleted:
                 assert manifest.tosca and manifest.tosca.topology
                 namespace = manifest.tosca.topology.topology_template.custom_defs
-                _update_imports(imports, _patch_node_template(patch_inner, doc, namespace))
+                _update_imports(
+                    imports, _patch_node_template(patch_inner, doc, namespace)
+                )
     assert manifest.manifest and manifest.manifest.config and manifest.repo
     _apply_imports(
         manifest.manifest.config["spec"]["service_template"],

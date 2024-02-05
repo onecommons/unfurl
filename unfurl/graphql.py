@@ -1,4 +1,5 @@
 import datetime
+import re
 from typing import (
     Any,
     Callable,
@@ -20,6 +21,7 @@ import json
 from urllib.parse import urlparse
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.constraints import Schema
+from toscaparser.elements.entity_type import Namespace
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.imports import is_url, SourceInfo
 from toscaparser.nodetemplate import NodeTemplate
@@ -35,7 +37,7 @@ from .runtime import EntityInstance, TopologyInstance
 from .logs import sensitive, is_sensitive, getLogger
 from .spec import NodeSpec, TopologySpec, is_function
 from .lock import Lock
-from .util import to_enum, UnfurlError
+from .util import to_enum, UnfurlError, unique_name
 from .support import NodeState, Status
 
 if TYPE_CHECKING:
@@ -288,6 +290,45 @@ class DeploymentEnvironment(TypedDict, total=False):
     instances: Required[ResourceTemplatesByName]
     primary_provider: Optional[ResourceTemplate]
     repositories: JsonType
+
+
+def add_prefix(namespace: Namespace, import_def: ImportDef):
+    # make sure prefix is unique in the namespace
+    repository = import_def.get("repository")
+    prefix = import_def.get("prefix", repository)
+    if not prefix:
+        url = import_def.get("url") or ""
+        namespace_id = get_namespace_id(
+            url,
+            SourceInfo(
+                file=import_def["file"], root=url, repository=repository, path=""
+            ),
+        )
+        prefix = re.sub(r"\W", "_", namespace_id)
+    import_def["prefix"] = unique_name(
+        prefix, list(filter(None, namespace.imports.values()))
+    )
+    return prefix
+
+
+def get_local_type(
+    namespace: Optional[Namespace], global_name: str, import_def: Optional[ImportDef]
+) -> Tuple[str, Optional[ImportDef]]:
+    local = None
+    if namespace:
+        local = namespace.get_local_name(global_name)
+        if local:
+            import_def = None
+        elif import_def:  # namespace_id not found, need to import
+            add_prefix(namespace, import_def)
+            # XXX else log.warning
+    if not local:
+        local = global_name.split("@")[0]
+        if import_def:
+            prefix = import_def.get("prefix")
+            if prefix:
+                local = f"{prefix}.{local}"
+    return local, import_def
 
 
 def get_import_def(source_info: SourceInfo) -> ImportDef:
