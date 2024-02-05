@@ -548,6 +548,8 @@ def add_root_source_info(jsontype: ResourceType, repo_url: str, base_path: str) 
     # if the type wasn't imported add source info pointing at the root service template
     source_info = cast(ImportDef, jsontype.get("_sourceinfo"))
     if not source_info:
+        if jsontype["name"] in StatefulEntityType.TOSCA_DEF:
+            return # built-in type
         # not an import, type defined in main service template file
         # or it's an import relative to the root, just include the root import because it will in turn import this import
         jsontype["_sourceinfo"] = dict(

@@ -6,7 +6,7 @@ import os.path
 import pytest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError
-from unfurl.to_json import to_blueprint, to_deployment
+from unfurl.to_json import to_blueprint, to_deployment, node_type_to_graphql
 from unfurl.localenv import LocalEnv
 from unfurl.planrequests import _find_implementation
 
@@ -19,6 +19,18 @@ def test_jsonexport():
     local = LocalEnv(basepath + "include-json-ensemble.yaml")
     # verify to_graphql is working as expected
     jsonExport = to_deployment(local)
+    manifest = local.get_manifest(skip_validation=True, safe_mode=True)
+    topology = manifest.tosca.topology
+
+    rel_type = topology.topology_template.find_type("unfurl.relationships.ConnectsTo.AWSAccount")
+    assert rel_type and rel_type._source is None
+    rel_json = node_type_to_graphql(topology, rel_type, jsonExport["ResourceType"])
+    assert "_sourceinfo" not in rel_json
+    # not imported, so only added in types call (with root_url and include_all)
+    assert "_sourceinfo" not in jsonExport["ResourceType"]["Atlas"]
+
+
+
 
     # check that subtypes can remove inherited operations if marked not_implemented
     assert jsonExport["ResourceType"]["Atlas"]["implementations"] == ["configure"]

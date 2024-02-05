@@ -737,22 +737,22 @@ def test_namespaces(caplog):
         assert manifest
         assert 'No definition for type "MyHostedOn" found' not in caplog.text
 
-        namespace = manifest.tosca.topology.topology_template.custom_defs
-        mock_importdef = ImportDef(file="", url="https://foo.com", prefix="dns")
-        assert ("dns.unfurl.nodes.DNSZone", None) == get_local_type(
-            namespace, "unfurl.nodes.DNSZone@unfurl:configurators/templates/dns", mock_importdef
-        )
-        # avoids prefix clash:
-        assert ("dns1.UnknownType", mock_importdef) == get_local_type(
-            namespace, "UnknownType@foo.com", mock_importdef
-        )
-        assert mock_importdef["prefix"] == "dns1"
-        # generate prefix:
-        mock_importdef.pop("prefix")
-        assert ("foo_com_.UnknownType", mock_importdef) == get_local_type(
-            namespace, "UnknownType@foo.com", mock_importdef
-        )
-        assert mock_importdef["prefix"] == "foo_com_"
+    namespace = manifest.tosca.topology.topology_template.custom_defs
+    mock_importdef = ImportDef(file="", url="https://foo.com", prefix="dns")
+    assert ("dns.unfurl.nodes.DNSZone", None) == get_local_type(
+        namespace, "unfurl.nodes.DNSZone@unfurl:configurators/templates/dns", mock_importdef
+    )
+    # avoids prefix clash:
+    assert ("dns1.UnknownType", mock_importdef) == get_local_type(
+        namespace, "UnknownType@foo.com", mock_importdef
+    )
+    assert mock_importdef["prefix"] == "dns1"
+    # generate prefix:
+    mock_importdef.pop("prefix")
+    assert ("foo_com_.UnknownType", mock_importdef) == get_local_type(
+        namespace, "UnknownType@foo.com", mock_importdef
+    )
+    assert mock_importdef["prefix"] == "foo_com_"
 
     with pytest.raises(UnfurlValidationError) as err:
         YamlManifest(prefixed_k8s_manifest % "")  # no prefix
