@@ -456,10 +456,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         if repository_name:
             url = super().get_repository_url(importsLoader, repository_name)
-        elif self.manifest and self.manifest.repo and self.manifest.path:
-            url = self.manifest.repo.get_url_with_path(
-                self.manifest.get_base_dir(), True
-            )
+        elif self.manifest and self.manifest.path:
+            if self.manifest.repo:
+                url = self.manifest.repo.get_url_with_path(
+                    self.manifest.get_base_dir(), True
+                )
+            else:
+                url = self.manifest.path
         else:
             url = ""
         if package:

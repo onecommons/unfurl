@@ -11,7 +11,7 @@ from typing import (
     TypeVar,
     Union,
     cast,
-    TYPE_CHECKING
+    TYPE_CHECKING,
 )
 from typing_extensions import TypedDict, NotRequired, Required
 from collections.abc import Mapping, MutableSequence
@@ -203,6 +203,7 @@ class ImportDef(TypedDict):
     prefix: NotRequired[str]
     url: NotRequired[str]  # added after creation
 
+
 class ResourceType(GraphqlObject, total=False):
     """
     type ResourceType {
@@ -294,20 +295,10 @@ def get_import_def(source_info: SourceInfo) -> ImportDef:
     root = source_info["root"]
     repository = source_info.get("repository")
     url = None
+    file = source_info["file"]
     if repository:
-        url = (
-            "github.com/onecommons/unfurl" if repository == "unfurl" else root
-        )
-        file = source_info["file"]
+        url = "github.com/onecommons/unfurl" if repository == "unfurl" else root
     else:
-        path = source_info["path"]
-        base = source_info["base"]
-        # make path relative to the import base (not the file that imported)
-        # and include the fragment if present
-        # base and path will both be local file paths
-        file = path[len(base) :].strip("/") + "".join(
-            source_info["file"].partition("#")[1:]
-        )
         if root and is_url(root):
             url = root
         # otherwise import relative to main service template
@@ -318,6 +309,7 @@ def get_import_def(source_info: SourceInfo) -> ImportDef:
         import_def["url"] = url
     return import_def
 
+
 def _get_url_from_source_info(source_info: SourceInfo) -> Tuple[str, str]:
     root = source_info["root"] or ""
     repository = source_info.get("repository")
@@ -326,21 +318,12 @@ def _get_url_from_source_info(source_info: SourceInfo) -> Tuple[str, str]:
             root = "unfurl"
         return root, source_info["file"]
     else:
-        path = source_info["path"]
-        base = source_info["base"]
-        if path:
-            # make path relative to the import base (not the file that imported)
-            # and include the fragment if present
-            # base and path will both be local file paths
-            file = path[len(base or "") :].strip("/") + "".join(
-                source_info["file"].partition("#")[1:]
-            )
-        else:
-            file = source_info["file"]
+        file = source_info["file"]
         if is_url(root):
             return root, file
         # otherwise import relative to main service template
         return "", file
+
 
 def get_package_url(url: str) -> str:
     "Convert the given url to a package id or if it can't be converted, normalize the URL."
@@ -350,14 +333,21 @@ def get_package_url(url: str) -> str:
     else:
         return normalize_git_url_hard(url)
 
+
 def to_type_name(name: str, package_id: str, path: str) -> TypeName:
+    """Example  of namespace_ids:
+
+    Package id:
     "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types"
+
+    Package id with filename:
     "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types:aws"
-    "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types:aws#v2.1"
+    """
     if path and path != "service-template.yaml":
         return TypeName(name + "@" + package_id + ":" + os.path.splitext(path)[0])
     else:
         return TypeName(name + "@" + package_id)
+
 
 # called by get_repository_url
 def get_namespace_id(root_url: str, info: SourceInfo):
@@ -368,6 +358,7 @@ def get_namespace_id(root_url: str, info: SourceInfo):
         return package_id + ":" + os.path.splitext(path)[0]
     else:
         return package_id
+
 
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def __init__(self, qualifier, custom_defs):
@@ -428,8 +419,12 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def get_localname(typename: str):
         return typename.partition("@")[0]
 
-    def _make_typedef(self, name: str, all=False, get_local=True) -> Optional[StatefulEntityType]:
-        typename = self.get_localname(name) if get_local or not EXPORT_QUALNAME else name
+    def _make_typedef(
+        self, name: str, all=False, get_local=True
+    ) -> Optional[StatefulEntityType]:
+        typename = (
+            self.get_localname(name) if get_local or not EXPORT_QUALNAME else name
+        )
         typedef = find_type(typename, self.custom_defs)
         if not typedef:
             logger.warning("Missing type definition for %s", name)

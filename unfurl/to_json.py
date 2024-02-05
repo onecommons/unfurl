@@ -17,6 +17,7 @@ import sys
 import itertools
 import json
 import datetime
+from time import perf_counter
 import traceback
 from typing import (
     Any,
@@ -1502,6 +1503,7 @@ def to_blueprint(
 def to_deployment(
     localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
 ) -> GraphqlDB:
+    start_time = perf_counter()
     logger.debug("exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv, root_url)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
@@ -1515,7 +1517,7 @@ def to_deployment(
     if env_instances:
         env["instances"].update(_set_shared_instances(env_instances, env_types))
     db["DeploymentEnvironment"] = env  # type: ignore
-    logger.debug("finished exporting deployment %s", localEnv.manifestPath)
+    logger.debug(f"finished exporting deployment %s in {perf_counter() - start_time:.3f}s)", localEnv.manifestPath)
     return db
 
 
@@ -1755,7 +1757,7 @@ def to_deployments(
         # _print(f"{perf_counter() - start_time}s export for {manifest_path}")
 
     # from .yamlloader import yaml_perf
-    # _print(f"exported {len(deployments)} deployments, {yaml_perf} seconds parsing yaml")
+    # _print(f"exported {len(deployments)} deployments, {yaml_perf:.3f} seconds parsing yaml")
     # from .manifest import _cache
     # _print("cached files with access count", json.dumps([(k, v[1]) for k, v in _cache.items()], indent=2))
     return db
