@@ -35,7 +35,7 @@ import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
 import toscaparser.repositories
-from toscaparser.common.exception import ExceptionCollector
+from toscaparser.common.exception import ExceptionCollector, TOSCAException
 import os
 from .logs import getLogger
 import logging
@@ -1254,7 +1254,16 @@ class NodeSpec(EntitySpec):
             node_type_namespace = self.toscaEntityTemplate.custom_def.find_namespace(
                 req_tpl.get("!namespace-node")
             )
-            nodetype = NodeType(nodetype, node_type_namespace).global_name
+            try:
+                ExceptionCollector.pause()
+                nodetype = StatefulEntityType(
+                    nodetype, StatefulEntityType.NODE_PREFIX, node_type_namespace
+                ).global_name
+            except TOSCAException as e:
+                logger.debug(f'requirement node type "%s" not found in namespace "%s"', nodetype, node_type_namespace.namespace_id)
+            finally:
+                ExceptionCollector.resume()
+
 
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):

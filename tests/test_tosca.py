@@ -1,3 +1,4 @@
+import logging
 import unittest
 import os
 
@@ -654,11 +655,17 @@ spec:
         file: configurators/templates/dns.yaml
         namespace_prefix: dns
 
+    relationship_types:
+        MyHostedOn:
+            derived_from: tosca.relationships.HostedOn
+
     node_types:
       MyNamespace:
         # test unfurl.nodes._K8sResourceHost resolves
         derived_from: k8s.unfurl.nodes.K8sNamespace
-        # requirements
+        requirements:
+          - host:
+              relationship: MyHostedOn
         # capabilities
         interfaces:
           Install:
@@ -698,8 +705,10 @@ spec:
                 value: 10.10.10.1
       """
 
-def test_namespaces():
-    manifest = YamlManifest(prefixed_k8s_manifest % "k8s.")
-    assert manifest
+def test_namespaces(caplog):
+    with caplog.at_level(logging.DEBUG):
+        manifest = YamlManifest(prefixed_k8s_manifest % "k8s.", "fakefile.yaml")
+        assert manifest
+        assert 'No definition for type "MyHostedOn" found' not in caplog.text
     with pytest.raises(UnfurlValidationError) as err:
         YamlManifest(prefixed_k8s_manifest % "")  # no prefix

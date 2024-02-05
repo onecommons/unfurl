@@ -62,6 +62,7 @@ def test_constraints():
             },
         }
     }
+    # pprint.pprint(service_template["node_types"])
     assert service_template["node_types"] == {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
@@ -92,6 +93,7 @@ def test_constraints():
                 {
                     "hosting": {
                         "node": "ContainerService",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples",
                         "node_filter": {"match": [{"eval": "backend_url"}]},
                     }
                 }
@@ -100,10 +102,16 @@ def test_constraints():
         "App": {
             "derived_from": "tosca.nodes.Root",
             "requirements": [
-                {"container": {"node": "container_service"}},
+                {
+                    "container": {
+                        "node": "container_service",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples",
+                    }
+                },
                 {
                     "proxy": {
                         "node": "ProxyContainerHost",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples",
                         "node_filter": {
                             "properties": [
                                 {
