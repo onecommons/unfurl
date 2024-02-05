@@ -894,7 +894,7 @@ class CacheEntry:
             # if stale.committed_date - time.time() < stale_ok_age:
             #      return value
             self.hit = False
-        else:  # cache miss
+        if not cache_value or not self.hit:  # cache miss
             try:
                 if not self.repo:
                     self._set_project_repo()
