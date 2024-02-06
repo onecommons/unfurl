@@ -1588,23 +1588,28 @@ def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) ->
 
 
 class Runner:
-    # this class is only used by unit tests, application uses start_job() above
+    "this class is only used by unit tests, application uses start_job() above"
 
     def __init__(self, manifest):
         self.manifest = manifest
         assert self.manifest.tosca
+        self.job = None
 
     def static_plan(self, jobOptions=None):
         if jobOptions is None:
             jobOptions = JobOptions()
-        job = _plan(self.manifest, jobOptions)
-        return job
+        self.job = _plan(self.manifest, jobOptions)
+        return self.job
 
     def run(self, jobOptions=None):
         if jobOptions is None:
             jobOptions = JobOptions()
-        job = _plan(self.manifest, jobOptions)
-        rendered, count = _render(job)
+        if not self.job:
+            self.job = _plan(self.manifest, jobOptions)
+        rendered, count = _render(self.job)
         if not jobOptions.planOnly:
-            job.run(rendered)
+            self.job.run(rendered)
+        job = self.job
+        # only use job once
+        self.job = None
         return job
