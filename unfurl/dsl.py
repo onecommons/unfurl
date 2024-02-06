@@ -91,6 +91,7 @@ from unfurl.yamlmanifest import YamlManifest
 
 if TYPE_CHECKING:
     from .yamlloader import ImportResolver
+    from .job import Runner
 
 logger = getLogger("unfurl")
 
@@ -98,6 +99,9 @@ _N = TypeVar("_N", bound=tosca.Namespace)
 
 
 def runtime_test(namespace: Type[_N]) -> _N:
+    return create_runner(namespace)[0]
+
+def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     from .job import Runner
 
     converter = PythonToYaml(namespace.get_defs())
@@ -109,7 +113,8 @@ def runtime_test(namespace: Type[_N]) -> _N:
     manifest = YamlManifest(config)
     assert manifest.rootResource
     # a plan is needed to create the instances
-    job = Runner(manifest).static_plan()
+    runner = Runner(manifest)
+    job = runner.static_plan()
     assert manifest.rootResource.attributeManager
     # make sure we share the change_count
     ctx = manifest.rootResource.attributeManager._get_context(manifest.rootResource)
@@ -130,7 +135,7 @@ def runtime_test(namespace: Type[_N]) -> _N:
     assert count == len(node_templates), f"{count}, {len(node_templates)}"
     assert tosca.global_state.mode == "runtime"
     tosca.global_state.context = ctx
-    return clone
+    return clone, runner
 
 
 def convert_to_yaml(
