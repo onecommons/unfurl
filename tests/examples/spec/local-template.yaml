@@ -7,6 +7,12 @@ types:
     node_types:
       Nested:
         derived_from: tosca.nodes.Root
+        properties:
+          a_property:
+            type: string
+            default:
+              q:
+                just a string
       nodes.types:
         derived_from: tosca.nodes.Root
         artifacts:

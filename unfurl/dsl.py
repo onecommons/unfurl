@@ -142,7 +142,6 @@ def convert_to_yaml(
 ) -> dict:
     from .yamlloader import yaml_dict_type
 
-    import_resolver.expand = False
     namespace: Dict[str, Any] = {}
     logger.trace(
         f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"

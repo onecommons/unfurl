@@ -296,6 +296,16 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(anInstance.attributes["testExpressionFunc"], "foo")
         self.assertEqual(anInstance.attributes["defaultexpession"], "default_foo")
 
+        # base_dir should be the directory the template's type is defined in
+        base_dir = os.path.normpath(os.path.join(os.path.dirname(path), "spec"))
+        assert anInstance.template.propertyDefs['defaultexpession'].value.base_dir == base_dir
+        assert anInstance.template.toscaEntityTemplate.type_definition.defs.base_dir == base_dir
+
+        instance2 = job.rootResource.find_resource("testNested")
+        assert instance2
+        assert instance2.template.propertyDefs['a_property'].value.base_dir == base_dir
+        assert instance2.template.toscaEntityTemplate.type_definition.defs.base_dir == base_dir
+
         ctx = RefContext(anInstance)
 
         # .: <ensemble>/
