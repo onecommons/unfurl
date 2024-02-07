@@ -135,6 +135,16 @@ class PackageSpec:
     def __repr__(self):
         return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.safe_url})"
 
+    def __eq__(self, other):
+        if not isinstance(other, PackageSpec):
+            return False
+        return (
+            self.package_spec == other.package_spec
+            and self.package_id == self.package_id
+            and self.url == other.url
+            and self.revision == other.revision
+        )
+
     def matches(self, package: "Package") -> bool:
         # * use the package name (or prefix) as the name of the repository to specify replacement or name resolution
         candidate = package.package_id
@@ -148,13 +158,24 @@ class PackageSpec:
         else:
             return candidate == self.package_spec
 
+    @staticmethod
+    def _replace(match, replace, candidate):
+        # if `candidate` startswith `match`, replace the matching segment with replace
+        match = match.rstrip("*")
+        if candidate.startswith(match):
+            # substitute the * in replace with the remainder of 'candidate'
+            return replace.replace("*", candidate[len(match) :])
+        return candidate
+
+    def replace(self, replace, package):
+        return self._replace(self.package_spec, replace, package.package_id)
+
     def update(self, package: "Package") -> str:
         # if the package's package_id was replaced return that
+        # assume package already matched
         if self.package_spec.endswith("*"):
             if self.url:
-                package.url = self.url.replace(
-                    "*", package.package_id[len(self.package_spec) - 1 :]
-                )
+                package.url = self.replace(self.url, package)
                 if self.revision:
                     package.revision = self.revision
                     # PackageSpec.url used above will always have revision stripped off
@@ -163,9 +184,7 @@ class PackageSpec:
             else:
                 if self.package_id:
                     replaced_id = package.package_id
-                    package.package_id = self.package_id.replace(
-                        "*", package.package_id[len(self.package_spec) - 1 :]
-                    )
+                    package.package_id = self.replace(self.package_id, package)
                     package.url = ""
                     return replaced_id
                 if self.revision:
@@ -237,6 +256,38 @@ class PackageSpec:
                     # use default url pattern for the package_id
                     package.set_url_from_package_id()
         return changed
+
+
+def find_canonical(
+    package_specs: List["PackageSpec"], canonical: str, namespace_id: str
+):
+    # if namespace_id is not already part of the canonical package, apply package rules that may map them to the package
+    # for example, consider these package rules:
+    # gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*
+    if not namespace_id.startswith(canonical):
+        reverse_rules = reverse_rules_for_canonical(package_specs, canonical)
+        if reverse_rules:
+            package = Package(namespace_id, None, None)
+            # first applies rules that might map the given namespace_id to the host
+            PackageSpec.update_package(package_specs, package)
+            # then apply the reverse rules to map the host to the canonical
+            PackageSpec.update_package(reverse_rules, package)
+            return package.package_id
+    return namespace_id
+
+
+def reverse_rules_for_canonical(package_specs: List["PackageSpec"], canonical: str):
+    # find the package_specs that map the canonical package_id to a different host
+    # the reverse them to return a list of package_specs that map a host to back to the canonical package_id
+    # gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*
+    reverse_rules = [
+        PackageSpec(spec.package_id, spec.package_spec)
+        for spec in package_specs
+        if spec.package_id
+        and "*" in spec.package_id
+        and spec.package_spec.rstrip("*").startswith(canonical)
+    ]
+    return reverse_rules
 
 
 def get_package_id_from_url(url: str) -> Package_Url_Info:

@@ -25,7 +25,7 @@ from typing import (
 from typing_extensions import Literal
 import urllib
 import urllib.request
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlparse, urlsplit
 import ssl
 import certifi
 import git
@@ -69,12 +69,16 @@ from .repo import (
     memoized_remote_tags,
 )
 from .packages import (
+    Package,
     PackageSpec,
     UnfurlPackageUpdateNeeded,
     extract_package,
+    find_canonical,
     get_package_from_url,
     resolve_package,
 )
+from . import DEFAULT_CLOUD_SERVER
+
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -450,7 +454,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self,
         importsLoader,
         repository_name,
-        package: Optional[toscaparser.imports.SourceInfo] = None,
+        source_info: Optional[toscaparser.imports.SourceInfo] = None,
     ) -> str:
         from .graphql import get_namespace_id
 
@@ -465,9 +469,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = self.manifest.path
         else:
             url = ""
-        if package:
-            # return a global namespace id for this import
-            return get_namespace_id(url, package)
+        if source_info:
+            namespace_id = get_namespace_id(url, source_info)
+            if self.manifest and self.manifest.package_specs:
+                canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
+                if canonical:
+                    return find_canonical(self.manifest.package_specs, canonical, namespace_id)
+            return namespace_id
         return url
 
     confine_user_paths = True

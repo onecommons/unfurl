@@ -1415,7 +1415,7 @@ def _to_graphql(
     if root_url:
         url: Optional[str] = root_url
     else:
-        url = manifest.repo.url if manifest.repo else spec.topology.path
+        url = manifest.get_package_url()
     types = ResourceTypesByName(url or "", spec.template.topology_template.custom_defs)
     to_graphql_nodetypes(spec, include_all, types)
     db["ResourceType"] = types  # type: ignore

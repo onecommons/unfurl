@@ -66,6 +66,7 @@ class DefaultNames:
     def __init__(self, **names: Dict[str, str]) -> None:
         self.__dict__.update({name: value for name, value in names.items() if value})
 
+DEFAULT_CLOUD_SERVER = "https://unfurl.cloud"
 
 def get_home_config_path(homepath: Union[None, str]) -> Union[None, str]:
     # if homepath is explicitly it overrides UNFURL_HOME

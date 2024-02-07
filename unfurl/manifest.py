@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
+from urllib.parse import urlparse
 from ruamel.yaml.comments import CommentedMap
 
 from .lock import Lock
@@ -41,12 +42,12 @@ from .util import (
     taketwo,
 )
 from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
-from .packages import Package, PackageSpec, PackagesType
+from .packages import Package, PackageSpec, PackagesType, find_canonical, get_package_id_from_url
 from .merge import merge_dicts
 from .result import ChangeRecord, ResourceRef
 from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
 from .logs import getLogger
-from . import __version__
+from . import DEFAULT_CLOUD_SERVER, __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
 import tosca
@@ -623,6 +624,18 @@ class Manifest(AttributeManager):
             return commits[0].committed_datetime
         return None
 
+    def get_package_url(self) -> str:
+        if self.repo:
+            url = self.repo.url
+        else:
+            url = self.tosca.topology.path or "" if self.tosca and self.tosca.topology else ""
+        if url and self.package_specs:
+            namespace_id, _, _ = get_package_id_from_url(url)
+            canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
+            if namespace_id and canonical:
+                return find_canonical(self.package_specs, canonical, namespace_id)
+        return url or ""
+
     def find_path_in_repos(self, path, importLoader=None):
         """
         Check if the file path is inside a folder that is managed by a repository.
@@ -674,7 +687,9 @@ class Manifest(AttributeManager):
         lock = config.get("lock")
         if lock and "package_rules" in lock:
             package_specs = [PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])]
-            self.package_specs = package_specs + self.package_specs  # prepend
+            if package_specs:
+                logger.debug("applying package rules from lock section: %s", package_specs)
+                self.package_specs = package_specs + self.package_specs  # prepend so user can override
 
         for name, tpl in repositories.items():
             # only set if we haven't seen this repository before

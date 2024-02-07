@@ -72,7 +72,7 @@ from .util import UnfurlError, get_package_digest, is_relative_to, unique_name
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from .yamlloader import ImportResolver_Context, SimpleCacheResolver
-from . import __version__, DefaultNames
+from . import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
 from . import to_json
 from . import init
 from .cloudmap import Repository, RepositoryDict
@@ -84,8 +84,6 @@ __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
     add_log_file(__logfile)
 logger = getLogger("unfurl.server")
-
-DEFAULT_CLOUD_SERVER = "https://unfurl.cloud"
 
 # note: export FLASK_ENV=development to see error stacks
 # see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
