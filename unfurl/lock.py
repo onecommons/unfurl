@@ -96,7 +96,7 @@ class Lock:
         lock["runtime"] = self.lock_runtime()
         lock["package_rules"] = [
             f"{spec.package_spec} {spec.safe_url or spec.package_id} {spec.revision or ''}".strip()
-            for spec in self.ensemble.package_specs
+            for spec in self.ensemble.package_specs if spec.package_spec != "github.com/onecommons/unfurl"
         ]
 
         repositories = self.lock_repositories()

@@ -671,6 +671,11 @@ class Manifest(AttributeManager):
             resolver = self.get_import_resolver()
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
+        lock = config.get("lock")
+        if lock and "package_rules" in lock:
+            package_specs = [PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])]
+            self.package_specs = package_specs + self.package_specs  # prepend
+
         for name, tpl in repositories.items():
             # only set if we haven't seen this repository before
             toscaRepository = resolver.get_repository(name, tpl)
