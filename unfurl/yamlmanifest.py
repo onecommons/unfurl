@@ -3,7 +3,7 @@
 """Loads and saves a ensemble manifest.
 """
 import io
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING, cast
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
 import sys
 from collections.abc import MutableSequence, Mapping
 import numbers
@@ -326,7 +326,10 @@ class YamlManifest(ReadOnlyManifest):
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
         spec = manifest.get("spec", {})
-        more_spec = self._load_context(self.context, localEnv)
+        load_env_instances = self.localEnv and self.localEnv.overrides.get(
+            "load_env_instances"
+        )
+        more_spec = self._load_context(self.context, localEnv, load_env_instances)
         deployment_blueprint = self.context.get("deployment_blueprint")
         deployment_blueprints = (
             manifest.get("spec", {}).get("deployment_blueprints") or {}
@@ -349,7 +352,7 @@ class YamlManifest(ReadOnlyManifest):
                 logger.warning(
                     "This ensemble contains deployment blueprints but none were specified for use."
                 )
-        if self.context.get("instances"):
+        if self.context.get("instances") and load_env_instances:
             # add context instances to spec instances but skip ones that are just in there because they were shared
             env_instances = {
                 k: v.copy()
@@ -529,13 +532,24 @@ class YamlManifest(ReadOnlyManifest):
                     directives.append("virtual")
             node_templates[name] = tpl
 
-    def _load_context(self, context, localEnv):
-        imports = context.get("imports")
+    def _load_context(self, context, localEnv, include_all_imports):
+        imports: List[dict] = context.get("imports") or []
+        prefixes: Dict[str, list] = {}
+        if imports and not include_all_imports:
+            # only include imports that match a prefix required by a connection
+            for imp_def in imports:
+                prefix = imp_def.get("namespace_prefix")
+                if prefix:
+                    prefixes.setdefault(prefix + ".", []).append(imp_def)
+            imports = []
         connections = relabel_dict(context, localEnv, "connections")
         for name, c in connections.items():
+            for prefix, imp_defs in prefixes.items():
+                if c["type"].startswith(prefix):
+                    imports.extend(imp_defs)
             if "default_for" not in c:
                 c["default_for"] = "ANY"
-        tosca = dict(
+        tosca: Dict[str, Any] = dict(
             topology_template=dict(
                 node_templates={}, relationship_templates=connections
             ),

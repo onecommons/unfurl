@@ -1694,6 +1694,7 @@ def to_environments(
     environments = {}
     all_connection_types: GraphqlObjectsByName = {}
     assert localEnv.project
+    localEnv.overrides["load_env_instances"] = True
     deployment_paths = get_deploymentpaths(localEnv.project)
     env_deployments = {}
     for ensemble_info in deployment_paths.values():

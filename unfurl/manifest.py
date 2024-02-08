@@ -62,7 +62,7 @@ logger = getLogger("unfurl")
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict:
+def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str, Any]:
     """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment."""
     connections = environment.get(key)
     if not connections:
