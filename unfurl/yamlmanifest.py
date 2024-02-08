@@ -870,6 +870,7 @@ class YamlManifest(ReadOnlyManifest):
 
         # update changed with includes, this may change objects with references to these objects
         self.manifest.restore_includes(changed)
+        assert self.manifest.config
         # only saved discovered templates that are still referenced
         spec = self.manifest.config.setdefault("spec", {})
         spec.pop("discovered", None)
@@ -913,8 +914,10 @@ class YamlManifest(ReadOnlyManifest):
             # no work was done
             changes = []
 
-        if job.out:
-            self.dump(job.out)
+        if job.out or job.jobOptions.out:
+            if job.dry_run:
+                logger.info("printing results from dry run")
+            self.dump(job.out or job.jobOptions.out)
         else:
             job.out = self.manifest.save()
         return jobRecord, changes
@@ -923,7 +926,6 @@ class YamlManifest(ReadOnlyManifest):
         if job.jobOptions.planOnly:
             return
         if job.dry_run:
-            logger.info("printing results from dry run")
             if not job.jobOptions.out and self.manifest.path:  # type: ignore
                 job.jobOptions.out = sys.stdout  # type: ignore
         jobRecord, changes = self.save_job(job)
