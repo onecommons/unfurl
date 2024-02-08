@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
+import re
 import time
 import traceback
 from typing import (
@@ -1264,10 +1265,12 @@ def _get_cloudmap_types(project_id: str, root_cache_entry: CacheEntry):
                 if typeinfo:
                     name = typeinfo["name"]
                     if "_sourceinfo" not in typeinfo:
-                        typeinfo["_sourceinfo"] = ImportDef(file=file_path, url=r.git_url())
+                        typeinfo["_sourceinfo"] = ImportDef(
+                            file=file_path, url=r.git_url()
+                        )
                     if "@" not in name:
                         schema = cast(str, notable.get("schema", r.git_url()))
-                        local_types = ResourceTypesByName(schema, Namespace({},""))
+                        local_types = ResourceTypesByName(schema, Namespace({}, ""))
                         typeinfo["name"] = name = local_types.expand_typename(name)
                         # make sure "extends" are fully qualified
                         extends = typeinfo.get("extends")
@@ -1722,16 +1725,17 @@ def _make_requirement(dependency) -> dict:
 
 
 def _patch_node_template(
-    patch: dict, tpl: dict, namespace: Optional[Namespace]
+    patch: dict, tpl: dict, namespace: Optional[Namespace], prefix=""
 ) -> List[ImportDef]:
     imports: List[ImportDef] = []
     title = None
     for key, value in patch.items():
         if key == "type":
             # type's value will be a global name
-            local, import_def = get_local_type(
-                namespace, value, cast(Optional[ImportDef], patch.get("_sourceinfo"))
-            )
+            src_import_def = cast(Optional[ImportDef], patch.get("_sourceinfo"))
+            if src_import_def and prefix:
+                src_import_def["prefix"] = prefix
+            local, import_def = get_local_type(namespace, value, src_import_def)
             if import_def:
                 imports.append(import_def)
             tpl[key] = local
@@ -1836,6 +1840,7 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
             else:
                 imports: List[ImportDef] = []
                 environment = environments.setdefault(name, {})
+                prefix = re.sub(r"\W", "_", name)
                 for key in patch_inner:
                     if key == "instances" or key == "connections":
                         target = environment.get(key) or {}
@@ -1846,7 +1851,8 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                                 # connections keys can be a string or null
                                 tpl = {}
                             _update_imports(
-                                imports, _patch_node_template(node_patch, tpl, None)
+                                imports,
+                                _patch_node_template(node_patch, tpl, None, prefix),
                             )
                             new_target[node_name] = tpl
                         environment[key] = new_target  # replace
