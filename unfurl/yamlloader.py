@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import fnmatch
 from functools import partial
 import io
 import os.path
@@ -285,6 +286,13 @@ _refResolver = RefResolver("", None)
 ImportResolver_Context = Tuple[bool, Optional[RepoView], str, str]
 
 
+def match_namespace(packages, namespace_id: str):
+    for p in packages.split():
+        if fnmatch.fnmatch(namespace_id, p):
+            return True
+    return False
+
+
 class ImportResolver(toscaparser.imports.ImportResolver):
     safe_mode: bool = False
 
@@ -299,6 +307,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+
+    GLOBAL_NAMESPACE_PACKAGES = os.getenv(
+        "UNFURL_GLOBAL_NAMESPACE_PACKAGES", "unfurl.cloud/onecommons/unfurl-types*"
+    )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -474,7 +486,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if self.manifest and self.manifest.package_specs:
                 canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
                 if canonical:
-                    return find_canonical(self.manifest.package_specs, canonical, namespace_id)
+                    namespace_id = find_canonical(
+                        self.manifest.package_specs, canonical, namespace_id
+                    )
+
+            if match_namespace(self.GLOBAL_NAMESPACE_PACKAGES, namespace_id):
+                source_info["global_namespace"] = True  # type: ignore
             return namespace_id
         return url
 

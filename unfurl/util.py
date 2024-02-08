@@ -801,6 +801,7 @@ required_envvars = [
     "PY_COLORS",
     "UNFURL_OVERWRITE_POLICY",
     "UNFURL_EXPORT_LOCALNAMES",
+    "UNFURL_GLOBAL_NAMESPACE_PACKAGES",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]
