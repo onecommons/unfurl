@@ -147,8 +147,8 @@ def _patch(node, patchsrc, quote=False, tpl=None):
     logger.trace("patching node %s was %s", node.name, tpl)
     original = copy_dict(tpl)
     patched = patch_dict(tpl, patch, True)
-    patched.setdefault("metadata", {})["before_patch"] = original
     logger.trace("patched node %s: now %s", node.name, patched)
+    patched.setdefault("metadata", {})["before_patch"] = original
     return patched
 
 
@@ -707,6 +707,7 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = cast(str, toscaNodeTemplate.type)
+        self.global_type = toscaNodeTemplate.type_definition.global_name
         self._isReferencedBy: Sequence[
             EntitySpec
         ] = []  # this is referenced by another template or via property traversal
@@ -1508,7 +1509,7 @@ class TopologySpec(EntitySpec):
         self.spec: ToscaSpec = spec
         self.spec._topology_templates[id(topology)] = self
         self.name = "root"
-        self.type = "~topology"
+        self.global_type = self.type = "~topology"
         self.topology = self
         self.path = path
         self.parent_topology: Optional["TopologySpec"] = parent

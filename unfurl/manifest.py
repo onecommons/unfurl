@@ -577,7 +577,7 @@ class Manifest(AttributeManager):
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
             if verbose:
-                instance_label  += f"({instance.type})"
+                instance_label  += f"({instance.template.global_type})"
             local = (
                 f"({'None' if instance.local_status is None else instance.local_status.name})"
                 if verbose
