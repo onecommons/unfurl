@@ -168,6 +168,7 @@ class DelegateConfigurator(Configurator):
         return True
 
     def render(self, task):
+        task.inputs.get("when")  # evaluate now to determine dependencies
         # should_run rendered already
         return task.rendered
 
