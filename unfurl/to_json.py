@@ -411,7 +411,7 @@ def _find_req_typename(
                 continue
         if "requirements" not in t or t.get("metadata", {}).get("alias"):
             continue
-        assert typename in t["extends"]
+        assert typename in t["extends"], f"{typename} not in {t['extends']}"
         # type is typename or derived from typename
         for target_reqs in t["requirements"]:
             if target_reqs["name"] == reqname:
@@ -1708,19 +1708,12 @@ def to_environments(
         if environment_filter and environment_filter != name:
             continue
         try:
-            # we can reuse the localEnv if there's a distinct manifest that uses this environment
+            # reuse the localEnv and use the default manifest so environment instances don't clash with a real deployment
             localEnv.manifest_context_name = name
-            if name in env_deployments:
-                localEnv.manifestPath = os.path.join(
-                    localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml"
-                )
-            else:
-                # this environment doesn't have any deployments, reuse the default one
-                # delete existing because we need to instantiate a different ToscaSpec object
-                localEnv._manifests.pop(default_manifest_path, None)
-                localEnv.manifestPath = default_manifest_path
-            localLocalEnv = localEnv
-            blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv, root_url)
+            # delete existing default manfest if created because we need to instantiate a different ToscaSpec object
+            localEnv._manifests.pop(default_manifest_path, None)
+            localEnv.manifestPath = default_manifest_path
+            blueprintdb, manifest, env, env_types = _to_graphql(localEnv, root_url)
             env["name"] = name
             if default_imported_instances is None:
                 default_imported_instances = _set_shared_instances(
