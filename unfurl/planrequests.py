@@ -318,7 +318,8 @@ class PlanRequest:
                 for error in self.render_errors
                 if getattr(error, "dependency", None)
             ]
-            msg += f" invalid dependencies: {render_deps}"
+            if render_deps:
+                msg += f" invalid dependencies: {render_deps}"
         if self.dependencies:
             not_operational = [
                 dep.name
@@ -329,13 +330,13 @@ class PlanRequest:
             invalid_deps = [
                 dep.name for dep in self.dependencies if dep not in not_operational
             ]
-            if msg != start:
-                msg += " and "
             if not_operational:
+                if msg != start:
+                    msg += " and "
                 msg += f"non-operational dependencies: {not_operational}."
-            if msg != start:
-                msg += " and "
             if invalid_deps:
+                if msg != start:
+                    msg += " and "
                 msg += f" unfulfilled dependencies: {invalid_deps}."
         if msg != start:
             return msg

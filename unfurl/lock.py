@@ -29,7 +29,7 @@ class Lock:
     @staticmethod
     def _find_packages(locked: dict, manifest: "Manifest"):
         old_format = "package_rules" not in locked
-        for repo_dict in locked["repositories"]:
+        for repo_dict in locked.get("repositories") or []:
             package_id = repo_dict.get("package_id")
             if package_id:
                 yield package_id, repo_dict

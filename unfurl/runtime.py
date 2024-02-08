@@ -103,8 +103,7 @@ class Operational(ChangeAware):
                     return True
             else:
                 assert (
-                    self.state
-                    in [NodeState.deleting, NodeState.deleted]
+                    self.state in [NodeState.deleting, NodeState.deleted]
                     and state < NodeState.stopping
                 ), (self.state.name, state.name)
                 return False
@@ -402,7 +401,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
     proxy = None
 
     def __init__(
-        self, name="", attributes=None, parent: Optional["EntityInstance"]=None, template=None, status=Status.ok
+        self,
+        name="",
+        attributes=None,
+        parent: Optional["EntityInstance"] = None,
+        template=None,
+        status=Status.ok,
     ):
         # default to Status.ok because that has the semantics of only relying on dependents
         # note: NodeInstances always a explicit status and so instead default to unknown
@@ -897,6 +901,11 @@ class ArtifactInstance(EntityInstance):
     @property
     def contents(self) -> str:
         if "contents" in self.attributes:
+            logger.trace(
+                'getting inline contents for artifact "%s": %s',
+                self.nested_key,
+                self.attributes["contents"],
+            )
             return self.attributes["contents"]
         external_val = cast(ArtifactSpec, self.template).as_value()
         if isinstance(external_val, File):
@@ -1093,13 +1102,10 @@ class NodeInstance(HasInstancesInstance):
     def configured_by(self):
         return list(self._configured_by())
 
-
     def _hosted_on(self):
         for rel in self.requirements:
             if rel.target:
-                if rel.template.is_compatible_type(
-                    "tosca.relationships.HostedOn"
-                ):
+                if rel.template.is_compatible_type("tosca.relationships.HostedOn"):
                     yield rel.target
                 yield from rel.target._hosted_on()
 
