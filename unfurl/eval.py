@@ -361,6 +361,7 @@ class Ref:
         self.foreach = None
         self.select = None
         self.strict = None
+        self.validation = None
         trace = RefContext.DefaultTraceLevel if trace is None else trace
         self.trace = trace
         if isinstance(exp, Mapping):
@@ -375,7 +376,11 @@ class Ref:
                     breakpoint()
                 else:
                     self.trace = _trace
-                self.strict = exp.get("strict")
+                strict = exp.get("strict")
+                if strict in ["required", "notnull"]:
+                    self.validation = strict
+                else:
+                    self.strict = strict
                 exp = exp.get("eval", exp.get("ref", exp))
 
         if vars:
@@ -465,8 +470,12 @@ class Ref:
             return values
         # resolve_one semantics
         if not values:
+            if self.validation:
+                raise UnfurlError(f"Expression {self.source} must return results")
             return None
         elif len(values) == 1:
+            if self.validation == "notnull" and values[0] is None:
+                raise UnfurlError(f"Expression {self.source} must not be null")
             return values[0]
         else:
             return values
