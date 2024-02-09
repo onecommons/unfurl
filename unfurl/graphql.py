@@ -204,7 +204,7 @@ class ImportDef(TypedDict):
     repository: NotRequired[str]
     prefix: NotRequired[str]
     url: NotRequired[str]  # added after creation
-    incomplete: NotRequired[bool] # added by cloudmap in server
+    incomplete: NotRequired[bool]  # added by cloudmap in server
 
 
 class ResourceType(GraphqlObject, total=False):
@@ -420,17 +420,7 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             # starts with "tosca." or "unfurl."
             return TypeName(nodetype)
         if nodetype in self.custom_defs:
-            _source = self.custom_defs[nodetype].get("_source")
-            if isinstance(_source, dict):  # could be str or None
-                local_name = _source.get("local_name")
-                namespace_id = _source.get("namespace_id")
-                if local_name:
-                    if namespace_id:
-                        return TypeName(f"{local_name}@{namespace_id}")
-                    else:
-                        return TypeName(local_name)
-            else:
-                return TypeName(f"{nodetype}@{self.custom_defs.namespace_id}")
+            return TypeName(self.custom_defs.get_global_name(nodetype))
         return to_type_name(nodetype, self.qualifier, "")
 
     def _get_extends(
