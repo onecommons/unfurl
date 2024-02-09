@@ -1064,7 +1064,7 @@ class NodeInstance(HasInstancesInstance):
     def _get_default_relationships(self, relation=None):
         if self.root is self:
             return
-        for rel in self.root.get_default_relationships(relation):
+        for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
             for capability in self.capabilities:
                 if rel.template.matches_target(capability.template):
                     yield rel
