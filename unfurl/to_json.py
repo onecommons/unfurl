@@ -31,6 +31,7 @@ from typing import (
 )
 from collections import Counter
 from urllib.parse import urlparse
+from toscaparser.elements.entity_type import Namespace
 from toscaparser.imports import is_url, SourceInfo
 from toscaparser.substitution_mappings import SubstitutionMappings
 from toscaparser.properties import Property
@@ -89,7 +90,6 @@ from .graphql import (
     js_timestamp,
 )
 
-CustomDefs = Dict[str, dict]
 TypeDescendants = Dict[str, List[str]]
 
 
@@ -195,7 +195,7 @@ VALUE_TYPES.update(
 )
 
 
-def tosca_type_to_jsonschema(custom_defs: CustomDefs, propdefs, toscatype):
+def tosca_type_to_jsonschema(custom_defs: Namespace, propdefs, toscatype):
     jsonschema = dict(
         type="object",
         properties={
@@ -259,7 +259,7 @@ def _update_property_metadata(p: PropertyDef, metadata):
     return p
 
 
-def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: CustomDefs):
+def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: Namespace):
     # convert a PropertyDef to a property (this creates the Schema object we need)
     prop = Property(
         p.name,
@@ -572,7 +572,8 @@ def node_type_to_graphql(
     summary: bool = False,
     include_matches: bool = True,
 ) -> Optional[ResourceType]:
-    custom_defs = topology.topology_template.custom_defs  # XXX
+    custom_defs = type_definition.custom_def
+    assert isinstance(custom_defs, Namespace)
     raw_type = type_definition.type
     typename = types.get_typename(type_definition)
     jsontype = ResourceType(
@@ -760,7 +761,6 @@ def to_graphql_nodetypes(
             parents = (parents,)
         for parent in parents:
             descendents.setdefault(parent, []).append(typename)
-        # XXX get namespace for typename from all_namespaces if _source.get("namespace_id") and global_ns
         if not include_all or types.get_type(typename):
             continue
         # set get_local to False because templates can declare fully qualified type names
@@ -807,7 +807,7 @@ def to_graphql_nodetypes(
 #     return {}
 
 
-def add_capabilities_as_properties(schema, nodetype, custom_defs: CustomDefs):
+def add_capabilities_as_properties(schema, nodetype, custom_defs: Namespace):
     """treat each capability as a property and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("properties"):
@@ -818,7 +818,7 @@ def add_capabilities_as_properties(schema, nodetype, custom_defs: CustomDefs):
         schema[cap.name] = tosca_type_to_jsonschema(custom_defs, propdefs, cap.type)
 
 
-def add_capabilities_as_attributes(schema, nodetype, custom_defs: CustomDefs):
+def add_capabilities_as_attributes(schema, nodetype, custom_defs: Namespace):
     """treat each capability as an attribute and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("attributes"):
@@ -829,8 +829,7 @@ def add_capabilities_as_attributes(schema, nodetype, custom_defs: CustomDefs):
         schema[cap.name] = tosca_type_to_jsonschema(custom_defs, propdefs, cap.type)
 
 
-def _get_typedef(name: str, custom_defs: CustomDefs) -> Optional[Dict[str, Any]]:
-    # XXX check if fully qualified
+def _get_typedef(name: str, custom_defs: Namespace) -> Optional[Dict[str, Any]]:
     typedef = custom_defs.get(name)
     if not typedef:
         typedef = StatefulEntityType.TOSCA_DEF.get(name)
