@@ -1600,7 +1600,7 @@ def _apply_imports(
     patch: List[ImportDef],
     repo_url: str,
     root_file_path: str,
-    repositories=None,
+    repositories: Optional[Dict[str, Any]]=None,
 ) -> None:
     # use _sourceinfo to patch imports and repositories
     # imports:
@@ -1619,15 +1619,16 @@ def _apply_imports(
         _import = dict(file=file)
         if prefix:
             _import["namespace_prefix"] = prefix
+        norm_root = normalize_git_url_hard(root) if root else ""
         if repository:
             if repository != "unfurl" and root:
                 for name, tpl in repositories.items():
-                    if tpl["url"] == root:
+                    if normalize_git_url_hard(tpl["url"]) == norm_root:
                         repository = name
                         break
                 else:
                     # don't use an existing name because the urls won't match
-                    repository = unique_name(repository, repositories)
+                    repository = unique_name(repository, repositories)  # type: ignore
                     logger.debug("adding repository '%s': %s", repository, root)
                     patch_repositories[repository] = repositories[repository] = dict(
                         url=root
@@ -1635,18 +1636,16 @@ def _apply_imports(
             if repository:
                 _import["repository"] = repository
         else:
-            if root and normalize_git_url_hard(root) != normalize_git_url_hard(
-                repo_url
-            ):
+            if root and norm_root != normalize_git_url_hard(repo_url):
                 # if root is an url then this was imported by file inside a repository
                 for name, tpl in repositories.items():
-                    if tpl["url"] == root:
+                    if normalize_git_url_hard(tpl["url"]) == norm_root:
                         repository = name
                         break
                 else:
                     # no repository declared
                     repository = Repo.get_path_for_git_repo(root, name_only=True)
-                    repository = unique_name(repository, repositories)
+                    repository = unique_name(repository, repositories)  # type: ignore
                     logger.debug(
                         "adding generated repository '%s': %s", repository, root
                     )
