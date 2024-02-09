@@ -196,7 +196,7 @@ class JobOptions:
         if kw.get("change_detection") == "skip":
             options["update"] = False
         if "skip_save" not in kw and os.getenv("UNFURL_SKIP_SAVE"):
-            kw["skip_save"] = True
+            kw["skip_save"] = os.getenv("UNFURL_SKIP_SAVE")
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
@@ -884,7 +884,7 @@ class Job(ConfigChange):
                             )
                             return None
                 self._run(ready, notReady, errors)
-                if not jobOptions.skip_save:
+                if not jobOptions.skip_save or jobOptions.skip_save == "never":
                     manifest.commit_job(self)
             finally:
                 self.timeElapsed = perf_counter() - startTime

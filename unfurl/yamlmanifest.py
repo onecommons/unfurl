@@ -939,7 +939,7 @@ class YamlManifest(ReadOnlyManifest):
     def commit_job(self, job: "Job"):
         if job.jobOptions.planOnly:
             return
-        if job.dry_run:
+        if job.dry_run and job.jobOptions.skip_save != "never":
             if not job.jobOptions.out and self.manifest.path:  # type: ignore
                 job.jobOptions.out = sys.stdout  # type: ignore
         jobRecord, changes = self.save_job(job)
