@@ -270,7 +270,8 @@ def test_substitution_with_type():
             ]
         )
         jsonExport = to_deployment(manifest2.localEnv)
-        assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
+        nested_type = [v for (t, v) in jsonExport["ResourceType"].items() if t.startswith("Nested@")][0]
+        assert nested_type["directives"] == ["substitute"]
         assert list(jsonExport["Resource"]) == ["external", "nested1", "nested2"]
 
 
@@ -341,7 +342,8 @@ def test_substitution_with_node():
             ]
         )
         jsonExport = to_deployment(manifest2.localEnv)
-        assert jsonExport["ResourceType"]["Nested"]["directives"] == ["substitute"]
+        nested_type = [v for (t, v) in jsonExport["ResourceType"].items() if t.startswith("Nested@")][0]
+        assert nested_type["directives"] == ["substitute"]
         assert list(jsonExport["Resource"]) == [
             "external",
             "nested1",

@@ -11,6 +11,9 @@ from unfurl.localenv import LocalEnv
 from unfurl.planrequests import _find_implementation
 
 
+Atlas = "Atlas@github.com/onecommons/unfurl.git/tests/examples"
+SelfHostedMongoDb = "SelfHostedMongoDb@github.com/onecommons/unfurl.git/tests/examples"
+
 def test_jsonexport():
     # XXX cli(unfurl export)
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
@@ -19,6 +22,7 @@ def test_jsonexport():
     local = LocalEnv(basepath + "include-json-ensemble.yaml")
     # verify to_graphql is working as expected
     jsonExport = to_deployment(local)
+    # pprint.pprint(jsonExport)
     manifest = local.get_manifest(skip_validation=True, safe_mode=True)
     topology = manifest.tosca.topology
 
@@ -27,21 +31,19 @@ def test_jsonexport():
     rel_json = node_type_to_graphql(topology, rel_type, jsonExport["ResourceType"])
     assert "_sourceinfo" not in rel_json
     # not imported, so only added in types call (with root_url and include_all)
-    assert "_sourceinfo" not in jsonExport["ResourceType"]["Atlas"]
-
-
-
+    assert Atlas in jsonExport["ResourceType"], list(jsonExport["ResourceType"])
+    assert "_sourceinfo" not in jsonExport["ResourceType"][Atlas]
 
     # check that subtypes can remove inherited operations if marked not_implemented
-    assert jsonExport["ResourceType"]["Atlas"]["implementations"] == ["configure"]
+    assert jsonExport["ResourceType"][Atlas]["implementations"] == ["configure"]
     # check the types aren't exported if not referenced by a template
-    assert "SelfHostedMongoDb" not in jsonExport["ResourceType"]
+    assert SelfHostedMongoDb not in jsonExport["ResourceType"]
     # check that subtypes inherit interface requirements
-    assert jsonExport["ResourceType"]["Atlas"]["implementation_requirements"] == [
+    assert jsonExport["ResourceType"][Atlas]["implementation_requirements"] == [
         "unfurl.relationships.ConnectsTo.AWSAccount"
     ]
 
-    with open(basepath + "include-json.json") as f:
+    with open(basepath + "include-json-full.json") as f:
         expected = json.load(f)
         # pprint.pprint(jsonExport["ResourceTemplate"])
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
@@ -79,6 +81,8 @@ def test_jsonexport():
 
     # XXX verify that saving the manifest preserves the json include
 
+App = "App@github.com/onecommons/unfurl.git/tests/examples"
+ContainerHost = "ContainerHost@github.com/onecommons/unfurl.git/tests/examples"
 
 @pytest.mark.parametrize("export_fn", [to_deployment, to_blueprint])
 def test_jsonexport_requirement_visibility(export_fn):
@@ -94,8 +98,8 @@ def test_jsonexport_requirement_visibility(export_fn):
         ]
         == "visible"
     )
-    app_type = jsonExport["ResourceType"]["App"]
-    env_prop = jsonExport["ResourceType"]["ContainerHost"]["inputsSchema"]["properties"][
+    app_type = jsonExport["ResourceType"][App]
+    env_prop = jsonExport["ResourceType"][ContainerHost]["inputsSchema"]["properties"][
         "environment"
     ]
     # pprint.pprint(env_prop)
@@ -136,7 +140,7 @@ def test_jsonexport_requirement_visibility(export_fn):
                     "CPUs": {"default": 2},
                 }
             },
-            "resourceType": "ContainerHost",
+            "resourceType": "ContainerHost@github.com/onecommons/unfurl.git/tests/examples",
         }
     ]
     assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"], pprint.pformat(

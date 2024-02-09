@@ -1,0 +1,145 @@
+{
+  "ResourceTemplate": {
+    "foo.com-zone": {
+      "type": "DNS@github.com/onecommons/unfurl.git/tests/examples",
+      "name": "foo.com-zone",
+      "title": "foo.com-zone",
+      "description": "",
+      "directives": [],
+      "properties": [
+        {
+          "name": "domain",
+          "value": "foo.com"
+        }
+      ],
+      "dependencies": []
+    },
+    "the_app": {
+      "type": "MEANStack@github.com/onecommons/unfurl.git/tests/examples",
+      "name": "the_app",
+      "title": "the_app",
+      "description": "",
+      "directives": [],
+      "properties": [
+        {
+          "name": "image",
+          "value": "the_app_image"
+        }
+      ],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "host",
+            "description": "A compute instance with at least 512MB RAM",
+            "match": null,
+            "min": 1,
+            "max": 1,
+            "resourceType": "Compute@github.com/onecommons/unfurl.git/tests/examples",
+            "__typename": "RequirementConstraint"
+          },
+          "name": "host",
+          "__typename": "Requirement",
+          "match": "app_container",
+          "visibility": "hidden"
+        },
+        {
+          "constraint": {
+            "name": "resolver",
+            "description": "",
+            "match": null,
+            "min": 1,
+            "max": 1,
+            "resourceType": "DNS@github.com/onecommons/unfurl.git/tests/examples",
+            "__typename": "RequirementConstraint"
+          },
+          "name": "resolver",
+          "__typename": "Requirement",
+          "match": "foo.com-zone",
+          "visibility": "hidden"
+        },
+        {
+          "constraint": {
+            "name": "db",
+            "description": "MongoDB database service",
+            "match": null,
+            "min": 1,
+            "max": 1,
+            "resourceType": "MongoDb@github.com/onecommons/unfurl.git/tests/examples",
+            "__typename": "RequirementConstraint"
+          },
+          "name": "db",
+          "__typename": "Requirement",
+          "match": "atlas_service",
+          "visibility": "hidden"
+        },
+        {
+          "constraint": {
+            "name": "mail",
+            "description": "",
+            "match": null,
+            "min": 1,
+            "max": 1,
+            "resourceType": "Mail@github.com/onecommons/unfurl.git/tests/examples",
+            "__typename": "RequirementConstraint"
+          },
+          "name": "mail",
+          "__typename": "Requirement",
+          "match": null
+        }
+      ]
+    },
+    "app_container": {
+      "type": "DockerHost@github.com/onecommons/unfurl.git/tests/examples",
+      "name": "app_container",
+      "title": "app_container",
+      "description": "",
+      "directives": [],
+      "properties": [
+        {
+          "name": "CPUs",
+          "value": 2
+        },
+        {
+          "name": "Memory",
+          "value": 512
+        },
+        {
+          "name": "storage",
+          "value": 200
+        }
+      ],
+      "dependencies": []
+    },
+    "atlas_service": {
+      "type": "Atlas@github.com/onecommons/unfurl.git/tests/examples",
+      "name": "atlas_service",
+      "title": "atlas_service",
+      "description": "",
+      "directives": [],
+      "properties": [
+        {
+          "name": "login",
+          "value": "admin"
+        }
+      ],
+      "dependencies": []
+    }
+  },
+  "DeploymentTemplate": {
+    "apostrophe-demo": {
+      "__typename": "DeploymentTemplate",
+      "title": "Apostrophe Demo",
+      "name": "apostrophe-demo",
+      "slug": "apostrophe-demo",
+      "description": null,
+      "blueprint": "Apostrophe Demo",
+      "primary": "the_app",
+      "resourceTemplates": [
+        "foo.com-zone",
+        "the_app",
+        "app_container",
+        "atlas_service"
+      ]
+    }
+  }
+}

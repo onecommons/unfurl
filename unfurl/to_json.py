@@ -1436,7 +1436,10 @@ def _to_graphql(
             # or from "spec/resource_templates"
             environment_instances[name] = t
             typename = types.get_typename(toscaEntityTemplate.type_definition)
-            connection_types[typename] = types[typename]
+            if typename not in types:
+                logger.error("Connection type %s for resource %s is missing", typename, node_spec.nested_name)
+            else:
+                connection_types[typename] = types[typename]
         else:
             db["ResourceTemplate"][name] = t
     connections: Dict[ResourceTemplateName, ResourceTemplate] = {}
