@@ -50,6 +50,7 @@ spec:
               configure:
                 implementation: Template
                 inputs:
+                      # an undeclared property
                   run: "{{ NODES.nodeC.prop }}"
                   done:
                     status: ok
@@ -62,6 +63,7 @@ spec:
               configure:
                 implementation: Template
                 inputs:
+                  # a property given attribute status by derived type
                   run: "{{ NODES.nodeC.attr }}"
                   done:
                     status: ok
@@ -174,6 +176,7 @@ class DependencyTest(unittest.TestCase):
         """
         self.maxDiff = None
         manifest = YamlManifest(manifestErrorContent)
+        assert "attr" in list(manifest.tosca.topology.get_node_template("nodeC").attributeDefs)
         runner = Runner(manifest)
         job = runner.run(JobOptions(startTime=1))  # deploy
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()

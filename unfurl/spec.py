@@ -694,6 +694,7 @@ class EntitySpec(ResourceRef):
     ):
         if not toscaNodeTemplate:
             toscaNodeTemplate = next(iter(topology.topology_template.nodetemplates))
+        assert toscaNodeTemplate
         self.toscaEntityTemplate: EntityTemplate = toscaNodeTemplate
         self.topology: TopologySpec = topology
         self.spec = topology.spec
@@ -707,20 +708,20 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = cast(str, toscaNodeTemplate.type)
-        self.global_type = toscaNodeTemplate.type_definition.global_name
         self._isReferencedBy: Sequence[
             EntitySpec
         ] = []  # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
-        # XXX user should be able to declare default attribute values
+        # XXX user should be able to declare default attribute values on templates
         self.propertyDefs: Dict[str, Property] = toscaNodeTemplate.get_properties()
         self.attributeDefs: Dict[str, Property] = {}
         self.properties = CommentedMap(
             [(prop.name, prop.value) for prop in self.propertyDefs.values()]
         )
         if toscaNodeTemplate.type_definition:
+            self.global_type = toscaNodeTemplate.type_definition.global_name
             # add attributes definitions
             attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()
             self.defaultAttributes: Dict[str, Any] = {
@@ -730,7 +731,7 @@ class EntitySpec(ResourceRef):
             }
             for name, aDef in attrDefs.items():
                 prop = Property(
-                    name, aDef.default, aDef.schema, toscaNodeTemplate.custom_def
+                    name, aDef.default, aDef.schema, toscaNodeTemplate.type_definition.custom_def
                 )
                 self.propertyDefs[name] = prop
                 self.attributeDefs[name] = prop
@@ -746,6 +747,7 @@ class EntitySpec(ResourceRef):
                         toscaNodeTemplate.custom_def,
                     )
         else:
+            self.global_type = self.type
             self.defaultAttributes = {}
 
     def _resolve_prop(self, key: str) -> "EntitySpec":

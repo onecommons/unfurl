@@ -1146,15 +1146,14 @@ class TaskView:
             try:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
-                    discovered = "" if existingResource is self.target else "dynamic"
+                    discovered = "" if existingResource is self.target else " dynamic "
                     if updated:
                         self.logger.info(
-                            f"updating {discovered} instance %s parent: {existingResource.parent and existingResource.parent.name}",
-                            existingResource.name,
+                            f'updating{discovered}instance "{existingResource.name}"',
                         )
                     else:
                         self.logger.debug(
-                            f"no change to {discovered} instance %s",
+                            f"no change to{discovered}instance %s",
                             existingResource.name,
                         )
                     if not discovered:
