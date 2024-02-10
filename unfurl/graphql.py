@@ -353,7 +353,7 @@ def get_import_def(source_info: SourceInfo) -> ImportDef:
 
 
 def _get_url_from_source_info(source_info: SourceInfo) -> Tuple[str, str]:
-    root = source_info["root"] or ""
+    root = source_info.get("namespace_uri") or source_info["root"] or ""
     repository = source_info.get("repository")
     if repository:
         if repository == "unfurl":
