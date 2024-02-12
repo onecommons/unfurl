@@ -1600,6 +1600,7 @@ def _apply_imports(
     patch: List[ImportDef],
     repo_url: str,
     root_file_path: str,
+    skip_prefixes: List[str],
     repositories: Optional[Dict[str, Any]]=None,
 ) -> None:
     # use _sourceinfo to patch imports and repositories
@@ -1659,15 +1660,17 @@ def _apply_imports(
                     # type defined in the root template, no need to import
                     continue
         imports.append(_import)
-    _add_imports(imports, template, repositories)
+    _add_imports(imports, template, repositories, skip_prefixes)
 
 
-def _add_imports(imports: List[dict], template: dict, repositories: dict):
+def _add_imports(imports: List[dict], template: dict, repositories: dict, skip_prefixes: List[str]):
     for i in imports:
         logger.trace("checking for import %s", i)
         for existing in template.setdefault("imports", []):
             # add imports if missing
             if i["file"] == existing["file"]:
+                if i.get("namespace_prefix") in skip_prefixes:
+                    continue  # skip environment imports
                 if i.get("namespace_prefix") == existing.get("namespace_prefix"):
                     existing_repository = existing.get("repository")
                     if "repository" in i:
@@ -1863,8 +1866,8 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                     environment,
                     imports,
                     project.project_repoview.repo.url,
-                    "",
-                    repositories,
+                    "", [],
+                    repositories
                 )
         elif typename == "DeploymentPath":
             update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
@@ -1985,12 +1988,15 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                     imports, _patch_node_template(patch_inner, doc, namespace)
                 )
     assert manifest.manifest and manifest.manifest.config and manifest.repo
+    skip_prefixes = ["defaults"]
+    if manifest.localEnv and manifest.localEnv.manifest_context_name:
+        skip_prefixes.append(manifest.localEnv.manifest_context_name)
     _apply_imports(
         manifest.manifest.config["spec"]["service_template"],
         imports,
         manifest.repo.url,
         # template path relative to the repository root
-        manifest.get_tosca_file_path(),
+        manifest.get_tosca_file_path(), skip_prefixes
     )
 
 
