@@ -588,9 +588,10 @@ class CacheEntry:
                 try:
                     action = pull(repo, branch)
                 except Exception:
-                    logger.info(f"pull failed for {repo_key}, clearing project")
-                    repo = None
+                    logger.info(f"pull failed for {repo_key}, clearing project", exc_info=True)
                     _clear_project(self.project_id)
+                    if not local_developer_mode():
+                        repo = None  # we don't delete the repo in local developer mode
             if not repo:
                 if self.do_clone:
                     logger.info(f"cloning repo for {repo_key}")
