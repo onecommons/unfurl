@@ -310,7 +310,7 @@ class PlanRequest:
         return type(self).__name__
 
     def get_notready_message(self) -> str:
-        start = "Never ran:"
+        start = "Never ran: "
         msg = start
         if self.render_errors:
             render_deps = [
@@ -333,11 +333,11 @@ class PlanRequest:
             if not_operational:
                 if msg != start:
                     msg += " and "
-                msg += f"non-operational dependencies: {not_operational}."
+                msg += f"non-operational dependencies: {not_operational}"
             if invalid_deps:
                 if msg != start:
                     msg += " and "
-                msg += f" unfulfilled dependencies: {invalid_deps}."
+                msg += f" unfulfilled dependencies: {invalid_deps}"
         if msg != start:
             return msg
         if self.group and self.group.target.name != self.target.name:

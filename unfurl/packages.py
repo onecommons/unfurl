@@ -191,15 +191,19 @@ class PackageSpec:
                     # if (only) the revision was set and the package didn't set one itself, set it
                     if not package.revision:
                         package.revision = self.revision
+                        if package.url and "#" not in package.url:
+                            package.url += "#" + self.revision
                     return ""
                 # package_specs
                 raise UnfurlError(
                     f"Malformed package spec: {self.package_spec}: missing url or package id"
                 )
-        if self.revision:
-            package.revision = self.revision
         if self.url:
             package.url = self.url
+        if self.revision:
+            package.revision = self.revision
+            if package.url and "#" not in package.url:
+                package.url += "#" + self.revision
         if self.package_id:
             replaced_id = package.package_id
             if replaced_id != self.package_id:

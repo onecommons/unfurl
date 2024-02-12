@@ -63,6 +63,20 @@ def test_package_rules():
     )
 
     package, package_specs = _apply_package_rules(
+        "https://app.dev.unfurl.cloud/onecommons/unfurl-types.git", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+    )
+
+    package, package_specs = _apply_package_rules(
+        "https://staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
+    )
+
+    package, package_specs = _apply_package_rules(
         "https://app.dev.unfurl.cloud/user/dashboard", env_package_spec
     )
     assert package.url == "https://staging.unfurl.cloud/user/dashboard.git"
@@ -84,6 +98,19 @@ def test_package_rules():
     changed = PackageSpec.update_package([unfurl_spec], unfurl_package)
     assert changed
     assert unfurl_package.url == "file:///home/unfurl/unfurl"
+
+    # no wildcard in rule setting revision
+    env_package_spec = """unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*
+    gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/*
+    app.dev.unfurl.cloud/* staging.unfurl.cloud/*
+    staging.unfurl.cloud/onecommons/unfurl-types #main"""
+
+    package, package_specs = _apply_package_rules(
+        "https://staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
+    )
 
 
 def test_find_canonical():
