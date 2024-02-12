@@ -46,6 +46,7 @@ from .runtime import (
 )
 from .logs import SensitiveFilter, end_collapsible, start_collapsible, getLogger
 from .configurator import (
+    Dependency,
     TaskView,
     ConfiguratorResult,
     Configurator,
@@ -631,9 +632,14 @@ def _dependency_check(
                     # don't mark it as missing, instead assume this instance should go first.
                     missing.append(dep)
     if missing:
+        def dep_message(dep):
+            if dep.status == Status.pending:
+                return f"{dep.name} is not {'set' if isinstance(dep, Dependency) else 'created'} yet"
+            else:
+                return f"{dep.name} is {dep.status.name}"
         ready = "operational" if operational else state.name if state else "ready"
         reason = f"required dependencies not {ready}: %s" % ", ".join(
-            [f"{dep.name} is {dep.status.name}" for dep in missing]
+            [dep_message(dep) for dep in missing]
         )
     else:
         reason = ""

@@ -126,6 +126,7 @@ def cli(
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
     logs.add_log_file(kw["logfile"], effective_log_level)
     logs.set_console_log_level(effective_log_level)
+    logging.debug("initialized logging")
 
     if version_check and version_tuple() < version_tuple(version_check):
         logging.error(

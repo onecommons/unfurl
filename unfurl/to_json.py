@@ -1510,7 +1510,7 @@ def to_deployment(
     localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
 ) -> GraphqlDB:
     start_time = perf_counter()
-    logger.debug("exporting deployment %s", localEnv.manifestPath)
+    logger.debug("Exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv, root_url)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
@@ -1523,7 +1523,7 @@ def to_deployment(
     if env_instances:
         env["instances"].update(_set_shared_instances(env_instances, env_types))
     db["DeploymentEnvironment"] = env  # type: ignore
-    logger.debug(
+    logger.verbose(
         f"finished exporting deployment %s in {perf_counter() - start_time:.3f}s)",
         localEnv.manifestPath,
     )
