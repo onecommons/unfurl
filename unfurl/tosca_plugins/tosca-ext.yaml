@@ -406,6 +406,10 @@ relationship_types:
   unfurl.relationships.ConnectsTo.DigitalOcean:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
+      credential:
+        metadata:
+          user_settable: false
+          sensitive: true
       DIGITALOCEAN_TOKEN:
         type: unfurl.datatypes.EnvVar
         default: { get_env: DIGITALOCEAN_TOKEN }
