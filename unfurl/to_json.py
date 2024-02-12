@@ -1549,7 +1549,8 @@ def mark_leaf_types(types: ResourceTypesByName) -> None:
             if not jsontype.get("implementations") and jsontype.get("requirements"):
                 # hack: if we're a "compound" type that is just a sum of its requirement, add an implementation so it is included
                 jsontype["implementations"] = ["create"]
-        elif jsontype.get("implementations"):
+        elif jsontype.get("implementations") and not jsontype.get("metadata", {}).get("concrete"):
+            # abstract types can't be instantiated
             jsontype["implementations"] = []
 
 
