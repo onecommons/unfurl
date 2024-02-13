@@ -40,6 +40,7 @@ from typing import (
     cast,
     Callable,
 )
+from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
@@ -329,7 +330,7 @@ def _get_project_repo(
     return None
 
 
-def _clone_repo(project_id: str, branch: str, args: dict) -> GitRepo:
+def _clone_repo(project_id: str, branch: str, shallow_since: Optional[int], args: dict) -> GitRepo:
     repo_path = _get_project_repo_dir(project_id, branch, args)
     os.makedirs(os.path.dirname(repo_path), exist_ok=True)
     username, password = args.get("username"), args.get(
@@ -340,7 +341,7 @@ def _clone_repo(project_id: str, branch: str, args: dict) -> GitRepo:
     try:
         with open(clone_lock_path, "xb", buffering=0) as lockfile:
             lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
-        return Repo.create_working_dir(git_url, repo_path, branch, depth=1)
+        return Repo.create_working_dir(git_url, repo_path, branch, shallow_since=shallow_since)
     finally:
         os.unlink(clone_lock_path)
 
@@ -414,7 +415,7 @@ class CacheItemDependency:
         if repo.revision != self.latest_commit:
             # the repository has changed, check to see if files this cache entry uses has changed
             # note: we don't need the cache value to be present in the cache since we have the commit info already
-            last_commit_for_entry = cache_entry._set_commit_info(self.file_paths)
+            last_commit_for_entry, _ = cache_entry._set_commit_info(self.file_paths)
             if last_commit_for_entry not in self.last_commits:
                 # there's a newer version of files used by the cache entry
                 logger.debug(f"dependency {self.dep_key()} changed")
@@ -438,6 +439,7 @@ class CacheValue(NamedTuple):
     last_commit: str
     latest_commit: str
     deps: CacheItemDependencies
+    last_commit_date: int
 
     def make_etag(self) -> str:
         etag = int(self.last_commit, 16) ^ int(get_package_digest(True), 16)
@@ -453,16 +455,24 @@ CacheWorkCallable = Callable[
 
 PullCacheEntry = Tuple[float, str]
 
+class InflightCacheValue(NamedTuple):
+  inflight_commit: Optional[str]
+  time: float
 
-def pull(repo: GitRepo, branch: str) -> str:
+
+def pull(repo: GitRepo, branch: str, shallow_since=None) -> str:
     action = "pulled"
     try:
         firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
-        # use shallow_since so we don't remove commits we already fetched
+        # set shallow_since so we don't remove commits we already fetched
+        if shallow_since:
+            shallow_since = min(shallow_since, firstCommit.committed_date)
+        else:
+            shallow_since = firstCommit.committed_date
         repo.pull(
             revision=branch,
             with_exceptions=True,
-            shallow_since=str(firstCommit.committed_date),
+            shallow_since=str(shallow_since),
         )
     except git.exc.GitCommandError as e:  # type: ignore
         if (
@@ -491,7 +501,7 @@ class CacheEntry:
     _deps: CacheItemDependencies = field(default_factory=dict)
     root_entry: Optional["CacheEntry"] = None
     # following are set by get_cache() or set_cache():
-    commitinfo: Union[bool, Optional["Commit"]] = None
+    commitinfo: Union[Literal[False], Optional["Commit"]] = None
     hit: Optional[bool] = None
     directives: Optional[CacheDirective] = None
     value: Optional[CacheValue] = None
@@ -523,7 +533,7 @@ class CacheEntry:
         assert self.repo
         return self.repo
 
-    def pull(self, cache: Cache, stale_ok_age: int = 0) -> GitRepo:
+    def pull(self, cache: Cache, stale_ok_age: int = 0, shallow_since=None) -> GitRepo:
         if local_developer_mode():
             if not self.repo:
                 self._set_project_repo()
@@ -586,7 +596,7 @@ class CacheEntry:
             if repo:
                 logger.info(f"pulling repo for {repo_key}")
                 try:
-                    action = pull(repo, branch)
+                    action = pull(repo, branch, shallow_since)
                 except Exception:
                     logger.info(f"pull failed for {repo_key}, clearing project", exc_info=True)
                     _clear_project(self.project_id)
@@ -595,7 +605,7 @@ class CacheEntry:
             if not repo:
                 if self.do_clone:
                     logger.info(f"cloning repo for {repo_key}")
-                    repo = _clone_repo(self.project_id, branch, self.args or {})
+                    repo = _clone_repo(self.project_id, branch, shallow_since, self.args or {})
                     action = "cloned"
                 else:
                     raise UnfurlError(f"missing repo at {repo_key}")
@@ -607,7 +617,7 @@ class CacheEntry:
             cache.set(repo_key, (time.time(), "failed"))
             raise
 
-    def _set_commit_info(self, paths=None) -> str:
+    def _set_commit_info(self, paths=None) -> Tuple[str, int]:
         repo = self.checked_repo
         if paths is None:
             paths = []
@@ -618,11 +628,13 @@ class CacheEntry:
         if commits:
             self.commitinfo = commits[0]
             new_commit = self.commitinfo.hexsha
+            new_commit_date = self.commitinfo.committed_date
         else:
             # file doesn't exist
             new_commit = ""  # not found
+            new_commit_date = 0
             self.commitinfo = False  # treat as cache miss
-        return new_commit
+        return new_commit, new_commit_date
 
     def set_cache(self, cache: Cache, directives: CacheDirective, value: Any) -> str:
         self.directives = directives
@@ -632,9 +644,13 @@ class CacheEntry:
         full_key = self.cache_key()
         try:
             if self.commitinfo is None:
-                last_commit = self._set_commit_info()
+                last_commit, last_commit_date = self._set_commit_info()
+            elif self.commitinfo:
+                last_commit = self.commitinfo.hexsha
+                last_commit_date = self.commitinfo.committed_date
             else:
-                last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
+                last_commit =  ""
+                last_commit_date = 0
         except git.exc.GitCommandError as e:  # type: ignore
             # this can happen if the repository is detached or on a different branch (in developer mode)
             # e.g.   cmdline: git rev-list --max-count=1 main -- ensemble.yaml
@@ -648,7 +664,7 @@ class CacheEntry:
         if not directives.store:
             value = "not_stored"  # XXX
         self.value = CacheValue(
-            value, last_commit, latest_commit or last_commit, self._deps
+            value, last_commit, latest_commit or last_commit, self._deps, last_commit_date
         )
         logger.info(
             "setting cache with %s with %s deps %s",
@@ -663,19 +679,22 @@ class CacheEntry:
         )
         return last_commit
 
-    def _pull_if_missing_commit(self, commit: str) -> GitRepo:
+    def _pull_if_missing_commit(self, commit: str, commit_date: int) -> Tuple[bool, GitRepo]:
         try:
             repo = self.checked_repo
             repo.repo.commit(commit)
-            return repo
+            return False, repo
         except Exception:
             # commit not in repo, repo probably is out of date
-            return self.pull(cache)  # raises if pull fails
+            return True, self.pull(cache, shallow_since=commit_date)  # raises if pull fails
 
-    def is_commit_older_than(self, older: str, newer: str) -> bool:
+    def is_commit_older_than(self, older: str, newer: str, commit_date: int) -> bool:
         if older == newer:
             return False
-        self.repo = self._pull_if_missing_commit(newer)
+        # our shallow clones might not have the commit, fetch now if needed
+        pulled, self.repo = self._pull_if_missing_commit(older, commit_date)
+        if not pulled:
+            pulled, self.repo = self._pull_if_missing_commit(newer, commit_date)
         # if "older..newer" is true iter_commits (git rev-list) will list
         # newer commits up to and including "newer", newest first
         # otherwise the list will be empty
@@ -683,10 +702,10 @@ class CacheEntry:
             return True
         return False
 
-    def at_latest(self, older: str, newer: Optional[str]) -> bool:
+    def at_latest(self, older: str, newer: Optional[str], commit_date: int) -> bool:
         if newer:
             # return true if the client supplied an older commit than the one the cache last saw
-            return not self.is_commit_older_than(older, newer)
+            return not self.is_commit_older_than(older, newer, commit_date)
         else:
             repo = self.pull(cache, self.stale_pull_age)
             return older == repo.revision
@@ -699,6 +718,7 @@ class CacheEntry:
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
         """
         full_key = self.cache_key()
+        # note: if CacheValue's definition changes then cache.get() will return None because it catches PickleError exceptions
         value = cast(Optional[CacheValue], cache.get(full_key))
         self.value = value
         if value is None:
@@ -706,7 +726,7 @@ class CacheEntry:
             self.hit = False
             return None, None  # cache miss
 
-        response, last_commit, cached_latest_commit, self._deps = value
+        response, last_commit, cached_latest_commit, self._deps, cached_last_commit_date = value
         if latest_commit == cached_latest_commit:
             # this is the latest
             logger.info("cache hit for %s with %s", full_key, latest_commit)
@@ -715,8 +735,10 @@ class CacheEntry:
         else:
             # cache might be out of date, let's check by getting the commit info for the file path
             try:
-                at_latest = self.at_latest(cached_latest_commit, latest_commit)
+                at_latest = self.at_latest(cached_latest_commit, latest_commit, cached_last_commit_date)
             except Exception:
+                # if the cached commit was wrong we would have already cleared the project in the at_latest() call
+                # so if we get an exception here is because the client sent an invalid commit
                 if self.strict:
                     logger.warning(
                         "pull failed for %s, reverting local repo",
@@ -747,7 +769,7 @@ class CacheEntry:
                 return value, None
 
             # the latest_commit is newer than the cached_latest_commit, check if the file has changed
-            new_commit = self._set_commit_info()
+            new_commit, new_commit_date = self._set_commit_info()
             if new_commit == last_commit:
                 # the file hasn't changed, let's update the cache with latest_commit so we don't have to do this check again
                 value = CacheValue(
@@ -755,6 +777,7 @@ class CacheEntry:
                     last_commit,
                     latest_commit or cached_latest_commit,
                     self._deps,
+                    new_commit_date
                 )
                 cache.set(
                     full_key,
@@ -772,26 +795,23 @@ class CacheEntry:
     def _set_inflight(
         self, cache: Cache, latest_commit: Optional[str]
     ) -> Tuple[Any, Union[bool, "Commit"]]:
-        inflight = cast(Tuple[str, float], cache.get(self._inflight_key()))
+        inflight = cast(InflightCacheValue, cache.get(self._inflight_key()))
         if inflight:
             inflight_commit, start_time = inflight
-            # if inflight_commit is older than latest_commit, do the work anyway otherwise wait for the inflight value
-            if not latest_commit or not self.is_commit_older_than(
-                inflight_commit, latest_commit
-            ):
-                # keep checking inflight key until it is deleted
-                # or if been inflight longer than timeout, assume its work aborted and stop waiting
-                while time.time() - start_time < _cache_inflight_timeout:
-                    time.sleep(_cache_inflight_sleep_duration)
-                    if not cache.get(self._inflight_key()):
-                        # no longer in flight
-                        cache_value, stale = self.get_cache(cache, inflight_commit)
-                        if cache_value:  # hit, use this instead of doing our work
-                            return cache_value.value, True
-                        break  # missing, so inflight work must have failed, continue with our work
-
+            # XXX if inflight_commit is older than latest_commit, do the work anyway (but don't pull if commit is missing)
+            # wait for the inflight value
+            # keep checking inflight key until it is deleted
+            # or if been inflight longer than timeout, assume its work aborted and stop waiting
+            while time.time() - start_time < _cache_inflight_timeout:
+                time.sleep(_cache_inflight_sleep_duration)
+                if not cache.get(self._inflight_key()):
+                    # no longer in flight
+                    cache_value, stale = self.get_cache(cache, inflight_commit)
+                    if cache_value:  # hit, use this instead of doing our work
+                        return cache_value.value, True
+                    break  # missing, so inflight work must have failed, continue with our work
         cache.set(
-            self._inflight_key(), (latest_commit, time.time()), _cache_inflight_timeout
+            self._inflight_key(), InflightCacheValue(latest_commit, time.time()), _cache_inflight_timeout
         )
         return None, False
 
@@ -831,9 +851,11 @@ class CacheEntry:
         self.directives = CacheDirective(store=cacheable, latest_commit=latest_commit)
         if not err and self.root_entry and cache_dependency:
             if self.commitinfo is None:
-                last_commit = self._set_commit_info()
+                last_commit, _ = self._set_commit_info()
+            elif self.commitinfo:
+                last_commit = self.commitinfo.hexsha
             else:
-                last_commit = self.commitinfo.hexsha if self.commitinfo else ""  # type: ignore
+                last_commit =  ""
             self.root_entry.add_cache_dep(
                 cache_dependency, latest_commit or "", last_commit
             )
@@ -896,6 +918,7 @@ class CacheEntry:
             # if stale.committed_date - time.time() < stale_ok_age:
             #      return value
             self.hit = False
+        commit_date = cache_value.last_commit_date if cache_value else 0
         if not cache_value or not self.hit:  # cache miss
             try:
                 if not self.repo:
@@ -906,9 +929,9 @@ class CacheEntry:
                     if not latest_commit:
                         self.repo = self.pull(cache, self.stale_pull_age)
                     else:
-                        self.repo = self._pull_if_missing_commit(latest_commit)
-                elif self.do_clone:
-                    self.repo = self.pull(cache)  # this will clone the repo
+                        pulled, self.repo = self._pull_if_missing_commit(latest_commit, commit_date)
+                elif self.do_clone:  # this will clone the repo
+                    self.repo = self.pull(cache, shallow_since=commit_date)
             except Exception as pull_err:
                 logger.warning(
                     f"exception while pulling {self.project_id}", exc_info=True
@@ -1038,7 +1061,7 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[Git
     else:
         # repo doesn't exists, clone it
         try:
-            repo = _clone_repo(project_id, branch, args)
+            repo = _clone_repo(project_id, branch, None, args)
         except UnfurlError:
             return None
         working_dir = repo.working_dir
@@ -1195,6 +1218,7 @@ def _export(
                     repo,
                     args=args,
                     stale_pull_age=stale_pull_age,
+                    # don't need to set root_entry since deployments depend on the same commit
                 )
                 derr, djson = dcache_entry.get_or_set(
                     cache, _export_cache_work, latest_commit
