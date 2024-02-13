@@ -299,7 +299,7 @@ class Repo(abc.ABC):
 
     @classmethod
     def create_working_dir(
-        cls, gitUrl, localRepoPath, revision=None, depth=1, username=None, password=None
+        cls, gitUrl, localRepoPath, revision=None, depth=1, shallow_since=None, username=None, password=None
     ):
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
@@ -313,8 +313,11 @@ class Repo(abc.ABC):
         cleanurl = sanitize_url(gitUrl)
         logger.info("Fetching %s %s to %s", cleanurl, revision or "", localRepoPath)
         kwargs: Dict[str, Any] = dict(recurse_submodules=True, no_single_branch=True)
-        if depth:
-            kwargs["depth"] = depth
+        if shallow_since or depth:
+            if shallow_since:
+                kwargs["shallow_since"] = shallow_since
+            else:
+                kwargs["depth"] = depth
             kwargs["shallow_submodules"] = True
         non_interactive = (
             os.getenv("CI") or not PY_COLORS
