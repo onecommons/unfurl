@@ -41,6 +41,7 @@ def test_package_rules():
         package.url
         == "http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress#main"
     )
+    assert env_package_spec == " ".join([p.as_env_value() for p in package_specs])
 
     package, package_specs = _apply_package_rules(
         "https://gitlab.com/onecommons/unfurl-types", env_package_spec
@@ -61,6 +62,7 @@ def test_package_rules():
     assert (
         package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
     )
+    assert " ".join(env_package_spec.split()) == " ".join([p.as_env_value() for p in package_specs])
 
     package, package_specs = _apply_package_rules(
         "https://app.dev.unfurl.cloud/onecommons/unfurl-types.git", env_package_spec
@@ -110,6 +112,14 @@ def test_package_rules():
     )
     assert (
         package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
+    )
+    assert " ".join(env_package_spec.split()) == " ".join([p.as_env_value() for p in package_specs])
+
+    package, package_specs = _apply_package_rules(
+        "staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main"
     )
 
 

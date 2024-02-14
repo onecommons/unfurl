@@ -132,6 +132,19 @@ class PackageSpec:
             return ""
         return sanitize_url(self.url, True)
 
+    def as_env_value(self) -> str:
+        if self.url:
+            replacement = self.safe_url
+            if self.revision and "#" not in self.url:
+                replacement += "#" + self.revision
+        elif self.package_id:
+            replacement = self.package_id
+        elif self.revision:
+            replacement = "#" + self.revision
+        else:
+            replacement = ""
+        return self.package_spec + " " + replacement
+
     def __repr__(self):
         return f"PackageSpec({self.package_spec}:{self.package_id} {self.revision} {self.safe_url})"
 
@@ -327,6 +340,7 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
 
 
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
+    # XXX assumes .git and https
     package_id, sep, revision = package_id.partition(".git/")
     repoloc, sep, repopath = package_id.partition(".git/")
     if repopath or revision or minimum_version:

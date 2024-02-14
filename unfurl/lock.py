@@ -95,7 +95,7 @@ class Lock:
         lock = CommentedMap()
         lock["runtime"] = self.lock_runtime()
         lock["package_rules"] = [
-            f"{spec.package_spec} {spec.safe_url or spec.package_id} {spec.revision or ''}".strip()
+            spec.as_env_value()
             for spec in self.ensemble.package_specs if spec.package_spec != "github.com/onecommons/unfurl"
         ]
 
