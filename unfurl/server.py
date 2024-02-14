@@ -445,7 +445,8 @@ class CacheValue(NamedTuple):
         etag = int(self.last_commit, 16) ^ int(get_package_digest(True), 16)
         for dep in self.deps.values():
             for last_commit in dep.last_commits:
-                etag ^= int(last_commit, 16)
+                if last_commit:
+                    etag ^= int(last_commit, 16)
         return _make_etag(hex(etag))
 
 
