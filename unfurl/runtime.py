@@ -1223,7 +1223,7 @@ class TopologyInstance(HasInstancesInstance):
 
     def set_base_dir(self, baseDir: str) -> None:
         self._baseDir = baseDir
-        if not self._templar or self._templar._basedir != baseDir:
+        if not self._templar or not self._templar._loader or self._templar._loader.get_basedir() != baseDir:
             loader = DataLoader()
             loader.set_basedir(baseDir)
             self._templar = Templar(loader)

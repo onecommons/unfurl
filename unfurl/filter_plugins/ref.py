@@ -9,12 +9,12 @@ from unfurl.support import (
     to_label,
 )
 from unfurl.util import which, wrap_sensitive_value
-from jinja2.filters import contextfilter  # type: ignore
+from jinja2 import pass_context
 
 # from ansible.errors import AnsibleError, AnsibleFilterError
 
 
-@contextfilter
+@pass_context
 def ref(context, ref, *args, **vars):
     refContext = context["__unfurl"]
     trace = vars.pop("trace", None)
@@ -22,7 +22,7 @@ def ref(context, ref, *args, **vars):
     return Ref(ref, trace=trace, vars=vars).resolve(refContext, wantList = wantList)
 
 
-@contextfilter
+@pass_context
 def map_value_filter(context, ref, **vars):
     refContext = context["__unfurl"]
     if vars:
@@ -30,7 +30,7 @@ def map_value_filter(context, ref, **vars):
     return map_value(ref, refContext)
 
 
-@contextfilter
+@pass_context
 def abspath(context, path, relativeTo=None, mkdir=False):
     """
     {{ 'foo' | abspath }}
@@ -45,7 +45,7 @@ def abspath(context, path, relativeTo=None, mkdir=False):
     return external.get()
 
 
-@contextfilter
+@pass_context
 def get_dir(context, relativeTo, mkdir=False):
     refContext = context["__unfurl"]
     filepath = _getdir(refContext, relativeTo, mkdir)
@@ -55,7 +55,7 @@ def get_dir(context, relativeTo, mkdir=False):
 
 # XXX
 # override ansible built-in so we use our yaml object
-# @contextfilter
+# @pass_context
 # def to_yaml(context, a, *args, **kw):
 #     refContext = context["__unfurl"]
 #     refContext.yaml
@@ -70,7 +70,7 @@ def get_dir(context, relativeTo, mkdir=False):
 #     return to_text(transformed)
 
 
-# @contextfilter
+# @pass_context
 # def to_nice_yaml(context, a, indent=4, *args, **kw):
 #     transformed = yaml.dump(
 #         a,

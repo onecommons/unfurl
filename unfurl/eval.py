@@ -840,7 +840,7 @@ def lookup(result: Result, key: Any, context: RefContext) -> Optional[Result]:
         ctx = context.copy(context._lastResource)
         result = result.project(key, ctx)
         value = result.resolved
-        context.trace(f"lookup {key}, got {value}")
+        context.trace(f"lookup {key}, got value of type {type(value)}")
 
         if not context._rest:
             assert not Ref.is_ref(value)

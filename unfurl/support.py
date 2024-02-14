@@ -434,7 +434,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
-    if not ctx.templar or (ctx.base_dir and ctx.templar._basedir != ctx.base_dir):
+    if not ctx.templar or not ctx.templar._loader or (ctx.base_dir and ctx.templar._loader.get_basedir() != ctx.base_dir):
         # we need to create a new templar
         loader = DataLoader()
         if ctx.base_dir:

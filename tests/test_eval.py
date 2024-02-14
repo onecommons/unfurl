@@ -586,7 +586,8 @@ foo
         resource.attributeManager = AttributeManager(yaml)
         resource._templar._loader.set_vault_secrets(vault.secrets)
         pickled = pickle.dumps(resource, -1)
-        assert pickle.loads(pickled)
+        restored = pickle.loads(pickled)
+        assert restored and type(restored) == type(resource)
 
         filePath = map_value(expr, resource)
         with open(filePath, "rb") as vf:
@@ -602,7 +603,7 @@ foo
         select: contents
         """
         expr = yaml.load(io.StringIO(src))
-        contents = map_value(expr, RefContext(resource, vars=dict(tempfile=filePath)))
+        contents = map_value(expr, RefContext(resource, trace=2, vars=dict(tempfile=filePath)))
         assert isinstance(contents, sensitive_bytes), type(contents)
         with open(fixture, "rb") as tp:
             self.assertEqual(tp.read(), contents)

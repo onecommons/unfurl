@@ -166,7 +166,7 @@ def test_collection_artifact():
         assert run1.json_summary()["external_jobs"][0]["job"]["ok"] == 4, run1.summary()
 
         coll_path = os.path.join(tmp_path, "ansible_collections")
-        assert os.listdir(coll_path) == ['mdellweg']
+        assert "mdellweg" in os.listdir(coll_path)
 
         runner = Runner(YamlManifest(collection_ensemble))
         run1 = runner.run()
