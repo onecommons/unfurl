@@ -476,6 +476,7 @@ def requirement_to_graphql(
     types: ResourceTypesByName,
     include_omitted=False,
     include_matches: bool = True,
+    type_definition: Optional[NodeType] = None,
 ) -> Optional[RequirementConstraint]:
     name, req, reqobj = _make_req(req_dict)
     if "min" not in reqobj:
@@ -527,7 +528,10 @@ def requirement_to_graphql(
             "skipping requirement constraint %s, there was no type specified ", req_dict
         )
         return None
-    reqobj["resourceType"] = types.expand_typename(nodetype)
+    if type_definition:
+        reqobj["resourceType"] = types.get_typename(type_definition)
+    else:
+        reqobj["resourceType"] = types.expand_typename(nodetype)
     return reqobj
 
 
@@ -604,10 +608,12 @@ def node_type_to_graphql(
             visibility = "hidden"
         jsontype["metadata"] = metadata
 
-    if raw_type in custom_defs:
-        _source = custom_defs[raw_type].get("_source")
-        if isinstance(_source, dict):  # could be str or None
-            jsontype["_sourceinfo"] = get_import_def(cast(SourceInfo, _source))
+    _source = type_definition.get_value("_source")
+    if isinstance(_source, dict):  # could be str or None
+        jsontype["_sourceinfo"] = get_import_def(cast(SourceInfo, _source))
+        prefix = custom_defs.find_prefix(raw_type)
+        if prefix:
+            jsontype["_sourceinfo"]["prefix"] = prefix  # type: ignore
 
     if type_definition.defs is None:
         logger.warning("%s is missing type definition", type_definition.type)
@@ -675,7 +681,8 @@ def node_type_to_graphql(
             None,
             [
                 requirement_to_graphql(
-                    topology, req, types, include_matches=include_matches
+                    topology, req, types, include_matches=include_matches,
+                    type_definition=type_definition
                 )
                 for req in type_definition.get_all_requirements()
             ],
@@ -730,7 +737,8 @@ def _update_root_type(
         # XXX copy node_filter and metadata from get_relationship_templates()
         placeholder_req = {node.name: dict(node=node.type)}
         req_json = requirement_to_graphql(
-            topology, placeholder_req, types, True, include_matches=False
+            topology, placeholder_req, types, True, include_matches=False,
+            type_definition=node.toscaEntityTemplate.type_definition  # type: ignore
         )
         if req_json:
             jsontype["requirements"].append(req_json)  # type: ignore
@@ -783,7 +791,7 @@ def to_graphql_nodetypes(
     for node_spec in topology.node_templates.values():
         type_definition = node_spec.toscaEntityTemplate.type_definition
         assert type_definition
-        if not types.get_type(type_definition.type):
+        if not types.get_type(type_definition.global_name):
             node_type_to_graphql(topology, type_definition, types)
 
     assert spec.topology
@@ -839,7 +847,7 @@ def _get_typedef(name: str, custom_defs: Namespace) -> Optional[Dict[str, Any]]:
 def find_reqconstraint_for_template(
     nodespec: NodeSpec, name: str, types: ResourceTypesByName
 ) -> Optional[RequirementConstraint]:
-    typeobj = types.get_type(nodespec.type)
+    typeobj = types.get_type(nodespec.global_type)
     if not typeobj:
         typeobj = _node_typename_to_graphql(nodespec.type, nodespec.topology, types)
         if not typeobj:
@@ -892,9 +900,10 @@ def create_reqconstraint_from_nodetemplate(
     else:
         # "node" on a node template's requirement in TOSCA yaml is the node match so don't use as part of the constraint
         # use the type's "node" (unless the requirement isn't defined on the type at all)
-        typeReqDef = cast(
+        type_definition = cast(
             NodeType, nodespec.toscaEntityTemplate.type_definition
-        ).get_requirement_definition(name)
+        )
+        typeReqDef = type_definition.get_requirement_definition(name)
         if typeReqDef:
             # preserve node as "match" for _requirement_visibility
             req_dict["match"] = req_dict.get("node")
@@ -904,7 +913,8 @@ def create_reqconstraint_from_nodetemplate(
                 req_dict.pop("node", None)
             # else: empty typeReqDef, leave req_dict alone
         reqconstraint = requirement_to_graphql(
-            nodespec.topology, {name: req_dict}, types
+            nodespec.topology, {name: req_dict}, types,
+            type_definition=type_definition
         )
 
     if reqconstraint:
@@ -1435,7 +1445,7 @@ def _to_graphql(
             # virtual is only set when loading resources from an environment
             # or from "spec/resource_templates"
             environment_instances[name] = t
-            typename = types.get_typename(toscaEntityTemplate.type_definition)
+            typename = types.expand_typename(node_spec.global_type)
             if typename not in types:
                 logger.error("Connection type %s for resource %s is missing", typename, node_spec.nested_name)
             else:

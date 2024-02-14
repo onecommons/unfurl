@@ -421,6 +421,8 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             return TypeName(nodetype)
         if nodetype in self.custom_defs:
             return TypeName(self.custom_defs.get_global_name(nodetype))
+        else:
+            logger.warning("could not find %s types namespace", nodetype)
         return to_type_name(nodetype, self.qualifier, "")
 
     def _get_extends(
