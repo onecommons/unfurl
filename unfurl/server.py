@@ -30,7 +30,6 @@ import traceback
 from typing import (
     Dict,
     List,
-    Literal,
     NamedTuple,
     Optional,
     Set,
@@ -41,6 +40,7 @@ from typing import (
     cast,
     Callable,
 )
+from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
@@ -737,6 +737,8 @@ class CacheEntry:
             try:
                 at_latest = self.at_latest(cached_latest_commit, latest_commit, cached_last_commit_date)
             except Exception:
+                # if the cached commit was wrong we would have already cleared the project in the at_latest() call
+                # so if we get an exception here is because the client sent an invalid commit
                 if self.strict:
                     logger.warning(
                         "pull failed for %s, reverting local repo",
