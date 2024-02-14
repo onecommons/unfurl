@@ -449,8 +449,9 @@ def reload_collections(ctx=None):
     AnsibleCollectionConfig = ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
     AnsibleCollectionConfig._collection_finder = None
     if hasattr(ansible.plugins.loader, "init_plugin_loader"):
-        if os.getenv("ANSIBLE_COLLECTIONS_PATH"):
-            collection_path = os.getenv("ANSIBLE_COLLECTIONS_PATH").split()
+        collection_path_var = os.getenv("ANSIBLE_COLLECTIONS_PATH")
+        if collection_path_var:
+            collection_path = collection_path_var.split()
         else:
             collection_path = []
         ansible.plugins.loader.init_plugin_loader(collection_path)
