@@ -66,8 +66,8 @@ jobs:
           git config --global push.autoSetupRemote true
           git config --global init.defaultBranch main
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
-          tox -c tosca-parser/tox.ini -e $PY_V
-          tox -e $PY_V -- -n auto --dist loadfile
+          tox -c tosca-parser/tox.ini -v -e $PY_V
+          tox -e $PY_V -v -- -vv -n auto --dist loadfile
           .tox/$PY_V/bin/mypy unfurl
       - name: build docs
         if: matrix.python == 3.9
