@@ -444,12 +444,17 @@ class ToscaSpec:
         for name, topology in self.template.nested_topologies.items():
             topology_spec = TopologySpec(topology, self, self.topology, path=name)
             self.nested_topologies.append(topology_spec)
-            for nodeTemplate in topology.nodetemplates:
+            for nodeTemplate in list(topology.node_templates.values()):
                 if "default" in nodeTemplate.directives:
                     if nodeTemplate.name in self.topology.node_templates:
                         self.overridden_default_templates.add(nodeTemplate.name)
                     else:
-                        # put in root topology
+                        # move default template to root topology
+                        topology.node_templates.pop(nodeTemplate.name)
+                        nodeTemplate.topology_template = self.topology.topology_template
+                        self.topology.topology_template.node_templates[
+                            nodeTemplate.name
+                        ] = nodeTemplate
                         nodeSpec = NodeSpec(nodeTemplate, self.topology)
                         self.topology.node_templates[nodeSpec.name] = nodeSpec
 
@@ -731,7 +736,10 @@ class EntitySpec(ResourceRef):
             }
             for name, aDef in attrDefs.items():
                 prop = Property(
-                    name, aDef.default, aDef.schema, toscaNodeTemplate.type_definition.custom_def
+                    name,
+                    aDef.default,
+                    aDef.schema,
+                    toscaNodeTemplate.type_definition.custom_def,
                 )
                 self.propertyDefs[name] = prop
                 self.attributeDefs[name] = prop
@@ -1263,10 +1271,13 @@ class NodeSpec(EntitySpec):
                     nodetype, StatefulEntityType.NODE_PREFIX, node_type_namespace
                 ).global_name
             except TOSCAException as e:
-                logger.debug(f'requirement node type "%s" not found in namespace "%s"', nodetype, node_type_namespace.namespace_id)
+                logger.debug(
+                    f'requirement node type "%s" not found in namespace "%s"',
+                    nodetype,
+                    node_type_namespace.namespace_id,
+                )
             finally:
                 ExceptionCollector.resume()
-
 
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):
