@@ -528,8 +528,8 @@ def requirement_to_graphql(
             "skipping requirement constraint %s, there was no type specified ", req_dict
         )
         return None
-    if type_definition:
-        reqobj["resourceType"] = types.get_typename(type_definition)
+    if type_definition and type_definition.custom_def:
+        reqobj["resourceType"] = TypeName(type_definition.custom_def.get_global_name(nodetype))
     else:
         reqobj["resourceType"] = types.expand_typename(nodetype)
     return reqobj
