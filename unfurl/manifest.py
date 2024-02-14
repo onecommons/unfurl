@@ -687,9 +687,10 @@ class Manifest(AttributeManager):
         lock = config.get("lock")
         if lock and "package_rules" in lock:
             package_specs = [PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])]
-            if package_specs:
+            if package_specs and not self.package_specs:
+                # only use lock section package rules if the environment didn't set some already
                 logger.debug("applying package rules from lock section: %s", package_specs)
-                self.package_specs = package_specs + self.package_specs  # prepend so user can override
+                self.package_specs = package_specs
 
         for name, tpl in repositories.items():
             # only set if we haven't seen this repository before
