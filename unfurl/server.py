@@ -1699,7 +1699,7 @@ def _add_imports(imports: List[dict], template: dict, repositories: dict, skip_p
                     continue  # skip environment imports
                 if i.get("namespace_prefix") == existing.get("namespace_prefix"):
                     existing_repository = existing.get("repository")
-                    if "repository" in i:
+                    if "repository" in i and i["repository"] != "unfurl":
                         if "repository" in existing:
                             if (
                                 repositories[i["repository"]]["url"]
