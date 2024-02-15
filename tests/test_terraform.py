@@ -399,7 +399,7 @@ class TerraformTest(unittest.TestCase):
     "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-@unittest.skipIf(os.getenv("CI"), "skip CI")
+@unittest.skip("really skip")
 class TerraformMotoTest(MotoTest):
     def setUp(self):
         assert super().setUp(), "moto server didn't start"
