@@ -529,7 +529,9 @@ def requirement_to_graphql(
         )
         return None
     if type_definition and type_definition.custom_def:
-        reqobj["resourceType"] = TypeName(type_definition.custom_def.get_global_name(nodetype))
+        reqobj["resourceType"] = TypeName(
+            type_definition.custom_def.get_global_name(nodetype)
+        )
     else:
         reqobj["resourceType"] = types.expand_typename(nodetype)
     return reqobj
@@ -681,8 +683,11 @@ def node_type_to_graphql(
             None,
             [
                 requirement_to_graphql(
-                    topology, req, types, include_matches=include_matches,
-                    type_definition=type_definition
+                    topology,
+                    req,
+                    types,
+                    include_matches=include_matches,
+                    type_definition=type_definition,
                 )
                 for req in type_definition.get_all_requirements()
             ],
@@ -737,8 +742,12 @@ def _update_root_type(
         # XXX copy node_filter and metadata from get_relationship_templates()
         placeholder_req = {node.name: dict(node=node.type)}
         req_json = requirement_to_graphql(
-            topology, placeholder_req, types, True, include_matches=False,
-            type_definition=node.toscaEntityTemplate.type_definition  # type: ignore
+            topology,
+            placeholder_req,
+            types,
+            True,
+            include_matches=False,
+            type_definition=node.toscaEntityTemplate.type_definition,  # type: ignore
         )
         if req_json:
             jsontype["requirements"].append(req_json)  # type: ignore
@@ -900,9 +909,7 @@ def create_reqconstraint_from_nodetemplate(
     else:
         # "node" on a node template's requirement in TOSCA yaml is the node match so don't use as part of the constraint
         # use the type's "node" (unless the requirement isn't defined on the type at all)
-        type_definition = cast(
-            NodeType, nodespec.toscaEntityTemplate.type_definition
-        )
+        type_definition = cast(NodeType, nodespec.toscaEntityTemplate.type_definition)
         typeReqDef = type_definition.get_requirement_definition(name)
         if typeReqDef:
             # preserve node as "match" for _requirement_visibility
@@ -913,8 +920,7 @@ def create_reqconstraint_from_nodetemplate(
                 req_dict.pop("node", None)
             # else: empty typeReqDef, leave req_dict alone
         reqconstraint = requirement_to_graphql(
-            nodespec.topology, {name: req_dict}, types,
-            type_definition=type_definition
+            nodespec.topology, {name: req_dict}, types, type_definition=type_definition
         )
 
     if reqconstraint:
@@ -1447,7 +1453,11 @@ def _to_graphql(
             environment_instances[name] = t
             typename = types.expand_typename(node_spec.global_type)
             if typename not in types:
-                logger.error("Connection type %s for resource %s is missing", typename, node_spec.nested_name)
+                logger.error(
+                    "Connection type %s for resource %s is missing",
+                    typename,
+                    node_spec.nested_name,
+                )
             else:
                 connection_types[typename] = types[typename]
         else:
@@ -1501,10 +1511,11 @@ def to_blueprint(
     include_all=False,
     *,
     file: Optional[str] = None,
+    nested: bool = False,
 ) -> GraphqlDB:
     db, manifest, env, env_types = _to_graphql(localEnv, root_url, include_all)
     blueprint, root_name = to_graphql_blueprint(
-        assert_not_none(manifest.tosca), db, bool(root_url)
+        assert_not_none(manifest.tosca), db, nested
     )
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
@@ -1559,7 +1570,9 @@ def mark_leaf_types(types: ResourceTypesByName) -> None:
             if not jsontype.get("implementations") and jsontype.get("requirements"):
                 # hack: if we're a "compound" type that is just a sum of its requirement, add an implementation so it is included
                 jsontype["implementations"] = ["create"]
-        elif jsontype.get("implementations") and not jsontype.get("metadata", {}).get("concrete"):
+        elif jsontype.get("implementations") and not jsontype.get("metadata", {}).get(
+            "concrete"
+        ):
             # abstract types can't be instantiated
             jsontype["implementations"] = []
 
