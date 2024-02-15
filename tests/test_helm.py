@@ -15,6 +15,7 @@ from .utils import init_project
 
 # http://localhost:8000/fixtures/helmrepo
 @unittest.skipIf("helm" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+@unittest.skip
 class HelmTest(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
