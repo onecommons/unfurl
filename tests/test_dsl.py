@@ -3,6 +3,7 @@ import inspect
 import os
 import time
 from typing import Optional
+import unittest
 from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
@@ -90,8 +91,7 @@ def _generate_builtin(generate, builtin_path=None):
         yo.close()
     return yaml_src
 
-
-@pytest.skip("for now")
+@unittest.skip("for now")
 def test_builtin_generation():
     yaml_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS

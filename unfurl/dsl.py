@@ -422,7 +422,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         if self._cls.__module__ == "builtins":
             path = __file__
         else:
-            path = sys.modules[self._cls.__module__].__file__
+            path = cast(str, sys.modules[self._cls.__module__].__file__)
         assert path
         self._context.base_dir = os.path.dirname(path)
 
