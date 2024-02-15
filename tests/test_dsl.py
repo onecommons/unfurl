@@ -108,10 +108,9 @@ def test_builtin_generation():
         )
         diffs.pop("unfurl.interfaces.Install", None)
         diffs.pop('tosca.nodes.Root', None)  # XXX sometimes present due to test race condition?
+        diffs.pop('tosca.nodes.SoftwareComponent', None)  # !namespace attributes might get added by other tests
         print(yaml2python.value2python_repr(diffs))
         if diffs:
-            print('source', src_yaml[section]['tosca.nodes.SoftwareComponent']['requirements'])
-            print('generated', yaml_src[section]['tosca.nodes.SoftwareComponent']['requirements'])
             # these diffs exist because requirements include inherited types
             assert section == "node_types" and len(diffs) == 5
 

@@ -137,10 +137,12 @@ else:
         stderr: bool = False,
         screen_only: bool = False,
         log_only: bool = True,
+        newline: bool = True,
+        **kw
     ) -> Union[None, ansible.utils.display.Display]:
         if screen_only:
             return None
-        return _super_display(self, msg, color, stderr, screen_only, log_only)
+        return _super_display(self, msg, color, stderr, screen_only, log_only, newline, **kw)
 
     ansible.utils.display.Display.display = _display
 
