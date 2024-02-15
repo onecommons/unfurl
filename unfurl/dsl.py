@@ -419,7 +419,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         self._cache = Cache(self._context)
         # when calling into python code context won't have the basedir for the location of the code
         # (since its not imported as yaml). So set it now.
-        path = sys.modules[self._cls.__module__].__file__
+        if self._cls.__module__ == "builtins":
+            path = __file__
+        else:
+            path = cast(str, sys.modules[self._cls.__module__].__file__)
         assert path
         self._context.base_dir = os.path.dirname(path)
 

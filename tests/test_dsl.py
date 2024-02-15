@@ -3,6 +3,7 @@ import inspect
 import os
 import time
 from typing import Optional
+import unittest
 from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
@@ -90,7 +91,6 @@ def _generate_builtin(generate, builtin_path=None):
         yo.close()
     return yaml_src
 
-
 def test_builtin_generation():
     yaml_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS
@@ -106,9 +106,10 @@ def test_builtin_generation():
         diffs = diff_dicts(
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
-        print(yaml2python.value2python_repr(diffs))
         diffs.pop("unfurl.interfaces.Install", None)
         diffs.pop('tosca.nodes.Root', None)  # XXX sometimes present due to test race condition?
+        diffs.pop('tosca.nodes.SoftwareComponent', None)  # !namespace attributes might get added by other tests
+        print(yaml2python.value2python_repr(diffs))
         if diffs:
             # these diffs exist because requirements include inherited types
             assert section == "node_types" and len(diffs) == 5

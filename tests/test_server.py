@@ -371,7 +371,7 @@ def test_server_export_remote():
             output = exported.output
             cleaned_output = output[max(output.find("{"), 0):]
             expected = _strip_sourceinfo(json.loads(cleaned_output))
-            assert _strip_sourceinfo(res.json(), True) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+            assert _strip_sourceinfo(res.json()) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
 
             dep_commit = GitRepo(Repo("application-blueprint/unfurl-types")).revision
             etag = server._make_etag(hex(int(last_commit, 16) 
