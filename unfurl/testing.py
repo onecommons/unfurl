@@ -4,9 +4,10 @@
 Utility functions for unit tests.
 """
 from dataclasses import dataclass
-from typing import Any, Optional, Iterable, Tuple
+from typing import Any, List, Optional, Iterable, Tuple
 import shutil
 import traceback
+import time
 import os
 import os.path
 from typing import (
@@ -86,7 +87,7 @@ def _check_job(job, i, step):
 
 
 def lifecycle(
-    manifest: Manifest, steps: Optional[Iterable[Step]] = DEFAULT_STEPS
+    manifest: Manifest, steps: Iterable[Step] = DEFAULT_STEPS
 ) -> Iterable[Job]:
     runner = Runner(manifest)
     for i, step in enumerate(steps, start=1):
@@ -127,7 +128,7 @@ def init_project(cli_runner, path=None, env=None, args=None):
 
 def isolated_lifecycle(
     path: str,
-    steps: Optional[Iterable[Step]] = DEFAULT_STEPS,
+    steps: Iterable[Step] = DEFAULT_STEPS,
     env=None,
     init_args=None,
     tmp_dir=None,
@@ -143,16 +144,16 @@ def isolated_lifecycle(
             os.chdir(path)
         for i, step in enumerate(steps, start=1):
             print(f"starting step #{i} - {step.workflow}")
-            args = [
+            args: List[str] = [
                 #  "-vvv",
                 step.workflow,
                 "--starttime",
-                i,
+                str(i),
             ]
             result = cli_runner.invoke(cli, args, env=_home(env))
             print("result.output", result.exit_code, result.output)
-            assert not result.exception, "\n".join(
-                traceback.format_exception(*result.exc_info)
+            assert not result.exception, "\n".join(  
+                traceback.format_exception(*result.exc_info)  # type: ignore
             )
             assert result.exit_code == 0, result
             assert _latestJobs
@@ -165,7 +166,7 @@ def run_cmd(runner: CliRunner, args, print_result=False, env=None) -> Result:
     result = runner.invoke(cli, args, env=_home(env))
     if print_result:
         print("result.output", result.exit_code, result.output)
-    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
+    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))  # type: ignore
     assert result.exit_code == 0, result
     return result
 
