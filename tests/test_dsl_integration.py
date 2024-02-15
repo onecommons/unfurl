@@ -2,7 +2,7 @@ import os
 import pytest
 import unfurl
 import tosca
-from unfurl.dsl import runtime_test
+from unfurl.testing import runtime_test
 from unfurl.tosca_plugins import expr,functions
 from unfurl.configurators.terraform import tfoutput, tfvar
 from typing import Optional, Type
