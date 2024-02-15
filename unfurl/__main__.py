@@ -1035,14 +1035,11 @@ def git(ctx, gitargs, dir="."):
 
 
 class Committer(Protocol):
-    def commit(self, msg: str, add_all: bool = False) -> int:
-        ...
+    def commit(self, msg: str, add_all: bool = False) -> int: ...
 
-    def add_all(self) -> None:
-        ...
+    def add_all(self) -> None: ...
 
-    def get_repo_status(self, dirty=False) -> str:
-        ...
+    def get_repo_status(self, dirty=False) -> str: ...
 
 
 def get_commit_message(committer, default_message):
@@ -1294,7 +1291,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     root_url = os.getenv("UNFURL_EXPORT_ARG")
     if format == "blueprint":
         jsonSummary = to_json.to_blueprint(
-            local_env, root_url, bool(root_url), file=file
+            local_env, root_url, bool(root_url), file=file, nested=bool(root_url)
         )
     else:
         jsonSummary = exporter(local_env, root_url, file=file)
