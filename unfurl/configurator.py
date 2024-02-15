@@ -395,7 +395,7 @@ class _ConnectionsMap(dict):
         # reverse so nearest relationships replace less specific ones that have matching names
         # XXX why is rel sometimes a Result?
         by_type = {  # the list() is for Python 3.7
-            rel.resolved.type if isinstance(rel, Result) else rel.type: rel
+            rel.resolved.template.global_type if isinstance(rel, Result) else rel.template.global_type: rel
             for rel in reversed(list(self.values()))
         }
         return by_type.values()
@@ -410,11 +410,10 @@ class _ConnectionsMap(dict):
             # XXX why is value sometimes a Result?
             if isinstance(value, Result):
                 value = value.resolved
-            if (
-                value.template.is_compatible_type(key)
-                # hackish: match the local name of type
-                or key == value.type.rpartition(".")[2]
-            ):
+            # hackish: match the local name of type
+            if key == value.type.rpartition(".")[2]:
+                return value
+            if value.template.is_compatible_type(key):
                 return value
         raise KeyError(key)
 
