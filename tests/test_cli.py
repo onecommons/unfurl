@@ -407,7 +407,7 @@ spec:
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
-            getattr(self, "assertRegex", self.assertRegexpMatches)(
+            self.assertRegex(
                 clean_output(result.output),
                 "Job A[0-9A-Za-z]{11} completed: ok. " + empty_job_msg,
             )
@@ -440,7 +440,7 @@ spec:
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
-            getattr(self, "assertRegex", self.assertRegexpMatches)(
+            self.assertRegex(
                 result.output,
                 "Job A[0-9A-Za-z]{11} completed: ok. " + empty_job_msg,
             )
