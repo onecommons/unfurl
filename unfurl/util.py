@@ -655,7 +655,7 @@ def is_relative_to(p, *other) -> bool:
 
 
 def substitute_env(contents, env=None, preserve_missing=False):
-    """
+    r"""
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
     Use \${NAME} to ignore
     """
@@ -701,7 +701,7 @@ def filter_env(
     addOnly: bool = False,
     sub: Optional[MutableMapping] = None,
 ) -> Dict[str, str]:
-    """
+    r"""
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
 
     Args:
