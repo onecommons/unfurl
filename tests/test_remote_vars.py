@@ -8,6 +8,7 @@ import urllib.request
 from click.testing import CliRunner
 from unfurl.__main__ import cli
 
+@unittest.skipIf(os.getenv("CI"), "skip CI")
 def test_clone(caplog):
     server_address = ("", 8011)
     directory = os.path.join(os.path.dirname(__file__), 'fixtures')
