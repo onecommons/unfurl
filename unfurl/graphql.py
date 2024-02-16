@@ -293,21 +293,15 @@ class DeploymentEnvironment(TypedDict, total=False):
     repositories: JsonType
 
 
-def add_prefix(namespace: Namespace, import_def: ImportDef):
+def add_prefix(namespace: Namespace, import_def: ImportDef, namespace_id: str):
     # make sure prefix is unique in the namespace
     repository = import_def.get("repository")
     prefix = import_def.get("prefix", repository)
     if not prefix:
         url = import_def.get("url") or ""
-        namespace_id = get_namespace_id(
-            url,
-            SourceInfo(
-                file=import_def["file"], root=url, repository=repository, path=""
-            ),
-        )
         prefix = re.sub(r"\W", "_", namespace_id)
     import_def["prefix"] = unique_name(
-        prefix, list(filter(None, namespace.imports.values()))
+        prefix, [n.partition(".")[0] for n in namespace.imports.values()]
     )
     return prefix
 
@@ -321,7 +315,7 @@ def get_local_type(
         if local:
             import_def = None
         elif import_def:  # namespace_id not found, need to import
-            add_prefix(namespace, import_def)
+            add_prefix(namespace, import_def, global_name.split("@")[1])
             # XXX else log.warning
     if not local:
         local = global_name.split("@")[0]
@@ -353,7 +347,7 @@ def get_import_def(source_info: SourceInfo) -> ImportDef:
 
 
 def _get_url_from_source_info(source_info: SourceInfo) -> Tuple[str, str]:
-    root = source_info.get("namespace_uri") or source_info["root"] or ""
+    root = source_info["root"] or ""
     repository = source_info.get("repository")
     if repository:
         if repository == "unfurl":
@@ -392,11 +386,14 @@ def to_type_name(name: str, package_id: str, path: str) -> TypeName:
 
 
 # called by get_repository_url
-def get_namespace_id(root_url: str, info: SourceInfo):
+def get_namespace_id(root_url: str, info: SourceInfo) -> str:
+    namespace_id = info.get("namespace_uri")
+    if namespace_id:
+        return namespace_id
     url, path = _get_url_from_source_info(info)
     # use root_url if no repository
     package_id = get_package_url(url or root_url)
-    if path and path != "service-template.yaml":
+    if path and path != "." and path != "service-template.yaml":
         return package_id + ":" + os.path.splitext(path)[0]
     else:
         return package_id
@@ -439,6 +436,9 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             extends.append(name)
         if convert and name not in self:
             convert(topology, typedef, self)
+        for alias in typedef.aliases:
+            if alias not in extends:
+                extends.append(TypeName(alias))
         ExceptionCollector.collecting = True
         for p in typedef.parent_types():
             self._get_extends(topology, p, extends, convert)
@@ -455,13 +455,12 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
     def get_localname(typename: str):
         return typename.partition("@")[0]
 
-    def _make_typedef(
-        self, name: str, all=False, get_local=True
-    ) -> Optional[StatefulEntityType]:
-        typename = (
-            self.get_localname(name) if get_local or not EXPORT_QUALNAME else name
-        )
-        typedef = find_type(typename, self.custom_defs)
+    def _make_typedef(self, name: str, all=False) -> Optional[StatefulEntityType]:
+        local_name = self.custom_defs.get_local_name(name)
+        if local_name:
+            typedef = find_type(local_name, self.custom_defs)
+        else:
+            typedef = None
         if not typedef:
             logger.warning("Missing type definition for %s", name)
         return typedef

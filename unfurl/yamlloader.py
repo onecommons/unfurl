@@ -309,7 +309,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.config = config or {}
 
     GLOBAL_NAMESPACE_PACKAGES = os.getenv(
-        "UNFURL_GLOBAL_NAMESPACE_PACKAGES", "unfurl.cloud/onecommons/unfurl-types*"
+        "UNFURL_GLOBAL_NAMESPACE_PACKAGES", "unfurl.cloud/onecommons/unfurl-types* gitlab.com/onecommons/unfurl-types*"
     )
 
     def __getstate__(self):
@@ -415,12 +415,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     @overload
     def get_repository(
         self, name: str, tpl: None, unique: Literal[False] = False
-    ) -> Optional[Repository]:
-        ...
+    ) -> Optional[Repository]: ...
 
     @overload
-    def get_repository(self, name: str, tpl: dict, unique: bool = False) -> Repository:
-        ...
+    def get_repository(
+        self, name: str, tpl: dict, unique: bool = False
+    ) -> Repository: ...
 
     def get_repository(
         self, name: str, tpl: Optional[dict], unique: bool = False
@@ -482,6 +482,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             url = ""
         if source_info:
+            if toscaparser.imports.is_url(source_info["root"]):
+                repository_root = self._find_repository_root(source_info["path"])
+            else:
+                repository_root = source_info["root"]
+            if repository_root and source_info["path"]:
+                source_info["file"] = os.path.normpath(
+                    Path(source_info["path"]).relative_to(repository_root)
+                )
             namespace_id = get_namespace_id(url, source_info)
             if self.manifest and self.manifest.package_specs:
                 canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
@@ -491,7 +499,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     )
 
             if match_namespace(self.GLOBAL_NAMESPACE_PACKAGES, namespace_id):
-                source_info["global_namespace"] = True  # type: ignore
+                source_info["namespace_uri"] = namespace_id
             return namespace_id
         return url
 

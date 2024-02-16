@@ -11,8 +11,8 @@ from unfurl.localenv import LocalEnv
 from unfurl.planrequests import _find_implementation
 
 
-Atlas = "Atlas@github.com/onecommons/unfurl.git/tests/examples"
-SelfHostedMongoDb = "SelfHostedMongoDb@github.com/onecommons/unfurl.git/tests/examples"
+Atlas = "Atlas@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble"
+SelfHostedMongoDb = "SelfHostedMongoDb@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble"
 
 def test_jsonexport():
     # XXX cli(unfurl export)
@@ -31,6 +31,7 @@ def test_jsonexport():
     rel_json = node_type_to_graphql(topology, rel_type, jsonExport["ResourceType"])
     assert "_sourceinfo" not in rel_json
     # not imported, so only added in types call (with root_url and include_all)
+    # print( list(jsonExport["ResourceType"]) )
     assert Atlas in jsonExport["ResourceType"], list(jsonExport["ResourceType"])
     assert "_sourceinfo" not in jsonExport["ResourceType"][Atlas]
 
@@ -81,8 +82,8 @@ def test_jsonexport():
 
     # XXX verify that saving the manifest preserves the json include
 
-App = "App@github.com/onecommons/unfurl.git/tests/examples"
-ContainerHost = "ContainerHost@github.com/onecommons/unfurl.git/tests/examples"
+App = "App@github.com/onecommons/unfurl.git/tests/examples:visibility-metadata-ensemble"
+ContainerHost = "ContainerHost@github.com/onecommons/unfurl.git/tests/examples:visibility-metadata-ensemble"
 
 @pytest.mark.parametrize("export_fn", [to_deployment, to_blueprint])
 def test_jsonexport_requirement_visibility(export_fn):
@@ -98,6 +99,7 @@ def test_jsonexport_requirement_visibility(export_fn):
         ]
         == "visible"
     )
+    # print(list(jsonExport["ResourceType"]))
     app_type = jsonExport["ResourceType"][App]
     env_prop = jsonExport["ResourceType"][ContainerHost]["inputsSchema"]["properties"][
         "environment"
@@ -140,7 +142,7 @@ def test_jsonexport_requirement_visibility(export_fn):
                     "CPUs": {"default": 2},
                 }
             },
-            "resourceType": "ContainerHost@github.com/onecommons/unfurl.git/tests/examples",
+            "resourceType": "ContainerHost@github.com/onecommons/unfurl.git/tests/examples:visibility-metadata-ensemble",
         }
     ]
     assert jsonExport["ResourceTemplate"]["the_app"]["dependencies"], pprint.pformat(

@@ -759,10 +759,10 @@ def test_namespaces(caplog):
     assert mock_importdef["prefix"] == "dns1"
     # generate prefix:
     mock_importdef.pop("prefix")
-    assert ("foo_com_.UnknownType", mock_importdef) == get_local_type(
+    assert ("foo_com.UnknownType", mock_importdef) == get_local_type(
         namespace, "UnknownType@foo.com", mock_importdef
     )
-    assert mock_importdef["prefix"] == "foo_com_"
+    assert mock_importdef["prefix"] == "foo_com"
 
     with pytest.raises(UnfurlValidationError) as err:
         YamlManifest(prefixed_k8s_manifest % "")  # no prefix

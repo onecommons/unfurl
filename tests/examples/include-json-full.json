@@ -1,7 +1,7 @@
 {
   "ResourceTemplate": {
     "foo.com-zone": {
-      "type": "DNS@github.com/onecommons/unfurl.git/tests/examples",
+      "type": "DNS@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
       "name": "foo.com-zone",
       "title": "foo.com-zone",
       "description": "",
@@ -15,7 +15,7 @@
       "dependencies": []
     },
     "the_app": {
-      "type": "MEANStack@github.com/onecommons/unfurl.git/tests/examples",
+      "type": "MEANStack@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
       "name": "the_app",
       "title": "the_app",
       "description": "",
@@ -34,7 +34,7 @@
             "match": null,
             "min": 1,
             "max": 1,
-            "resourceType": "Compute@github.com/onecommons/unfurl.git/tests/examples",
+            "resourceType": "Compute@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
             "__typename": "RequirementConstraint"
           },
           "name": "host",
@@ -49,7 +49,7 @@
             "match": null,
             "min": 1,
             "max": 1,
-            "resourceType": "DNS@github.com/onecommons/unfurl.git/tests/examples",
+            "resourceType": "DNS@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
             "__typename": "RequirementConstraint"
           },
           "name": "resolver",
@@ -64,7 +64,7 @@
             "match": null,
             "min": 1,
             "max": 1,
-            "resourceType": "MongoDb@github.com/onecommons/unfurl.git/tests/examples",
+            "resourceType": "MongoDb@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
             "__typename": "RequirementConstraint"
           },
           "name": "db",
@@ -79,7 +79,7 @@
             "match": null,
             "min": 1,
             "max": 1,
-            "resourceType": "Mail@github.com/onecommons/unfurl.git/tests/examples",
+            "resourceType": "Mail@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
             "__typename": "RequirementConstraint"
           },
           "name": "mail",
@@ -89,7 +89,7 @@
       ]
     },
     "app_container": {
-      "type": "DockerHost@github.com/onecommons/unfurl.git/tests/examples",
+      "type": "DockerHost@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
       "name": "app_container",
       "title": "app_container",
       "description": "",
@@ -111,7 +111,7 @@
       "dependencies": []
     },
     "atlas_service": {
-      "type": "Atlas@github.com/onecommons/unfurl.git/tests/examples",
+      "type": "Atlas@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble",
       "name": "atlas_service",
       "title": "atlas_service",
       "description": "",

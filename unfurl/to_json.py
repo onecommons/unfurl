@@ -403,7 +403,7 @@ def _find_req_typename(
         return TypeName("")
 
     matches = []
-    for subtype in find_descendents(descendents, types.get_localname(typename)):
+    for subtype in find_descendents(descendents, typename):
         t = types.get_type(subtype)
         if not t:
             t = _node_typename_to_graphql(subtype, topology, types)
@@ -773,15 +773,25 @@ def to_graphql_nodetypes(
 
     descendents: TypeDescendants = {}
     for typename, defs in types.custom_defs.items():
+        typename, prefix = types.custom_defs.get_global_name_and_prefix(typename)
         parents = defs.get("derived_from", [])
         if isinstance(parents, str):
             parents = (parents,)
         for parent in parents:
+            if prefix:
+                parent = f"{prefix}.{parent}"
+            parent = types.custom_defs.get_global_name(parent)
             descendents.setdefault(parent, []).append(typename)
+        if defs.get("metadata"):
+            aliases = defs["metadata"].get("deprecates")
+            if aliases:
+                if isinstance(aliases, str):
+                    aliases = (aliases,)
+                for alias in aliases:
+                    descendents.setdefault(alias, []).append(typename)
         if not include_all or types.get_type(typename):
             continue
-        # set get_local to False because templates can declare fully qualified type names
-        typedef = types._make_typedef(typename, get_local=False)
+        typedef = types._make_typedef(typename)
         if typedef:
             node_type_to_graphql(topology, typedef, types)
 
