@@ -16,6 +16,7 @@ from unfurl.yamlloader import make_vault_lib
 from unfurl.spec import find_env_vars
 import io
 from click.testing import CliRunner
+from toscaparser.topology_template import find_type
 
 
 class SetAttributeConfigurator(Configurator):
@@ -298,13 +299,22 @@ class ToscaSyntaxTest(unittest.TestCase):
 
         # base_dir should be the directory the template's type is defined in
         base_dir = os.path.normpath(os.path.join(os.path.dirname(path), "spec"))
-        assert anInstance.template.propertyDefs['defaultexpession'].value.base_dir == base_dir
-        assert anInstance.template.toscaEntityTemplate.type_definition.defs.base_dir == base_dir
+        assert (
+            anInstance.template.propertyDefs["defaultexpession"].value.base_dir
+            == base_dir
+        )
+        assert (
+            anInstance.template.toscaEntityTemplate.type_definition.defs.base_dir
+            == base_dir
+        )
 
         instance2 = job.rootResource.find_resource("testNested")
         assert instance2
-        assert instance2.template.propertyDefs['a_property'].value.base_dir == base_dir
-        assert instance2.template.toscaEntityTemplate.type_definition.defs.base_dir == base_dir
+        assert instance2.template.propertyDefs["a_property"].value.base_dir == base_dir
+        assert (
+            instance2.template.toscaEntityTemplate.type_definition.defs.base_dir
+            == base_dir
+        )
 
         ctx = RefContext(anInstance)
 
@@ -750,7 +760,9 @@ def test_namespaces(caplog):
     namespace = manifest.tosca.topology.topology_template.custom_defs
     mock_importdef = ImportDef(file="", url="https://foo.com", prefix="dns")
     assert ("dns.unfurl.nodes.DNSZone", None) == get_local_type(
-        namespace, "unfurl.nodes.DNSZone@unfurl:configurators/templates/dns", mock_importdef
+        namespace,
+        "unfurl.nodes.DNSZone@unfurl:configurators/templates/dns",
+        mock_importdef,
     )
     # avoids prefix clash:
     assert ("dns1.UnknownType", mock_importdef) == get_local_type(
@@ -763,6 +775,27 @@ def test_namespaces(caplog):
         namespace, "UnknownType@foo.com", mock_importdef
     )
     assert mock_importdef["prefix"] == "foo_com"
+
+    MyZone = find_type("MyZone", namespace)
+    # verify !namespace attributes
+    assert MyZone.requirements == [
+        {
+            "parent_zone": {
+                "metadata": {"visibility": "hidden"},
+                "capability": "unfurl.capabilities.DNSZone",
+                "occurrences": [0, 1],
+                "!namespace-capability": "unfurl:configurators/templates/dns",
+            }
+        },
+        {
+            "dependency": {
+                "capability": "tosca.capabilities.Node",
+                "node": "tosca.nodes.Root",
+                "relationship": "tosca.relationships.DependsOn",
+                "occurrences": [0, "UNBOUNDED"],
+            }
+        },
+    ]
 
     with pytest.raises(UnfurlValidationError) as err:
         YamlManifest(prefixed_k8s_manifest % "")  # no prefix

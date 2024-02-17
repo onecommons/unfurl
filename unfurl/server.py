@@ -1733,8 +1733,10 @@ def _add_imports(
                     continue  # skip environment imports
                 if i.get("namespace_prefix") == existing.get("namespace_prefix"):
                     existing_repository = existing.get("repository")
-                    if "repository" in i and i["repository"] != "unfurl":
+                    if "repository" in i:
                         if "repository" in existing:
+                            if i["repository"] == "unfurl":
+                                break
                             if (
                                 repositories[i["repository"]]["url"]
                                 == repositories[existing["repository"]]["url"]

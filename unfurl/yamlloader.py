@@ -487,9 +487,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             else:
                 repository_root = source_info["root"]
             if repository_root and source_info["path"]:
-                source_info["file"] = os.path.normpath(
+                relfile = os.path.normpath(
                     Path(source_info["path"]).relative_to(repository_root)
                 )
+                if relfile != '.':
+                    source_info["file"] = relfile
             namespace_id = get_namespace_id(url, source_info)
             if self.manifest and self.manifest.package_specs:
                 canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
