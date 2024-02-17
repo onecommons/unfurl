@@ -393,7 +393,13 @@ def get_namespace_id(root_url: str, info: SourceInfo) -> str:
     url, path = _get_url_from_source_info(info)
     # use root_url if no repository
     package_id = get_package_url(url or root_url)
-    if path and path != "." and path != "service-template.yaml":
+    if path and path not in [
+        ".",
+        "service-template.yaml",
+        "ensemble.yaml",
+        "ensemble-template.yaml",
+        "dummy-ensemble.yaml",
+    ]:
         return package_id + ":" + os.path.splitext(path)[0]
     else:
         return package_id
