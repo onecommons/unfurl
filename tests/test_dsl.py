@@ -19,7 +19,7 @@ except ImportError:
     raise
 
 from tosca.python2yaml import PythonToYaml, python_src_to_yaml_obj
-from toscaparser.elements.entity_type import EntityType
+from toscaparser.elements.entity_type import EntityType, globals
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from unfurl.manifest import Manifest
 from toscaparser.tosca_template import ToscaTemplate
@@ -46,7 +46,11 @@ def _to_python(yaml_str: str, python_target_version=None, write_policy = tosca.W
 
 def _to_yaml(python_src: str, safe_mode) -> dict:
     namespace: dict = {}
-    tosca_tpl = python_src_to_yaml_obj(python_src, namespace, safe_mode=safe_mode)
+    try:
+        globals._annotate_namespaces = False
+        tosca_tpl = python_src_to_yaml_obj(python_src, namespace, safe_mode=safe_mode)
+    finally:
+        globals._annotate_namespaces = False
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 

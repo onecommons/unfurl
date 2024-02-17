@@ -93,7 +93,7 @@ def test_constraints():
                 {
                     "hosting": {
                         "node": "ContainerService",
-                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                         "node_filter": {"match": [{"eval": "backend_url"}]},
                     }
                 }
@@ -105,13 +105,13 @@ def test_constraints():
                 {
                     "container": {
                         "node": "container_service",
-                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                     }
                 },
                 {
                     "proxy": {
                         "node": "ProxyContainerHost",
-                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                         "node_filter": {
                             "properties": [
                                 {
