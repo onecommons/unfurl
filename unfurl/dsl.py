@@ -599,9 +599,13 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             ):
                 # self._context._trace=2
                 # self._instance.attributes.context._trace=2
-                val = _proxy_prop(
-                    field.get_type_info(), self._instance.attributes[field.tosca_name]
-                )
+                type_info = field.get_type_info()
+                if type_info.optional and field.tosca_name not in self._instance.attributes:
+                    val = None  # don't raise KeyError if the property isn't required
+                else:
+                    val = _proxy_prop(
+                        type_info, self._instance.attributes[field.tosca_name]
+                    )
                 self._cache[name] = val
                 return val
             elif field.tosca_field_type == ToscaFieldType.requirement:

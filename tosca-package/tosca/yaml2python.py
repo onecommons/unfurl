@@ -196,7 +196,6 @@ class Imports:
                 "Capability",
                 "Eval",
                 "Property",
-                "REQUIRED",
                 "MISSING",
                 "DEFAULT",
                 "CONSTRAINED",

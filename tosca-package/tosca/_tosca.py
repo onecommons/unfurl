@@ -43,7 +43,7 @@ from typing_extensions import (
     Annotated,
     Literal,
     Self,
-    TypeAlias
+    TypeAlias,
 )
 
 import sys
@@ -1032,7 +1032,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         # self.type is from __annotations__
         prop_def, optional = self.pytype_to_tosca_schema(self.type)
         if optional:  # omit if required is True (the default)
-            prop_def["default"] = None
+            prop_def["required"] = False
         if self.constraints:
             prop_def.setdefault("constraints", []).extend(
                 c.to_yaml() for c in self.constraints
