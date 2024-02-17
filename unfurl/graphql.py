@@ -442,12 +442,12 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             extends.append(name)
         if convert and name not in self:
             convert(topology, typedef, self)
-        for alias in typedef.aliases:
-            if alias not in extends:
-                extends.append(TypeName(alias))
         ExceptionCollector.collecting = True
         for p in typedef.parent_types():
             self._get_extends(topology, p, extends, convert)
+        for alias in typedef.aliases:
+            if alias not in extends:
+                extends.append(TypeName(alias))
 
     def get_type(self, typename: str) -> Optional[ResourceType]:
         return self.get(self.expand_typename(typename))
