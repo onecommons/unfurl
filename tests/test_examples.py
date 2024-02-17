@@ -260,7 +260,8 @@ class RunTest(unittest.TestCase):
       children: {}
 """
                 with inventory.open() as f:
-                    self.assertEqual(f.read(), expectedInventory)
+                    inventory_contents = f.read()
+                    assert inventory_contents == expectedInventory
             except ImportError:
                 pass  # skip on 2.7
         tasks = list(job.workDone.values())

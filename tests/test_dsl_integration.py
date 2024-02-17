@@ -18,6 +18,8 @@ class Service(tosca.nodes.Root):
         default=tosca.Eval("{{ SELF.url_scheme }}://{{SELF.host }}"),
     )
 
+    not_required: Optional[str] = None
+
     parent: "Service" = tosca.find_required_by("connects_to")
 
     connects_to: Optional["Service"] = tosca.Requirement(default=None, relationship=unfurl.relationships.Configures)
@@ -54,6 +56,7 @@ def test_runtime_test():
     assert topology.service.host == "example.com"
     assert topology.service.url == "https://example.com"
     assert topology.service.host == "example.com"
+    assert topology.service.not_required == None
 
 
 def test_options():
@@ -118,6 +121,7 @@ def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
     topology = runtime_test(test)
 
     assert topology.service.connects_to == topology.connection
+    assert topology.connection.connects_to == None
     assert (
         topology.connection.find_required_by(requirement, expected_type) == topology.service
     )
