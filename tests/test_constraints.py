@@ -62,7 +62,7 @@ def test_constraints():
             },
         }
     }
-    # pprint.pprint(service_template["node_types"])
+    # pprint.pprint(service_template["node_types"]["Proxy"])
     assert service_template["node_types"] == {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
@@ -75,7 +75,10 @@ def test_constraints():
         },
         "ContainerHost": {
             "derived_from": "tosca.nodes.Root",
-            "requirements": [{"hosting": {"node": "ContainerService"}}],
+            "requirements": [{"hosting": {
+                "node": "ContainerService",
+                '!namespace-node': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble'
+                }}],
         },
         "Proxy": {
             "derived_from": "tosca.nodes.Root",
@@ -83,9 +86,12 @@ def test_constraints():
                 "backend_url": {
                     "type": "string",
                     "description": "URL to proxy",
+                    '!namespace': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble',
                 }
             },
-            "attributes": {"endpoint": {"type": "string", "description": "Public URL"}},
+            "attributes": {"endpoint": {"type": "string",
+                                        '!namespace': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble',
+                                         "description": "Public URL"}},
         },
         "ProxyContainerHost": {
             "derived_from": ["Proxy", "ContainerHost"],

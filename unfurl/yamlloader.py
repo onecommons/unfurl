@@ -309,7 +309,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.config = config or {}
 
     GLOBAL_NAMESPACE_PACKAGES = os.getenv(
-        "UNFURL_GLOBAL_NAMESPACE_PACKAGES", "unfurl.cloud/onecommons/unfurl-types* gitlab.com/onecommons/unfurl-types*"
+        "UNFURL_GLOBAL_NAMESPACE_PACKAGES",
+        "unfurl.cloud/onecommons/unfurl-types* gitlab.com/onecommons/unfurl-types*",
     )
 
     def __getstate__(self):
@@ -490,7 +491,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 relfile = os.path.normpath(
                     Path(source_info["path"]).relative_to(repository_root)
                 )
-                if relfile != '.':
+                if relfile != ".":
                     source_info["file"] = relfile
             namespace_id = get_namespace_id(url, source_info)
             if self.manifest and self.manifest.package_specs:

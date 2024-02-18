@@ -1730,7 +1730,7 @@ def _add_imports(
             # add imports if missing
             if i["file"] == existing["file"]:
                 if i.get("namespace_prefix") in skip_prefixes:
-                    continue  # skip environment imports
+                    continue  # don't match environment imports
                 if i.get("namespace_prefix") == existing.get("namespace_prefix"):
                     existing_repository = existing.get("repository")
                     if "repository" in i:

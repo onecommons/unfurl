@@ -293,7 +293,7 @@ class DeploymentEnvironment(TypedDict, total=False):
     repositories: JsonType
 
 
-def add_prefix(namespace: Namespace, import_def: ImportDef, namespace_id: str):
+def add_unique_prefix(namespace: Namespace, import_def: ImportDef, namespace_id: str):
     # make sure prefix is unique in the namespace
     repository = import_def.get("repository")
     prefix = import_def.get("prefix", repository)
@@ -315,7 +315,7 @@ def get_local_type(
         if local:
             import_def = None
         elif import_def:  # namespace_id not found, need to import
-            add_prefix(namespace, import_def, global_name.split("@")[1])
+            add_unique_prefix(namespace, import_def, global_name.split("@")[1])
             # XXX else log.warning
     if not local:
         local = global_name.split("@")[0]
@@ -327,38 +327,26 @@ def get_local_type(
 
 
 def get_import_def(source_info: SourceInfo) -> ImportDef:
-    # (source_info is created by toscaparser.imports.ImportsLoader.get_source)
-    root = source_info["root"]
-    repository = source_info.get("repository")
-    url = None
-    file = source_info["file"]
-    if repository:
-        url = "github.com/onecommons/unfurl" if repository == "unfurl" else root
-    else:
-        if root and is_url(root):
-            url = root
-        # otherwise import relative to main service template
+    url, file = _get_url_from_namespace(source_info)
     import_def = ImportDef(file=file)
-    if repository:
-        import_def["repository"] = repository
-    if url:
+    if source_info["repository"]:
+        import_def["repository"] = source_info["repository"]
+    if url == "unfurl":
+        url = "github.com/onecommons/unfurl"
+    if url:  # otherwise import relative to main service template
         import_def["url"] = url
     return import_def
 
 
-def _get_url_from_source_info(source_info: SourceInfo) -> Tuple[str, str]:
-    root = source_info["root"] or ""
-    repository = source_info.get("repository")
-    if repository:
-        if repository == "unfurl":
-            root = "unfurl"
-        return root, source_info["file"]
-    else:
-        file = source_info["file"]
-        if is_url(root):
-            return root, file
-        # otherwise import relative to main service template
-        return "", file
+def _get_url_from_namespace(source_info: SourceInfo) -> Tuple[str, str]:
+    url_or_path = source_info["root"]
+    if source_info["repository"] == "unfurl":
+        url = "unfurl"
+    elif url_or_path and is_url(url_or_path):
+        url = url_or_path
+    else:  # otherwise import relative to main service template
+        url = ""
+    return url, source_info["file"]
 
 
 def get_package_url(url: str) -> str:
@@ -390,7 +378,7 @@ def get_namespace_id(root_url: str, info: SourceInfo) -> str:
     namespace_id = info.get("namespace_uri")
     if namespace_id:
         return namespace_id
-    url, path = _get_url_from_source_info(info)
+    url, path = _get_url_from_namespace(info)
     # use root_url if no repository
     package_id = get_package_url(url or root_url)
     if path and path not in [
