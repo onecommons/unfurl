@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping, MutableSequence, MutableMapping
 from abc import ABC, abstractmethod, ABCMeta
-from datetime import datetime, timedelta
+import datetime
 import io
 import logging
 from typing import (
@@ -197,14 +197,14 @@ class ChangeRecord:
     - 4 hexadecimal digits encoding the task id
     """
 
-    EpochStartTime = datetime(2020, 1, 1, tzinfo=None)
+    EpochStartTime = datetime.datetime(2020, 1, 1, tzinfo=None)
     LogAttributes = ("previousId",)
     DateTimeFormat = "%Y-%m-%d-%H-%M-%S-%f"
 
     def __init__(
         self,
         jobId: Optional[str] = None,
-        startTime: Optional[datetime] = None,
+        startTime: Optional[datetime.datetime] = None,
         taskId: int = 0,
         previousId: Optional[str] = None,
         parse: Optional[str] = None,
@@ -221,10 +221,10 @@ class ChangeRecord:
             else:
                 self.changeId = self.make_change_id(self.startTime, taskId, previousId)
 
-    def set_start_time(self, startTime: Optional[datetime] = None) -> None:
+    def set_start_time(self, startTime: Optional[datetime.datetime] = None) -> None:
         if not startTime:
-            self.startTime = datetime.utcnow()
-        elif isinstance(startTime, datetime):
+            self.startTime =  datetime.datetime.now(datetime.timezone.utc)
+        elif isinstance(startTime, datetime.datetime):
             self.startTime = startTime
         else:
             try:
@@ -232,7 +232,7 @@ class ChangeRecord:
                 self.startTime = self.EpochStartTime.replace(hour=startTime)
             except ValueError:
                 try:
-                    self.startTime = datetime.strptime(startTime, self.DateTimeFormat)
+                    self.startTime = datetime.datetime.strptime(startTime, self.DateTimeFormat)
                 except ValueError:
                     self.startTime = self.EpochStartTime
 
@@ -273,13 +273,13 @@ class ChangeRecord:
     @classmethod
     def make_change_id(
         cls,
-        timestamp: Optional[datetime] = None,
+        timestamp: Optional[datetime.datetime] = None,
         taskid: int = 0,
         previousId: Optional[str] = None,
     ) -> str:
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         if not timestamp:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
 
         year = timestamp.year - cls.EpochStartTime.year  # 2020
         if year < 0:
@@ -296,7 +296,7 @@ class ChangeRecord:
             if previousId[:8] == changeId[:8]:
                 # in case last job started less than 1/62nd of a second ago
                 return cls.make_change_id(
-                    timestamp + timedelta(milliseconds=16200), taskid, previousId
+                    timestamp + datetime.timedelta(milliseconds=16200), taskid, previousId
                 )
             if previousId > changeId:
                 raise UnfurlError(
