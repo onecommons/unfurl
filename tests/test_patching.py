@@ -5,12 +5,6 @@ from click.testing import CliRunner
 from unfurl.testing import run_cmd
 from unfurl.to_json import to_environments
 
-# different prefix per import
-# X disallow .
-# X duplicate imports add
-# default to service-template.yaml
-# unfurl-types has git-local
-# unfurl-types should always import service-template.yaml
 
 create_k8s = {
     "branch": "main",
@@ -106,6 +100,7 @@ patched = {
     },
 }
 
+
 def test_create_env():
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -127,11 +122,16 @@ def test_create_env():
         local_env.project.localConfig.config.save()
         # should not have changed
         assert (
-            local_env.project.localConfig.config.config["environments"]["k8s"] == v1["environments"]["k8s"]
+            local_env.project.localConfig.config.config["environments"]["k8s"]
+            == v1["environments"]["k8s"]
         )
-        assert local_env.project.localConfig.config.config["environments"]["k8s"] == v2["environments"]["k8s"]
+        assert (
+            local_env.project.localConfig.config.config["environments"]["k8s"]
+            == v2["environments"]["k8s"]
+        )
         # exported = to_environments(LocalEnv(), "1")
-        # print( exported["ResourceType"]["KubernetesIngressController@unfurl.cloud/onecommons/std:k8s"] ) 
+        # print( exported["ResourceType"]["KubernetesIngressController@unfurl.cloud/onecommons/std:k8s"] )
+
 
 v2 = {
     "apiVersion": "unfurl/v1alpha1",
