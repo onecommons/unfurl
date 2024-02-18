@@ -354,7 +354,7 @@ class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
     def __init__(
-        self, exp: Union[str, Mapping], vars: dict = None, trace: Optional[int] = None
+        self, exp: Union[str, Mapping], vars: Optional[dict] = None, trace: Optional[int] = None
     ) -> None:
         self.vars = {"true": True, "false": False, "null": None}
 

@@ -56,7 +56,7 @@ from tosca._tosca import (
     _ToscaType,
     global_state,
     FieldProjection,
-    _Ref,
+    EvalData,
     _BaseDataType,
     _get_field_from_prop_ref,
     _get_expr_prefix,
@@ -64,7 +64,7 @@ from tosca._tosca import (
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .logs import getLogger
-from .eval import RefContext, set_eval_func, Ref
+from .eval import RefContext, _map_value, set_eval_func, Ref
 from .result import Results, ResultsItem, ResultsMap, CollectionProxy
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
@@ -406,26 +406,22 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
-        assert isinstance(ref, _Ref)  # actually it will be a _Ref
+        assert isinstance(ref, EvalData)  # actually it will be a EvalData
         expected = Expected or tosca.nodes.Root
         return self._execute_resolve_one(ref, requirement, expected)
 
     def _execute_resolve_one(
         self,
-        ref: _Ref,
+        ref: EvalData,
         field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo] = None,
     ) -> Any:
         """
         Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
         """
-        result = Ref(ref.expr).resolve_one(self._context)
+        result = _map_value(ref.expr, self._context)
         if Expected and not isinstance(Expected, tosca.TypeInfo):
             Expected = tosca.pytype_to_tosca_type(Expected)
-        if isinstance(field_ref, str):
-            field_name = field_ref
-        else:
-            field_name = field_ref.tosca_name
         if result is None:
             if Expected and not cast(tosca.TypeInfo, Expected).optional:
                 raise UnfurlError(f"No results found for {ref.expr}")
@@ -449,10 +445,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             _type = None
         if _type and _type.is_sequence():
             return cast(
-                T, self._execute_resolve_all(cast(_Ref, ref), prop_name, _type.types[0])
+                T, self._execute_resolve_all(cast(EvalData, ref), prop_name, _type.types[0])
             )
         else:
-            return cast(T, self._execute_resolve_one(cast(_Ref, ref), prop_name, _type))
+            return cast(T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type))
 
     def find_configured_by(
         self,
@@ -478,16 +474,16 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             requirement, Expected
         )
         return self._execute_resolve_all(
-            cast(_Ref, ref), requirement, Expected or tosca.nodes.Root
+            cast(EvalData, ref), requirement, Expected or tosca.nodes.Root
         )
 
     def _execute_resolve_all(
         self,
-        ref: _Ref,
+        ref: EvalData,
         field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo],
     ) -> List[Any]:
-        result = Ref(cast(_Ref, ref).expr).resolve(self._context)
+        result = Ref(cast(Union[str, dict], ref.expr)).resolve(self._context)
         return [_proxy_eval_result(item, self._context, Expected) for item in result]
 
     if not TYPE_CHECKING:
