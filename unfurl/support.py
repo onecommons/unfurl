@@ -141,7 +141,7 @@ class Priority(int, Enum):
     critical = 3
 
 
-class Reason:
+class Reason(str, Enum):
     add = "add"
     reconfigure = "reconfigure"
     force = "force"
@@ -153,6 +153,9 @@ class Reason:
     prune = "prune"
     run = "run"
     check = "check"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class Defaults:
@@ -434,7 +437,11 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
-    if not ctx.templar or not ctx.templar._loader or (ctx.base_dir and ctx.templar._loader.get_basedir() != ctx.base_dir):
+    if (
+        not ctx.templar
+        or not ctx.templar._loader
+        or (ctx.base_dir and ctx.templar._loader.get_basedir() != ctx.base_dir)
+    ):
         # we need to create a new templar
         loader = DataLoader()
         if ctx.base_dir:
@@ -791,6 +798,7 @@ def to_env(args, ctx: RefContext):
                     del env[key]
     return result
 
+
 set_eval_func("to_env", to_env)
 
 set_eval_func(
@@ -821,6 +829,7 @@ set_eval_func(
     safe=True,
 )
 
+
 def get_ensemble_metadata(arg, ctx: RefContext):
     if not ctx.task or not ctx.task.job:
         return {}
@@ -839,7 +848,9 @@ def get_ensemble_metadata(arg, ctx: RefContext):
         key = map_value(arg, ctx)
         if key == "project_namespace_subdomain" and ensemble.repo:
             return ".".join(
-                reversed(os.path.dirname(ensemble.repo.project_path().lower()).split("/"))
+                reversed(
+                    os.path.dirname(ensemble.repo.project_path().lower()).split("/")
+                )
             )
         return metadata.get(key, "")
     else:

@@ -70,14 +70,18 @@ class _LocalState(threading.local):
 
 global_state = _LocalState()
 
+
 def safe_mode() -> bool:
     """This function returns True if running within the Python safe mode sandbox."""
     return global_state.safe_mode
 
+
 def global_state_mode() -> str:
     """
-    This function returns the execution state (either "spec" or "runtime") that the current thread is in."""
+    This function returns the execution state (either "spec" or "runtime") that the current thread is in.
+    """
     return global_state.mode
+
 
 def global_state_context() -> Any:
     """
@@ -88,10 +92,13 @@ def global_state_context() -> Any:
     else:
         return global_state.context
 
+
 yaml_cls = dict
 
 JsonObject: TypeAlias = Dict[str, Any]
-JsonType: TypeAlias = Union[None, int, str, bool, Sequence["JsonType"], Mapping[str, "JsonType"]]
+JsonType: TypeAlias = Union[
+    None, int, str, bool, Sequence["JsonType"], Mapping[str, "JsonType"]
+]
 
 
 @contextmanager
@@ -272,6 +279,37 @@ def operation(
         return func_
 
     return decorator_operation
+
+
+class NodeTemplateDirective(str, Enum):
+    "Node Template directives."
+
+    select = "select"
+    "Match with instance in external ensemble"
+
+    substitute = "substitute"
+    "Create a nested topology"
+
+    default = "default"
+    "Only use this template if one with the same name isn't already defined in primary topology."
+
+    dependent = "dependent"
+    "Exclude from plan generation"
+
+    virtual = "virtual"
+    "Don't instantiate"
+
+    check = "check"
+    "Run check operation before deploying"
+
+    discover = "discover"
+    "Discover (instead of create)"
+
+    protected = "protected"
+    "Don't delete."
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class tosca_timestamp(str):
@@ -1111,8 +1149,7 @@ def Attribute(
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1128,8 +1165,7 @@ def Attribute(
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1144,8 +1180,7 @@ def Attribute(
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Attribute(
@@ -1189,8 +1224,7 @@ def Property(
     status="",
     options: Optional[Options] = None,
     attribute: bool = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1204,8 +1238,7 @@ def Property(
     status="",
     options: Optional[Options] = None,
     attribute: bool = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1218,8 +1251,7 @@ def Property(
     status="",
     options: Optional[Options] = None,
     attribute: bool = False,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Property(
@@ -1313,8 +1345,7 @@ def Requirement(
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1328,8 +1359,7 @@ def Requirement(
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1342,8 +1372,7 @@ def Requirement(
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Requirement(
@@ -1393,8 +1422,7 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1405,8 +1433,7 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1416,8 +1443,7 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Capability(
@@ -1457,8 +1483,7 @@ def Artifact(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1468,8 +1493,7 @@ def Artifact(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1478,8 +1502,7 @@ def Artifact(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Artifact(
@@ -2439,10 +2462,10 @@ class ToscaType(_ToscaType):
                     name = getattr(operation, "operation_name", methodname)
                     interface = interface_ops.get(name)
                     if interface is not None:
-                        interface.setdefault("operations", {})[
-                            name
-                        ] = cls_or_self._operation2yaml(
-                            cls_or_self, operation, converter
+                        interface.setdefault("operations", {})[name] = (
+                            cls_or_self._operation2yaml(
+                                cls_or_self, operation, converter
+                            )
                         )
 
     @staticmethod

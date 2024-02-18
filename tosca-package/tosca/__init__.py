@@ -86,6 +86,7 @@ __all__ = [
     "AttributeOptions",
     "PropertyOptions",
     "Namespace",
+    "NodeTemplateDirective",
     "NodeType",
     "PolicyType",
     "Property",
