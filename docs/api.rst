@@ -62,6 +62,9 @@ Other
 
 .. autoclass:: DataConstraint
 
+.. autoclass:: NodeTemplateDirective
+   :members:
+
 .. TODO:
   .. autoclass:: ToscaInputs
   .. autoclass:: ToscaOutputs
