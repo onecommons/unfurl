@@ -31,7 +31,7 @@ from ._tosca import (
     InstanceProxy,
     ValueType,
     _Tosca_Field,
-    _Ref,
+    EvalData,
 )
 from .loader import restricted_exec, get_module_path
 
@@ -193,7 +193,7 @@ class PythonToYaml:
             elif isinstance(value._target, CapabilityType):  # type: ignore  # XXX
                 node = value._target._node
                 req["capability"] = value._target._local_name
-        elif isinstance(value, _Ref):
+        elif isinstance(value, EvalData):
             field.add_node_filter(value)
         else:
             raise TypeError(

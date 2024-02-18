@@ -60,6 +60,8 @@ TOSCA Types
 Other
 ~~~~~~~~~~~~~~~~~~~~~~
 
+.. autofunction:: Eval
+
 .. autoclass:: DataConstraint
 
 .. autoclass:: NodeTemplateDirective

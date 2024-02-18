@@ -11,7 +11,7 @@ except ImportError:
     sys.path.insert(0, vendor_dir)
     import toscaparser
 from ._tosca import *
-from ._tosca import _Ref
+from ._tosca import EvalData
 
 from .builtin_types import nodes
 from .builtin_types import interfaces
@@ -23,7 +23,7 @@ from .builtin_types import policies
 from .builtin_types import groups
 
 __all__ = [
-    "_Ref",
+    "EvalData",
     "safe_mode",
     "global_state_mode",
     "global_state_context",
