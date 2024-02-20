@@ -483,11 +483,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             url = ""
         if source_info:
-            if toscaparser.imports.is_url(source_info["root"]):
+            path_is_url = toscaparser.imports.is_url(source_info["path"])
+            if toscaparser.imports.is_url(source_info["root"]) and not path_is_url:
                 repository_root = self._find_repository_root(source_info["path"])
             else:
                 repository_root = source_info["root"]
-            if repository_root and source_info["path"]:
+            if repository_root and source_info["path"] and not path_is_url:
                 relfile = os.path.normpath(
                     Path(source_info["path"]).relative_to(repository_root)
                 )
@@ -620,9 +621,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _find_repository_root(self, base):
         assert base
+        nearest = ""
+        # if repository is nested in another choose the most nested
         for repo_view in self.manifest.repositories.values():
-            if is_relative_to(base, repo_view.working_dir):
-                return repo_view.working_dir
+            try:
+              candidate = str(Path(base).relative_to(repo_view.working_dir))
+              if not nearest or len(candidate) < len(nearest):
+                  nearest = candidate
+            except ValueError:
+                continue
+        if nearest:
+            return base[:-len(nearest)-1]
         try:
             repo = git.Repo(base, search_parent_directories=True)
             return repo.working_dir
