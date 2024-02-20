@@ -153,7 +153,7 @@ class PackageSpec:
             return False
         return (
             self.package_spec == other.package_spec
-            and self.package_id == self.package_id
+            and self.package_id == other.package_id
             and self.url == other.url
             and self.revision == other.revision
         )
