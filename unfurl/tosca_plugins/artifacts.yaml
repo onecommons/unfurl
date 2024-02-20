@@ -87,12 +87,13 @@ artifact_types:
               success: True # command returns error if there are no collections at all so set success true regardless
             # check if output isn't not empty
             # XXX check version if specified, set to degraded if mismatch
-            resultTemplate: |  
-              {%if returncode == 0 and stdout | from_json %}
-              readyState: ok
-              {% else %}
-              readyState: absent
-              {% endif %} 
+            resultTemplate: |
+                {%if returncode == 0 and stdout | from_json %}
+                readyState: ok
+                # {{ {'python': 'unfurl.configurators.ansible.reload_collections'} | eval }}
+                {% else %}
+                readyState: absent
+                {% endif %}
       Standard:
         create:
           implementation:

@@ -574,7 +574,7 @@ class ConfigTask(TaskView, ConfigChange):
                 if os.path.exists(path)
             ]
             if self.result and self.result.result:
-                summary["output"] = SensitiveFilter.redact(self.result.result)
+                summary["output"] = serialize_value(SensitiveFilter.redact(self.result.result))
 
         if asJson:
             return summary
