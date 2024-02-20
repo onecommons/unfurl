@@ -105,12 +105,12 @@
 <p>The core behavior of Unfurl is to run a <a class="reference internal" href="glossary.html#job"><span class="std std-ref">Job</span></a> that executes a <a class="reference internal" href="glossary.html#workflow"><span class="std std-ref">Workflow</span></a> on a given topology instance.
 There are two fundamental workflows (“normative workflows” in TOSCA terminology):
 <a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, which installs the topology, and <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, which uninstalls it.</p>
-<p>There are also <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> and <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> workflows which update the status of
+<p>There are also <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> and  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> workflows which update the status of
 instances the based on their current live state.
 Users can also define custom workflows but they do not affect the change history of the topology.</p>
 <section id="job-lifecycle">
 <h2>Job Lifecycle<a class="headerlink" href="#job-lifecycle" title="Permalink to this headline"></a></h2>
-<p>When a command that invokes a workflow is executed (<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a>, <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> and <a class="reference internal" href="cli.html#unfurl-run"><span class="std std-ref">run</span></a>)
+<p>When a command that invokes a workflow is executed (<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a>,  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> and <a class="reference internal" href="cli.html#unfurl-run"><span class="std std-ref">run</span></a>)
 a job is created and run. Running a job entails these steps:</p>
 <ol class="arabic simple">
 <li><p>YAML parsed and <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directives</span></a> are processed</p></li>

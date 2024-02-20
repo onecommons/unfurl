@@ -996,8 +996,12 @@
 </li>
       <li><a href="api.html#unfurl.result.ChangeRecord">ChangeRecord (class in unfurl.result)</a>
 </li>
-      <li><a href="api.html#unfurl.support.Reason.check">check (unfurl.support.Reason attribute)</a>
+      <li><a href="api.html#tosca.NodeTemplateDirective.check">check (tosca.NodeTemplateDirective attribute)</a>
+
+      <ul>
+        <li><a href="api.html#unfurl.support.Reason.check">(unfurl.support.Reason attribute)</a>
 </li>
+      </ul></li>
       <li><a href="api.html#unfurl.configurator.Configurator.check_digest">check_digest() (unfurl.configurator.Configurator method)</a>
 </li>
       <li><a href="api.html#unfurl.init.clone">clone() (in module unfurl.init)</a>
@@ -1065,6 +1069,8 @@
 </li>
       <li><a href="api.html#unfurl.util.sensitive_bytes.decode">decode() (unfurl.util.sensitive_bytes method)</a>
 </li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.default">default (tosca.NodeTemplateDirective attribute)</a>
+</li>
       <li><a href="api.html#unfurl.support.Reason.degraded">degraded (unfurl.support.Reason attribute)</a>
 
       <ul>
@@ -1077,6 +1083,8 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.support.NodeState.deleting">deleting (unfurl.support.NodeState attribute)</a>
 </li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.dependent">dependent (tosca.NodeTemplateDirective attribute)</a>
+</li>
       <li>
     DEST
 
@@ -1085,6 +1093,8 @@
 </li>
       </ul></li>
       <li><a href="api.html#unfurl.configurator.TaskView.discard_work_folders">discard_work_folders() (unfurl.configurator.TaskView method)</a>
+</li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.discover">discover (tosca.NodeTemplateDirective attribute)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.done">done() (unfurl.configurator.TaskView method)</a>
 </li>
@@ -1138,6 +1148,8 @@
         <li><a href="api.html#unfurl.support.Status.error">(unfurl.support.Status attribute)</a>
 </li>
       </ul></li>
+      <li><a href="api.html#tosca.Eval">Eval() (in module tosca)</a>
+</li>
       <li><a href="api.html#unfurl.eval.eval_ref">eval_ref() (in module unfurl.eval)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.exclude_from_digest">exclude_from_digest (unfurl.configurator.Configurator attribute)</a>
@@ -1430,11 +1442,13 @@
         <li><a href="api.html#unfurl.localenv.Project.name">(unfurl.localenv.Project property)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.tosca_plugins.expr.negate">negate() (in module unfurl.tosca_plugins.expr)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.support.NodeState">NodeState (class in unfurl.support)</a>
+</li>
+      <li><a href="api.html#tosca.NodeTemplateDirective">NodeTemplateDirective (class in tosca)</a>
 </li>
       <li><a href="api.html#tosca.NodeType">NodeType (class in tosca)</a>
 </li>
@@ -1487,8 +1501,6 @@
 </li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.project">project (unfurl.localenv.LocalEnv attribute)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     PROJECT_FOLDER
 
@@ -1496,6 +1508,8 @@
         <li><a href="cli.html#cmdoption-unfurl-runtime-arg-PROJECT_FOLDER">unfurl-runtime command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     PROJECT_OR_ENSEMBLE_PATH
 
@@ -1515,6 +1529,8 @@
 </li>
       </ul></li>
       <li><a href="api.html#tosca.Property">Property() (in module tosca)</a>
+</li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.protected">protected (tosca.NodeTemplateDirective attribute)</a>
 </li>
       <li><a href="api.html#unfurl.support.Reason.prune">prune (unfurl.support.Reason attribute)</a>
 </li>
@@ -1588,6 +1604,8 @@
 </li>
       <li><a href="api.html#unfurl.localenv.Project.search_for_manifest">search_for_manifest() (unfurl.localenv.Project method)</a>
 </li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.select">select (tosca.NodeTemplateDirective attribute)</a>
+</li>
       <li><a href="api.html#unfurl.logs.sensitive">sensitive (class in unfurl.logs)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.sensitive">sensitive() (unfurl.configurator.TaskView method)</a>
@@ -1638,6 +1656,8 @@
       <li><a href="api.html#unfurl.support.NodeState.stopped">stopped (unfurl.support.NodeState attribute)</a>
 </li>
       <li><a href="api.html#unfurl.support.NodeState.stopping">stopping (unfurl.support.NodeState attribute)</a>
+</li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.substitute">substitute (tosca.NodeTemplateDirective attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -2372,11 +2392,13 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.vars">vars (unfurl.configurator.TaskView property)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.Project.venv">venv (unfurl.localenv.Project property)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.verbose">verbose (unfurl.configurator.TaskView attribute)</a>
+</li>
+      <li><a href="api.html#tosca.NodeTemplateDirective.virtual">virtual (tosca.NodeTemplateDirective attribute)</a>
 </li>
   </ul></td>
 </tr></table>
