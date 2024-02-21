@@ -1,3 +1,144 @@
+# Copyright (c) 2022 Adam Souzis
+# SPDX-License-Identifier: MIT
+"""
+A GraphQL representation of ensembles and Unfurl environments,
+including simplified representations of TOSCA types and node templates.
+
+The GraphQL schema below documents the JSON format used by the ``export`` command and by unfurl server API endpoints.
+
+ApplicationBlueprint: {
+  name: String!
+  title: String
+  description: String
+  primary: ResourceType!
+  primaryDeploymentBlueprint: String
+  deploymentTemplates: [DeploymentTemplate!]
+
+  livePreview: String
+  sourceCodeUrl: String
+  image: String
+  projectIcon: String
+}
+
+type DeploymentTemplate {
+  name: String!
+  title: String!
+  slug: String!
+  description: String
+
+  blueprint: ApplicationBlueprint!
+  primary: ResourceTemplate!
+  resourceTemplates: [ResourceTemplate!]
+  cloud: ResourceType
+  environmentVariableNames: [String!]
+  source: String
+  projectPath: String!
+  commitTime: String
+}
+
+type Deployment {
+  title: String!
+  primary: Resource
+  resources: [Resource!]
+  deploymentTemplate: DeploymentTemplate!
+  url: url
+  status: Status
+  summary: String
+  workflow: String
+  deployTime: String
+  packages: JSON
+}
+
+type ResourceType {
+    name: String!
+    title: String
+    extends: [ResourceType!]
+    description: String
+    badge: String
+    icon: String
+    visibility: String
+    details_url: String
+    inputsSchema: JSON
+    computedPropertiesSchema: JSON
+    outputsSchema: JSON
+    requirements: [RequirementConstraint!]
+    implementations: [String]
+    implementation_requirements: [String]
+    directives: [String]
+    metadata: JSON
+    _sourceinfo: JSON
+}
+
+type RequirementConstraint {
+    name: String!
+    title: String
+    description: String
+    resourceType: ResourceType!
+    match: ResourceTemplate
+    min: Int
+    max: Int
+    badge: String
+    visibility: String
+    icon: String
+    inputsSchema: Required[JSON]
+    requirementsFilter: [RequirementConstraint!]
+}
+
+type ResourceTemplate {
+    name: String!
+    title: String
+    type: ResourceType!
+    visibility: String
+    directives: [String!]
+    imported: String
+    metadata: JSON
+
+    description: string
+
+    # Maps to an object that conforms to type.inputsSchema
+    properties: [Input!]
+
+    dependencies: [Requirement!]
+}
+
+type Requirement {
+  name: String!
+  constraint: RequirementConstraint!
+  match: ResourceTemplate
+  target: Resource
+  visibility: String
+}
+
+type Resource {
+  name: String!
+  title: String!
+  url: String
+  template: ResourceTemplate!
+  status: Status
+  state: State
+  attributes: [Input!]
+  computedProperties: [Input!]
+  connections: [Requirement!]
+  protected: Boolean
+  imported: String
+}
+
+type DeploymentEnvironment {
+    name: String!
+    connections: [ResourceTemplate!]
+    instances: [ResourceTemplate!]
+    primary_provider: ResourceTemplate
+    repositories: JSON!
+}
+
+type DeploymentPath {
+  name: String!
+  environment: String!
+  project_id: String
+  pipelines: [JSON!]
+  incremental_deploy: boolean!
+}
+"""
 import datetime
 import re
 from typing import (
@@ -71,22 +212,6 @@ RequirementConstraintName = str
 
 
 class ApplicationBlueprint(GraphqlObject, total=False):
-    """
-    ApplicationBlueprint: {
-      name: String!
-      title: String
-      description: String
-      primary: ResourceType!
-      primaryDeploymentBlueprint: String
-      deploymentTemplates: [DeploymentTemplate!]
-
-      livePreview: String
-      sourceCodeUrl: String
-      image: String
-      projectIcon: String
-    }
-    """
-
     primary: TypeName
     primaryDeploymentBlueprint: Optional[str]
     deploymentTemplates: List[str]
@@ -97,24 +222,6 @@ class ApplicationBlueprint(GraphqlObject, total=False):
 
 
 class DeploymentTemplate(GraphqlObject, total=False):
-    """
-    type DeploymentTemplate {
-      name: String!
-      title: String!
-      slug: String!
-      description: String
-
-      blueprint: ApplicationBlueprint!
-      primary: ResourceTemplate!
-      resourceTemplates: [ResourceTemplate!]
-      cloud: ResourceType
-      environmentVariableNames: [String!]
-      source: String
-      projectPath: String!
-      commitTime: String
-    }
-    """
-
     slug: str
     blueprint: str
     primary: ResourceTemplateName
@@ -128,21 +235,6 @@ class DeploymentTemplate(GraphqlObject, total=False):
 
 
 class Deployment(GraphqlObject, total=False):
-    """
-    type Deployment {
-      title: String!
-      primary: Resource
-      resources: [Resource!]
-      deploymentTemplate: DeploymentTemplate!
-      url: url
-      status: Status
-      summary: String
-      workflow: String
-      deployTime: String
-      packages: JSON
-    }
-    """
-
     primary: str
     resources: List[str]
     deploymentTemplate: str
@@ -155,23 +247,6 @@ class Deployment(GraphqlObject, total=False):
 
 
 class RequirementConstraint(GraphqlObject):
-    """
-    type RequirementConstraint {
-        name: String!
-        title: String
-        description: String
-        resourceType: ResourceType!
-        match: ResourceTemplate
-        min: Int
-        max: Int
-        badge: String
-        visibility: String
-        icon: String
-        inputsSchema: Required[JSON]
-        requirementsFilter: [RequirementConstraint!]
-    }
-    """
-
     resourceType: TypeName
     match: Optional[ResourceTemplateName]
     min: int
@@ -184,16 +259,6 @@ class RequirementConstraint(GraphqlObject):
 
 
 class Requirement(GraphqlObject):
-    """
-    type Requirement {
-      name: String!
-      constraint: RequirementConstraint!
-      match: ResourceTemplate
-      target: Resource
-      visibility: String
-    }
-    """
-
     constraint: RequirementConstraint
     match: Optional[ResourceTemplateName]
     target: NotRequired[str]
@@ -208,28 +273,6 @@ class ImportDef(TypedDict):
 
 
 class ResourceType(GraphqlObject, total=False):
-    """
-    type ResourceType {
-      name: String!
-      title: String
-      extends: [ResourceType!]
-      description: String
-      badge: String
-      icon: String
-      visibility: String
-      details_url: String
-      inputsSchema: JSON
-      computedPropertiesSchema: JSON
-      outputsSchema: JSON
-      requirements: [RequirementConstraint!]
-      implementations: [String]
-      implementation_requirements: [String]
-      directives: [String]
-      metadata: JSON
-      _sourceinfo: JSON
-    }
-    """
-
     extends: Required[List[TypeName]]
     badge: NotRequired[str]
     icon: NotRequired[str]
@@ -245,25 +288,6 @@ class ResourceType(GraphqlObject, total=False):
 
 
 class ResourceTemplate(GraphqlObject, total=False):
-    """
-    type ResourceTemplate {
-        name: String!
-        title: String
-        type: ResourceType!
-        visibility: String
-        directives: [String!]
-        imported: String
-        metadata: JSON
-
-        description: string
-
-        # Maps to an object that conforms to type.inputsSchema
-        properties: [Input!]
-
-        dependencies: [Requirement!]
-      }
-    """
-
     type: TypeName
     directives: List[str]
     imported: str
@@ -276,16 +300,6 @@ ResourceTemplatesByName = Dict[str, ResourceTemplate]
 
 
 class DeploymentEnvironment(TypedDict, total=False):
-    """
-    type DeploymentEnvironment {
-      name: String!
-      connections: [ResourceTemplate!]
-      instances: [ResourceTemplate!]
-      primary_provider: ResourceTemplate
-      repositories: JSON!
-    }
-    """
-
     name: str
     connections: ResourceTemplatesByName
     instances: Required[ResourceTemplatesByName]
@@ -461,16 +475,6 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
 
 
 class DeploymentPath(GraphqlObject):
-    """
-    type DeploymentPath {
-      name: String!
-      environment: String!
-      project_id: String
-      pipelines: [JSON!]
-      incremental_deploy: boolean!
-    }
-    """
-
     environment: str
     project_id: NotRequired[str]
     pipelines: List[JsonType]
@@ -639,21 +643,6 @@ def _set_deployment_url(
 
 
 class Resource(GraphqlObject):
-    """
-    type Resource {
-      name: String!
-      title: String!
-      url: String
-      template: ResourceTemplate!
-      status: Status
-      state: State
-      attributes: [Input!]
-      computedProperties: [Input!]
-      connections: [Requirement!]
-      protected: Boolean
-      imported: String
-    """
-
     url: str
     template: ResourceTemplateName
     status: Optional["Status"]
