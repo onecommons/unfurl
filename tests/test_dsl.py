@@ -27,8 +27,15 @@ import tosca
 import unfurl
 
 
-def _to_python(yaml_str: str, python_target_version=None, write_policy = tosca.WritePolicy.never, manifest = None):
-    tosca_yaml = load_yaml(yaml, yaml_str, readonly=True)  # export uses readonly yaml parser
+def _to_python(
+    yaml_str: str,
+    python_target_version=None,
+    write_policy=tosca.WritePolicy.never,
+    manifest=None,
+):
+    tosca_yaml = load_yaml(
+        yaml, yaml_str, readonly=True
+    )  # export uses readonly yaml parser
     tosca_yaml["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
     if "topology_template" not in tosca_yaml:
         tosca_yaml["topology_template"] = dict(
@@ -36,21 +43,29 @@ def _to_python(yaml_str: str, python_target_version=None, write_policy = tosca.W
         )
     import_resolver = ImportResolver(manifest)  # type: ignore
     import_resolver.readonly = True
-    src = yaml2python.yaml_to_python(
-        __file__, tosca_dict=tosca_yaml, import_resolver=import_resolver,
-        python_target_version=python_target_version,
-        write_policy=write_policy
-    )
+    current = globals._annotate_namespaces
+    try:
+        globals._annotate_namespaces = False
+        src = yaml2python.yaml_to_python(
+            __file__,
+            tosca_dict=tosca_yaml,
+            import_resolver=import_resolver,
+            python_target_version=python_target_version,
+            write_policy=write_policy,
+        )
+    finally:
+        globals._annotate_namespaces = current
     return src, tosca_yaml
 
 
 def _to_yaml(python_src: str, safe_mode) -> dict:
     namespace: dict = {}
+    current = globals._annotate_namespaces
     try:
         globals._annotate_namespaces = False
         tosca_tpl = python_src_to_yaml_obj(python_src, namespace, safe_mode=safe_mode)
     finally:
-        globals._annotate_namespaces = False
+        globals._annotate_namespaces = current
     # yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
@@ -95,6 +110,7 @@ def _generate_builtin(generate, builtin_path=None):
         yo.close()
     return yaml_src
 
+
 def test_builtin_generation():
     yaml_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS
@@ -111,8 +127,12 @@ def test_builtin_generation():
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
         diffs.pop("unfurl.interfaces.Install", None)
-        diffs.pop('tosca.nodes.Root', None)  # XXX sometimes present due to test race condition?
-        diffs.pop('tosca.nodes.SoftwareComponent', None)  # !namespace attributes might get added by other tests
+        diffs.pop(
+            "tosca.nodes.Root", None
+        )  # XXX sometimes present due to test race condition?
+        diffs.pop(
+            "tosca.nodes.SoftwareComponent", None
+        )  # !namespace attributes might get added by other tests
         print(yaml2python.value2python_repr(diffs))
         if diffs:
             # these diffs exist because requirements include inherited types
@@ -296,6 +316,11 @@ node_types:
           capability: tosca.capabilities.Endpoint.Database
           node: tosca.nodes.Database
           relationship: tosca.relationships.ConnectsTo
+
+  Aliased:
+    derived_from: WordPress
+    metadata:
+      alias: true
 """
 
 _example_wordpress_python = '''
@@ -312,6 +337,8 @@ class WordPress(tosca.nodes.WebApplication):
 
     database_endpoint: {}
     "Description of the database_endpoint requirement"
+
+Aliased = WordPress
 '''
 example_wordpress_python = _example_wordpress_python.format(
     '"tosca.relationships.ConnectsTo | tosca.nodes.Database | tosca.capabilities.EndpointDatabase"'
@@ -678,20 +705,21 @@ def test_datatype():
     from tosca import DataType
 
     with tosca.set_evaluation_mode("spec"):
-      class MyDataType(DataType):
-          prop1: str = ""
 
-      class Example(tosca.nodes.Root):
-          data: MyDataType
+        class MyDataType(DataType):
+            prop1: str = ""
 
-      test = Example(data=MyDataType(prop1="test"))
+        class Example(tosca.nodes.Root):
+            data: MyDataType
 
-      __name__ = "tests.test_dsl"
-      converter = PythonToYaml(locals())
-      yaml_dict = converter.module2yaml()
-      tosca_yaml = load_yaml(yaml, test_datatype_yaml)
-      # yaml.dump(yaml_dict, sys.stdout)
-      assert tosca_yaml == yaml_dict
+        test = Example(data=MyDataType(prop1="test"))
+
+        __name__ = "tests.test_dsl"
+        converter = PythonToYaml(locals())
+        yaml_dict = converter.module2yaml()
+        tosca_yaml = load_yaml(yaml, test_datatype_yaml)
+        # yaml.dump(yaml_dict, sys.stdout)
+        assert tosca_yaml == yaml_dict
 
 
 test_envvars_yaml = """
@@ -735,6 +763,7 @@ def test_envvar_type():
     import unfurl
 
     with tosca.set_evaluation_mode("spec"):
+
         class Namespace(tosca.Namespace):
             # we can't resolve forward references to classes defined in local scope
             # (like "MyDataType" below) so we need to place them in a namespace
@@ -868,6 +897,7 @@ node_types:
           relationship: tosca.relationships.HostedOn
           node: tosca.nodes.Compute
 """
+
 
 def test_property_inheritance():
     python_src, parsed_yaml = _to_python(test_inheritance_yaml)
@@ -1049,14 +1079,21 @@ def test_write_policy():
     test_path = os.path.join(os.getenv("UNFURL_TMPDIR"), "test_generated.txt")
     src = "import unfurl\n"
     with open(test_path, "w") as f:
-        f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file")+src)
+        f.write(tosca.WritePolicy.auto.generate_comment("test", "source_file") + src)
     try:
         # hasn't changed so it can't be overwritten
         assert tosca.WritePolicy.auto.can_overwrite("ignore", test_path)
-        can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare("ignore", test_path, src + "# ignore\n#\n")
+        can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare(
+            "ignore", test_path, src + "# ignore\n#\n"
+        )
         assert can_write, unchanged == (True, True)
-        assert tosca.WritePolicy.auto.deny_message(unchanged) == 'overwrite policy is "auto" but the contents have not changed'
-        can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare("ignore", test_path, "# ignore\nimport tosca\n")
+        assert (
+            tosca.WritePolicy.auto.deny_message(unchanged)
+            == 'overwrite policy is "auto" but the contents have not changed'
+        )
+        can_write, unchanged = tosca.WritePolicy.auto.can_overwrite_compare(
+            "ignore", test_path, "# ignore\nimport tosca\n"
+        )
         assert can_write, unchanged == (True, False)
         # mark the output file as modified after the time recorded in the comment
         os.utime(test_path, (time.time() + 5, time.time() + 5))

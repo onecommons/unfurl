@@ -234,7 +234,11 @@ class Imports:
             elif issubclass(ref, _tosca.Namespace):
                 self._add_imports(qname, ref.get_defs())
             elif issubclass(ref, _tosca.ToscaType):
-                self._imports[ref.tosca_type_name()] = (qname, ref)
+                tosca_name = ref.tosca_type_name()
+                current = self._imports.get(tosca_name)
+                if not current or current[1] is not ref:
+                    self._imports[tosca_name] = (qname, ref)
+                # otherwise skip aliases
 
     def _set_builtin_imports(self):
         # unfurl's builtin types' import specifier matches tosca name
@@ -801,6 +805,10 @@ class Convert:
         if not self._builtin_prefix:
             cls_name = self.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(toscatype, baseclass_name)
+        metadata = toscatype.defs.get("metadata")
+        if metadata and metadata.get("alias"):
+            assert "," not in base_names
+            return f"{cls_name} = {base_names}"
         simple_type = cast(str, toscatype.get_value("type"))
         if simple_type and simple_type in _tosca.TOSCA_SIMPLE_TYPES:
             # its a value datatype
@@ -813,7 +821,6 @@ class Convert:
         src += add_description(toscatype.defs, indent)
         if toscaname != cls_name:
             src += f'{indent}_type_name = "{toscaname}"\n'
-        metadata = toscatype.defs.get("metadata")
         if metadata:
             formatted = textwrap.indent(
                 metadata_repr(metadata),
