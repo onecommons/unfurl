@@ -21,3 +21,5 @@ spec:
             Standard:
               create:
                 implementation: spec/configurators.py#LocallyDefinedConfigurator
+        testNested:
+          type: A.Nested

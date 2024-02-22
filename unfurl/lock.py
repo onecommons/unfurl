@@ -29,7 +29,7 @@ class Lock:
     @staticmethod
     def _find_packages(locked: dict, manifest: "Manifest"):
         old_format = "package_rules" not in locked
-        for repo_dict in locked["repositories"]:
+        for repo_dict in locked.get("repositories") or []:
             package_id = repo_dict.get("package_id")
             if package_id:
                 yield package_id, repo_dict
@@ -95,8 +95,8 @@ class Lock:
         lock = CommentedMap()
         lock["runtime"] = self.lock_runtime()
         lock["package_rules"] = [
-            f"{spec.package_spec} {spec.safe_url or spec.package_id} {spec.revision or ''}".strip()
-            for spec in self.ensemble.package_specs
+            spec.as_env_value()
+            for spec in self.ensemble.package_specs if spec.package_spec != "github.com/onecommons/unfurl"
         ]
 
         repositories = self.lock_repositories()

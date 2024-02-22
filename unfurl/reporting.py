@@ -2,7 +2,20 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import json
-from typing import Any, Dict, Iterable, List, Sequence, Tuple, Union, Optional, TYPE_CHECKING, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Sequence,
+    Tuple,
+    Union,
+    Optional,
+    TYPE_CHECKING,
+    cast,
+    overload,
+)
+from typing_extensions import Literal
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
     PlanRequest,
@@ -11,14 +24,13 @@ from .planrequests import (
     JobRequest,
 )
 from .support import Status
-from .logs import getLogger, getConsole
+from .logs import SensitiveFilter, getLogger, getConsole
 from rich.console import Console
 from rich.table import Table
 from rich import box
 from rich.segment import Segment
 from rich.markup import escape
 import re
-import os
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
@@ -111,7 +123,7 @@ class JobReporter:
         node = dict(
             instance=target.name,
             status=str(target.status),
-            state=str(target.state),  # type: ignore
+            state=str(target.state),
             managed=target.created,
             plan=new_summary_list,
         )
@@ -174,32 +186,61 @@ class JobReporter:
           }
         """
         summary: List[dict] = []
-        for (m, requests) in job.external_requests:  # type: ignore
-            summary.extend(JobReporter._job_request_summary(requests, m))
+        if job.external_requests:
+            for m, requests in job.external_requests:
+                summary.extend(JobReporter._job_request_summary(requests, m))
         JobReporter._list_plan_summary(job.plan_requests, None, summary, include_rendered, job.workflow)  # type: ignore
         if not pretty:
             return summary
         else:
             return json.dumps(summary, indent=2)
 
+    @overload
     @staticmethod
-    def stats(tasks, asMessage: bool = False) -> Union[Dict[str, int], str]:
+    def stats(tasks, asMessage: Literal[False]) -> Dict[str, int]:
+        ...
+
+    @overload
+    @staticmethod
+    def stats(tasks) -> Dict[str, int]:
+        ...
+
+    @overload
+    @staticmethod
+    def stats(tasks, asMessage: Literal[True]) -> str:
+        ...
+
+    @overload
+    @staticmethod
+    def stats(tasks, asMessage: bool) -> Union[Dict[str, int], str]:
+        ...
+
+    @staticmethod
+    def stats(tasks, asMessage=False):
         # note: the status of the task, not the target resource
         key = (
-            lambda t: Status.error
-            if t.target_status == Status.error
-            else t._localStatus or Status.unknown
+            lambda t: Status.absent
+            if t.blocked
+            else (
+                Status.error
+                if t.target_status == Status.error
+                else t._localStatus or Status.unknown
+            )
         )
         tasks = sorted(tasks, key=key)  # type: ignore
         stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
             if not k:  # is a Status
                 stats["skipped"] = len(list(g))
+            elif k == Status.absent:
+                stats["blocked"] = len(list(g))
             else:
                 stats[k.name] = len(list(g))
         stats["changed"] = len([t for t in tasks if t.modified_target])
         if asMessage:
-            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
+            if "blocked" not in stats:
+                stats["blocked"] = 0
+            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {blocked} blocked, {unknown} unknown, {skipped} skipped)".format(
                 **stats
             )
         return stats
@@ -324,9 +365,12 @@ class JobReporter:
 
         for i, task in enumerate(job.workDone.values()):
             if task.result:
-                task_success = (
-                    "[green]success[/]" if task.result.success else "[red]failed[/]"
-                )
+                if task.result.success:
+                    task_success = "[green]success[/]"
+                elif task.blocked:
+                    task_success = "[red]blocked[/]"
+                else:
+                    task_success = "[red]failed[/]"
             else:
                 task_success = "[white]skipped[/]"
             operation = task.configSpec.operation
@@ -339,7 +383,7 @@ class JobReporter:
             state = task.target_state and task.target_state.name or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:
-                result = escape(f"Output: {task.result.result}")
+                result = escape(f"Output: {SensitiveFilter.redact(task.result.result)}")
             else:
                 result = ""
             table.add_row(

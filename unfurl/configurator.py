@@ -7,6 +7,7 @@ from typing import (
     Dict,
     Generator,
     List,
+    MutableMapping,
     Optional,
     Tuple,
     Union,
@@ -24,10 +25,16 @@ from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncat
 
 if TYPE_CHECKING:
     from .manifest import Manifest, ChangeRecordRecord
-    from .job import ConfigTask
+    from .job import ConfigTask, Job
 
 
-from .support import AttributeManager, Status, ResourceChanges, Priority, set_context_vars
+from .support import (
+    AttributeManager,
+    Status,
+    ResourceChanges,
+    Priority,
+    set_context_vars,
+)
 from .result import (
     ChangeRecord,
     ResultsList,
@@ -47,7 +54,6 @@ from .util import (
     to_enum,
     wrap_sensitive_value,
     sensitive,
-    truncate_str,
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
@@ -114,10 +120,9 @@ class ConfiguratorResult:
                     filter(
                         None,
                         [
-                            # mypy isn't happy with the following lines, but they should work fine
-                            self.success and "success",  # type: ignore
-                            self.modified and "modified",  # type: ignore
-                            self.status is not None and self.status.name,  # type: ignore
+                            self.success and "success" or "",
+                            self.modified and "modified" or "",
+                            self.status is not None and self.status.name or "",
                         ],
                     )
                 )
@@ -390,7 +395,7 @@ class _ConnectionsMap(dict):
         # reverse so nearest relationships replace less specific ones that have matching names
         # XXX why is rel sometimes a Result?
         by_type = {  # the list() is for Python 3.7
-            rel.resolved.type if isinstance(rel, Result) else rel.type: rel
+            rel.resolved.template.global_type if isinstance(rel, Result) else rel.template.global_type: rel
             for rel in reversed(list(self.values()))
         }
         return by_type.values()
@@ -405,11 +410,10 @@ class _ConnectionsMap(dict):
             # XXX why is value sometimes a Result?
             if isinstance(value, Result):
                 value = value.resolved
-            if (
-                value.template.is_compatible_type(key)
-                # hackish: match the local name of type
-                or key == value.type.rpartition(".")[2]
-            ):
+            # hackish: match the local name of type
+            if key == value.type.rpartition(".")[2]:
+                return value
+            if value.template.is_compatible_type(key):
                 return value
         raise KeyError(key)
 
@@ -476,7 +480,7 @@ class TaskView:
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._manifest = manifest
-        self.messages: List[object] = []
+        self.messages: List[Any] = []
         self._addedResources: List[NodeInstance] = []
         self._dependenciesChanged = False
         self.dependencies: List["Operational"] = dependencies or []
@@ -484,8 +488,10 @@ class TaskView:
         self._workFolders: Dict[str, WorkFolder] = {}
         self._failed_paths: List[str] = []
         self._rendering = False
-        self._environ: object = None
+        # (_environ type is object because of _initializing_environ)
+        self._environ: Optional[object] = None
         self._attributeManager: AttributeManager = None  # type: ignore
+        self.job: Optional["Job"] = None
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
 
@@ -876,10 +882,11 @@ class TaskView:
         strict: bool = True,
         vars: Optional[dict] = None,
         throw: bool = False,
+        trace: Optional[int] = None,
     ) -> Union[Any, Result, List[Result], None]:
         # XXX pass resolveExternal to context?
         try:
-            result = Ref(query, vars=vars, trace=2).resolve(
+            result = Ref(query, vars=vars, trace=trace).resolve(
                 self.inputs.context, wantList, strict
             )
         except Exception:
@@ -964,8 +971,9 @@ class TaskView:
         if not operation:
             operation = f"{self.configSpec.interface}.{self.configSpec.operation}"
         if isinstance(operation, str):
+            assert self.job
             taskRequest = create_task_request(
-                self.job.jobOptions,  # type: ignore
+                self.job.jobOptions,
                 operation,
                 resource,
                 "subtask: " + self.configSpec.name,
@@ -1023,7 +1031,7 @@ class TaskView:
                     "setting attribute %s on %s with %s",
                     key,
                     existingResource.name,
-                    truncate_str(value),
+                    value,
                 )
             updated = True
 
@@ -1116,9 +1124,10 @@ class TaskView:
         errors: List[UnfurlTaskError] = []
         newResources = []
         newResourceSpecs = []
+        updated_resources = []
         for resourceSpec in instances:
             # we might have items that aren't resource specs
-            if not isinstance(resourceSpec, Mapping):
+            if not isinstance(resourceSpec, MutableMapping):
                 continue
             # XXX deepcopy fails in test_terraform
             # originalResourceSpec = copy.deepcopy(resourceSpec)
@@ -1136,14 +1145,18 @@ class TaskView:
             try:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
+                    discovered = "" if existingResource is self.target else " dynamic "
                     if updated:
                         self.logger.info(
-                            "updating dynamic instance %s", existingResource.name
+                            f'updating{discovered}instance "{existingResource.name}"',
                         )
                     else:
                         self.logger.debug(
-                            "no change to dynamic instance %s", existingResource.name
+                            f"no change to{discovered}instance %s",
+                            existingResource.name,
                         )
+                    if not discovered:
+                        updated_resources.append(existingResource)
                 else:
                     newResource = create_instance_from_spec(
                         self._manifest, self.target, rname, resourceSpec
@@ -1168,10 +1181,10 @@ class TaskView:
             self._resourceChanges.add_resources(newResourceSpecs)
             self._addedResources.extend(newResources)
             self.logger.info("add resources %s", newResources)
-
+        if newResourceSpecs:  # XXX or updated_resources:
             jobRequest = JobRequest(newResources, errors)
-            if self.job:  # type: ignore
-                self.job.jobRequestQueue.append(jobRequest)  # type: ignore
+            if self.job:
+                self.job.jobRequestQueue.append(jobRequest)
             return jobRequest, errors
         return None, errors
 
@@ -1297,7 +1310,9 @@ class Dependency(Operational):
                 return True
             return result[0] != self.expected
         else:
-            return self.expected != Ref(self.expr).resolve(RefContext(self.target), self.wantList)
+            return self.expected != Ref(self.expr).resolve(
+                RefContext(self.target), self.wantList
+            )
 
     def refresh(self, config: "ConfigTask") -> None:
         if self.expected is not None:

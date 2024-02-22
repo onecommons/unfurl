@@ -5,6 +5,7 @@ import collections
 from collections.abc import MutableSequence
 import functools
 import logging
+import os
 import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -20,6 +21,7 @@ from ..configurator import Status
 from ..result import serialize_value
 from ..util import assert_form
 from ..logs import getLogger
+from ..support import reload_collections
 
 logger = getLogger("unfurl")
 
@@ -437,21 +439,6 @@ def _render_playbook(playbook, _inventory, args):
     inventoryArgs = ["-i", _inventory] if _inventory else []
     args = ["ansible-playbook"] + inventoryArgs + (args or []) + [playbook]
     return args
-
-
-def reload_collections(ctx=None):
-    # collections may have been installed while the job is running, need reset the loader to pick those up
-    from ansible.plugins.loader import _configure_collection_loader
-    import ansible.utils.collection_loader._collection_finder
-    import ansible.template
-    AnsibleCollectionConfig = ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
-    AnsibleCollectionConfig._collection_finder = None
-    _configure_collection_loader()
-    for pkg in ['ansible_collections', 'ansible_collections.ansible']:
-        AnsibleCollectionConfig._collection_finder._reload_hack(pkg)  # type: ignore
-    # jinja2 templates won't get the updated collection finder without this:
-    ansible.template._get_collection_metadata = ansible.utils.collection_loader._collection_finder._get_collection_metadata
-    logger.trace("reloaded ansible collections finder")
 
 
 def _run_playbooks(args, params=None, vault_secrets=None):

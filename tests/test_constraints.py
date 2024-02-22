@@ -62,6 +62,7 @@ def test_constraints():
             },
         }
     }
+    # pprint.pprint(service_template["node_types"]["Proxy"])
     assert service_template["node_types"] == {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
@@ -74,7 +75,10 @@ def test_constraints():
         },
         "ContainerHost": {
             "derived_from": "tosca.nodes.Root",
-            "requirements": [{"hosting": {"node": "ContainerService"}}],
+            "requirements": [{"hosting": {
+                "node": "ContainerService",
+                '!namespace-node': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble'
+                }}],
         },
         "Proxy": {
             "derived_from": "tosca.nodes.Root",
@@ -82,9 +86,12 @@ def test_constraints():
                 "backend_url": {
                     "type": "string",
                     "description": "URL to proxy",
+                    '!namespace': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble',
                 }
             },
-            "attributes": {"endpoint": {"type": "string", "description": "Public URL"}},
+            "attributes": {"endpoint": {"type": "string",
+                                        '!namespace': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble',
+                                         "description": "Public URL"}},
         },
         "ProxyContainerHost": {
             "derived_from": ["Proxy", "ContainerHost"],
@@ -92,6 +99,7 @@ def test_constraints():
                 {
                     "hosting": {
                         "node": "ContainerService",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                         "node_filter": {"match": [{"eval": "backend_url"}]},
                     }
                 }
@@ -100,10 +108,16 @@ def test_constraints():
         "App": {
             "derived_from": "tosca.nodes.Root",
             "requirements": [
-                {"container": {"node": "container_service"}},
+                {
+                    "container": {
+                        "node": "container_service",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
+                    }
+                },
                 {
                     "proxy": {
                         "node": "ProxyContainerHost",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                         "node_filter": {
                             "properties": [
                                 {
@@ -261,7 +275,7 @@ def test_computed_properties():
             "computed": "https://foo.com",
             "url": "https://foo.com",
             "ports": {
-                "protocol": None,
+                "protocol": "tcp",
                 "target": 8080,
                 "target_range": None,
                 "source": 80,
@@ -271,7 +285,7 @@ def test_computed_properties():
             "data_list": [
                 {
                     "ports": {
-                        "protocol": None,
+                        "protocol": "tcp",
                         "target": 8080,
                         "target_range": None,
                         "source": 80,

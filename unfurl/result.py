@@ -1,8 +1,8 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping, MutableSequence, MutableMapping
-from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from abc import ABC, abstractmethod, ABCMeta
+import datetime
 import io
 import logging
 from typing import (
@@ -37,9 +37,9 @@ from .util import (
     dump,
     wrap_sensitive_value,
 )
-from .logs import sensitive
+from .logs import sensitive, getLogger
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 
 def _get_digest(value, kw):
@@ -197,14 +197,14 @@ class ChangeRecord:
     - 4 hexadecimal digits encoding the task id
     """
 
-    EpochStartTime = datetime(2020, 1, 1, tzinfo=None)
+    EpochStartTime = datetime.datetime(2020, 1, 1, tzinfo=None)
     LogAttributes = ("previousId",)
     DateTimeFormat = "%Y-%m-%d-%H-%M-%S-%f"
 
     def __init__(
         self,
         jobId: Optional[str] = None,
-        startTime: Optional[datetime] = None,
+        startTime: Optional[datetime.datetime] = None,
         taskId: int = 0,
         previousId: Optional[str] = None,
         parse: Optional[str] = None,
@@ -221,10 +221,10 @@ class ChangeRecord:
             else:
                 self.changeId = self.make_change_id(self.startTime, taskId, previousId)
 
-    def set_start_time(self, startTime: Optional[datetime] = None) -> None:
+    def set_start_time(self, startTime: Optional[datetime.datetime] = None) -> None:
         if not startTime:
-            self.startTime = datetime.utcnow()
-        elif isinstance(startTime, datetime):
+            self.startTime =  datetime.datetime.now(datetime.timezone.utc)
+        elif isinstance(startTime, datetime.datetime):
             self.startTime = startTime
         else:
             try:
@@ -232,7 +232,7 @@ class ChangeRecord:
                 self.startTime = self.EpochStartTime.replace(hour=startTime)
             except ValueError:
                 try:
-                    self.startTime = datetime.strptime(startTime, self.DateTimeFormat)
+                    self.startTime = datetime.datetime.strptime(startTime, self.DateTimeFormat)
                 except ValueError:
                     self.startTime = self.EpochStartTime
 
@@ -265,7 +265,7 @@ class ChangeRecord:
         )
 
     @staticmethod
-    def is_change_id(test: str) -> Optional[Match]:
+    def is_change_id(test: Any) -> Optional[Match]:
         if not isinstance(test, str):
             return None
         return re.match("^A[A-Za-z0-9]{11}$", test)
@@ -273,13 +273,13 @@ class ChangeRecord:
     @classmethod
     def make_change_id(
         cls,
-        timestamp: Optional[datetime] = None,
+        timestamp: Optional[datetime.datetime] = None,
         taskid: int = 0,
         previousId: Optional[str] = None,
     ) -> str:
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         if not timestamp:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
 
         year = timestamp.year - cls.EpochStartTime.year  # 2020
         if year < 0:
@@ -296,7 +296,7 @@ class ChangeRecord:
             if previousId[:8] == changeId[:8]:
                 # in case last job started less than 1/62nd of a second ago
                 return cls.make_change_id(
-                    timestamp + timedelta(milliseconds=16200), taskid, previousId
+                    timestamp + datetime.timedelta(milliseconds=16200), taskid, previousId
                 )
             if previousId > changeId:
                 raise UnfurlError(
@@ -584,7 +584,17 @@ class ResultsItem(Result):
             return new
 
 
-class Results(ABC):
+class CollectionProxy:
+    _values: Any
+
+class ProxyableType(ABCMeta):
+    def __instancecheck__(cls, inst):
+        """Implement isinstance(inst, cls)."""
+        if isinstance(inst, CollectionProxy):
+            return isinstance(inst._values, cls)
+        return ABCMeta.__instancecheck__(cls, inst)
+
+class Results(ABC, metaclass=ProxyableType):
     """
     Evaluating expressions are not guaranteed to be idempotent (consider quoting)
     and resolving the whole tree up front can lead to evaluations of circular references unless the
@@ -592,9 +602,7 @@ class Results(ABC):
     This also allows us to track changes to the returned structure.
     """
 
-    __slots__ = ("_attributes", "context", "_deleted", "validate", "defs")
-
-    applyTemplates = True
+    __slots__ = ("_attributes", "context", "_deleted", "validate", "defs", "applyTemplates")
 
     @abstractmethod
     def _values(self) -> Iterator:
@@ -620,6 +628,7 @@ class Results(ABC):
         assert not isinstance(serializedOriginal, Results), serializedOriginal
         self._attributes = serializedOriginal.copy()
         self._deleted: dict = {}
+        self.applyTemplates = True
         if not isinstance(resourceOrCxt, RefContext):
             ctx = RefContext(resourceOrCxt)
         else:
@@ -810,10 +819,15 @@ class Results(ABC):
         if property:
             transform = self._get_prop_metadata_key(property, "transform")
             if transform:
-                logger.debug(
+                logger.trace(
                     "running transform on %s.%s", self.context.currentResource.name, key
                 )
-                return map_value(transform, self.context.copy(vars=dict(value=value)))
+                try:
+                    return map_value(transform, self.context.copy(vars=dict(value=value)))
+                except Exception:
+                    logger.error(
+                        "transform on %s.%s failed.", self.context.currentResource.name, key, exc_info=True
+                    )
         return value
 
     @staticmethod

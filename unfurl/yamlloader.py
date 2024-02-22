@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import fnmatch
 from functools import partial
 import io
 import os.path
@@ -25,7 +26,7 @@ from typing import (
 from typing_extensions import Literal
 import urllib
 import urllib.request
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlparse, urlsplit
 import ssl
 import certifi
 import git
@@ -68,7 +69,17 @@ from .repo import (
     split_git_url,
     memoized_remote_tags,
 )
-from .packages import PackageSpec, UnfurlPackageUpdateNeeded, extract_package, get_package_from_url, resolve_package
+from .packages import (
+    Package,
+    PackageSpec,
+    UnfurlPackageUpdateNeeded,
+    extract_package,
+    find_canonical,
+    get_package_from_url,
+    resolve_package,
+)
+from . import DEFAULT_CLOUD_SERVER
+
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -275,6 +286,13 @@ _refResolver = RefResolver("", None)
 ImportResolver_Context = Tuple[bool, Optional[RepoView], str, str]
 
 
+def match_namespace(packages, namespace_id: str):
+    for p in packages.split():
+        if fnmatch.fnmatch(namespace_id, p):
+            return True
+    return False
+
+
 class ImportResolver(toscaparser.imports.ImportResolver):
     safe_mode: bool = False
 
@@ -289,6 +307,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+
+    GLOBAL_NAMESPACE_PACKAGES = os.getenv(
+        "UNFURL_GLOBAL_NAMESPACE_PACKAGES",
+        "unfurl.cloud/onecommons/unfurl-types* gitlab.com/onecommons/unfurl-types*",
+    )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -320,7 +343,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         from . import configurators  # need to import configurators to get short names
 
         inputs = op.inputs if op.inputs is not None else {}
-        return _get_config_spec_args_from_implementation(op, inputs, None, None)  # type: ignore
+        if not op._source and self.manifest:
+            op._source = self.manifest.get_base_dir()
+        return cast(
+            Optional[Dict[str, Any]],
+            _get_config_spec_args_from_implementation(
+                op, inputs, None, None, safe_mode=self.get_safe_mode()
+            ),
+        )
 
     def _match_repoview(
         self, name: str, tpl: Optional[Dict[str, Any]]
@@ -386,12 +416,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     @overload
     def get_repository(
         self, name: str, tpl: None, unique: Literal[False] = False
-    ) -> Optional[Repository]:
-        ...
+    ) -> Optional[Repository]: ...
 
     @overload
-    def get_repository(self, name: str, tpl: dict, unique: bool = False) -> Repository:
-        ...
+    def get_repository(
+        self, name: str, tpl: dict, unique: bool = False
+    ) -> Repository: ...
 
     def get_repository(
         self, name: str, tpl: Optional[dict], unique: bool = False
@@ -432,6 +462,50 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 )
 
         return Repository(name, tpl)
+
+    def get_repository_url(
+        self,
+        importsLoader,
+        repository_name,
+        source_info: Optional[toscaparser.imports.SourceInfo] = None,
+    ) -> str:
+        from .graphql import get_namespace_id
+
+        if repository_name:
+            url = super().get_repository_url(importsLoader, repository_name)
+        elif self.manifest and self.manifest.path:
+            if self.manifest.repo:
+                url = self.manifest.repo.get_url_with_path(
+                    self.manifest.get_base_dir(), True
+                )
+            else:
+                url = self.manifest.path
+        else:
+            url = ""
+        if source_info:
+            path_is_url = toscaparser.imports.is_url(source_info["path"])
+            if toscaparser.imports.is_url(source_info["root"]) and not path_is_url:
+                repository_root = self._find_repository_root(source_info["path"])
+            else:
+                repository_root = source_info["root"]
+            if repository_root and source_info["path"] and not path_is_url:
+                relfile = os.path.normpath(
+                    Path(source_info["path"]).relative_to(repository_root)
+                )
+                if relfile != ".":
+                    source_info["file"] = relfile
+            namespace_id = get_namespace_id(url, source_info)
+            if self.manifest and self.manifest.package_specs:
+                canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
+                if canonical:
+                    namespace_id = find_canonical(
+                        self.manifest.package_specs, canonical, namespace_id
+                    )
+
+            if match_namespace(self.GLOBAL_NAMESPACE_PACKAGES, namespace_id):
+                source_info["namespace_uri"] = namespace_id
+            return namespace_id
+        return url
 
     confine_user_paths = True
 
@@ -547,9 +621,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _find_repository_root(self, base):
         assert base
+        nearest = ""
+        # if repository is nested in another choose the most nested
         for repo_view in self.manifest.repositories.values():
-            if is_relative_to(base, repo_view.working_dir):
-                return repo_view.working_dir
+            try:
+              candidate = str(Path(base).relative_to(repo_view.working_dir))
+              if not nearest or len(candidate) < len(nearest):
+                  nearest = candidate
+            except ValueError:
+                continue
+        if nearest:
+            return base[:-len(nearest)-1]
         try:
             repo = git.Repo(base, search_parent_directories=True)
             return repo.working_dir
@@ -634,7 +716,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 self.manifest.packages,
                 self.manifest.package_specs,
                 remote_tags_check,
-                lock_dict
+                lock_dict,
             )
 
     def resolve_to_local_path(
@@ -767,6 +849,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             assert repo_view  # urls must have a repo_view
             path = self._resolve_repo_to_path(repo_view, base, file_name)
             is_file = True
+            base = repo_view.working_dir
         return self._really_load_yaml(path, is_file, fragment, repo_view, base)
 
     def _convert_to_yaml(
@@ -775,11 +858,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         path: str,
         repo_view: Optional[RepoView],
         base_dir: str,
-        yaml_dict = dict,
+        yaml_dict=dict,
     ):
         if path.endswith(".py"):
             from .dsl import convert_to_yaml
             import tosca._tosca
+
             tosca._tosca.yaml_cls = yaml_dict
 
             return convert_to_yaml(self, contents, path, repo_view, base_dir)
@@ -806,16 +890,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
+                if toscaparser.imports.is_url(base_dir):
+                    base_dir = get_base_dir(path)
                 doc = self._convert_to_yaml(
                     contents, path, repo_view, base_dir, yaml_dict
                 )
-                base_dir = get_base_dir(path)
                 if isinstance(doc, yaml_dict):
                     if self.expand:
                         # self.expand is true when doing a TOSCA import (see Manifest._load_spec())
                         doc = YamlConfig(
                             doc,
-                            base_dir,
+                            get_base_dir(path),  # needs this as base_dir
                             loadHook=partial(
                                 self.manifest.load_yaml_include,
                                 repository_root=base_dir,
@@ -823,6 +908,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                             readonly=self.readonly,
                         ).expanded
                     doc.path = path
+                    doc.base_dir = get_base_dir(path)
             if fragment and doc:
                 return _refResolver.resolve_fragment(doc, fragment), cacheable
             else:

@@ -10,16 +10,23 @@ from unfurl.packages import (
     Package,
     get_package_id_from_url,
     get_package_from_url,
+    reverse_rules_for_canonical,
+    find_canonical,
 )
 from unfurl.repo import get_remote_tags
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
 
 
-def _apply_package_rules(test_url, env_package_spec):
+def _build_package_specs(env_package_spec):
     package_specs = []
     for key, value in taketwo(env_package_spec.split()):
         package_specs.append(PackageSpec(key, value, None))
+    return package_specs
+
+
+def _apply_package_rules(test_url, env_package_spec):
+    package_specs = _build_package_specs(env_package_spec)
     package = get_package_from_url(test_url)
     assert package
     changed = PackageSpec.update_package(package_specs, package)
@@ -34,6 +41,7 @@ def test_package_rules():
         package.url
         == "http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress#main"
     )
+    assert env_package_spec == " ".join([p.as_env_value() for p in package_specs])
 
     package, package_specs = _apply_package_rules(
         "https://gitlab.com/onecommons/unfurl-types", env_package_spec
@@ -53,6 +61,21 @@ def test_package_rules():
     )
     assert (
         package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+    )
+    assert " ".join(env_package_spec.split()) == " ".join([p.as_env_value() for p in package_specs])
+
+    package, package_specs = _apply_package_rules(
+        "https://app.dev.unfurl.cloud/onecommons/unfurl-types.git", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+    )
+
+    package, package_specs = _apply_package_rules(
+        "https://staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
     )
 
     package, package_specs = _apply_package_rules(
@@ -77,6 +100,51 @@ def test_package_rules():
     changed = PackageSpec.update_package([unfurl_spec], unfurl_package)
     assert changed
     assert unfurl_package.url == "file:///home/unfurl/unfurl"
+
+    # no wildcard in rule setting revision
+    env_package_spec = """unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*
+    gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/*
+    app.dev.unfurl.cloud/* staging.unfurl.cloud/*
+    staging.unfurl.cloud/onecommons/unfurl-types #main"""
+
+    package, package_specs = _apply_package_rules(
+        "https://staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
+    )
+    assert " ".join(env_package_spec.split()) == " ".join([p.as_env_value() for p in package_specs])
+
+    package, package_specs = _apply_package_rules(
+        "staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
+    )
+    assert (
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main"
+    )
+
+
+def test_find_canonical():
+    rules = "gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*"
+    specs = _build_package_specs(rules)
+    assert len(specs) == 2
+    canonical = "unfurl.cloud"
+    assert reverse_rules_for_canonical(specs, canonical) == [
+        PackageSpec("staging.unfurl.cloud/onecommons/*", "unfurl.cloud/onecommons/*")
+    ]
+    namespaces = [
+        "staging.unfurl.cloud/onecommons/std:dns_services",
+        "unfurl.cloud/onecommons/std",
+        "gitlab.com/onecommons/blueprints/wordpress",
+        "gitlab.com/some-user",
+    ]
+    expected = [
+        "unfurl.cloud/onecommons/std:dns_services",
+        "unfurl.cloud/onecommons/std",
+        "unfurl.cloud/onecommons/blueprints/wordpress",
+        "gitlab.com/some-user",
+    ]
+    for namespace_id, expected in zip(namespaces, expected):
+        assert expected == find_canonical(specs, canonical, namespace_id)
 
 
 def test_remote_tags():
@@ -120,7 +188,7 @@ def test_remote_tags():
                 defaults={
                     "repositories": {
                         "gitlab.com/onecommons/unfurl-types": dict(
-                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.5.1"
+                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.7.5"
                         )
                     }
                 }

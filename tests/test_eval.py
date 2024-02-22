@@ -8,6 +8,7 @@ import io
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, UnfurlEvalError, analyze_expr, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
+from unfurl.tosca_plugins.functions import to_dns_label
 from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
@@ -439,7 +440,7 @@ a_dict:
         }
         resource = NodeInstance("test", attributes=resourceDef)
         assert not not resource.attributes
-        self.assertEqual(len(resource.attributes), 1)
+        assert len(resource.attributes) == 1
 
         expectedA = {"c": {"e": 1}, "b": {"e": 1}, "d": ["2", "2"]}
         self.assertEqual(resource.attributes["a"]["b"], expectedA["b"])
@@ -585,7 +586,8 @@ foo
         resource.attributeManager = AttributeManager(yaml)
         resource._templar._loader.set_vault_secrets(vault.secrets)
         pickled = pickle.dumps(resource, -1)
-        assert pickle.loads(pickled)
+        restored = pickle.loads(pickled)
+        assert restored and type(restored) == type(resource)
 
         filePath = map_value(expr, resource)
         with open(filePath, "rb") as vf:
@@ -601,7 +603,7 @@ foo
         select: contents
         """
         expr = yaml.load(io.StringIO(src))
-        contents = map_value(expr, RefContext(resource, vars=dict(tempfile=filePath)))
+        contents = map_value(expr, RefContext(resource, trace=2, vars=dict(tempfile=filePath)))
         assert isinstance(contents, sensitive_bytes), type(contents)
         with open(fixture, "rb") as tp:
             self.assertEqual(tp.read(), contents)
@@ -804,6 +806,10 @@ SUB: '1'
         ctx = SafeRefContext(NodeInstance("test_nodash-yeshyphen"))
         label = map_value(expr, ctx)
         assert label == "test--nodash-yeshyphen"
+        assert 'cy-cy-wordpress-lrtkxtb8-lruwqqt2-container--service' == to_dns_label(
+                "cy-cy-wordpress-lrtkxtb8-lruwqqt2-container_service", max=52
+        )
+
 
     def test_urljoin(self):
         resource = self._getTestResource()

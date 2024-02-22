@@ -25,7 +25,8 @@ from .repo import (
     commit_secrets,
     sanitize_url,
 )
-from .util import UnfurlError, assert_not_none, get_random_password, substitute_env
+from .util import UnfurlError, assert_not_none, substitute_env
+from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")

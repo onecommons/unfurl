@@ -21,6 +21,7 @@ from typing import (
     Generic,
     Iterator,
     Mapping,
+    MutableMapping,
     NamedTuple,
     Sequence,
     Set,
@@ -42,14 +43,16 @@ from typing_extensions import (
     Annotated,
     Literal,
     Self,
+    TypeAlias,
 )
+
 import sys
 import logging
 
 logger = logging.getLogger("tosca")
 
-from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements.datatype import DataType as ToscaParserDataType
+from toscaparser import functions
 from .scalars import *
 
 if typing.TYPE_CHECKING:
@@ -68,9 +71,35 @@ class _LocalState(threading.local):
 
 global_state = _LocalState()
 
+
+def safe_mode() -> bool:
+    """This function returns True if running within the Python safe mode sandbox."""
+    return global_state.safe_mode
+
+
+def global_state_mode() -> str:
+    """
+    This function returns the execution state (either "spec" or "runtime") that the current thread is in.
+    """
+    return global_state.mode
+
+
+def global_state_context() -> Any:
+    """
+    This function returns orchestrator-specific runtime state for the current thread (or None).
+    """
+    if global_state.safe_mode:
+        return None
+    else:
+        return global_state.context
+
+
 yaml_cls = dict
 
-JsonType = Union[None, int, str, bool, List["JsonType"], Dict[str, "JsonType"]]
+JsonObject: TypeAlias = Dict[str, Any]
+JsonType: TypeAlias = Union[
+    None, int, float, str, bool, Sequence["JsonType"], Mapping[str, "JsonType"]
+]
 
 
 @contextmanager
@@ -199,7 +228,7 @@ class OperationFunc(Protocol):
     operation_host: Optional[str]
     environment: Optional[Dict[str, str]]
     dependencies: Optional[List[Union[str, Dict[str, Any]]]]
-    outputs: Optional[Dict[str, str]]
+    outputs: Optional[Dict[str, Optional[str]]]
     entry_state: Optional[str]
     invoke: Optional[str]
 
@@ -211,7 +240,7 @@ def operation(
     operation_host: Optional[str] = None,
     environment: Optional[Dict[str, str]] = None,
     dependencies: Optional[List[Union[str, Dict[str, Any]]]] = None,
-    outputs: Optional[Dict[str, str]] = None,
+    outputs: Optional[Dict[str, Optional[str]]] = None,
     entry_state: Optional[str] = None,
     invoke: Optional[str] = None,
 ) -> Callable[[Callable], Callable]:
@@ -251,6 +280,37 @@ def operation(
         return func_
 
     return decorator_operation
+
+
+class NodeTemplateDirective(str, Enum):
+    "Node Template directives."
+
+    select = "select"
+    "Match with instance in external ensemble"
+
+    substitute = "substitute"
+    "Create a nested topology"
+
+    default = "default"
+    "Only use this template if one with the same name isn't already defined in primary topology."
+
+    dependent = "dependent"
+    "Exclude from plan generation"
+
+    virtual = "virtual"
+    "Don't instantiate"
+
+    check = "check"
+    "Run check operation before deploying"
+
+    discover = "discover"
+    "Discover (instead of create)"
+
+    protected = "protected"
+    "Don't delete."
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class tosca_timestamp(str):
@@ -605,7 +665,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
 
     def set_constraint(self, val):
         # this called via _class_init
-        if isinstance(val, _Ref):
+        if isinstance(val, EvalData):
             if self._tosca_field_type in [
                 ToscaFieldType.capability,
                 ToscaFieldType.artifact,
@@ -632,7 +692,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         # if self is a capability or artifact, name is a property on the capability or artifact
         # if self is property or attribute, name is a field on the value (which must be a datatype or map)
         if (self.default is MISSING and self.default_factory is MISSING) or isinstance(
-            self.default, _Ref
+            self.default, EvalData
         ):
             # there's no value to set the attribute on!
             raise AttributeError(
@@ -703,7 +763,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             if not capability:
                 self._validate_name_is_property(prop_name)
             prop_filters = node_filter.setdefault("properties", [])
-            if isinstance(val, _Ref):
+            if isinstance(val, EvalData):
                 val.set_source()
             elif isinstance(val, DataConstraint):
                 val = val.to_yaml()
@@ -720,8 +780,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 match_filters.append(dict(get_nodes_of_type=val.tosca_type_name()))
             else:
                 # XXX if val is a node, create ref:
-                # val = _Ref({"eval": "::"+ val._name})
-                assert isinstance(val, _Ref), val
+                # val = EvalData({"eval": "::"+ val._name})
+                assert isinstance(val, EvalData), val
                 match_filters.append(val)
 
     def _set_default(self, val):
@@ -1040,7 +1100,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 not value.type
                 and value.default
                 not in [dataclasses.MISSING, REQUIRED, DEFAULT, CONSTRAINED]
-                and not isinstance(value.default, (_Ref, _TemplateRef))
+                and not isinstance(value.default, (EvalData, _TemplateRef))
             ):
                 value.type = type(value.default)
             return value
@@ -1090,8 +1150,7 @@ def Attribute(
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1107,8 +1166,7 @@ def Attribute(
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1123,8 +1181,7 @@ def Attribute(
     # attributes are excluded from __init__,
     # this tricks the static checker, see pep 681:
     init: Literal[False] = False,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Attribute(
@@ -1168,8 +1225,7 @@ def Property(
     status="",
     options: Optional[Options] = None,
     attribute: bool = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1183,8 +1239,7 @@ def Property(
     status="",
     options: Optional[Options] = None,
     attribute: bool = False,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1197,8 +1252,7 @@ def Property(
     status="",
     options: Optional[Options] = None,
     attribute: bool = False,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Property(
@@ -1262,7 +1316,7 @@ def Computed(
     Return type:
         The return type of the factory function (should be compatible with the field type).
     """
-    default = _Ref(
+    default = EvalData(
         {"eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")}
     )
     # casting this to the factory function's return type enables the type checker to check that the return type matches the field's type
@@ -1292,8 +1346,7 @@ def Requirement(
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1307,8 +1360,7 @@ def Requirement(
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1321,8 +1373,7 @@ def Requirement(
     capability: Union[str, Type["CapabilityType"], None] = None,
     node: Union[str, Type["NodeType"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Requirement(
@@ -1372,8 +1423,7 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1384,8 +1434,7 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1395,8 +1444,7 @@ def Capability(
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
     valid_source_types: Optional[List[str]] = None,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Capability(
@@ -1436,8 +1484,7 @@ def Artifact(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1447,8 +1494,7 @@ def Artifact(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-) -> _T:
-    ...
+) -> _T: ...
 
 
 @overload
@@ -1457,8 +1503,7 @@ def Artifact(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def Artifact(
@@ -1476,12 +1521,13 @@ def Artifact(
 
 _make_field_doc(Artifact)
 
-
-class _Ref:
-    def __init__(self, expr: Union["_Ref", Dict[str, Any]]):
-        if isinstance(expr, _Ref):
+_EvalDataExpr = Union["EvalData", str, None, Dict[str, Any], List[Any]]
+class EvalData:
+    "A wrapper around JSON/YAML data that may contain TOSCA functions or eval expressions and should be evaluated at runtime."
+    def __init__(self, expr: _EvalDataExpr):
+        if isinstance(expr, EvalData):
             expr = expr.expr
-        self.expr: Dict[str, Any] = expr
+        self.expr: _EvalDataExpr = expr
 
     def set_source(self):
         if isinstance(self.expr, dict):
@@ -1489,21 +1535,25 @@ class _Ref:
             if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
                 self.expr["eval"] = "$SOURCE::" + expr
 
-    # _RefFunc[RT] -> List[RT]
-    def map(self, func: "_Ref") -> "_Ref":
-        # return a copy of this _Ref with a  "foreach" clause added
+    def map(self, func: "EvalData") -> "EvalData":
+        # return a copy of self with a  "foreach" clause added
         # that applies ``func`` to each item.
         # assumes ``func`` is an expression function that takes one argument and sets that argument to ``$item``.
-        assert self.expr
-        assert isinstance(func.expr, dict)
-        ref = copy.deepcopy(self.expr)
-        map_expr = copy.deepcopy(func.expr)
-        inner = map_expr and map_expr["eval"]
-        assert isinstance(inner, dict)
-        name = next(iter(inner))  # assume first key is the function name
-        inner[name] = {"eval": "$item"}
-        ref["foreach"] = map_expr
-        return _Ref(ref)
+        if (
+            isinstance(func.expr, dict)
+            and functions.is_function(func.expr)
+            and isinstance(self.expr, dict)
+            and functions.is_function(self.expr)
+        ):
+            ref = copy.deepcopy(self.expr)
+            map_expr = copy.deepcopy(func.expr)
+            inner = map_expr and map_expr["eval"]
+            if isinstance(inner, dict):
+                name = next(iter(inner))  # assume first key is the function name
+                inner[name] = {"eval": "$item"}
+                ref["foreach"] = map_expr
+                return EvalData(ref)
+        raise ValueError(f"cannot map {self.expr} with {func.expr}")
 
     def __str__(self) -> str:
         # represent this as a jina2 expression so we can embed _Refs in f-strings
@@ -1514,10 +1564,12 @@ class _Ref:
             else:
                 jinja = f"{self.expr} | map_value"
             return "{{ " + jinja + " }}"
+        elif isinstance(self.expr, list):
+            return "{{ " + str(self.expr) + "| map_value }}"
         return self.expr or ""  # type: ignore   # unreachable
 
     def __repr__(self):
-        return f"_Ref({self.expr})"
+        return f"EvalData({self.expr})"
 
     def to_yaml(self, dict_cls=None):
         return to_tosca_value(self.expr, dict_cls or yaml_cls)
@@ -1529,13 +1581,19 @@ class _Ref:
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, type(self.expr)):
             return self.expr == __value
-        elif isinstance(__value, _Ref):
+        elif isinstance(__value, EvalData):
             return self.expr == __value.expr
         return False
 
+_Ref = EvalData
 
-def Eval(expr) -> Any:
-    return _Ref(expr)
+def Eval(value: Any) -> Any:
+    "Use this function to specify that a value is or contains a TOSCA function or eval expressions. For example, for property default values."
+    # Field specifier for declaring a TOSCA {name}.
+    if global_state.mode == "runtime":
+        return value
+    else:
+        return EvalData(value)
 
 
 # XXX class RefList(Ref)
@@ -1566,14 +1624,14 @@ def find_relationship(name: str) -> Any:
     return RelationshipTemplateRef(name)
 
 
-class FieldProjection(_Ref):
+class FieldProjection(EvalData):
     "A reference to a tosca field or projection off a tosca field"
     # created by _DataclassTypeProxy, invoked via _class_init
 
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
         # currently don't support projections that are requirements
         expr = field.as_ref_expr()
-        if parent and parent.expr:
+        if parent and isinstance(parent.expr, dict) and "eval" in parent.expr:
             # XXX map to tosca name but we can't do this now because it might be too early to resolve the attribute's type
             expr = parent.expr["eval"] + "::" + expr
         super().__init__(dict(eval=expr))
@@ -1982,7 +2040,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 fields = object.__getattribute__(self, "__dataclass_fields__")
                 field = fields.get(name)
                 if field and isinstance(field, _Tosca_Field):
-                    return _Ref(dict(eval=f"::{self._name}::{field.as_ref_expr()}"))
+                    return EvalData(dict(eval=f"::{self._name}::{field.as_ref_expr()}"))
             val = object.__getattribute__(self, name)
             if isinstance(val, _ToscaType):
                 val._set_parent(self, name)
@@ -2140,7 +2198,7 @@ def _search(
     prop_ref: Any,
     axis: str,
     cls_or_obj=None,
-) -> _Ref:
+) -> EvalData:
     field, req_name = _get_field_from_prop_ref(prop_ref)
     if field:
         key = field.as_ref_expr()
@@ -2153,7 +2211,7 @@ def _search(
         ref.expr = expr
         return ref
     else:
-        return _Ref(expr)
+        return EvalData(expr)
 
 
 def find_configured_by(
@@ -2414,15 +2472,21 @@ class ToscaType(_ToscaType):
                     name = getattr(operation, "operation_name", methodname)
                     interface = interface_ops.get(name)
                     if interface is not None:
-                        interface.setdefault("operations", {})[
-                            name
-                        ] = cls_or_self._operation2yaml(
-                            cls_or_self, operation, converter
+                        interface.setdefault("operations", {})[name] = (
+                            cls_or_self._operation2yaml(
+                                cls_or_self, operation, converter
+                            )
                         )
 
     @staticmethod
     def _operation2yaml(cls_or_self, operation, converter: Optional["PythonToYaml"]):
-        dict_cls = converter and converter.yaml_cls or yaml_cls
+        if converter:
+            dict_cls = converter.yaml_cls
+            if converter.safe_mode:
+                # safe mode skips adding operation implementation because it executes operations to generate the yaml
+                return dict_cls(implementation="safe_mode")
+        else:
+            dict_cls = yaml_cls
         try:
             result = operation(_ToscaTypeProxy(cls_or_self))
         except:
@@ -2500,11 +2564,9 @@ class ToscaType(_ToscaType):
                         # a property that is also declared as an attribute
                         item = {field.tosca_name: field._to_attribute_yaml()}
                         body.setdefault("attributes", {}).update(item)
-        if not converter or not converter.safe_mode:
-            # safe mode skips adding interfaces because it executes operations to generate the yaml
-            interfaces = cls._interfaces_yaml(cls, cls, converter)
-            if interfaces:
-                body["interfaces"] = interfaces
+        interfaces = cls._interfaces_yaml(cls, cls, converter)
+        if interfaces:
+            body["interfaces"] = interfaces
 
         if not body:  # skip this
             return {}
@@ -2615,7 +2677,7 @@ class ToscaType(_ToscaType):
                     # XXX datatype values don't compare properly, should have logic like CapabilityType above
                     continue
                 if not isinstance(
-                    value, _Ref
+                    value, EvalData
                 ) and not field.get_type_info().instance_check(value):
                     raise TypeError(
                         f"{field.tosca_field_type.name} \"{field.name}\"'s value has wrong type: it's a {type(value)}, not a {field.type}."
@@ -2626,12 +2688,10 @@ class ToscaType(_ToscaType):
             elif field.section:
                 assert False, "unexpected section in {field}"
 
-        if not converter.safe_mode:
-            # safe mode skips adding interfaces because it executes operations to generate the yaml
-            # this only adds interfaces defined directly on this object
-            interfaces = self._interfaces_yaml(self, self.__class__, converter)
-            if interfaces:
-                body["interfaces"] = interfaces
+        # this only adds interfaces defined directly on this object
+        interfaces = self._interfaces_yaml(self, self.__class__, converter)
+        if interfaces:
+            body["interfaces"] = interfaces
 
         return body
 
@@ -2734,7 +2794,7 @@ def find_required_by(
     # XXX elif RelationshipType
     expr = dict(eval=prefix + ".sources::" + req_name)
     if not expected_type:
-        ref = _Ref(expr)
+        ref = EvalData(expr)
     else:
         dummy: _Tosca_Field = _Tosca_Field(
             ToscaFieldType.requirement, name="_required_by", owner=cls
@@ -2787,8 +2847,9 @@ def find_all_required_by(
     Returns:
         List[tosca.NodeType]:
     """
-    ref = cast(_Ref, find_required_by(requirement_name, expected_type, cls_or_obj))
-    ref.expr["foreach"] = "$true"
+    ref = cast(EvalData, find_required_by(requirement_name, expected_type, cls_or_obj))
+    if isinstance(ref.expr, dict):  # XXX
+        ref.expr["foreach"] = "$true"
     return cast(List[_TT], ref)
 
 
@@ -2797,7 +2858,7 @@ class NodeType(ToscaType):
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
 
-    _directives: List[str] = dataclasses.field(default_factory=list)
+    _directives: List[str] = field(default_factory=list)
     "List of this node template's TOSCA directives"
 
     @classmethod

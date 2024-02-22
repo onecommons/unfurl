@@ -2,8 +2,8 @@ import os
 import pytest
 import unfurl
 import tosca
-from unfurl.dsl import runtime_test
-import unfurl.tosca_plugins.expr as expr
+from unfurl.testing import runtime_test
+from unfurl.tosca_plugins import expr,functions
 from unfurl.configurators.terraform import tfoutput, tfvar
 from typing import Optional, Type
 from unfurl.util import UnfurlError
@@ -17,6 +17,8 @@ class Service(tosca.nodes.Root):
     url: str = tosca.Property(
         default=tosca.Eval("{{ SELF.url_scheme }}://{{SELF.host }}"),
     )
+
+    not_required: Optional[str] = None
 
     parent: "Service" = tosca.find_required_by("connects_to")
 
@@ -54,6 +56,7 @@ def test_runtime_test():
     assert topology.service.host == "example.com"
     assert topology.service.url == "https://example.com"
     assert topology.service.host == "example.com"
+    assert topology.service.not_required == None
 
 
 def test_options():
@@ -118,6 +121,7 @@ def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
     topology = runtime_test(test)
 
     assert topology.service.connects_to == topology.connection
+    assert topology.connection.connects_to == None
     assert (
         topology.connection.find_required_by(requirement, expected_type) == topology.service
     )
@@ -187,7 +191,7 @@ def test_expressions():
     assert expr.abspath(topology.service, "test_dsl_integration.py", "src").get() == __file__
     assert expr.uri(None) != topology.test_node.url
     assert expr.uri(topology.test_node) == topology.test_node.url
-    assert expr.to_label("fo!oo", replace='_') == 'fo_oo'
+    assert functions.to_label("fo!oo", replace='_') == 'fo_oo'
     assert expr.template(topology.test_node, contents="{%if 1 %}{{SELF.url}}{%endif%}") == "#::test.test_node"
     # XXX test:
     # "if_expr", or_expr, and_expr

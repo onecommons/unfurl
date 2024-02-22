@@ -1,6 +1,6 @@
 [project]
 name = "tosca"
-version = "0.0.6"
+version = "0.0.7"
 requires-python = ">=3.7"
 authors = [
   { name="Adam Souzis", email="adam@onecommons.org" },
@@ -15,7 +15,7 @@ classifiers = [
 dependencies = [
   "black",
   "typing_extensions>=4.7.1",
-  "RestrictedPython==6.2",
+  "RestrictedPython>=7.0",
 ]
 
 [build-system]

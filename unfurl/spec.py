@@ -6,6 +6,7 @@ TOSCA implementation
 import copy
 import sys
 from toscaparser.elements.interfaces import OperationDef
+from toscaparser.elements.nodetype import NodeType
 from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
@@ -28,13 +29,13 @@ from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.policy import Policy
 from toscaparser.properties import Property
-from toscaparser.elements.entity_type import EntityType
+from toscaparser.elements.entity_type import EntityType, Namespace
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
 import toscaparser.repositories
-from toscaparser.common.exception import ExceptionCollector
+from toscaparser.common.exception import ExceptionCollector, TOSCAException
 import os
 from .logs import getLogger
 import logging
@@ -146,8 +147,8 @@ def _patch(node, patchsrc, quote=False, tpl=None):
     logger.trace("patching node %s was %s", node.name, tpl)
     original = copy_dict(tpl)
     patched = patch_dict(tpl, patch, True)
-    patched.setdefault("metadata", {})["before_patch"] = original
     logger.trace("patched node %s: now %s", node.name, patched)
+    patched.setdefault("metadata", {})["before_patch"] = original
     return patched
 
 
@@ -427,7 +428,7 @@ class ToscaSpec:
 
     def load_decorators(self) -> CommentedMap:
         decorators = CommentedMap()
-        for path, import_tpl in self.template.nested_tosca_tpls.items():
+        for import_tpl, namespace_id in self.template.nested_tosca_tpls.values():
             imported = import_tpl.get("decorators")
             if imported:
                 decorators = cast(CommentedMap, merge_dicts(decorators, imported))
@@ -443,12 +444,17 @@ class ToscaSpec:
         for name, topology in self.template.nested_topologies.items():
             topology_spec = TopologySpec(topology, self, self.topology, path=name)
             self.nested_topologies.append(topology_spec)
-            for nodeTemplate in topology.nodetemplates:
+            for nodeTemplate in list(topology.node_templates.values()):
                 if "default" in nodeTemplate.directives:
                     if nodeTemplate.name in self.topology.node_templates:
                         self.overridden_default_templates.add(nodeTemplate.name)
                     else:
-                        # put in root topology
+                        # move default template to root topology
+                        topology.node_templates.pop(nodeTemplate.name)
+                        nodeTemplate.topology_template = self.topology.topology_template
+                        self.topology.topology_template.node_templates[
+                            nodeTemplate.name
+                        ] = nodeTemplate
                         nodeSpec = NodeSpec(nodeTemplate, self.topology)
                         self.topology.node_templates[nodeSpec.name] = nodeSpec
 
@@ -533,6 +539,12 @@ class ToscaSpec:
             or typeName in EntityType.TOSCA_DEF
         )
 
+    def find_type(self, name: str) -> Optional[StatefulEntityType]:
+        if self.template.topology_template:
+            return self.template.topology_template.find_type(name)
+        else:
+            return None
+
     def load_instances(self, toscaDef, tpl):
         """
         Creates node templates for any instances defined in the spec
@@ -611,7 +623,7 @@ class ToscaSpec:
         if len(matches) == 1:
             match = list(matches)[0]
             capabilities = relTpl.get_matching_capabilities(
-                match.toscaEntityTemplate, capability
+                match.toscaEntityTemplate, capability, req_def
             )
             if capabilities:
                 return match.toscaEntityTemplate, capabilities[0]
@@ -687,6 +699,7 @@ class EntitySpec(ResourceRef):
     ):
         if not toscaNodeTemplate:
             toscaNodeTemplate = next(iter(topology.topology_template.nodetemplates))
+        assert toscaNodeTemplate
         self.toscaEntityTemplate: EntityTemplate = toscaNodeTemplate
         self.topology: TopologySpec = topology
         self.spec = topology.spec
@@ -706,13 +719,14 @@ class EntitySpec(ResourceRef):
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
-        # XXX user should be able to declare default attribute values
+        # XXX user should be able to declare default attribute values on templates
         self.propertyDefs: Dict[str, Property] = toscaNodeTemplate.get_properties()
         self.attributeDefs: Dict[str, Property] = {}
         self.properties = CommentedMap(
             [(prop.name, prop.value) for prop in self.propertyDefs.values()]
         )
         if toscaNodeTemplate.type_definition:
+            self.global_type = toscaNodeTemplate.type_definition.global_name
             # add attributes definitions
             attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()
             self.defaultAttributes: Dict[str, Any] = {
@@ -722,7 +736,10 @@ class EntitySpec(ResourceRef):
             }
             for name, aDef in attrDefs.items():
                 prop = Property(
-                    name, aDef.default, aDef.schema, toscaNodeTemplate.custom_def
+                    name,
+                    aDef.default,
+                    aDef.schema,
+                    toscaNodeTemplate.type_definition.custom_def,
                 )
                 self.propertyDefs[name] = prop
                 self.attributeDefs[name] = prop
@@ -738,6 +755,7 @@ class EntitySpec(ResourceRef):
                         toscaNodeTemplate.custom_def,
                     )
         else:
+            self.global_type = self.type
             self.defaultAttributes = {}
 
     def _resolve_prop(self, key: str) -> "EntitySpec":
@@ -882,13 +900,21 @@ class EntitySpec(ResourceRef):
     def tpl(self) -> dict:
         return self.toscaEntityTemplate.entity_tpl
 
+    def get_interface_requirements(self) -> List[str]:
+        return self.toscaEntityTemplate.get_interface_requirements()
+
     def find_props(self, attributes):
         yield from find_props(attributes, self.propertyDefs)
 
     @property
     def base_dir(self) -> str:
-        if self.toscaEntityTemplate._source:
-            return self.toscaEntityTemplate._source
+        base_dir = getattr(
+            self.toscaEntityTemplate.entity_tpl,
+            "base_dir",
+            self.toscaEntityTemplate._source,
+        )
+        if base_dir:
+            return base_dir
         elif self.spec:
             return self.spec.base_dir
         else:
@@ -998,11 +1024,6 @@ class NodeSpec(EntitySpec):
                 tpl = list(req.entity_tpl.values())[0]
                 relationship.toscaEntityTemplate.entity_tpl = tpl
             return relationship
-
-    def get_interface_requirements(self):
-        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
-            self.toscaEntityTemplate.entity_tpl
-        )
 
     @property
     def artifacts(self) -> Dict[str, "ArtifactSpec"]:
@@ -1238,6 +1259,26 @@ class NodeSpec(EntitySpec):
         self, req_tpl: dict, nodetype: Optional[str]
     ) -> Set["NodeSpec"]:
         "Return a list of nodes that match this requirement's constraints"
+        if isinstance(self.toscaEntityTemplate.custom_def, Namespace) and req_tpl.get(
+            "!namespace-node"
+        ):
+            node_type_namespace = self.toscaEntityTemplate.custom_def.find_namespace(
+                req_tpl.get("!namespace-node")
+            )
+            try:
+                ExceptionCollector.pause()
+                nodetype = StatefulEntityType(
+                    nodetype, StatefulEntityType.NODE_PREFIX, node_type_namespace
+                ).global_name
+            except TOSCAException as e:
+                logger.debug(
+                    f'requirement node type "%s" not found in namespace "%s"',
+                    nodetype,
+                    node_type_namespace.namespace_id,
+                )
+            finally:
+                ExceptionCollector.resume()
+
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):
             if is_function(c):
@@ -1272,7 +1313,7 @@ class RelationshipSpec(EntitySpec):
         # its RelationshipType has valid_target_types
         if not template:
             template = get_default_topology().topology_template.relationship_templates[
-                0
+                "_default"
             ]
             spec = ToscaSpec(get_default_topology())
             topology = spec.topology
@@ -1330,6 +1371,7 @@ class RelationshipSpec(EntitySpec):
         if defaultFor == self.toscaEntityTemplate.ANY and capability.name == "feature":
             # XXX get_matching_capabilities() buggy in this case
             return True  # optimization
+        # XXX defaultFor might be type, resolve to global
         if (
             defaultFor == self.toscaEntityTemplate.ANY
             or defaultFor == nodeTemplate.name
@@ -1480,7 +1522,7 @@ class TopologySpec(EntitySpec):
         self.spec: ToscaSpec = spec
         self.spec._topology_templates[id(topology)] = self
         self.name = "root"
-        self.type = "~topology"
+        self.global_type = self.type = "~topology"
         self.topology = self
         self.path = path
         self.parent_topology: Optional["TopologySpec"] = parent
@@ -1492,7 +1534,7 @@ class TopologySpec(EntitySpec):
                 continue  # invalidate template
             nodeTemplate = NodeSpec(template, self)
             self.node_templates[template.name] = nodeTemplate
-        for template in topology.relationship_templates:
+        for template in topology.relationship_templates.values():
             relTemplate = RelationshipSpec(template, self)
             self.relationship_templates[template.name] = relTemplate
         inputs = inputs or {}
@@ -1583,6 +1625,20 @@ class TopologySpec(EntitySpec):
                 for relSpec in self.relationship_templates.values()
                 if relSpec.toscaEntityTemplate.default_for
             ]
+            if not self.primary_provider:
+                # no cloud provider specified assume at least this default connection can happen
+                generic = RelationshipSpec(
+                    RelationshipTemplate(
+                        dict(
+                            type="unfurl.relationships.ConnectsTo.ComputeMachines",
+                            default_for=True,
+                        ),
+                        "_default_provider",
+                        self.topology_template.custom_defs,
+                    ),
+                    self,
+                )
+                self._defaultRelationships.append(generic)
         return self._defaultRelationships
 
     @property

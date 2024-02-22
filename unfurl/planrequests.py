@@ -10,6 +10,7 @@ from typing import (
     Iterator,
     List,
     Mapping,
+    MutableMapping,
     Optional,
     Sequence,
     Set,
@@ -107,9 +108,7 @@ class ConfigurationSpec:
         self.artifact = primary
         self.dependencies = dependencies
         self.interface = interface
-        self.entry_state = cast(
-            NodeState, to_enum(NodeState, entry_state, NodeState.creating)
-        )
+        self.entry_state = cast(NodeState, to_enum(NodeState, entry_state))
         self.base_dir = base_dir
 
     def find_invalidate_inputs(self, inputs):
@@ -129,6 +128,7 @@ class ConfigurationSpec:
         className: str = self.className
         if ":" in className:
             from .dsl import DslMethodConfigurator
+
             module_name, qualname, action = className.split(":")
             module = importlib.import_module(module_name)
             cls_name, sep, func_name = qualname.rpartition(".")
@@ -187,18 +187,17 @@ class PlanRequest:
     def set_error(self, msg: str):
         self.error = msg
         if self.task:
-            self.task.local_status = Status.error
-            self.task.result = msg
+            self.task.finished(self.task.done(False, False, Status.error, result=msg))
 
     @property
     def root(self) -> Optional["EntityInstance"]:
-        return self.target.root if self.target else None
+        return cast(EntityInstance, self.target.root) if self.target else None
 
     def add_dependencies(self, dependencies: List["Dependency"]) -> List["Dependency"]:
         self.dependencies.extend(dependencies)
         return self.dependencies
 
-    def get_operation_artifacts(self):
+    def get_operation_artifacts(self) -> List["JobRequest"]:
         return []
 
     def include_in_plan(self):
@@ -311,7 +310,7 @@ class PlanRequest:
         return type(self).__name__
 
     def get_notready_message(self) -> str:
-        start = "Never ran:"
+        start = "Never ran: "
         msg = start
         if self.render_errors:
             render_deps = [
@@ -319,7 +318,8 @@ class PlanRequest:
                 for error in self.render_errors
                 if getattr(error, "dependency", None)
             ]
-            msg += f" invalid dependencies: {render_deps}"
+            if render_deps:
+                msg += f" invalid dependencies: {render_deps}"
         if self.dependencies:
             not_operational = [
                 dep.name
@@ -330,14 +330,14 @@ class PlanRequest:
             invalid_deps = [
                 dep.name for dep in self.dependencies if dep not in not_operational
             ]
-            if msg != start:
-                msg += " and "
             if not_operational:
-                msg += f"non-operational dependencies: {not_operational}."
-            if msg != start:
-                msg += " and "
+                if msg != start:
+                    msg += " and "
+                msg += f"non-operational dependencies: {not_operational}"
             if invalid_deps:
-                msg += f" unfulfilled dependencies: {invalid_deps}."
+                if msg != start:
+                    msg += " and "
+                msg += f" unfulfilled dependencies: {invalid_deps}"
         if msg != start:
             return msg
         if self.group and self.group.target.name != self.target.name:
@@ -491,7 +491,7 @@ class TaskRequest(PlanRequest):
                 )
         return None
 
-    def get_operation_artifacts(self):
+    def get_operation_artifacts(self) -> List["JobRequest"]:
         artifacts = []
         if self.configSpec.dependencies:
             for artifact in self.configSpec.dependencies:
@@ -565,8 +565,8 @@ class TaskRequestGroup(PlanRequest):
         self.starting_status = target.local_status
         self.children: List[PlanRequest] = []
 
-    def get_operation_artifacts(self):
-        artifacts = []
+    def get_operation_artifacts(self) -> List["JobRequest"]:
+        artifacts: List[JobRequest] = []
         for req in self.children:
             artifacts.extend(req.get_operation_artifacts())
         return artifacts
@@ -627,7 +627,7 @@ class JobRequest:
         self.update = update
 
     def set_error(self, msg: str):
-        self.errors.append(UnfurlError(msg))  # type: ignore
+        cast(list, self.errors).append(UnfurlError(msg))
 
     def get_instance_specs(self):
         if self.update:
@@ -872,7 +872,7 @@ def _render_request(
         return bool(dependent_refs), None
     elif error:
         task.fail_work_folders()
-        task._reset() # rollback changes
+        task._reset()  # rollback changes
         task.logger.warning("Configurator render failed", exc_info=error_info)
         return None, error
     else:
@@ -955,11 +955,11 @@ def do_render_requests(
     return ready, notReady, errors
 
 
-def _filter_config(opts, config, target):
+def _filter_config(opts: "JobOptions", config: "ConfigurationSpec", target):
     if opts.readonly and config.workflow != "discover":
         return None, "read only"
-    if opts.requiredOnly and not config.required:
-        return None, "required"
+    # if opts.requiredOnly and not config.required:
+    #     return None, "required"
     if opts.instance and target.name != opts.instance:
         return None, f"instance {opts.instance}"
     if opts.instances and target.name not in opts.instances:
@@ -967,7 +967,9 @@ def _filter_config(opts, config, target):
     return config, None
 
 
-def filter_task_request(jobOptions, req):
+def filter_task_request(
+    jobOptions: "JobOptions", req: TaskRequest
+) -> Optional[TaskRequest]:
     configSpec = req.configSpec
     configSpecName = configSpec.name
     configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)
@@ -1032,24 +1034,33 @@ def find_parent_resource(
 
 
 def create_instance_from_spec(
-    _manifest: "Manifest", target: EntityInstance, rname: str, resourceSpec
+    _manifest: "Manifest",
+    target: EntityInstance,
+    rname: str,
+    resourceSpec: MutableMapping[str, Any],
 ):
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:
-        resourceSpec["parent"] = target.name
+        pname = resourceSpec["parent"] = target.name
     elif pname == "HOST":
         if target.parent:
-            resourceSpec["parent"] = target.parent.name  # type: ignore  # unreachable
+            pname = resourceSpec["parent"] = target.parent.name  # type: ignore  # unreachable
         else:
-            resourceSpec["parent"] = "root"
+            pname = resourceSpec["parent"] = "root"
 
     if isinstance(resourceSpec.get("template"), dict):
         # inline node template, add it to the spec
         tname = resourceSpec["template"].pop("name", rname)
-        nodeSpec = target.template.topology.add_node_template(
-            tname, resourceSpec["template"]
-        )
+        template = resourceSpec["template"]
+        if pname and pname != "root":
+            requirements = template.setdefault("requirements", [])
+            for req in requirements:
+                if "host" in req:
+                    break  # don't mess with this
+            else:
+                requirements.append(dict(host=pname))
+        nodeSpec = target.template.topology.add_node_template(tname, template)
         resourceSpec["template"] = nodeSpec.name
 
     if resourceSpec.get("readyState") and "created" not in resourceSpec:
@@ -1069,7 +1080,9 @@ def create_instance_from_spec(
     else:
         parent = target.root
     # note: if resourceSpec[parent] is set it overrides the parent keyword
-    return _manifest.create_node_instance(rname, resourceSpec, parent=parent)
+    return _manifest.create_node_instance(
+        rname, cast(dict, resourceSpec), parent=parent
+    )
 
 
 def _maybe_mock(iDef, template):
@@ -1190,7 +1203,7 @@ def set_default_command(
     if not operation_host or operation_host == "localhost":
         className = "unfurl.configurators.shell.ShellConfigurator"
         if shell:
-            shellArgs = dict(command=implementation)
+            shellArgs: Dict[str, Any] = dict(command=implementation)
         else:
             shellArgs = dict(command=[implementation])
     else:
@@ -1215,8 +1228,8 @@ def _set_config_spec_args(
     kw: ConfigurationSpecKeywords,
     guessing: str,
     template: Optional[EntitySpec],
-    base_dir,
-    dry_run,
+    base_dir: str,
+    dry_run: bool,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if no artifact or className, an error
     artifact = kw.get("primary")
@@ -1262,7 +1275,14 @@ def _set_config_spec_args(
             klass = lookup_class(className)
     except Exception:
         klass = None
-        logger.debug("exception while instantiating %s", className, exc_info=True)
+        if guessing:
+            logger.debug(
+                "exception instantiating %s while guessing at operation implementation",
+                className,
+                exc_info=True,
+            )
+        else:
+            raise UnfurlError(f"exception while instantiating {className}")
 
     # invoke configurator classmethod to give configurator a chance to customize configspec (e.g. add dependencies)
     if klass:
@@ -1296,8 +1316,9 @@ def _get_config_spec_args_from_implementation(
     iDef: OperationDef,
     inputs: Mapping[str, Any],
     template: Optional[EntitySpec],
-    operation_host,
-    dry_run=False,
+    operation_host: Optional[str],
+    dry_run: bool = False,
+    safe_mode: bool = False,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
@@ -1334,6 +1355,10 @@ def _get_config_spec_args_from_implementation(
     # if not operation_instance:
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
+    if not base_dir:
+        base_dir = getattr(iDef.ntype.defs, "base_dir", None)
+        if not base_dir:
+            base_dir = template.base_dir if template else "."
     kw["base_dir"] = base_dir
     artifact = None
     guessing = ""
@@ -1363,4 +1388,6 @@ def _get_config_spec_args_from_implementation(
     else:
         kw["dependencies"] = []
 
+    if safe_mode:
+        return kw
     return _set_config_spec_args(kw, guessing, template, base_dir, dry_run)

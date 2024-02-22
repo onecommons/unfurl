@@ -79,10 +79,7 @@ artifact_types:
     interfaces:
       Install:
         check:
-          implementation: 
-            environment:
-              # XXX make this conditional only for ansible 2.11 / python 3.7
-              ANSIBLE_GALAXY_SERVER: https://old-galaxy.ansible.com/
+          implementation:
             className: Cmd
           inputs:
             cmd: "ansible-galaxy collection list --format json {{SELF.file}}"
@@ -90,18 +87,16 @@ artifact_types:
               success: True # command returns error if there are no collections at all so set success true regardless
             # check if output isn't not empty
             # XXX check version if specified, set to degraded if mismatch
-            resultTemplate: |  
-              {%if returncode == 0 and stdout | from_json %}
-              readyState: ok
-              {% else %}
-              readyState: absent
-              {% endif %} 
+            resultTemplate: |
+                {%if returncode == 0 and stdout | from_json %}
+                readyState: ok
+                # {{ {'python': 'unfurl.configurators.ansible.reload_collections'} | eval }}
+                {% else %}
+                readyState: absent
+                {% endif %}
       Standard:
         create:
-          implementation: 
-            environment:
-              # XXX make this conditional only for ansible 2.11 / python 3.7
-              ANSIBLE_GALAXY_SERVER: https://old-galaxy.ansible.com/
+          implementation:
             className: Cmd
           inputs:
             # XXX add version if specified
@@ -163,7 +158,7 @@ topology_template:
           type: artifact.AsdfTool
           file: kompose
           properties:
-            version: v1.26.1
+            version: "1.26.1"
 
         google-auth:
           type: artifact.PythonPackage

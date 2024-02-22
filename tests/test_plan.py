@@ -204,13 +204,14 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
                     "reason": "add",
                 }
             ]
-        assert summary == {
+        blocked = 2 if compute_status == "error" else 0
+        expected_summary = {
             "job": {
                 "id": "A01110000000",
                 "status": compute_status or "ok",
                 "total": total,
                 "ok": total - expected_errors,
-                "error": expected_errors,
+                "error": expected_errors - blocked,
                 "unknown": 0,
                 "skipped": 0,
                 "changed": 1 if compute_status == "error" else total,
@@ -218,6 +219,9 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
             "outputs": {},
             "tasks": expected,
         }
+        if blocked:
+            expected_summary["job"]["blocked"] = blocked
+        assert summary == expected_summary
         # print("deploy", job.manifest.status_summary())
 
         if compute_status != "ok":

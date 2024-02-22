@@ -11,6 +11,7 @@ except ImportError:
     sys.path.insert(0, vendor_dir)
     import toscaparser
 from ._tosca import *
+from ._tosca import EvalData
 
 from .builtin_types import nodes
 from .builtin_types import interfaces
@@ -22,6 +23,10 @@ from .builtin_types import policies
 from .builtin_types import groups
 
 __all__ = [
+    "EvalData",
+    "safe_mode",
+    "global_state_mode",
+    "global_state_context",
     "nodes",
     "capabilities",
     "relationships",
@@ -56,6 +61,8 @@ __all__ = [
     "HZ",
     "Hz",
     "InterfaceType",
+    "JsonType",
+    "JsonObject",
     "KB",
     "KBPS",
     "KHZ",
@@ -79,6 +86,7 @@ __all__ = [
     "AttributeOptions",
     "PropertyOptions",
     "Namespace",
+    "NodeTemplateDirective",
     "NodeType",
     "PolicyType",
     "Property",
@@ -86,7 +94,6 @@ __all__ = [
     "MISSING",
     "DEFAULT",
     "CONSTRAINED",
-    "PortSpec",
     "RelationshipType",
     "Requirement",
     "S",
@@ -101,6 +108,7 @@ __all__ = [
     "Tibps",
     "Time",
     "ToscaParserDataType",
+    "ToscaType",
     "ToscaInputs",
     "ToscaOutputs",
     "US",

@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
+from urllib.parse import urlparse
 from ruamel.yaml.comments import CommentedMap
 
 from .lock import Lock
@@ -41,12 +42,12 @@ from .util import (
     taketwo,
 )
 from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
-from .packages import Package, PackageSpec, PackagesType
+from .packages import Package, PackageSpec, PackagesType, find_canonical, get_package_id_from_url
 from .merge import merge_dicts
 from .result import ChangeRecord, ResourceRef
 from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
 from .logs import getLogger
-from . import __version__
+from . import DEFAULT_CLOUD_SERVER, __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
 import tosca
@@ -61,7 +62,7 @@ logger = getLogger("unfurl")
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict:
+def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str, Any]:
     """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment."""
     connections = environment.get(key)
     if not connections:
@@ -408,7 +409,9 @@ class Manifest(AttributeManager):
     def _create_substituted_topology(
         self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
     ) -> Optional[TopologyInstance]:
-        root = cast(TopologyInstance, parent.root if parent else self.get_root_resource())
+        root = cast(
+            TopologyInstance, parent.root if parent else self.get_root_resource()
+        )
         templateName = resourceSpec.get("template", rname)
         template = cast(Optional[NodeSpec], self.load_template(templateName, parent))
         if template is None:
@@ -545,8 +548,24 @@ class Manifest(AttributeManager):
             instance._properties = properties
         return instance
 
-    def status_summary(self):
-        def summary(instance, indent):
+    @staticmethod
+    def is_instantiated(resource, checkstatus=True) -> bool:
+        if "virtual" in resource.template.directives:
+            return False
+        if not resource.last_change and (
+            not resource.local_status
+            or (
+                checkstatus
+                and resource.local_status in [Status.unknown, Status.ok, Status.pending]
+            )
+        ):
+            return False
+        return True
+
+    def status_summary(self, verbose=False):
+        def summary(instance, indent, show_virtual=True):
+            instantiated = self.is_instantiated(instance)
+            computed = " computed " if verbose and instance.is_computed() else ""
             status = "" if instance.status is None else instance.status.name
             state = instance.state and instance.state.name or ""
             if instance.created:
@@ -556,16 +575,33 @@ class Manifest(AttributeManager):
                     created = f"created by {instance.created}"
             else:
                 created = ""
-            output.append(f"{' ' * indent}{instance} {status} {state} {created}")
-            indent += 4
+            instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
+            if verbose:
+                instance_label  += f"({instance.template.global_type})"
+            local = (
+                f"({'None' if instance.local_status is None else instance.local_status.name})"
+                if verbose
+                else ""
+            )
+            if instantiated or verbose:
+                vlabel = "" if instantiated else " virtual"
+                output.append(
+                    f"{' ' * indent}{instance_label}{vlabel}{computed} {status}{local} {state} {created}"
+                )
+                indent += 4
+            elif show_virtual:
+                output.append(f"{' ' * indent}{instance_label} virtual{computed}")
+                indent += 4
             if isinstance(instance, HasInstancesInstance):
                 for rel in instance.requirements:
-                    if rel.local_status is not None:
-                        summary(rel, indent)
+                    summary(rel, indent, False)
                 if getattr(instance.template, "substitution", None) and instance.shadow:
                     summary(instance.shadow.root, indent)
                 for child in instance.instances:
                     summary(child, indent)
+                if verbose:
+                    for child in instance.artifacts.values():
+                        summary(child, indent)
 
         output: List[str] = []
         summary(self.rootResource, 0)
@@ -587,6 +623,18 @@ class Manifest(AttributeManager):
         if commits:
             return commits[0].committed_datetime
         return None
+
+    def get_package_url(self) -> str:
+        if self.repo:
+            url = self.repo.url
+        else:
+            url = self.tosca.topology.path or "" if self.tosca and self.tosca.topology else ""
+        if url and self.package_specs:
+            namespace_id, _, _ = get_package_id_from_url(url)
+            canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
+            if namespace_id and canonical:
+                return find_canonical(self.package_specs, canonical, namespace_id)
+        return url or ""
 
     def find_path_in_repos(self, path, importLoader=None):
         """
@@ -636,6 +684,14 @@ class Manifest(AttributeManager):
             resolver = self.get_import_resolver()
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
+        lock = config.get("lock")
+        if lock and "package_rules" in lock:
+            package_specs = [PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])]
+            if package_specs and not self.package_specs:
+                # only use lock section package rules if the environment didn't set some already
+                logger.debug("applying package rules from lock section: %s", package_specs)
+                self.package_specs = package_specs
+
         for name, tpl in repositories.items():
             # only set if we haven't seen this repository before
             toscaRepository = resolver.get_repository(name, tpl)

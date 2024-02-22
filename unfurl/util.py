@@ -46,8 +46,6 @@ import warnings
 import codecs
 import io
 from contextlib import contextmanager
-import string
-import random
 from click.termui import unstyle
 
 from shutil import which
@@ -311,9 +309,8 @@ def check_class_registry(kind: str) -> bool:
     return kind in _ClassRegistry or kind in _shortNameRegistry
 
 
-# XXX: can't infer arg "default"'s type for now
 def lookup_class(
-    kind: str, apiVersion: Optional[str] = None, default: Optional[str] = None
+    kind: str
 ) -> object:
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
@@ -478,35 +475,8 @@ def get_base_dir(path: str) -> str:
         return os.path.normpath(os.path.dirname(path))
 
 
-def truncate_str(v: str) -> str:
-    s = str(v)
-    if len(s) > 1000:
-        return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
-    return v
-
-
 def clean_output(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(value))
-
-
-def get_random_password(
-    count=12,
-    prefix="uv",
-    extra=None,
-    valid_chars="",
-    start=string.ascii_letters,
-):
-    srandom = random.SystemRandom()
-    if not valid_chars:
-        valid_chars = string.ascii_letters + string.digits
-    if extra is None:
-        extra = "%()*+,-./<>?=^_~"
-    if not start:
-        start = valid_chars
-    source = valid_chars + extra
-    return prefix + "".join(
-        srandom.choice(source if i else start) for i in range(count)
-    )
 
 
 @contextmanager
@@ -685,7 +655,7 @@ def is_relative_to(p, *other) -> bool:
 
 
 def substitute_env(contents, env=None, preserve_missing=False):
-    """
+    r"""
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
     Use \${NAME} to ignore
     """
@@ -731,7 +701,7 @@ def filter_env(
     addOnly: bool = False,
     sub: Optional[MutableMapping] = None,
 ) -> Dict[str, str]:
-    """
+    r"""
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
 
     Args:
@@ -831,6 +801,7 @@ required_envvars = [
     "PY_COLORS",
     "UNFURL_OVERWRITE_POLICY",
     "UNFURL_EXPORT_LOCALNAMES",
+    "UNFURL_GLOBAL_NAMESPACE_PACKAGES",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]

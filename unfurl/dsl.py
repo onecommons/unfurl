@@ -1,3 +1,5 @@
+# Copyright (c) 2023 Adam Souzis
+# SPDX-License-Identifier: MIT
 """
 Binding between Unfurl's runtime and the TOSCA Python DSL.
 """
@@ -27,13 +29,12 @@ import os
 from pathlib import Path
 import importlib
 import pprint
+import re
 import types
 from typing import (
     Any,
     Callable,
-    ClassVar,
     Dict,
-    ForwardRef,
     Generic,
     List,
     MutableMapping,
@@ -49,12 +50,13 @@ from typing import (
 
 import tosca
 from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
+import tosca.loader
 from tosca._tosca import (
     _Tosca_Field,
     _ToscaType,
     global_state,
     FieldProjection,
-    _Ref,
+    EvalData,
     _BaseDataType,
     _get_field_from_prop_ref,
     _get_expr_prefix,
@@ -62,26 +64,15 @@ from tosca._tosca import (
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.nodetemplate import NodeTemplate
 from .logs import getLogger
-from .eval import RefContext, set_eval_func, Ref
-from .result import Results, ResultsItem, ResultsMap
+from .eval import RefContext, _map_value, set_eval_func, Ref
+from .result import Results, ResultsItem, ResultsMap, CollectionProxy
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
 from .repo import RepoView
 from .util import UnfurlError, check_class_registry, get_base_dir, register_class
 from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy, PythonToYaml
 from unfurl.configurator import Configurator, TaskView
-from typing_extensions import (
-    dataclass_transform,
-    get_args,
-    get_origin,
-    Annotated,
-    Literal,
-    Self,
-    get_type_hints,
-)
 import sys
-import logging
-import toscaparser.properties
 import toscaparser.capabilities
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
@@ -89,46 +80,11 @@ from unfurl.yamlmanifest import YamlManifest
 
 if TYPE_CHECKING:
     from .yamlloader import ImportResolver
+    from .job import Runner
 
 logger = getLogger("unfurl")
 
 _N = TypeVar("_N", bound=tosca.Namespace)
-
-
-def runtime_test(namespace: Type[_N]) -> _N:
-    from .job import Runner
-
-    converter = PythonToYaml(namespace.get_defs())
-    doc = converter.module2yaml(True)
-    # pprint.pprint(doc)
-    config = dict(
-        apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc)
-    )
-    manifest = YamlManifest(config)
-    assert manifest.rootResource
-    # a plan is needed to create the instances
-    job = Runner(manifest).static_plan()
-    assert manifest.rootResource.attributeManager
-    # make sure we share the change_count
-    ctx = manifest.rootResource.attributeManager._get_context(manifest.rootResource)
-    clone = namespace()
-    node_templates = {
-        t._name: (python_name, t)
-        for python_name, t in namespace.get_defs().items()
-        if isinstance(t, tosca.NodeType)
-    }
-    count = 0
-    for r in manifest.rootResource.get_self_and_descendants():
-        if r.name in node_templates:
-            python_name, t = node_templates[r.name]
-            proxy = proxy_instance(r, t.__class__, ctx)
-            assert proxy._obj is t  # make sure it found this template
-            setattr(clone, python_name, proxy)
-            count += 1
-    assert count == len(node_templates), f"{count}, {len(node_templates)}"
-    assert tosca.global_state.mode == "runtime"
-    tosca.global_state.context = ctx
-    return clone
 
 
 def convert_to_yaml(
@@ -140,20 +96,23 @@ def convert_to_yaml(
 ) -> dict:
     from .yamlloader import yaml_dict_type
 
-    import_resolver.expand = False
     namespace: Dict[str, Any] = {}
     logger.trace(
-        f"converting {path} to Python in {repo_view.repository.name if repo_view and repo_view.repository else base_dir}"
+        f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"
     )
     if repo_view and repo_view.repository:
-        package_path = Path(get_base_dir(path)).relative_to(repo_view.working_dir)
+        if repo_view.repo:
+            root_path = repo_view.working_dir
+        else:
+            root_path = base_dir
+        package_path = Path(get_base_dir(path)).relative_to(root_path)
         relpath = str(package_path).strip("/").replace("/", ".")
         if repo_view.repository.name == "unfurl":
             package = "unfurl."
         else:
-            # make sure tosca_repository symlink exists
-            name = repo_view.get_link(base_dir)[0]
-            package = "tosca_repository." + name
+            name = re.sub(r"\W", "_", repo_view.repository.name)
+            assert name.isidentifier(), name
+            package = "tosca_repositories." + name
     else:
         package_path = Path(get_base_dir(path)).relative_to(base_dir)
         relpath = str(package_path).replace("/", ".").strip(".")
@@ -165,6 +124,9 @@ def convert_to_yaml(
     safe_mode = import_resolver.get_safe_mode()
     write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
     module_name = package + "." + Path(path).stem
+    tosca.loader.install(import_resolver, base_dir)
+    if os.getenv("UNFURL_TEST_SAFE_LOADER") == "never":
+        safe_mode = False
     yaml_src = python_src_to_yaml_obj(
         contents,
         namespace,
@@ -178,8 +140,7 @@ def convert_to_yaml(
         import_resolver,
     )
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
-        print("converted ", path, "to:")
-        pprint.pprint(yaml_src)
+        logger.debug("converted %s to:\n%s", path, pprint.pformat(yaml_src), extra=dict(truncate=0))
     return yaml_src
 
 
@@ -249,6 +210,10 @@ class DslMethodConfigurator(Configurator):
         obj = proxy_instance(task.target, self.cls, task.inputs.context)
         return obj._invoke(self.func, task)
 
+    def can_dry_run(self, task):
+        if self.configurator:
+            return self.configurator.can_dry_run(task)
+        return False
 
 def eval_computed(arg, ctx):
     """
@@ -267,12 +232,11 @@ def eval_computed(arg, ctx):
 set_eval_func("computed", eval_computed)
 
 
-class ProxyCollection:
+class ProxyCollection(CollectionProxy):
     """
     For proxying lists and maps set on a ToscaType template to a value usable by the runtime.
     It will create proxies of Tosca datatypes on demand.
     """
-
     def __init__(self, collection, type_info: tosca.TypeInfo):
         self._values = collection
         self._type_info = type_info
@@ -404,7 +368,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         self._cache = Cache(self._context)
         # when calling into python code context won't have the basedir for the location of the code
         # (since its not imported as yaml). So set it now.
-        path = sys.modules[self._cls.__module__].__file__
+        if self._cls.__module__ == "builtins":
+            path = __file__
+        else:
+            path = cast(str, sys.modules[self._cls.__module__].__file__)
         assert path
         self._context.base_dir = os.path.dirname(path)
 
@@ -439,26 +406,22 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
-        assert isinstance(ref, _Ref)  # actually it will be a _Ref
+        assert isinstance(ref, EvalData)  # actually it will be a EvalData
         expected = Expected or tosca.nodes.Root
         return self._execute_resolve_one(ref, requirement, expected)
 
     def _execute_resolve_one(
         self,
-        ref: _Ref,
+        ref: EvalData,
         field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo] = None,
     ) -> Any:
         """
         Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
         """
-        result = Ref(ref.expr).resolve_one(self._context)
+        result = _map_value(ref.expr, self._context)
         if Expected and not isinstance(Expected, tosca.TypeInfo):
             Expected = tosca.pytype_to_tosca_type(Expected)
-        if isinstance(field_ref, str):
-            field_name = field_ref
-        else:
-            field_name = field_ref.tosca_name
         if result is None:
             if Expected and not cast(tosca.TypeInfo, Expected).optional:
                 raise UnfurlError(f"No results found for {ref.expr}")
@@ -482,10 +445,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             _type = None
         if _type and _type.is_sequence():
             return cast(
-                T, self._execute_resolve_all(cast(_Ref, ref), prop_name, _type.types[0])
+                T, self._execute_resolve_all(cast(EvalData, ref), prop_name, _type.types[0])
             )
         else:
-            return cast(T, self._execute_resolve_one(cast(_Ref, ref), prop_name, _type))
+            return cast(T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type))
 
     def find_configured_by(
         self,
@@ -511,16 +474,16 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             requirement, Expected
         )
         return self._execute_resolve_all(
-            cast(_Ref, ref), requirement, Expected or tosca.nodes.Root
+            cast(EvalData, ref), requirement, Expected or tosca.nodes.Root
         )
 
     def _execute_resolve_all(
         self,
-        ref: _Ref,
+        ref: EvalData,
         field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo],
     ) -> List[Any]:
-        result = Ref(cast(_Ref, ref).expr).resolve(self._context)
+        result = Ref(cast(Union[str, dict], ref.expr)).resolve(self._context)
         return [_proxy_eval_result(item, self._context, Expected) for item in result]
 
     if not TYPE_CHECKING:
@@ -602,7 +565,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         except KeyError:
             pass
         field = self._get_field(name)
-        if not field:
+        if not field or not isinstance(field, _Tosca_Field):
             if name in ["_name", "_metadata", "_directives"]:
                 # XXX other special attributes
                 return getattr(self._instance.template.toscaEntityTemplate, name[1:])
@@ -625,16 +588,20 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 return val
             elif name in self._instance.attributes:  # untyped properties
                 return self._instance.attributes[name]
-        elif isinstance(field, _Tosca_Field):
+        else:
             if field.tosca_field_type in (
                 ToscaFieldType.property,
                 ToscaFieldType.attribute,
             ):
                 # self._context._trace=2
                 # self._instance.attributes.context._trace=2
-                val = _proxy_prop(
-                    field.get_type_info(), self._instance.attributes[field.tosca_name]
-                )
+                type_info = field.get_type_info()
+                if type_info.optional and field.tosca_name not in self._instance.attributes:
+                    val = None  # don't raise KeyError if the property isn't required
+                else:
+                    val = _proxy_prop(
+                        type_info, self._instance.attributes[field.tosca_name]
+                    )
                 self._cache[name] = val
                 return val
             elif field.tosca_field_type == ToscaFieldType.requirement:

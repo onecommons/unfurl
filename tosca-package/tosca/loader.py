@@ -27,7 +27,7 @@ logger = logging.getLogger("tosca")
 
 
 def get_module_path(module) -> str:
-    if module.__spec__ and module.__spec__.origin:
+    if getattr(module, "__spec__", None) and module.__spec__.origin:
         # __file__ can be wrong
         return module.__spec__.origin
     elif module.__file__:
@@ -129,9 +129,9 @@ class ToscaYamlLoader(Loader):
     """Loads a Yaml service template and converts it to Python"""
 
     def __init__(self, full_name, filepath, modules=None):
-        self.full_name = full_name
-        self.filepath = filepath
-        self.modules = modules
+        self.full_name: str = full_name
+        self.filepath: str = filepath
+        self.modules: Optional[dict] = modules
 
     def create_module(self, spec):
         return None
@@ -150,13 +150,22 @@ class ToscaYamlLoader(Loader):
                 src = f.read()
         safe_mode = import_resolver.get_safe_mode() if import_resolver else True
         module.__dict__["__file__"] = python_filepath
+        for i in range(self.full_name.count(".")):
+            path = path.parent
         restricted_exec(
-            src, vars(module), path.parent, self.full_name, self.modules, safe_mode
+            src, vars(module), path, self.full_name, self.modules, safe_mode
         )
 
 
 class ImmutableModule(ModuleType):
-    __always_safe__ = ("__safe__", "__all__", "__name__", "__package__", "__file__", "__root__")
+    __always_safe__ = (
+        "__safe__",
+        "__all__",
+        "__name__",
+        "__package__",
+        "__file__",
+        "__root__",
+    )
 
     def __init__(self, name="__builtins__", **kw):
         ModuleType.__init__(self, name)
@@ -198,7 +207,14 @@ class DeniedModule(ImmutableModule):
             # the import machinery will try to access attributes on the fromlist
             # pretend it is a DeniedModule to defer ImportErrors until access
             return DeniedModule(__name, (), __package__=name)
-        raise ImportError("Import of " + name + " is not permitted", name=name)
+        try:
+            __package__ = object.__getattribute__(self, "__package__")
+        except:
+            raise ImportError("Import of " + name + " is not permitted", name=name)
+        else:
+            raise ImportError(
+                f"Import of {name} in {__package__} is not permitted", name=name
+            )
 
 
 def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
@@ -258,11 +274,14 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
         # Set the module as an attribute on its parent.
         parent_module = modules[parent]
         child = name.rpartition(".")[2]
-        try:
-            setattr(parent_module, child, module)
-        except AttributeError:
-            msg = f"Cannot set an attribute on {parent!r} for child module {child!r}"
-            logger.warning(msg)
+        if not hasattr(parent_module, child):
+            try:
+                setattr(parent_module, child, module)
+            except AttributeError:
+                msg = (
+                    f"Cannot set an attribute on {parent!r} for child module {child!r}"
+                )
+                logger.warning(msg)
     return module
 
 
@@ -292,7 +311,7 @@ def _load_or_deny_module(name, ALLOWED_MODULES, modules):
 def __safe_import__(
     base_dir: str,
     ALLOWED_MODULES: Sequence[str],
-    modules,
+    modules: Dict[str, ModuleType],
     name: str,
     globals=None,
     locals=None,
@@ -301,7 +320,9 @@ def __safe_import__(
 ):
     parts = name.split(".")
     if level == 0:
-        if name in modules:
+        is_allowed_package = name in ALLOWED_PRIVATE_PACKAGES
+        if name in modules and not (is_allowed_package and fromlist):
+            # we need to skip the second check to allow the fromlist to includes sub-packages
             module = modules[name]
             _check_fromlist(module, fromlist)
             return module if fromlist else modules[parts[0]]
@@ -322,7 +343,7 @@ def __safe_import__(
                 module = ImmutableModule(name, **vars(module))
                 modules[name] = module
                 return module
-        elif parts[0] not in ["tosca_repositories"]:
+        elif not is_allowed_package and parts[0] not in ["tosca_repositories"]:
             # these modules fall through to load_private_module():
             package_name, sep, module_name = name.rpartition(".")
             if package_name not in ALLOWED_PRIVATE_PACKAGES:
@@ -335,7 +356,6 @@ def __safe_import__(
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
-        base_dir = os.path.normpath(os.path.join(base_dir, "." * level))
 
     # load user code in our restricted environment
     module = load_private_module(base_dir, modules, name)
@@ -390,6 +410,7 @@ ALLOWED_MODULES = (
     "string",
     "DateTime",
     "unfurl",
+    "urllib.parse",
 )
 
 # XXX have the unfurl package set these:
@@ -482,6 +503,26 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
 
     def visit_AnnAssign(self, node: AnnAssign) -> Any:
         # missing in RestrictingNodeTransformer
+        # this doesn't need the logic that is in visit_Assign
+        # because it doesn't have a "targets" attribute,
+        # and node.target: Name | Attribute | Subscript
+        return self.node_contents_visit(node)
+
+    # new Python 3.12 nodes
+    def visit_TypeAlias(self, node) -> Any:
+        # missing in RestrictingNodeTransformer
+        return self.node_contents_visit(node)
+
+    def visit_TypeVar(self, node) -> Any:
+        # missing in RestrictingNodeTransformer
+        return self.node_contents_visit(node)
+
+    def visit_TypeVarTuple(self, node) -> Any:
+        # missing in RestrictingNodeTransformer
+        return self.node_contents_visit(node)
+
+    def visit_ParamSpec(self, node) -> Any:
+        # missing in RestrictingNodeTransformer
         return self.node_contents_visit(node)
 
     def visit_ClassDef(self, node: ClassDef) -> Any:
@@ -496,6 +537,8 @@ ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(ImmutableModule.__always_saf
 
 class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):
     def _name_ok(self, node, name: str):
+        if not name:
+            return False
         if name in FORBIDDEN_FUNC_NAMES:
             return False
         # don't allow dundernames
@@ -582,7 +625,9 @@ def restricted_exec(
 ) -> CompileResult:
     # package is the full name of module
     # path is base_dir to the root of the package
-    if FORCE_SAFE_MODE and not safe_mode:
+    if FORCE_SAFE_MODE == "never":
+        safe_mode = False
+    elif FORCE_SAFE_MODE and not safe_mode:
         safe_mode = True
         if FORCE_SAFE_MODE in ["warn", "stacktrace"]:
             logger.warning(
@@ -657,6 +702,7 @@ def restricted_exec(
     if package:
         namespace["__package__"] = package
     policy = SafeToscaDslNodeTransformer if safe_mode else ToscaDslNodeTransformer
+    # print(python_src)
     result = compile_restricted_exec(python_src, policy=policy)
     if PRINT_AST_SRC and sys.version_info.minor >= 9:
         c_ast = result.used_names[":top"]

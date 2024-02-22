@@ -13,12 +13,12 @@
               container: "{{ SELF.container }}"
               image: "{{ SELF.container_image }}" # overrides the container image
               files:
-                # files that aren't named docker-compose.yml are converted to configmaps
+                # TODO: files that aren't named docker-compose.yml are converted to configmaps
                 "docker-compose.yml": # overrides "container" and "image"
                     services:
                       app:
                         image: app:latest
-                "filename.txt": contents
+                "filename.txt": contents  
               registry_url: "{{ SELF.registry_url }}"
               # if set, create a pull secret:
               registry_user: "{{ SELF.registry_user }}"
@@ -29,25 +29,28 @@
               labels: {} # added to the docker service, see https://kompose.io/user-guide/#labels
               annotations: {} # annotations to add to the metadata section
               ingress_extras: {} # merge into ingress record
-              # XXX
-              # env: "{{ SELF.env }}" # currently only container.environment is supported
+              env: {} # merged with container.environment
 """
 
 from typing import cast, Union, Optional, List, Dict, Any
 from toscaparser.elements.portspectype import PortSpec
+from ..tosca_plugins.functions import to_dns_label
+from ..result import serialize_value
+from ..configurator import TaskView
 from .shell import ShellConfigurator, ShellInputs
 from .k8s import make_pull_secret, mark_sensitive
 from ..util import UnfurlTaskError, which
 from ..yamlloader import yaml
 from ..merge import merge_dicts
 from ..projectpaths import Folders
-from ..support import to_kubernetes_label, ContainerImage, Reason
+from ..support import ContainerImage, Reason
 import os
 import os.path
 from pathlib import Path
 
 
 TIMEOUT = 180  # default timeout in seconds (3 minutes)
+NAMEMAX = 52  # max service name length
 
 
 class KomposeInputs(ShellInputs):
@@ -60,11 +63,12 @@ class KomposeInputs(ShellInputs):
     registry_password: Optional[str] = None
     labels: Union[None, Dict[str, str]] = None
     annotations: Union[None, Dict[str, Any]] = None
-    expose: Optional[bool] = None
+    expose: Union[bool, str, None] = None
     ingress_extras: Union[None, Dict[str, Any]] = None
+    env: Union[None, Dict[str, str]] = None
 
 
-def _get_service(compose: dict, service_name: Optional[str] = None):
+def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
     if service_name:
         return compose["services"][service_name]
     else:
@@ -75,16 +79,26 @@ def _add_labels(service: dict, labels: dict):
     service.setdefault("labels", {}).update(labels)
 
 
-def render_compose(container: dict, image="", service_name=None):
-    service = dict(restart="always")
+def render_compose(
+    container: dict,
+    image="",
+    service_name: Optional[str] = None,
+    env: Optional[dict] = None,
+):
+    service: Dict[str, Any] = dict(restart="always")
     service.update({k: v for k, v in container.items() if v is not None})
     if image:
         service["image"] = image
     else:
         image = service["image"]
+    if env:
+        service.setdefault("environment", {}).update(env)
     if not service_name:
         service_name = container.get("container_name", ContainerImage.split(image)[0])
-    return dict(services={to_kubernetes_label(service_name): service})
+    assert service_name
+    # service names are more constrained than generic kubernetes labels, treat as dns host name
+    # the max is 63 but give kompose some room to append to the name
+    return dict(services={cast(str, to_dns_label(service_name, max=NAMEMAX)): service})
 
 
 def get_ingress_extras(task, ingress_extras):
@@ -128,20 +142,31 @@ class KomposeConfigurator(ShellConfigurator):
                 task,
                 f'docker-compose.yml does not specify a container image: "{compose}"',
             )
+        if service_name != to_dns_label(service_name, max=NAMEMAX):
+            raise UnfurlTaskError(
+                task,
+                f'malformed service name: "{service_name}": must not exceed {NAMEMAX} characters and match [a-z0-9]([-a-z0-9]*[a-z0-9])?',
+            )
         return service_name
 
-    def render(self, task):
+    def render(self, task: TaskView):
         """
-        1. Render the docker_compose template if neccessary
+        1. Render the docker_compose template if necessary
         2. Render the kubernetes resources using kompose
-        3. create docker-registy pull secret
+        3. create docker-registry pull secret
         """
         if task.inputs.get("files") and task.inputs["files"].get("docker-compose.yml"):
             compose = task.inputs["files"]["docker-compose.yml"]
+            if isinstance(compose, str):
+                compose = yaml.load(compose)
+            assert isinstance(compose, dict)
         else:
             container = task.inputs.get_copy("container") or {}
             compose = render_compose(
-                container, task.inputs.get("image"), task.inputs.get("service_name")
+                container,
+                task.inputs.get_copy("image"),
+                task.inputs.get_copy("service_name"),
+                task.inputs.get_copy("env"),
             )
 
         service_name = self._validate(task, compose)
@@ -184,7 +209,7 @@ class KomposeConfigurator(ShellConfigurator):
 
         registry_password = task.inputs.get("registry_password")
         if registry_password:
-            pull_secret_name = f"{service_name}-registry-secret"
+            pull_secret_name = f"{service_name}-rgstryscrt"
             registry_url = task.inputs.get("registry_url")
             # XXX validate registry_url, shouldn't be a full url
             registry_user = task.inputs.get("registry_user")
@@ -202,10 +227,12 @@ class KomposeConfigurator(ShellConfigurator):
             labels["kompose.image-pull-secret"] = pull_secret_name
         expose = task.inputs.get("expose")
         if expose:
-            labels["kompose.service.expose"] = expose
+            labels["kompose.service.expose"] = (
+                "true" if isinstance(expose, bool) else expose
+            )
         _add_labels(main_service, labels)
 
-        # map files to configmap
+        # map "files" to configmap
         # XXX
         # env-file creates configmap - it'd be nice if these could be secrets instead:
         # replace configMapKeyRef with secretKeyRef
@@ -214,7 +241,7 @@ class KomposeConfigurator(ShellConfigurator):
         # if there's a volume mapping that points to file use --volumes=configMap option,
         # (see https://github.com/kubernetes/kompose/pull/1216)
         task.logger.debug("writing docker-compose:\n%s", compose)
-        cwd.write_file(compose, "docker-compose.yml")
+        cwd.write_file(serialize_value(compose), "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
         ingress_extras = get_ingress_extras(
             task, task.inputs.get_copy("ingress_extras")

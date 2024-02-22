@@ -3,7 +3,7 @@
 """
 Converts a TOSCA service template from YAML to Python.
 
-Repositories are resolved with by creating a`tosca_repository` directory with symlinks to the source.
+Repositories are resolved with by creating a`tosca_repositories` directory with symlinks to the source.
 Imports to followed and converted in-place.
 
 Usage:
@@ -27,6 +27,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -66,6 +67,7 @@ value_indent = 2
 
 try:
     from ruamel.yaml.comments import CommentedMap
+    from ruamel.yaml.scalarstring import LiteralScalarString, FoldedScalarString
 
     def __repr__(self):
         return dict.__repr__(self)
@@ -75,6 +77,13 @@ try:
     pprint.PrettyPrinter._dispatch[  # type: ignore
         CommentedMap.__repr__
     ] = pprint.PrettyPrinter._pprint_dict  # type: ignore
+
+    pprint.PrettyPrinter._dispatch[  # type: ignore
+        LiteralScalarString.__repr__
+    ] = pprint.PrettyPrinter._pprint_str  # type: ignore
+    pprint.PrettyPrinter._dispatch[  # type: ignore
+        FoldedScalarString.__repr__
+    ] = pprint.PrettyPrinter._pprint_str  # type: ignore
 except ImportError:
     pass
 
@@ -117,7 +126,7 @@ def has_function(obj: object, seen=None) -> bool:
 
 def value2python_repr(value, quote=False) -> str:
     if sys.version_info.minor > 7:
-        pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)  # type: ignore
+        pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)  # type: ignore  # for py3.7 mypy
     else:
         pprinted = pprint.pformat(value, compact=True, indent=value_indent)
     if not quote:
@@ -187,11 +196,9 @@ class Imports:
                 "Capability",
                 "Eval",
                 "Property",
-                "REQUIRED",
                 "MISSING",
                 "DEFAULT",
                 "CONSTRAINED",
-                "PortSpec",
                 "Requirement",
                 "ToscaInputs",
                 "ToscaOutputs",
@@ -285,6 +292,8 @@ class Imports:
 
 
 class Convert:
+    convert_built_in = False
+
     def __init__(
         self,
         template: ToscaTemplate,
@@ -415,7 +424,7 @@ class Convert:
         full_name = f"{module_name}.{filename}"
         return (
             import_stmt + "\n",
-            str(import_path),
+            os.path.normpath(str(import_path)),
             (full_name, python_prefix),
             base_dir,
         )
@@ -691,14 +700,14 @@ class Convert:
             fieldparams.append(f'name="{toscaname}"')
         assert isinstance(propdef.schema, dict)
         prop = Property(propdef.name, None, propdef.schema, self.custom_defs)
-        typename = self._prop_type(prop.schema)
-        if not propdef.required:
-            typename = self._make_union(typename, "None")
         default_value: Any = MISSING
         if "default" in propdef.schema:
             default_value = propdef.schema["default"]
         elif not propdef.required:
             default_value = None
+        typename = self._prop_type(prop.schema)
+        if not propdef.required or default_value is None:
+            typename = self._make_union(typename, "None")
 
         if prop.schema.title:
             fieldparams.append(f"title={value2python_repr(prop.schema.title, True)}")
@@ -830,12 +839,13 @@ class Convert:
             artifacts: Dict[str, Artifact] = {}
             required_artifacts: Dict[str, dict] = {}
             NodeTemplate.find_artifacts_on_type(
-                toscatype, artifacts, required_artifacts
+                toscatype, artifacts, required_artifacts, False
             )
             for artifact in artifacts.values():
                 artifact_name, artifact_src = self.artifact2obj(artifact)
                 if artifact_src:
                     field_name, tosca_name = self._set_name(artifact_name, "artifact")
+                    assert artifact.type
                     cls_name, cls = self.imports.get_type_ref(artifact.type)
                     assert cls_name
                     src += f"{indent}{field_name}: {cls_name} = {artifact_src}\n"
@@ -854,7 +864,7 @@ class Convert:
                     if required:
                         src += f"{indent}{field_name}: {cls_name}\n"
                     else:
-                        src += f"{indent}{field_name}: Optional[{cls_name}] = None\n"
+                        src += f"{indent}{field_name}: {self._make_union(cls_name, 'None')} = None\n"
 
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
@@ -881,7 +891,6 @@ class Convert:
             return class_decl + f"{indent}pass"
 
     def _add_operations(self, nodetype: StatefulEntityType, indent: str) -> str:
-        # XXX add environment, etc. to decorator
         src = ""
         default_ops = []
         for iname, interface in nodetype.interfaces.items():
@@ -895,8 +904,10 @@ class Convert:
 
         defaulted = False
         declared_ops = []
+        declared_default_ops = []
         declared_interfaces: Optional[Dict] = nodetype.get_value("interfaces")
         declared_requirements = []
+        declared_default = False
         if declared_interfaces:
             for iname, interface in declared_interfaces.items():
                 requirements = interface.get("requirements")
@@ -906,10 +917,13 @@ class Convert:
                     ops = interface["operations"]
                 else:
                     ops = interface
+                if iname == "default":
+                    declared_default = True
                 for oname, op in ops.items():
                     if op:
                         declared_ops.append((iname, oname))
-
+                    else:
+                        declared_default_ops.append((iname, oname))
         if declared_requirements:
             # include inherited interface_requirements
             src += f"{indent}_interface_requirements = {value2python_repr(nodetype.get_interface_requirements())}\n"
@@ -919,9 +933,12 @@ class Convert:
                 op_id = (op.interfacename, op.name)
                 if op_id in declared_ops and op_id not in default_ops:
                     src += self.operation2func(op, indent, default_ops) + "\n"
-                elif op.name == "default" and not defaulted:
-                    defaulted = True  # only generate once
-                    src += self.operation2func(op, indent, default_ops) + "\n"
+                elif op.name == "default" and not defaulted and default_ops:
+                    # only add default operation if it was declared on this class
+                    # or this class declared operations that used the default (so needs to override the decorator's apply_to)
+                    if declared_default_ops or declared_default:
+                        defaulted = True  # only generate once
+                        src += self.operation2func(op, indent, default_ops) + "\n"
         return src
 
     def add_properties_decl(
@@ -1032,7 +1049,10 @@ class Convert:
         nodetype = req.get("node")
         if nodetype:
             # req['node'] can be a node_template instead of a type
-            if nodetype in self.topology["node_templates"]:
+            if (
+                self.topology.get("node_templates")
+                and nodetype in self.topology["node_templates"]
+            ):
                 entity_tpl = cast(dict, self.topology["node_templates"][nodetype])
                 match = self.template_reference(nodetype, "node")
                 if default:
@@ -1083,6 +1103,7 @@ class Convert:
             fieldparams.append(f"node_filter={value2python_repr(node_filter, True)}")
         metadata = req.get("metadata")
         if metadata:
+            metadata.pop("before_patch", None)
             fieldparams.append(f"metadata={metadata_repr(metadata)}")
         if fieldparams or explicit:
             if default:
@@ -1099,6 +1120,8 @@ class Convert:
     def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
         if op.invoke:
             return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs)
+        if not op._source:
+            op._source = self.base_dir
         kw = (
             self.template.import_resolver.find_implementation(op)
             if self.template.import_resolver
@@ -1107,7 +1130,7 @@ class Convert:
         cmd = ""
         if kw is None:
             if isinstance(op.implementation, dict):
-                artifact = op.implementation["primary"]
+                artifact = op.implementation.get("primary")
                 kw = op.implementation.copy()
             else:
                 artifact = op.implementation
@@ -1155,18 +1178,28 @@ class Convert:
         if op.name == "default":
             apply_to = ", ".join([f'"{op[0]}.{op[1]}"' for op in default_ops])
             decorator.append(f"apply_to=[{apply_to}]")
-        # XXX other kw: dependencies
-        for imp_key in ("timeout", "operation_host", "environment"):
+        for imp_key in (
+            "timeout",
+            "operation_host",
+            "environment",
+            "outputs",
+            "dependencies",
+            "entry_state",
+            "invoke",
+        ):
             imp_val = kw.get(imp_key)
             if imp_val is not None:
-                decorator.append(f"{imp_key}={value2python_repr(imp_val)}")
+                if (
+                    imp_key != "dependencies" or imp_val
+                ):  # dependencies is always a list, skip if empty
+                    decorator.append(f"{imp_key}={value2python_repr(imp_val)}")
         if decorator:  # add decorator
             src += f"{indent}@operation({', '.join(decorator)})\n"
 
         # XXX add arguments declared on the interface definition
         # XXX declare configurator/artifact as the return value
-        args = "self, **kw"
-        src += f"{indent}def {name}({args}):\n"
+        args = "self, **kw: Any"
+        src += f"{indent}def {name}({args}) -> Any:\n"
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
@@ -1466,7 +1499,12 @@ class Convert:
         return req_assignment
 
     def follow_import(
-        self, import_def: dict, import_path: str, format: bool, base_dir
+        self,
+        import_def: dict,
+        import_path: str,
+        format: bool,
+        base_dir,
+        converted: Optional[Set[str]],
     ) -> None:
         # the ToscaTemplate has already imported everything, so here we just need to get the import's contents
         # to convert it to Python
@@ -1480,7 +1518,8 @@ class Convert:
                 return
 
         assert self.template.tpl is not None
-        tpl = self.template.nested_tosca_tpls[file_path]
+        tpl, namespace_id = self.template.nested_tosca_tpls[file_path]
+        file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
         tpl["tosca_definitions_version"] = self.template.tpl[
             "tosca_definitions_version"
@@ -1493,7 +1532,7 @@ class Convert:
             package = "tosca_repositories." + re.sub(r"\W", "_", repository)
         else:
             package = "service_template"
-        if repository == "unfurl":
+        if repository == "unfurl" and not self.convert_built_in:
             logger.debug("not converting built-in import: %s", import_path)
         elif self.write_policy.can_overwrite(file_path, import_path):
             convert_service_template(
@@ -1512,6 +1551,7 @@ class Convert:
                 write_policy=self.write_policy,
                 base_dir=base_dir or self.base_dir,
                 package_name=package,
+                converted=converted,
             )
         else:
             logger.info(
@@ -1528,7 +1568,7 @@ class Convert:
             if relpath:
                 package += "." + relpath
         except ValueError:
-            package = "tosca_repository." + os.path.basename(os.path.dirname(path))
+            package = "tosca_repositories." + os.path.basename(os.path.dirname(path))
         return package
 
     def execute_source(self, src: str, namespace: Dict[str, Any]):
@@ -1543,7 +1583,8 @@ class Convert:
         except:
             # print(self.imports.prelude() + src)
             logger.error(
-                f"error executing generated source for {full_name}", exc_info=True
+                f"error executing generated source for {full_name} in {self.base_dir}",
+                exc_info=True,
             )
         finally:
             # not in safe_mode, delete from sys.modules if present since source might not be complete
@@ -1623,12 +1664,15 @@ def convert_service_template(
     write_policy: WritePolicy = WritePolicy.auto,
     base_dir=None,
     package_name="service_template",
+    converted: Optional[Set[str]] = None,
 ) -> str:
     src = ""
     imports = Imports()
     if not builtin_prefix:
         imports._set_builtin_imports()
         imports._set_ext_imports()
+    if converted is None:
+        converted = set()
     tpl = cast(Dict[str, Any], template.tpl)
     _tosca.global_state.mode = "spec"
     converter = Convert(
@@ -1656,7 +1700,13 @@ def convert_service_template(
                 base_dir,
             ) = converter.convert_import(imp_def)
             loader.install(template.import_resolver)
-            converter.follow_import(imp_def, import_path + ".py", format, base_dir)
+            if not imp_def["file"].endswith(".py"):
+                # if we aren't importing a python file, try to convert it to python
+                if import_path not in converted:
+                    converter.follow_import(
+                        imp_def, import_path + ".py", format, base_dir, converted
+                    )
+                    converted.add(import_path)
             package = converter.get_package_name()
             try:
                 module = importlib.import_module(module_name, package)
@@ -1724,7 +1774,7 @@ def convert_service_template(
 
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
-    if not builtin_prefix:
+    if not builtin_prefix and imports.get_all():
         src += f"\n__all__= {value2python_repr(imports.get_all(), True)}"
     if builtin_prefix == "unfurl.":
         imports.from_tosca.add("Namespace")
@@ -1746,7 +1796,7 @@ def convert_service_template(
         overwrite, unchanged = write_policy.can_overwrite_compare(
             template.path, path, src
         )
-        if overwrite:
+        if overwrite and not unchanged:
             try:
                 with open(path, "w") as po:
                     logger.info("writing to %s", path)

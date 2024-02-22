@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from click.testing import CliRunner, Result
 
@@ -145,7 +146,7 @@ spec:
                     dependencies:
                       - mdellweg.filters  # a small collection not currently installed
                   inputs:
-                      run:
+                      run:  # just calls repr()
                         - "{{ 'test' | mdellweg.filters.repr }}"
                       done:
                         status: ok
@@ -166,11 +167,15 @@ def test_collection_artifact():
         assert run1.json_summary()["external_jobs"][0]["job"]["ok"] == 4, run1.summary()
 
         coll_path = os.path.join(tmp_path, "ansible_collections")
-        assert os.listdir(coll_path) == ['mdellweg']
+        assert "mdellweg" in os.listdir(coll_path)
 
         runner = Runner(YamlManifest(collection_ensemble))
         run1 = runner.run()
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.summary()
-        assert run1.json_summary()["external_jobs"][0]["job"]["ok"] == 2, run1.summary()
-        # print ( run1.json_summary(True) )
+        summary = run1.json_summary(add_rendered=True)
+        # print ( run1.json_summary(True, add_rendered=True) )
+        assert summary["external_jobs"][0]["job"]["ok"] == 2, run1.summary()
+        if sys.version_info[1] > 8:
+            # mdellweg.filter.repr result
+            assert summary["tasks"][0]["output"]["run"] == ["'test'"], summary

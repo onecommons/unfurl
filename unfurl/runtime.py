@@ -103,8 +103,7 @@ class Operational(ChangeAware):
                     return True
             else:
                 assert (
-                    self.state
-                    in [NodeState.deleting, NodeState.deleted]
+                    self.state in [NodeState.deleting, NodeState.deleted]
                     and state < NodeState.stopping
                 ), (self.state.name, state.name)
                 return False
@@ -402,7 +401,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
     proxy = None
 
     def __init__(
-        self, name="", attributes=None, parent: Optional["EntityInstance"]=None, template=None, status=Status.ok
+        self,
+        name="",
+        attributes=None,
+        parent: Optional["EntityInstance"] = None,
+        template=None,
+        status=Status.ok,
     ):
         # default to Status.ok because that has the semantics of only relying on dependents
         # note: NodeInstances always a explicit status and so instead default to unknown
@@ -633,7 +637,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return state
 
     def __repr__(self):
-        return f"{self.__class__}('{self.nested_name}')"
+        return f"{self.__class__.__name__}('{self.nested_key}')"
 
 
 class HasInstancesInstance(EntityInstance):
@@ -849,9 +853,6 @@ class RelationshipInstance(EntityInstance):
                 env[name] = val
         return env
 
-    def __repr__(self):
-        return f"RelationshipInstance('{self.nested_name}')"
-
 
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
@@ -900,6 +901,11 @@ class ArtifactInstance(EntityInstance):
     @property
     def contents(self) -> str:
         if "contents" in self.attributes:
+            logger.trace(
+                'getting inline contents for artifact "%s": %s',
+                self.nested_key,
+                self.attributes["contents"],
+            )
             return self.attributes["contents"]
         external_val = cast(ArtifactSpec, self.template).as_value()
         if isinstance(external_val, File):
@@ -1058,7 +1064,7 @@ class NodeInstance(HasInstancesInstance):
     def _get_default_relationships(self, relation=None):
         if self.root is self:
             return
-        for rel in self.root.get_default_relationships(relation):
+        for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
             for capability in self.capabilities:
                 if rel.template.matches_target(capability.template):
                     yield rel
@@ -1096,13 +1102,10 @@ class NodeInstance(HasInstancesInstance):
     def configured_by(self):
         return list(self._configured_by())
 
-
     def _hosted_on(self):
         for rel in self.requirements:
             if rel.target:
-                if rel.template.is_compatible_type(
-                    "tosca.relationships.HostedOn"
-                ):
+                if rel.template.is_compatible_type("tosca.relationships.HostedOn"):
                     yield rel.target
                 yield from rel.target._hosted_on()
 
@@ -1220,7 +1223,7 @@ class TopologyInstance(HasInstancesInstance):
 
     def set_base_dir(self, baseDir: str) -> None:
         self._baseDir = baseDir
-        if not self._templar or self._templar._basedir != baseDir:
+        if not self._templar or not self._templar._loader or self._templar._loader.get_basedir() != baseDir:
             loader = DataLoader()
             loader.set_basedir(baseDir)
             self._templar = Templar(loader)

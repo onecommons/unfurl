@@ -126,6 +126,7 @@ def cli(
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
     logs.add_log_file(kw["logfile"], effective_log_level)
     logs.set_console_log_level(effective_log_level)
+    logging.debug("initialized logging")
 
     if version_check and version_tuple() < version_tuple(version_check):
         logging.error(
@@ -1034,14 +1035,11 @@ def git(ctx, gitargs, dir="."):
 
 
 class Committer(Protocol):
-    def commit(self, msg: str, add_all: bool = False) -> int:
-        ...
+    def commit(self, msg: str, add_all: bool = False) -> int: ...
 
-    def add_all(self) -> None:
-        ...
+    def add_all(self) -> None: ...
 
-    def get_repo_status(self, dirty=False) -> str:
-        ...
+    def get_repo_status(self, dirty=False) -> str: ...
 
 
 def get_commit_message(committer, default_message):
@@ -1288,8 +1286,15 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
         return
 
     exporter = getattr(to_json, "to_" + format)
+    assert local_env
     # $UNFURL_EXPORT_ARG for internal testing
-    jsonSummary = exporter(local_env, os.getenv("UNFURL_EXPORT_ARG"), file=file)
+    root_url = os.getenv("UNFURL_EXPORT_ARG")
+    if format == "blueprint":
+        jsonSummary = to_json.to_blueprint(
+            local_env, root_url, bool(root_url), file=file, nested=bool(root_url)
+        )
+    else:
+        jsonSummary = exporter(local_env, root_url, file=file)
     output = json.dumps(jsonSummary, indent=2)
     if file and (overwrite != "never" or not os.path.exists(file)):
         with open(file, "w") as f:
@@ -1311,7 +1316,8 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     help="Use this environment.",
 )
 def status(ctx, ensemble, **options):
-    """Show the status of deployed resources in the given ensemble."""
+    """Show the status of deployed resources in the given ensemble.\n
+    (Use global -v for verbose display.)"""
     options.update(ctx.obj)
     localEnv = LocalEnv(
         ensemble,
@@ -1321,8 +1327,10 @@ def status(ctx, ensemble, **options):
     )
     logger = logging.getLogger("unfurl")
     manifest = localEnv.get_manifest()
-    summary = manifest.status_summary()
-    logger.info("Status summary:\n%s", summary, extra=dict(truncate=0))
+    verbose = ctx.obj["verbose"] > 0
+    summary = manifest.status_summary(verbose)
+    vstr = " (verbose) " if verbose else ""
+    logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
     query = options.get("query")
     if query:
         trace = options.get("trace")

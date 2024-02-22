@@ -1,4 +1,5 @@
 import datetime
+import re
 from typing import (
     Any,
     Callable,
@@ -11,6 +12,7 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    TYPE_CHECKING,
 )
 from typing_extensions import TypedDict, NotRequired, Required
 from collections.abc import Mapping, MutableSequence
@@ -19,27 +21,28 @@ import json
 from urllib.parse import urlparse
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.constraints import Schema
+from toscaparser.elements.entity_type import Namespace
 from toscaparser.elements.statefulentitytype import StatefulEntityType
-from toscaparser.elements.artifacttype import ArtifactTypeDef
-from toscaparser.elements.relationshiptype import RelationshipType
-from toscaparser.elements.nodetype import NodeType
-from toscaparser.imports import is_url
+from toscaparser.imports import is_url, SourceInfo
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.portspectype import PortSpec
+from toscaparser.topology_template import find_type
 from .repo import normalize_git_url_hard
-from .packages import get_package_from_url, get_package_id_from_url
+from .packages import get_package_id_from_url
 from .result import ChangeRecord
-from .yamlmanifest import YamlManifest
 from .runtime import EntityInstance, TopologyInstance
 from .logs import sensitive, is_sensitive, getLogger
 from .spec import NodeSpec, TopologySpec, is_function
-from .support import NodeState, Status
-from .localenv import Project
 from .lock import Lock
-from .util import to_enum, UnfurlError
+from .util import to_enum, UnfurlError, unique_name
+from .support import NodeState, Status
+
+if TYPE_CHECKING:
+    from .yamlmanifest import YamlManifest
+    from .localenv import Project
 
 logger = getLogger("unfurl")
 
@@ -144,7 +147,7 @@ class Deployment(GraphqlObject, total=False):
     resources: List[str]
     deploymentTemplate: str
     url: str
-    status: Status
+    status: "Status"
     summary: str
     workflow: str
     deployTime: str
@@ -196,6 +199,14 @@ class Requirement(GraphqlObject):
     target: NotRequired[str]
 
 
+class ImportDef(TypedDict):
+    file: str
+    repository: NotRequired[str]
+    prefix: NotRequired[str]
+    url: NotRequired[str]  # added after creation
+    incomplete: NotRequired[bool]  # added by cloudmap in server
+
+
 class ResourceType(GraphqlObject, total=False):
     """
     type ResourceType {
@@ -229,8 +240,8 @@ class ResourceType(GraphqlObject, total=False):
     requirements: Required[List[RequirementConstraint]]
     implementations: List[str]
     implementation_requirements: List[TypeName]
-    _sourceinfo: JsonType
     directives: List[str]
+    _sourceinfo: Optional[ImportDef]
 
 
 class ResourceTemplate(GraphqlObject, total=False):
@@ -282,29 +293,64 @@ class DeploymentEnvironment(TypedDict, total=False):
     repositories: JsonType
 
 
-def _get_source_info(source_info: dict) -> Tuple[str, str]:
-    root = source_info["root"]
-    repository = source_info.get("repository")
-    if repository:
-        if repository == "unfurl":
-            root = "unfurl"
-        return root, source_info["file"]
-    else:
-        path = source_info["path"]
-        base = source_info["base"]
-        # make path relative to the import base (not the file that imported)
-        # and include the fragment if present
-        # base and path will both be local file paths
-        file = path[len(base) :].strip("/") + "".join(
-            source_info["file"].partition("#")[1:]
-        )
-        if is_url(root):
-            return root, file
-        # otherwise import relative to main service template
-        return "", file
+def add_unique_prefix(namespace: Namespace, import_def: ImportDef, namespace_id: str):
+    # make sure prefix is unique in the namespace
+    repository = import_def.get("repository")
+    prefix = import_def.get("prefix", repository)
+    if not prefix:
+        url = import_def.get("url") or ""
+        prefix = re.sub(r"\W", "_", namespace_id)
+    import_def["prefix"] = unique_name(
+        prefix, [n.partition(".")[0] for n in namespace.imports.values()]
+    )
+    return prefix
 
 
-def get_package_url(url):
+def get_local_type(
+    namespace: Optional[Namespace], global_name: str, import_def: Optional[ImportDef]
+) -> Tuple[str, Optional[ImportDef]]:
+    local = None
+    if namespace:
+        local = namespace.get_local_name(global_name)
+        if local:
+            import_def = None
+        elif import_def:  # namespace_id not found, need to import
+            add_unique_prefix(namespace, import_def, global_name.split("@")[1])
+            # XXX else log.warning
+    if not local:
+        local = global_name.split("@")[0]
+        if import_def:
+            prefix = import_def.get("prefix")
+            if prefix:
+                local = f"{prefix}.{local}"
+    return local, import_def
+
+
+def get_import_def(source_info: SourceInfo) -> ImportDef:
+    url, file = _get_url_from_namespace(source_info)
+    import_def = ImportDef(file=file)
+    if source_info["repository"]:
+        import_def["repository"] = source_info["repository"]
+    if url == "unfurl":
+        url = "github.com/onecommons/unfurl"
+    if url:  # otherwise import relative to main service template
+        import_def["url"] = url
+    return import_def
+
+
+def _get_url_from_namespace(source_info: SourceInfo) -> Tuple[str, str]:
+    url_or_path = source_info["root"]
+    if source_info["repository"] == "unfurl":
+        url = "unfurl"
+    elif url_or_path and is_url(url_or_path):
+        url = url_or_path
+    else:  # otherwise import relative to main service template
+        url = ""
+    return url, source_info["file"]
+
+
+def get_package_url(url: str) -> str:
+    "Convert the given url to a package id or if it can't be converted, normalize the URL."
     package_id, purl, revision = get_package_id_from_url(url)
     if package_id:
         return package_id
@@ -313,17 +359,42 @@ def get_package_url(url):
 
 
 def to_type_name(name: str, package_id: str, path: str) -> TypeName:
+    """Example  of namespace_ids:
+
+    Package id:
     "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types"
+
+    Package id with filename:
     "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types:aws"
-    "ContainerComputeHost@unfurl.cloud/onecommons/unfurl-types:aws#v2.1"
+    """
     if path and path != "service-template.yaml":
         return TypeName(name + "@" + package_id + ":" + os.path.splitext(path)[0])
     else:
         return TypeName(name + "@" + package_id)
 
 
+# called by get_repository_url
+def get_namespace_id(root_url: str, info: SourceInfo) -> str:
+    namespace_id = info.get("namespace_uri")
+    if namespace_id:
+        return namespace_id
+    url, path = _get_url_from_namespace(info)
+    # use root_url if no repository
+    package_id = get_package_url(url or root_url)
+    if path and path not in [
+        ".",
+        "service-template.yaml",
+        "ensemble.yaml",
+        "ensemble-template.yaml",
+        "dummy-ensemble.yaml",
+    ]:
+        return package_id + ":" + os.path.splitext(path)[0]
+    else:
+        return package_id
+
+
 class ResourceTypesByName(Dict[TypeName, ResourceType]):
-    def __init__(self, qualifier, custom_defs):
+    def __init__(self, qualifier: str, custom_defs: Namespace):
         self.qualifier = get_package_url(qualifier)
         self.custom_defs = custom_defs
 
@@ -340,17 +411,9 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
             # starts with "tosca." or "unfurl."
             return TypeName(nodetype)
         if nodetype in self.custom_defs:
-            _source = self.custom_defs[nodetype].get("_source")
-            if isinstance(_source, dict):  # could be str or None
-                prefix = _source.get("prefix")
-                if prefix:
-                    nodetype = nodetype[len(prefix) + 1 :]  # strip out prefix
-                url, file = _get_source_info(_source)
-                if url:
-                    url = get_package_url(url)
-                else:
-                    url = self.qualifier
-                return to_type_name(nodetype, url, file)
+            return TypeName(self.custom_defs.get_global_name(nodetype))
+        else:
+            logger.warning("could not find %s types namespace", nodetype)
         return to_type_name(nodetype, self.qualifier, "")
 
     def _get_extends(
@@ -362,7 +425,7 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
     ) -> None:
         if not typedef:
             return
-        name = self.expand_typename(typedef.type)
+        name = self.get_typename(typedef)
         if name not in extends:
             extends.append(name)
         if convert and name not in self:
@@ -370,50 +433,30 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         ExceptionCollector.collecting = True
         for p in typedef.parent_types():
             self._get_extends(topology, p, extends, convert)
+        for alias in typedef.aliases:
+            if alias not in extends:
+                extends.append(TypeName(alias))
 
     def get_type(self, typename: str) -> Optional[ResourceType]:
         return self.get(self.expand_typename(typename))
 
     def get_typename(self, typedef: StatefulEntityType) -> TypeName:
+        return TypeName(typedef.global_name if EXPORT_QUALNAME else typedef.type)
         # typedef might not be in types yet
-        return self.expand_typename(typedef.type)
+        # return self.expand_typename(typedef.type)
 
     @staticmethod
     def get_localname(typename: str):
         return typename.partition("@")[0]
 
     def _make_typedef(self, name: str, all=False) -> Optional[StatefulEntityType]:
-        typename = self.get_localname(name)
-        typedef: Optional[StatefulEntityType] = None
-        custom_defs = self.custom_defs
-        # prefix is only used to expand "tosca:Type"
-        test_typedef = StatefulEntityType(
-            typename, StatefulEntityType.NODE_PREFIX, custom_defs
-        )
-        if not test_typedef.defs:
+        local_name = self.custom_defs.get_local_name(name)
+        if local_name:
+            typedef = find_type(local_name, self.custom_defs)
+        else:
+            typedef = None
+        if not typedef:
             logger.warning("Missing type definition for %s", name)
-            return typedef
-        elif "derived_from" not in test_typedef.defs:
-            _source = test_typedef.defs.get("_source")
-            section = isinstance(_source, dict) and _source.get("section")
-            if _source and not section:
-                logger.warning(
-                    'Unable to determine type of %s: missing "derived_from" key',
-                    typename,
-                )
-            elif section == "node_types":
-                custom_defs[typename]["derived_from"] = "tosca.nodes.Root"
-            elif section == "relationship_types":
-                custom_defs[typename]["derived_from"] = "tosca.relationships.Root"
-        if test_typedef.is_derived_from("tosca.nodes.Root"):
-            typedef = NodeType(typename, custom_defs)
-        elif test_typedef.is_derived_from("tosca.relationships.Root"):
-            typedef = RelationshipType(typename, custom_defs)
-        elif all:
-            if test_typedef.is_derived_from("tosca.artifacts.Root"):
-                typedef = ArtifactTypeDef(typename, custom_defs)
-            else:
-                return test_typedef
         return typedef
 
 
@@ -453,7 +496,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
 
     @staticmethod
     def get_deployment_paths(
-        project: Project, existing: Optional[str] = None
+        project: "Project", existing: Optional[str] = None
     ) -> "DeploymentPaths":
         """
         Deployments identified by their file path.
@@ -483,7 +526,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
 
     def add_graphql_deployment(
         self,
-        manifest: YamlManifest,
+        manifest: "YamlManifest",
         dtemplate: DeploymentTemplate,
         nodetemplate_to_json: Callable,
     ) -> Deployment:
@@ -613,8 +656,8 @@ class Resource(GraphqlObject):
 
     url: str
     template: ResourceTemplateName
-    status: Optional[Status]
-    state: Optional[NodeState]
+    status: Optional["Status"]
+    state: Optional["NodeState"]
     attributes: List[dict]
     computedProperties: List[dict]
     connections: List[Requirement]

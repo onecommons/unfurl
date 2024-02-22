@@ -1,5 +1,9 @@
+import logging
 import unittest
 import os
+
+import pytest
+from unfurl.graphql import ImportDef, get_local_type
 import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
@@ -12,6 +16,8 @@ from unfurl.yamlloader import make_vault_lib
 from unfurl.spec import find_env_vars
 import io
 from click.testing import CliRunner
+from toscaparser.topology_template import find_type
+
 
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
@@ -194,10 +200,20 @@ class ToscaSyntaxTest(unittest.TestCase):
         ):
             assert testSensitive.template.propertyDefs[name].schema["type"] == toscaType
 
-        envvars = set(find_env_vars(testSensitive.template.find_props(testSensitive.attributes)))
-        self.assertEqual(envvars, set([
-            ("TEST_VAR", "foo"), ("VAR1", "more"), 
-            ('ADDRESS', '10.0.0.1'), ('PRIVATE_ADDRESS', '10.0.0.1')]))
+        envvars = set(
+            find_env_vars(testSensitive.template.find_props(testSensitive.attributes))
+        )
+        self.assertEqual(
+            envvars,
+            set(
+                [
+                    ("TEST_VAR", "foo"),
+                    ("VAR1", "more"),
+                    ("ADDRESS", "10.0.0.1"),
+                    ("PRIVATE_ADDRESS", "10.0.0.1"),
+                ]
+            ),
+        )
         outputIp = job.get_outputs()["server_ip"]
         self.assertEqual(outputIp, "10.0.0.1")
         assert isinstance(outputIp, sensitive_str), type(outputIp)
@@ -254,12 +270,19 @@ class ToscaSyntaxTest(unittest.TestCase):
         local_env = LocalEnv(path)
         manifest = local_env.get_manifest()
 
-        self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
+        self.assertEqual(
+            2,
+            len(manifest.tosca.template.nested_tosca_tpls),
+            list(manifest.tosca.template.nested_tosca_tpls),
+        )
         assert "imported-repo" in manifest.tosca.template.repositories
         assert "nested-imported-repo" in manifest.tosca.template.repositories, [
             tosca_tpl.get("repositories")
-            for tosca_tpl in manifest.tosca.template.nested_tosca_tpls.values()
+            for tosca_tpl, namespace_id in manifest.tosca.template.nested_tosca_tpls.values()
         ]
+        assert ["A.Nested", "A.nodes.types", "A.Test"] == list(
+            manifest.tosca.template.topology_template.custom_defs
+        )
 
         runner = Runner(manifest)
         output = io.StringIO()
@@ -273,6 +296,25 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert anInstance
         self.assertEqual(anInstance.attributes["testExpressionFunc"], "foo")
         self.assertEqual(anInstance.attributes["defaultexpession"], "default_foo")
+
+        # base_dir should be the directory the template's type is defined in
+        base_dir = os.path.normpath(os.path.join(os.path.dirname(path), "spec"))
+        assert (
+            anInstance.template.propertyDefs["defaultexpession"].value.base_dir
+            == base_dir
+        )
+        assert (
+            anInstance.template.toscaEntityTemplate.type_definition.defs.base_dir
+            == base_dir
+        )
+
+        instance2 = job.rootResource.find_resource("testNested")
+        assert instance2
+        assert instance2.template.propertyDefs["a_property"].value.base_dir == base_dir
+        assert (
+            instance2.template.toscaEntityTemplate.type_definition.defs.base_dir
+            == base_dir
+        )
 
         ctx = RefContext(anInstance)
 
@@ -317,7 +359,11 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(os.path.normpath(selfPath), base)
 
         repoPath = _get_base_dir(ctx, "nested-imported-repo")
-        self.assertEqual(os.path.normpath(repoPath), base, f"{repoPath} vs {base} vs {os.path.abspath('./')}")
+        self.assertEqual(
+            os.path.normpath(repoPath),
+            base,
+            f"{repoPath} vs {base} vs {os.path.abspath('./')}",
+        )
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_workflows(self):
@@ -343,9 +389,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["changed"], 4)
         # print(job._json_plan_summary(True))
         plan_summary = job._json_plan_summary(include_rendered=False)
-        assert plan_summary[0]["instance"] == "__artifact__configurator-artifacts--kubernetes.core"
+        assert (
+            plan_summary[0]["instance"]
+            == "__artifact__configurator-artifacts--kubernetes.core"
+        )
         plan_summary.pop(0)
-        self.assertEqual(plan_summary,
+        self.assertEqual(
+            plan_summary,
             [
                 {
                     "instance": "stagingCluster",
@@ -443,7 +493,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'UnknownFieldError' in str(err.exception)
+        assert "UnknownFieldError" in str(err.exception)
 
 
 class AbstractTemplateTest(unittest.TestCase):
@@ -635,3 +685,117 @@ spec:
         )
         # chooses myCluster instead of the cluster with the "default" directive
         assert relationshipSpec.target.name == "myCluster"
+
+
+prefixed_k8s_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/k8s.yaml
+        namespace_prefix: k8s
+      - repository: unfurl
+        file: configurators/templates/dns.yaml
+        namespace_prefix: dns
+
+    relationship_types:
+        MyHostedOn:
+            derived_from: tosca.relationships.HostedOn
+
+    node_types:
+      MyNamespace:
+        # test unfurl.nodes._K8sResourceHost resolves
+        derived_from: k8s.unfurl.nodes.K8sNamespace
+        requirements:
+          - host:
+              relationship: MyHostedOn
+        # capabilities
+        interfaces:
+          Install:
+            operations:
+              check:
+                implementation: kubectl
+
+      MyZone:
+        derived_from: dns.unfurl.nodes.DNSZone
+        properties:
+          records:
+            description: make sure overloaded properties resolve datatypes correctly
+            default:
+              record1:
+                 type: TXT
+            metadata:
+              my_metadata: test
+
+    topology_template:
+      node_templates:
+        myNamespace:
+          type: MyNamespace
+
+        myResource:
+          type: %sunfurl.nodes.K8sResource
+          requirements:
+          - host: myNamespace
+
+        myDNS:
+          type: MyZone
+          properties:
+            name: test
+            provider: {}
+            records:
+              t1:
+                type: A
+                value: 10.10.10.1
+      """
+
+
+def test_namespaces(caplog):
+    with caplog.at_level(logging.DEBUG):
+        manifest = YamlManifest(prefixed_k8s_manifest % "k8s.", "fakefile.yaml")
+        assert manifest
+        assert 'No definition for type "MyHostedOn" found' not in caplog.text
+
+    namespace = manifest.tosca.topology.topology_template.custom_defs
+    mock_importdef = ImportDef(file="", url="https://foo.com", prefix="dns")
+    assert ("dns.unfurl.nodes.DNSZone", None) == get_local_type(
+        namespace,
+        "unfurl.nodes.DNSZone@unfurl:configurators/templates/dns",
+        mock_importdef,
+    )
+    # avoids prefix clash:
+    assert ("dns1.UnknownType", mock_importdef) == get_local_type(
+        namespace, "UnknownType@foo.com", mock_importdef
+    )
+    assert mock_importdef["prefix"] == "dns1"
+    # generate prefix:
+    mock_importdef.pop("prefix")
+    assert ("foo_com.UnknownType", mock_importdef) == get_local_type(
+        namespace, "UnknownType@foo.com", mock_importdef
+    )
+    assert mock_importdef["prefix"] == "foo_com"
+
+    MyZone = find_type("MyZone", namespace)
+    # verify !namespace attributes
+    assert MyZone.requirements == [
+        {
+            "parent_zone": {
+                "metadata": {"visibility": "hidden"},
+                "capability": "unfurl.capabilities.DNSZone",
+                "occurrences": [0, 1],
+                "!namespace-capability": "unfurl:configurators/templates/dns",
+            }
+        },
+        {
+            "dependency": {
+                "capability": "tosca.capabilities.Node",
+                "node": "tosca.nodes.Root",
+                "relationship": "tosca.relationships.DependsOn",
+                "occurrences": [0, "UNBOUNDED"],
+            }
+        },
+    ]
+
+    with pytest.raises(UnfurlValidationError) as err:
+        YamlManifest(prefixed_k8s_manifest % "")  # no prefix

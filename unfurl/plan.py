@@ -1,6 +1,18 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Callable, Dict, Iterator, List, Optional, TYPE_CHECKING, Set, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Set,
+    Union,
+    cast,
+)
 from typing_extensions import Literal
 
 if TYPE_CHECKING:
@@ -213,7 +225,14 @@ class Plan:
             self.root.imports.set_shadow(instance.imported, instance, inner)
         return instance
 
-    def _run_operation(self, startState: Optional[NodeState], op: str, resource, reason=None, inputs=None) -> Iterator[TaskRequest]:
+    def _run_operation(
+        self,
+        startState: Optional[NodeState],
+        op: str,
+        resource,
+        reason=None,
+        inputs=None,
+    ) -> Iterator[TaskRequest]:
         req = create_task_request(
             self.jobOptions, op, resource, reason, inputs, startState
         )
@@ -222,7 +241,7 @@ class Plan:
 
     def _execute_default_configure(
         self, resource: NodeInstance, reason: Optional[str] = None, inputs=None
-    ):
+    ) -> Iterator[TaskRequest]:
         # 5.8.5.4 Node-Relationship configuration sequence p. 229
         # Depending on which side (i.e., source or target) of a relationship a node is on, the orchestrator will:
         # Invoke either the pre_configure_source or pre_configure_target operation as supplied by the relationship on the node.
@@ -284,7 +303,7 @@ class Plan:
 
     def execute_default_deploy(
         self, resource: NodeInstance, reason: Optional[str] = None, inputs=None
-    ):
+    ) -> Iterator[TaskRequest]:
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
         missing = (
@@ -338,7 +357,7 @@ class Plan:
 
     def execute_default_undeploy(
         self, resource: NodeInstance, reason: Optional[str] = None, inputs=None
-    ):
+    ) -> Iterator[TaskRequest]:
         # XXX run check if joboption set?
         # XXX don't delete if dirty
         if (
@@ -439,7 +458,7 @@ class Plan:
 
     def generate_delete_configurations(
         self, include: Callable
-    ) -> Iterator[Union[TaskRequest, TaskRequestGroup, JobRequest]]:
+    ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         for resource in get_operational_dependents(self.root):
             # reverse to teardown leaf nodes first
             skip = None
@@ -491,7 +510,7 @@ class Plan:
             return self.execute_default_install_op(workflow, resource, reason, inputs)
         return None
 
-    def _get_connection_task(self, taskRequest):
+    def _get_connection_task(self, taskRequest) -> Iterator[TaskRequest]:
         if not self._checked_connection_task:
             self._checked_connection_task = True
             if self.tosca.topology and self.tosca.topology.primary_provider:
@@ -505,7 +524,7 @@ class Plan:
 
     def _generate_configurations(
         self, resource: "NodeInstance", reason: str, workflow: Optional[str] = None
-    ) -> Iterator[Union[TaskRequest, TaskRequestGroup, JobRequest]]:
+    ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
@@ -539,14 +558,16 @@ class Plan:
                     yield taskRequest
         if not task_found:
             logger.verbose(
-                f'No operations for workflow "{workflow}" defined for instance "{resource.nested_name}"'
+                f'No operations for workflow "{workflow}" defined for instance "{resource.nested_name}" (type "{resource.type}")'
             )
         if group:
             if custom_workflow:
                 group.set_final_for_workflow(True)
             yield group
 
-    def execute_workflow(self, workflowName: str, resource):
+    def execute_workflow(
+        self, workflowName: str, resource
+    ) -> Optional[Iterator[TaskRequestGroup]]:
         workflow = self.tosca.get_workflow(workflowName)
         if not workflow:
             return None
@@ -567,7 +588,9 @@ class Plan:
         finally:
             pass  # pop _workflow_inputs
 
-    def execute_steps(self, workflow: Workflow, steps: list, resource: NodeInstance):
+    def execute_steps(
+        self, workflow: Workflow, steps: list, resource: NodeInstance
+    ) -> Generator[TaskRequestGroup, Any, None]:
         queue = steps[:]
         while queue:
             step = queue.pop()
@@ -589,7 +612,9 @@ class Plan:
             except StopIteration:
                 pass
 
-    def execute_step(self, step, resource: NodeInstance, workflow: Workflow):
+    def execute_step(
+        self, step, resource: NodeInstance, workflow: Workflow
+    ) -> Generator[Union[TaskRequestGroup, list], Any, None]:
         logger.debug("executing step %s for %s", step.name, resource.name)
         reqGroup = TaskRequestGroup(resource, workflow.workflow.name)
         for activity in step.activities:
@@ -652,7 +677,7 @@ class Plan:
     ):
         yield from self._generate_configurations(instance, self.workflow)
 
-    def execute_plan(self):
+    def execute_plan(self) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         """
         Generate candidate tasks
 
@@ -732,7 +757,7 @@ class DeployPlan(Plan):
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return Reason.update
-                elif jobOptions.upgrade:  # type: ignore 
+                elif jobOptions.upgrade:  # type: ignore
                     return Reason.upgrade
 
         reason = self.check_for_repair(instance)
@@ -857,7 +882,7 @@ class DeployPlan(Plan):
 
 
 class UndeployPlan(Plan):
-    def execute_plan(self):
+    def execute_plan(self) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         """
         yields configSpec, target, reason
         """
@@ -898,7 +923,7 @@ class ReadOnlyPlan(Plan):
 
 
 class WorkflowPlan(Plan):
-    def execute_plan(self):
+    def execute_plan(self) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         """
         yields configSpec, target, reason
         """
@@ -954,7 +979,7 @@ class RunNowPlan(Plan):
             timeout=timeout,
         )
 
-    def execute_plan(self):
+    def execute_plan(self) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         instanceFilter = self.jobOptions.instance
         if instanceFilter:
             resource = self.root.find_resource(instanceFilter)
@@ -982,8 +1007,11 @@ class RunNowPlan(Plan):
                 operation = find_standard_interface(operation) + "." + operation
         for resource in resources:
             if configSpec:
-                req: Optional[TaskRequest] = TaskRequest(configSpec, resource, "run")
-                yield filter_task_request(self.jobOptions, req)
+                req = filter_task_request(
+                    self.jobOptions, TaskRequest(configSpec, resource, "run")
+                )
+                if req:
+                    yield req
             else:
                 assert operation
                 req = create_task_request(
@@ -1012,7 +1040,7 @@ def find_explicit_operation_hosts(template, interface):
                 yield operation_host
 
 
-def interface_requirements_ok(spec, template):
+def interface_requirements_ok(spec: ToscaSpec, template: NodeSpec):
     reqs = template.get_interface_requirements()
     if reqs:
         assert isinstance(reqs, list)
@@ -1020,7 +1048,7 @@ def interface_requirements_ok(spec, template):
             if not any(
                 [
                     rel.is_compatible_type(req)
-                    for rel in spec.topology.default_relationships
+                    for rel in cast(TopologySpec, spec.topology).default_relationships
                 ]
             ):
                 logger.debug(
