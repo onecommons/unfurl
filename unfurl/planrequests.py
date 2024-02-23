@@ -321,15 +321,12 @@ class PlanRequest:
             if render_deps:
                 msg += f" invalid dependencies: {render_deps}"
         if self.dependencies:
-            not_operational = [
-                dep.name
-                for dep in self.dependencies
-                if dep.target
-                and dep.target.local_status not in [Status.ok, Status.degraded]
-            ]
-            invalid_deps = [
-                dep.name for dep in self.dependencies if dep not in not_operational
-            ]
+            not_operational, invalid_deps = [], []
+            for dep in self.dependencies:
+                if dep.target and dep.target.local_status not in [Status.ok, Status.degraded]:
+                    not_operational.append(dep.name)
+                else:
+                    invalid_deps.append(dep.name)
             if not_operational:
                 if msg != start:
                     msg += " and "
@@ -1160,9 +1157,11 @@ def create_task_request(
         logger.debug(
             "creating configuration %s with %s for %s: %s",
             configSpec.name,
-            tuple(f"{n}: {str(v)[:50]}" for n, v in configSpec.inputs.items())
-            if configSpec.inputs
-            else (),
+            (
+                tuple(f"{n}: {str(v)[:50]}" for n, v in configSpec.inputs.items())
+                if configSpec.inputs
+                else ()
+            ),
             resource.name,
             reason or action,
         )
