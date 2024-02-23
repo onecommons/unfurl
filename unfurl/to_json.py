@@ -496,12 +496,14 @@ def requirement_to_graphql(
 
     reqobj["match"] = None
     nodetype = req.get("node")
+    namespace_id = req.get("!namespace-node")
     if nodetype:
-        # req['node'] can be a node_template instead of a type
-        if nodetype in topology.node_templates:
+        # req['node'] can be a node_template name instead of a type
+        node_template = topology.topology_template.find_node_related_template(nodetype, namespace_id)
+        if node_template:
             if include_matches:
-                reqobj["match"] = nodetype
-            nodetype = topology.node_templates[nodetype].type
+                reqobj["match"] = node_template.name
+            nodetype = node_template.type
     else:
         nodetype = req.get("capability")
         if not nodetype:
@@ -530,7 +532,7 @@ def requirement_to_graphql(
         return None
     if type_definition and type_definition.custom_def:
         reqobj["resourceType"] = TypeName(
-            type_definition.custom_def.get_global_name(nodetype)
+            type_definition.custom_def.find_namespace(namespace_id).get_global_name(nodetype)
         )
     else:
         reqobj["resourceType"] = types.expand_typename(nodetype)
