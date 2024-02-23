@@ -21,6 +21,7 @@ import hashlib
 import re
 from tosca.yaml2python import has_function
 from toscaparser.common.exception import ValidationError
+from toscaparser.elements.portspectype import PortSpec
 from toscaparser.properties import Property
 
 if TYPE_CHECKING:
@@ -102,8 +103,7 @@ class ResourceRef(ABC):
     name = ""
 
     @abstractmethod
-    def _resolve(self, key):
-        ...
+    def _resolve(self, key): ...
 
     _templar: Optional["Templar"] = None
 
@@ -223,7 +223,7 @@ class ChangeRecord:
 
     def set_start_time(self, startTime: Optional[datetime.datetime] = None) -> None:
         if not startTime:
-            self.startTime =  datetime.datetime.now(datetime.timezone.utc)
+            self.startTime = datetime.datetime.now(datetime.timezone.utc)
         elif isinstance(startTime, datetime.datetime):
             self.startTime = startTime
         else:
@@ -232,7 +232,9 @@ class ChangeRecord:
                 self.startTime = self.EpochStartTime.replace(hour=startTime)
             except ValueError:
                 try:
-                    self.startTime = datetime.datetime.strptime(startTime, self.DateTimeFormat)
+                    self.startTime = datetime.datetime.strptime(
+                        startTime, self.DateTimeFormat
+                    )
                 except ValueError:
                     self.startTime = self.EpochStartTime
 
@@ -296,7 +298,9 @@ class ChangeRecord:
             if previousId[:8] == changeId[:8]:
                 # in case last job started less than 1/62nd of a second ago
                 return cls.make_change_id(
-                    timestamp + datetime.timedelta(milliseconds=16200), taskid, previousId
+                    timestamp + datetime.timedelta(milliseconds=16200),
+                    taskid,
+                    previousId,
                 )
             if previousId > changeId:
                 raise UnfurlError(
@@ -522,7 +526,7 @@ MAX_CHANGE_COUNT = 0xFFFFFFFFFFFF
 class ResultsItem(Result):
     "Internal representation of an item stored in Results"
 
-    __slots__ = ("original", "last_computed")  # "computed",
+    __slots__ = ("original", "last_computed")
 
     def __init__(
         self, resolved: Any, original: Any = _Missing, seen: int = MAX_CHANGE_COUNT
@@ -560,14 +564,13 @@ class ResultsItem(Result):
 
     def has_diff(self):
         "Was the item modified?"
-        if self.original is _Missing:
-            return True
-
-        # original if set, that means it was modified
         if isinstance(self.resolved, Results):
-            return self.resolved.has_diff()
+            # we need to checks these even if they are computed because
+            # unlike simple computed value which can not be changed
+            # these object have interior mutability
+            return self.original is _Missing or self.resolved.has_diff()
         elif not self.is_computed():
-            # was set, see if original changed
+            # value was set, see if original changed
             return self.original != self.resolved
         return False
 
@@ -587,12 +590,14 @@ class ResultsItem(Result):
 class CollectionProxy:
     _values: Any
 
+
 class ProxyableType(ABCMeta):
     def __instancecheck__(cls, inst):
         """Implement isinstance(inst, cls)."""
         if isinstance(inst, CollectionProxy):
             return isinstance(inst._values, cls)
         return ABCMeta.__instancecheck__(cls, inst)
+
 
 class Results(ABC, metaclass=ProxyableType):
     """
@@ -602,19 +607,23 @@ class Results(ABC, metaclass=ProxyableType):
     This also allows us to track changes to the returned structure.
     """
 
-    __slots__ = ("_attributes", "context", "_deleted", "validate", "defs", "applyTemplates")
+    __slots__ = (
+        "_attributes",
+        "context",
+        "_deleted",
+        "validate",
+        "defs",
+        "applyTemplates",
+    )
 
     @abstractmethod
-    def _values(self) -> Iterator:
-        ...
+    def _values(self) -> Iterator: ...
 
     @abstractmethod
-    def resolve_all(self):
-        ...
+    def resolve_all(self): ...
 
     @abstractmethod
-    def is_compatible(self, other) -> bool:
-        ...
+    def is_compatible(self, other) -> bool: ...
 
     def __init__(
         self,
@@ -682,14 +691,19 @@ class Results(ABC, metaclass=ProxyableType):
         elif Ref.is_ref(val):
             results = Ref(val).resolve(context, wantList="result")
             if "foreach" in val or len(results) > 1:
-                # the whole list was computed, not individual items, so they will be marked as new items
-                items = [ResultsItem(r) for r in results]
+                # the whole list was computed, so mark items as computed (by setting the change_count)
+                items = [
+                    ResultsItem(r, seen=context.referenced.change_count)
+                    for r in results
+                ]
                 return ResultsList(items, context, False, defs or {})
             elif len(results) == 1:
                 return results[0]
             else:
                 return None
         elif isinstance(val, sensitive):
+            return val
+        elif isinstance(val, PortSpec):
             return val
         elif isinstance(val, Mapping):
             # already validated
@@ -698,7 +712,7 @@ class Results(ABC, metaclass=ProxyableType):
         elif isinstance(val, list):
             # already validated
             # always explicitly set defs
-            if val and len(val) == 1 and isinstance(val[0], Result):
+            if len(val) == 1 and isinstance(val[0], Result):
                 # XXX! see test_localConfig in test_cli.py
                 return val[0]
             items = [ResultsItem(r) if isinstance(r, Result) else r for r in val]
@@ -717,6 +731,7 @@ class Results(ABC, metaclass=ProxyableType):
 
     def has_diff(self):
         # only check resolved values
+        # XXX also check if items were added or removed
         return any(isinstance(x, ResultsItem) and x.has_diff() for x in self._values())
 
     def __getitem__(self, key):
@@ -823,10 +838,15 @@ class Results(ABC, metaclass=ProxyableType):
                     "running transform on %s.%s", self.context.currentResource.name, key
                 )
                 try:
-                    return map_value(transform, self.context.copy(vars=dict(value=value)))
+                    return map_value(
+                        transform, self.context.copy(vars=dict(value=value))
+                    )
                 except Exception:
                     logger.error(
-                        "transform on %s.%s failed.", self.context.currentResource.name, key, exc_info=True
+                        "transform on %s.%s failed.",
+                        self.context.currentResource.name,
+                        key,
+                        exc_info=True,
                     )
         return value
 
