@@ -750,7 +750,10 @@ class Results(ABC, metaclass=ProxyableType):
             try:
                 if isinstance(val, ResultsItem):
                     # previously resolved
-                    if val.last_computed < self.change_count:
+                    if (
+                        val.last_computed < self.change_count
+                        and val.original is not _Missing
+                    ):
                         # need to re-evaluate
                         result = self.resolve(key, val.original, validate)
                         val.set_resolved(result, self.change_count)
