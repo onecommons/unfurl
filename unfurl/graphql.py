@@ -1,143 +1,145 @@
-# Copyright (c) 2022 Adam Souzis
+# Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-A GraphQL representation of ensembles and Unfurl environments,
-including simplified representations of TOSCA types and node templates.
+This module defines GraphQL representations of ensembles and Unfurl environments,
+including simplified representations of TOSCA types and node templates as documented by the GraphQL schema below.
 
-The GraphQL schema below documents the JSON format used by the ``export`` command and by unfurl server API endpoints.
+These objects are exported as JSON by the `export` command and by unfurl server API endpoints.
 
-ApplicationBlueprint: {
-  name: String!
-  title: String
-  description: String
-  primary: ResourceType!
-  primaryDeploymentBlueprint: String
-  deploymentTemplates: [DeploymentTemplate!]
+.. code-block::
 
-  livePreview: String
-  sourceCodeUrl: String
-  image: String
-  projectIcon: String
-}
+    type DeploymentTemplate {
+      name: String!
+      title: String!
+      slug: String!
+      description: String
 
-type DeploymentTemplate {
-  name: String!
-  title: String!
-  slug: String!
-  description: String
+      blueprint: ApplicationBlueprint!
+      primary: ResourceTemplate!
+      resourceTemplates: [ResourceTemplate!]
+      cloud: ResourceType
+      environmentVariableNames: [String!]
+      source: String
+      projectPath: String!
+      commitTime: String
+    }
 
-  blueprint: ApplicationBlueprint!
-  primary: ResourceTemplate!
-  resourceTemplates: [ResourceTemplate!]
-  cloud: ResourceType
-  environmentVariableNames: [String!]
-  source: String
-  projectPath: String!
-  commitTime: String
-}
+    type Deployment {
+      title: String!
+      primary: Resource
+      resources: [Resource!]
+      deploymentTemplate: DeploymentTemplate!
+      url: url
+      status: Status
+      summary: String
+      workflow: String
+      deployTime: String
+      packages: JSON
+    }
 
-type Deployment {
-  title: String!
-  primary: Resource
-  resources: [Resource!]
-  deploymentTemplate: DeploymentTemplate!
-  url: url
-  status: Status
-  summary: String
-  workflow: String
-  deployTime: String
-  packages: JSON
-}
+    type ResourceType {
+        name: String!
+        title: String
+        extends: [ResourceType!]
+        description: String
+        badge: String
+        icon: String
+        visibility: String
+        details_url: String
+        inputsSchema: JSON
+        computedPropertiesSchema: JSON
+        outputsSchema: JSON
+        requirements: [RequirementConstraint!]
+        implementations: [String]
+        implementation_requirements: [String]
+        directives: [String]
+        metadata: JSON
+        _sourceinfo: JSON
+    }
 
-type ResourceType {
-    name: String!
-    title: String
-    extends: [ResourceType!]
-    description: String
-    badge: String
-    icon: String
-    visibility: String
-    details_url: String
-    inputsSchema: JSON
-    computedPropertiesSchema: JSON
-    outputsSchema: JSON
-    requirements: [RequirementConstraint!]
-    implementations: [String]
-    implementation_requirements: [String]
-    directives: [String]
-    metadata: JSON
-    _sourceinfo: JSON
-}
+    type RequirementConstraint {
+        name: String!
+        title: String
+        description: String
+        resourceType: ResourceType!
+        match: ResourceTemplate
+        min: Int
+        max: Int
+        badge: String
+        visibility: String
+        icon: String
+        inputsSchema: Required[JSON]
+        requirementsFilter: [RequirementConstraint!]
+    }
 
-type RequirementConstraint {
-    name: String!
-    title: String
-    description: String
-    resourceType: ResourceType!
-    match: ResourceTemplate
-    min: Int
-    max: Int
-    badge: String
-    visibility: String
-    icon: String
-    inputsSchema: Required[JSON]
-    requirementsFilter: [RequirementConstraint!]
-}
+    type ResourceTemplate {
+        name: String!
+        title: String
+        type: ResourceType!
+        visibility: String
+        directives: [String!]
+        imported: String
+        metadata: JSON
 
-type ResourceTemplate {
-    name: String!
-    title: String
-    type: ResourceType!
-    visibility: String
-    directives: [String!]
-    imported: String
-    metadata: JSON
+        description: string
 
-    description: string
+        # Maps to an object that conforms to type.inputsSchema
+        properties: [Input!]
 
-    # Maps to an object that conforms to type.inputsSchema
-    properties: [Input!]
+        dependencies: [Requirement!]
+    }
 
-    dependencies: [Requirement!]
-}
+    type Requirement {
+      name: String!
+      constraint: RequirementConstraint!
+      match: ResourceTemplate
+      target: Resource
+      visibility: String
+    }
 
-type Requirement {
-  name: String!
-  constraint: RequirementConstraint!
-  match: ResourceTemplate
-  target: Resource
-  visibility: String
-}
+    type Resource {
+      name: String!
+      title: String!
+      url: String
+      template: ResourceTemplate!
+      status: Status
+      state: State
+      attributes: [Input!]
+      computedProperties: [Input!]
+      connections: [Requirement!]
+      protected: Boolean
+      imported: String
+    }
 
-type Resource {
-  name: String!
-  title: String!
-  url: String
-  template: ResourceTemplate!
-  status: Status
-  state: State
-  attributes: [Input!]
-  computedProperties: [Input!]
-  connections: [Requirement!]
-  protected: Boolean
-  imported: String
-}
+    type DeploymentEnvironment {
+        name: String!
+        connections: [ResourceTemplate!]
+        instances: [ResourceTemplate!]
+        primary_provider: ResourceTemplate
+        repositories: JSON!
+    }
 
-type DeploymentEnvironment {
-    name: String!
-    connections: [ResourceTemplate!]
-    instances: [ResourceTemplate!]
-    primary_provider: ResourceTemplate
-    repositories: JSON!
-}
+    type DeploymentPath {
+      name: String!
+      environment: String!
+      project_id: String
+      pipelines: [JSON!]
+      incremental_deploy: boolean!
+    }
 
-type DeploymentPath {
-  name: String!
-  environment: String!
-  project_id: String
-  pipelines: [JSON!]
-  incremental_deploy: boolean!
-}
+    type ApplicationBlueprint {
+      name: String!
+      title: String
+      description: String
+      primary: ResourceType!
+      primaryDeploymentBlueprint: String
+      deploymentTemplates: [DeploymentTemplate!]
+
+      livePreview: String
+      sourceCodeUrl: String
+      image: String
+      projectIcon: String
+    }
 """
 import datetime
 import re
