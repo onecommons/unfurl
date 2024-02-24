@@ -532,7 +532,7 @@ def requirement_to_graphql(
         return None
     if type_definition and type_definition.custom_def:
         reqobj["resourceType"] = TypeName(
-            type_definition.custom_def.find_namespace(namespace_id).get_global_name(nodetype)
+            type_definition.custom_def.get_global_name(nodetype)
         )
     else:
         reqobj["resourceType"] = types.expand_typename(nodetype)
@@ -723,7 +723,7 @@ def _update_root_type(
     for req in jsontype.setdefault("requirements", []):
         if req["name"] in names or req["match"]:
             req["min"] = 0
-            req["match"] = None
+            # req["match"] = None
     # templates created with this type need to have the substitute directive
     jsontype["directives"] = ["substitute"]
     # find all the default nodes that are being referenced directly or indirectly
