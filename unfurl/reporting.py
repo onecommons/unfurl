@@ -14,6 +14,7 @@ from typing import (
     TYPE_CHECKING,
     cast,
     overload,
+    Mapping,
 )
 from typing_extensions import Literal
 from .runtime import EntityInstance, NodeInstance
@@ -42,6 +43,8 @@ logger = getLogger("unfurl")
 
 
 class JobTable(Table):
+    max_extra_lines = 2
+
     def __init__(self, **kwargs):
         super().__init__(box=box.HORIZONTALS, show_lines=True, expand=True, **kwargs)
         self.hacks = {}
@@ -66,10 +69,14 @@ class JobTable(Table):
                 yield segment
                 if _box:
                     yield Segment(_box.mid_left, border_style)
-                    # XXX how to center extra? how to turn on automatic formatting?
-                    #     how to wrap lines and yield more than one line?
                     text = console.render_str(extra)
-                    for segment_list in console.render_lines(text, options):
+                    count = 0
+                    for segment_list in console.render_lines(
+                        text, options.update(no_wrap=False, overflow="fold")
+                    ):
+                        count += 1
+                        if count > self.max_extra_lines:
+                            break
                         yield from segment_list
                     yield Segment(_box.mid_right, border_style)
                 yield Segment.line()
@@ -197,29 +204,25 @@ class JobReporter:
 
     @overload
     @staticmethod
-    def stats(tasks, asMessage: Literal[False]) -> Dict[str, int]:
-        ...
+    def stats(tasks, asMessage: Literal[False]) -> Dict[str, int]: ...
 
     @overload
     @staticmethod
-    def stats(tasks) -> Dict[str, int]:
-        ...
+    def stats(tasks) -> Dict[str, int]: ...
 
     @overload
     @staticmethod
-    def stats(tasks, asMessage: Literal[True]) -> str:
-        ...
+    def stats(tasks, asMessage: Literal[True]) -> str: ...
 
     @overload
     @staticmethod
-    def stats(tasks, asMessage: bool) -> Union[Dict[str, int], str]:
-        ...
+    def stats(tasks, asMessage: bool) -> Union[Dict[str, int], str]: ...
 
     @staticmethod
     def stats(tasks, asMessage=False):
         # note: the status of the task, not the target resource
-        key = (
-            lambda t: Status.absent
+        key = lambda t: (
+            Status.absent
             if t.blocked
             else (
                 Status.error
@@ -383,7 +386,19 @@ class JobReporter:
             state = task.target_state and task.target_state.name or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:
-                result = escape(f"Output: {SensitiveFilter.redact(task.result.result)}")
+                output = task.result.result
+                if isinstance(output, Mapping):
+                    # sort dict so that the longest values are last if a string otherwise preserve key order
+                    output = {
+                        k: v
+                        for i, (k, v) in sorted(
+                            enumerate(output.items()),
+                            key=lambda x: (
+                                len(x[1][1]) if isinstance(x[1][1], str) else x[0]
+                            ),
+                        )
+                    }
+                result = escape(f"Output: {SensitiveFilter.redact(output)}")
             else:
                 result = ""
             table.add_row(

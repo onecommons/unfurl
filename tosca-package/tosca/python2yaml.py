@@ -13,6 +13,7 @@ from typing import (
     List,
     Optional,
     Tuple,
+    Type,
     Union,
 )
 import logging
@@ -249,6 +250,14 @@ class PythonToYaml:
             yaml.dump(yaml_dict, yo)
         return yaml_path
 
+    def add_alias(self, name, type_obj: Type[ToscaType]):
+        return {
+            name: {
+                "derived_from": type_obj.tosca_type_name(),
+                "metadata": {"alias": True},
+            }
+        }
+
     def _namespace2yaml(self, namespace):
         current_module = self.globals.get(
             "__name__", "builtins"
@@ -266,6 +275,7 @@ class PythonToYaml:
                 names = dir(namespace)
             namespace = {name: getattr(namespace, name) for name in names}
 
+        seen = set()
         for name, obj in namespace.items():
             if isinstance(obj, ModuleType):
                 continue
@@ -278,12 +288,17 @@ class PythonToYaml:
                     self._import_module(current_module, path, module_name)
                     continue
                 # this is a class not an instance
-                section = obj._type_section  # type: ignore
-                obj._globals = self.globals  # type: ignore
-                _docstrings = self.docstrings.get(name)
-                if isinstance(_docstrings, dict):
-                    obj._docstrings = _docstrings  # type: ignore
-                as_yaml = obj._cls_to_yaml(self)  # type: ignore
+                if id(obj) in seen:
+                    # name is a alias referenced, treat as subtype in TOSCA
+                    as_yaml = self.add_alias(name, obj)
+                else:
+                    seen.add(id(obj))
+                    section = obj._type_section  # type: ignore
+                    obj._globals = self.globals  # type: ignore
+                    _docstrings = self.docstrings.get(name)
+                    if isinstance(_docstrings, dict):
+                        obj._docstrings = _docstrings  # type: ignore
+                    as_yaml = obj._cls_to_yaml(self)  # type: ignore
                 self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
                 if name == "__root__":
                     topology_sections.setdefault(

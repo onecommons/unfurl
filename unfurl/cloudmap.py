@@ -936,6 +936,7 @@ class GitlabManager(RepositoryHost):
         self.user = config.get("user") or user
         self.token = config.get("password") or token
         self.path = namespace or parts.path.strip("/")
+        self.save_internal = bool(config.get("save_internal"))
         self.canonical_url = config.get("canonical_url") or ""
         if self.canonical_url:
             self.hostname = urlparse(self.canonical_url).netloc
@@ -1257,7 +1258,8 @@ class GitlabManager(RepositoryHost):
         # XXX
         # if project.license:
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
-        if project.avatar_url:
+        if self.save_internal and project.avatar_url:
+            # these urls point to the instance's uploaded files and aren't portable
             kw["avatar_url"] = project.avatar_url
         if project.issues_enabled:
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
@@ -1281,7 +1283,6 @@ class GitlabManager(RepositoryHost):
             protocols=protocols,
             path=project.path_with_namespace,
             default_branch=project.default_branch,
-            internal_id=str(project.get_id()),
             project_url=self.canonize(project.web_url),
             metadata=metadata,
             private=self._get_project_visibility(project) != "public",
@@ -1290,6 +1291,8 @@ class GitlabManager(RepositoryHost):
             },
             tags={t.name: t.target for t in project.tags.list(iterator=True)},
         )
+        if self.save_internal:
+            repository.internal_id = str(project.get_id())
         return repository
 
 

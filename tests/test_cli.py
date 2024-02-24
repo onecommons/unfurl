@@ -306,7 +306,7 @@ spec:
                 traceback.format_exception(*result.exc_info)
             )
             output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
-            assert r"'stdout': 'ok\n'" in output, output
+            assert r"ok" in output, output
             # run same command using ansible
             result = runner.invoke(
                 cli, run_cmd + ["--host", "localhost", "--", "echo", "ok"]

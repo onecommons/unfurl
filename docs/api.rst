@@ -146,3 +146,7 @@ Eval module
 ~~~~~~~~~~~~~~
 .. automodule:: unfurl.eval
   :members: Ref, map_value, eval_ref, RefContext
+
+Graphql module
+~~~~~~~~~~~~~~
+.. automodule:: unfurl.graphql
