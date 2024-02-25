@@ -286,11 +286,12 @@ _refResolver = RefResolver("", None)
 ImportResolver_Context = Tuple[bool, Optional[RepoView], str, str]
 
 
-def match_namespace(packages, namespace_id: str):
+def match_namespace(packages: str, namespace_id: str):
     for p in packages.split():
         if fnmatch.fnmatch(namespace_id, p):
-            return True
-    return False
+            start, sep, end = p.partition("*")
+            return start or "global"
+    return ""
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
@@ -502,8 +503,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         self.manifest.package_specs, canonical, namespace_id
                     )
 
-            if match_namespace(self.GLOBAL_NAMESPACE_PACKAGES, namespace_id):
-                source_info["namespace_uri"] = namespace_id
+            explicit_namespace = match_namespace(self.GLOBAL_NAMESPACE_PACKAGES, namespace_id)
+            if explicit_namespace:
+                namespace_id = explicit_namespace
+                source_info["namespace_uri"] = explicit_namespace
             return namespace_id
         return url
 
