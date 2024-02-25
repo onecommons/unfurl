@@ -1033,8 +1033,7 @@ def nodetemplate_to_json(
     ExceptionCollector.start()
     nodetemplate = cast(NodeTemplate, nodetemplate)
     node_spec = cast(NodeSpec, node_spec)
-    for req in nodetemplate.all_requirements:
-        name, req_dict = _get_req(req)
+    for name, req_dict in nodetemplate.all_requirements:
         if not req_dict:
             # not defined on the template at all
             reqconstraint = find_reqconstraint_for_template(node_spec, name, types)
