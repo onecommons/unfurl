@@ -3,12 +3,13 @@ import unittest
 import os
 
 import pytest
+from unfurl.eval import Ref, RefContext
 from unfurl.graphql import ImportDef, get_local_type
 import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
-from unfurl.support import Status, RefContext
+from unfurl.support import Status
 from unfurl.projectpaths import _get_base_dir
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
@@ -234,15 +235,18 @@ class ToscaSyntaxTest(unittest.TestCase):
                 vars=dict(nodes={"get_nodes_of_type": "tosca.nodes.Root"}),
             ),
         )
-        self.assertEqual(
-            "testSensitive",
-            job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"})[
-                0
-            ].name,
-        )
+        assert "testSensitive" == job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}).name
+        # assert job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True)[0]
+        assert job.rootResource.query(
+            {"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True
+        )[0].name == "testSensitive"
         assert not job.rootResource.query(
             {"get_nodes_of_type": "testy.nodes.Nonexistent"}
         )
+        assert not job.rootResource.query(
+            {"get_nodes_of_type": "testy.nodes.Nonexistent"}, wantList=True
+        )
+        assert not Ref({"get_nodes_of_type": "testy.nodes.Nonexistent"}).resolve(RefContext(job.rootResource.template))
         assert "server_ip: <<REDACTED>>" in job.out.getvalue(), job.out.getvalue()
 
     def test_ansibleVault(self):
@@ -751,7 +755,7 @@ spec:
       """
 
 
-def test_namespaces(caplog):
+def test_namespaces(caplog: pytest.LogCaptureFixture):
     with caplog.at_level(logging.DEBUG):
         manifest = YamlManifest(prefixed_k8s_manifest % "k8s.", "fakefile.yaml")
         assert manifest

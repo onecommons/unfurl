@@ -786,8 +786,12 @@ def eval_ref(
 
 def _eval_ref_results(val, ctx) -> List[Result]:
     mappedVal = Results._map_value(val, ctx)
+    if isinstance(mappedVal, ResultsList):
+        return [r if isinstance(r, Result) else Result(r) for r in mappedVal]
     if isinstance(mappedVal, Result):
         return [mappedVal]
+    elif mappedVal is None:
+        return []
     else:
         return [Result(mappedVal)]
 
