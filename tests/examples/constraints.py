@@ -4,7 +4,7 @@ from tosca import gb
 class ContainerService(tosca.nodes.Root):
     image: str
     url: str
-    mem_size: tosca.Size = tosca.CONSTRAINED
+    mem_size: tosca.Size
     name: str = tosca.CONSTRAINED
 
 class ContainerHost(tosca.nodes.Root):
@@ -31,7 +31,7 @@ class ProxyContainerHost(Proxy, ContainerHost):
 
 class App(tosca.nodes.Root):
     container: ContainerService = ContainerService(
-        "container_service", image="myimage:latest", url="http://localhost:8000"
+        "container_service", image="myimage:latest", url="http://localhost:8000", mem_size=1*gb
     )
     proxy: ProxyContainerHost
 

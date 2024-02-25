@@ -189,47 +189,6 @@ class ToscaSpec:
             return True
         return False
 
-    def enforce_filters(self):
-        patched = False
-        for nodespec in self.get_all_node_templates():
-            for req in nodespec.requirements.values():
-                for prop, value in req.get_nodefilter_properties():
-                    # the target already has a node so treat the node filter
-                    # as coercive by annotating the target's properties
-                    target = req.relationship and req.relationship.target
-                    if target:
-                        if isinstance(value, dict):
-                            if "eval" in value:
-                                if value["eval"] is None:
-                                    continue
-                                value.setdefault("vars", {})["SOURCE"] = dict(
-                                    eval="::" + nodespec.name
-                                )
-                            elif "q" in value:
-                                value = value["q"]
-                            else:
-                                # we assume this is a constraint, so don't assign the value
-                                # XXX only continue if it actually looks like one
-                                continue
-                        patch = dict(properties={prop: value})
-                        _patch(target, patch, quote=True)
-                        patched = True
-                for name, value in req.get_nodefilter_requirements():
-                    # annotate the target's requirements
-                    target = req.relationship and req.relationship.target
-                    if target:
-                        matching_target_req = target.requirements.get(name)
-                        if matching_target_req:
-                            _patch(
-                                nodespec,
-                                value,
-                                quote=True,
-                                tpl=matching_target_req.entity_tpl[name],
-                            )
-                            patched = True
-
-        return patched
-
     def _overlay(self, overlays):
         def _find_matches():
             assert self.topology
@@ -302,6 +261,7 @@ class ToscaSpec:
         }
         # this ToscaSpec is now ready, now we can call validate_relationships() which may invoke the find_matching_node callback
         self.template.validate_relationships()
+        self._post_node_filter_validation()
         ExceptionCollector.collecting = False
 
     def _patch(self, toscaDef, path, errorsSoFar):
@@ -325,8 +285,7 @@ class ToscaSpec:
                     ExceptionCollector.getExceptions(),
                 )
         modified_imports = self.evaluate_imports(toscaDef)
-        annotated = self.enforce_filters()
-        return matches or modified_imports or annotated
+        return matches or modified_imports
 
     def __init__(
         self,
@@ -606,19 +565,73 @@ class ToscaSpec:
     def get_repository(self, name: str):
         return self.template and self.template.repositories.get(name)
 
-    def find_matching_node(self, relTpl, req_name, req_def: dict):
+    def _post_node_filter_validation(self):
+        assert self.topology
+        for nodespec in self.topology.node_templates.values():
+            nodespec.requirements  # needed for substitution mapping
+            nodespec.toscaEntityTemplate.revalidate_properties()
+
+    def apply_node_filters(
+        self, target: NodeTemplate, req_def: dict, source: NodeTemplate
+    ) -> None:
+        target_spec = self.node_from_template(target)
+        for prop, value in get_nodefilters(req_def, "properties"):
+            if isinstance(value, dict):
+                if "eval" in value:
+                    if value["eval"] is None:
+                        continue
+                    value = value.copy()
+                    value.setdefault("vars", {})["SOURCE"] = dict(
+                        eval="::" + source.name
+                    )
+                elif "q" in value:
+                    value = value["q"]
+                else:
+                    # XXX add constraint to property
+                    # prop = target.properties[name]
+                    # prop.schema.schema.setdefault("constraints",[]).append(value)
+                    # prop.schema.constraints_list = None
+                    continue
+            if target_spec:
+                logger.trace(
+                    f"applying node_filter to {target.name} on property {prop}: {value}"
+                )
+                target_spec._update_property(prop, value)
+            else:
+                assert target._properties_tpl is not None
+                target._properties_tpl[prop] = value
+                target._properties = (
+                    None  # XXX don't clear, node_filter constraints might have been set
+                )
+
+        requires = target.requirements
+        for name, value in get_nodefilters(req_def, "requirements"):
+            # annotate the target's requirements
+            for r in requires:
+                req_name, req_def = next(iter(r.items()))  # list only has one item
+                if req_name == name:
+                    r[name] = NodeType.merge_requirement_definition(req_def, value)
+                    break
+            else:
+                if name in target.type_definition.requirement_definitions:  # type: ignore
+                    logger.trace(
+                        f"applying node_filter to {target.name} on requirement {name}: {value}"
+                    )
+                    requires.append({name: value})
+
+    def find_matching_node(self, relTpl: RelationshipTemplate, req_name, req_def: dict):
+        assert relTpl.source
         if relTpl.target:
+            self.apply_node_filters(relTpl.target, req_def, relTpl.source)
             # found a match already (currently not set)
             # XXX validate that it matches any constraints
             return relTpl.target, relTpl.capability
         node: Optional[str] = req_def.get("node")
         capability = req_def.get("capability")
-
         # evaluate constraints to find a match:
         source = self.node_from_template(relTpl.source)
         if not source:
             return None, None
-        assert source, relTpl.source
         matches = source._find_requirement_candidates(req_def, node)
         if len(matches) == 1:
             match = list(matches)[0]
@@ -626,6 +639,9 @@ class ToscaSpec:
                 match.toscaEntityTemplate, capability, req_def
             )
             if capabilities:
+                self.apply_node_filters(
+                    match.toscaEntityTemplate, req_def, relTpl.source
+                )
                 return match.toscaEntityTemplate, capabilities[0]
         # XXX if node_filter
         return None, None
@@ -713,9 +729,9 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = cast(str, toscaNodeTemplate.type)
-        self._isReferencedBy: Sequence[
-            EntitySpec
-        ] = []  # this is referenced by another template or via property traversal
+        self._isReferencedBy: Sequence[EntitySpec] = (
+            []
+        )  # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -757,6 +773,16 @@ class EntitySpec(ResourceRef):
         else:
             self.global_type = self.type
             self.defaultAttributes = {}
+
+    def _update_property(self, prop, value):
+        # should only be called while parsing
+        self.properties[prop] = value
+        if prop in self.propertyDefs:
+            self.propertyDefs[prop].value = value
+        if prop in self.attributeDefs:
+            self.attributeDefs[prop].value = value
+        self.toscaEntityTemplate._properties_tpl[prop] = value
+        self.toscaEntityTemplate._properties = None
 
     def _resolve_prop(self, key: str) -> "EntitySpec":
         # Returns the EntitySpec associated with this property.
@@ -1259,9 +1285,7 @@ class NodeSpec(EntitySpec):
         self, req_tpl: dict, nodetype: Optional[str]
     ) -> Set["NodeSpec"]:
         "Return a list of nodes that match this requirement's constraints"
-        if isinstance(self.toscaEntityTemplate.custom_def, Namespace) and req_tpl.get(
-            "!namespace-node"
-        ):
+        if isinstance(self.toscaEntityTemplate.custom_def, Namespace):
             node_type_namespace = self.toscaEntityTemplate.custom_def.find_namespace(
                 req_tpl.get("!namespace-node")
             )

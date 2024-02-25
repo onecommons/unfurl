@@ -30,40 +30,48 @@ def test_constraints():
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     # loads yaml with with a json include
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
-    manifest = local.get_manifest(skip_validation=True, safe_mode=True)
+    manifest = local.get_manifest(skip_validation=False, safe_mode=True)
     service_template = manifest.manifest.expanded["spec"]["service_template"]
-    # pprint.pprint(service_template["topology_template"])
-    assert service_template["topology_template"] == {
-        "node_templates": {
-            "myapp": {
-                "type": "App",
-                "metadata": {"module": "service_template.constraints"},
-                "requirements": [
-                    {"container": "container_service"},
-                    {"proxy": "myapp_proxy"},
-                ],
+    node_templates = {
+        "myapp": {
+            "type": "App",
+            "metadata": {"module": "service_template.constraints"},
+            "requirements": [
+                {"container": "container_service"},
+                {"proxy": "myapp_proxy"},
+            ],
+        },
+        "container_service": {
+            "type": "ContainerService",
+            "properties": {
+                "image": "myimage:latest",
+                "url": "http://localhost:8000",
+                "name": "app",  # applied by the app's node_filter
+                "mem_size": "1 GB",  # XXX node_filter constraints aren't being applied
             },
-            "container_service": {
-                "type": "ContainerService",
-                "properties": {
-                    "image": "myimage:latest",
-                    "url": "http://localhost:8000",
-                },
-            },
-            "myapp_proxy": {
-                "type": "ProxyContainerHost",
-                "metadata": {"before_patch": {"type": "ProxyContainerHost"}},
-                "properties": {
-                    "backend_url": {
-                        "eval": "$SOURCE::.targets::container::url",
-                        "vars": {"SOURCE": {"eval": "::myapp"}},
-                    }
-                },
-            },
-        }
+        },
+        "myapp_proxy": {
+            "type": "ProxyContainerHost",
+        },
     }
-    # pprint.pprint(service_template["node_types"]["Proxy"])
-    assert service_template["node_types"] == {
+    for name, value in node_templates.items():
+        # pprint.pprint((name, service_template["topology_template"]["node_templates"][name]), indent=4)
+        assert (
+            service_template["topology_template"]["node_templates"][name] == value
+        ), name
+
+    myapp_proxy_spec = manifest.tosca.topology.get_node_template("myapp_proxy")
+    assert myapp_proxy_spec
+    expected_prop_value = {
+        "eval": "$SOURCE::.targets::container::url",
+        "vars": {"SOURCE": {"eval": "::myapp"}},
+    }
+    assert (
+        myapp_proxy_spec.toscaEntityTemplate.get_property_value("backend_url")
+        == expected_prop_value
+    )
+    assert myapp_proxy_spec.properties["backend_url"] == expected_prop_value
+    node_types = {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
             "properties": {
@@ -75,10 +83,14 @@ def test_constraints():
         },
         "ContainerHost": {
             "derived_from": "tosca.nodes.Root",
-            "requirements": [{"hosting": {
-                "node": "ContainerService",
-                '!namespace-node': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble'
-                }}],
+            "requirements": [
+                {
+                    "hosting": {
+                        "node": "ContainerService",
+                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
+                    }
+                }
+            ],
         },
         "Proxy": {
             "derived_from": "tosca.nodes.Root",
@@ -86,12 +98,16 @@ def test_constraints():
                 "backend_url": {
                     "type": "string",
                     "description": "URL to proxy",
-                    '!namespace': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble',
+                    "!namespace": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                 }
             },
-            "attributes": {"endpoint": {"type": "string",
-                                        '!namespace': 'github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble',
-                                         "description": "Public URL"}},
+            "attributes": {
+                "endpoint": {
+                    "type": "string",
+                    "!namespace": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
+                    "description": "Public URL",
+                }
+            },
         },
         "ProxyContainerHost": {
             "derived_from": ["Proxy", "ContainerHost"],
@@ -123,8 +139,6 @@ def test_constraints():
                                 {
                                     "backend_url": {
                                         "eval": "$SOURCE::.targets::container::url",
-                                        # vars should be omitted, set at parse time per template
-                                        "vars": {"SOURCE": {"eval": "::myapp"}},
                                     }
                                 }
                             ],
@@ -150,6 +164,9 @@ def test_constraints():
             ],
         },
     }
+    for name, value in node_types.items():
+        # pprint.pprint((name, service_template["node_types"][name]), indent=4)
+        assert service_template["node_types"][name] == value, name
 
     root = manifest.tosca.topology.get_node_template("myapp")
     assert root
@@ -161,6 +178,7 @@ def test_constraints():
     # deduced container from backend_url
     hosting = proxy.get_relationship("hosting").target
     assert hosting == container, (hosting, container)
+    # XXX mem_size should have failed validation because of node_filter constraint
     # XXX deduced inverse
     # assert container.get_relationship("host") == proxy
 
