@@ -989,12 +989,14 @@ class LocalEnv:
             self.homeConfigPath: Optional[str] = parent.homeConfigPath
             self.homeProject: Optional[Project] = parent.homeProject
             self.make_resolver: Optional[Callable] = parent.make_resolver
+            self.loader_cache: dict  = parent.loader_cache
         else:
             self._projects = {}
             self._manifests = {}
             self.homeConfigPath = get_home_config_path(homePath)
             self.homeProject = self._get_home_project()
             self.make_resolver = None
+            self.loader_cache = {}
 
         self._resolve_path_and_project(
             manifestPath or "",
@@ -1289,6 +1291,11 @@ class LocalEnv:
             self.config.create_local_instance(name.rstrip("s"), attributes),
             spec,
         )
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["loader_cache"] = {}  # don't pickle cache
+        return state
 
     def _find_git_repo(
         self, repoURL: str, revision: Optional[str] = None

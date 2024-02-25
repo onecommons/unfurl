@@ -119,10 +119,12 @@ class Manifest(AttributeManager):
         if self.localEnv:
             # before we start parsing the manifest, add the repositories in the environment
             self._add_repositories_from_environment()
+            self.cache = self.localEnv.loader_cache
+        else:
+            self.cache = {}
         self.imports = Imports()
         self.imports.manifest = self
         self._importedManifests: Dict = {}
-        self.cache: Dict[str, Any] = {}
         self.modules: Optional[Dict] = None
 
     def _add_repositories_from_environment(self) -> None:

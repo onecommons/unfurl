@@ -926,9 +926,10 @@ class SimpleCacheResolver(ImportResolver):
         self.manifest.cache[path] = (val, 0)
 
     def get_cache(self, doc_key):
-        if doc_key in self.manifest.cache:
-            val, count = self.manifest.cache[doc_key]
-            self.manifest.cache[doc_key] = (val, count + 1)
+        cache = self.manifest.cache
+        if doc_key in cache:
+            val, count = cache[doc_key]
+            cache[doc_key] = (val, count + 1)
             return val
         return None
 
