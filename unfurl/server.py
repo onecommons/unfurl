@@ -610,6 +610,8 @@ class CacheEntry:
                     _clear_project(self.project_id)
                     if not local_developer_mode():
                         repo = None  # we don't delete the repo in local developer mode
+                    else:
+                        action = "detached"
             if not repo:
                 if self.do_clone:
                     logger.info(f"cloning repo for {repo_key}")
@@ -1382,7 +1384,7 @@ def populate_cache():
     requested_format = format_from_path(path)
     removed = request.args.get("removed")
     cache_entry = CacheEntry(
-        project_id, branch, path, requested_format, args=request.args
+        project_id, branch, path, requested_format, args=dict(request.args)
     )
     visibility = request.args.get("visibility")
     logger.debug(
@@ -1560,12 +1562,15 @@ def _do_export(
     args: dict,
 ) -> Tuple[Optional[Any], Optional[Any]]:
     assert cache_entry.branch
-    err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
-        cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
-    )
-    if err:
-        return err, None
+    parent_localenv = args.get("parent_localenv")
+    if not parent_localenv:
+        err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
+            cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
+        )
+        if err:
+            return err, None
     assert parent_localenv
+    args["parent_localenv"] = parent_localenv  # share localenv in the request
     if parent_localenv.project:
         repo: Optional[RepoView] = parent_localenv.project.project_repoview
     else:
