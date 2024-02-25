@@ -131,14 +131,16 @@ def test_constraints():
                             "requirements": [
                                 {
                                     "hosting": {
-                                        "properties": [
-                                            {"name": {"q": "app"}},
-                                            {
-                                                "mem_size": {
-                                                    "in_range": ["2 GB", "20 GB"]
-                                                }
-                                            },
-                                        ]
+                                        "node_filter": {
+                                            "properties": [
+                                                {"name": {"q": "app"}},
+                                                {
+                                                    "mem_size": {
+                                                        "in_range": ["2 GB", "20 GB"]
+                                                    }
+                                                },
+                                            ]
+                                        }
                                     }
                                 }
                             ],

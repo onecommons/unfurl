@@ -1680,9 +1680,9 @@ class FieldProjection(EvalData):
         req_filters = node_filter.setdefault("requirements", [])
         for req_filter in req_filters:
             if tosca_name in req_filter:
-                return req_filter[tosca_name]
+                return req_filter[tosca_name].setdefault("node_filter", {})
         req_filter = {}
-        req_filters.append({tosca_name: req_filter})
+        req_filters.append({tosca_name: {"node_filter": req_filter}})
         return req_filter
 
     @property
