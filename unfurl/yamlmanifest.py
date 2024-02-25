@@ -438,7 +438,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.localEnv:
             return
 
-        if self.localEnv.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
+        if self.localEnv.overrides.get("skip_secret_files"):
             return
         # use the password associated with the project the repository appears in.
         repos = set(self.repositories.values())
@@ -985,12 +985,13 @@ class YamlManifest(ReadOnlyManifest):
 
     def commit(self, msg: str, add_all: bool = False, ensemble_only=False) -> int:
         committed = 0
+        save_secrets = not self.localEnv or not self.localEnv.overrides.get("skip_secret_files")
         if not ensemble_only:
             for repository in self.repositories.values():
                 if repository.repo == self.repo:
                     continue
                 if not repository.read_only and repository.is_dirty():
-                    retVal = repository.commit(msg, add_all)
+                    retVal = repository.commit(msg, add_all, save_secrets)
                     committed += 1
                     logger.info(
                         "committed %s to %s: %s", retVal, repository.working_dir, msg
@@ -1000,7 +1001,7 @@ class YamlManifest(ReadOnlyManifest):
         #    (note: endCommit will be omitted as changes.yaml isn't updated)
         ensembleRepo = self.repositories["self"]
         if ensembleRepo.is_dirty():
-            retVal = ensembleRepo.commit(msg, add_all)
+            retVal = ensembleRepo.commit(msg, add_all, save_secrets)
             committed += 1
             logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
 

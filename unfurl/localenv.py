@@ -981,6 +981,8 @@ class LocalEnv:
             self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
         if os.getenv("UNFURL_SEARCH_ROOT"):
             self.overrides["UNFURL_SEARCH_ROOT"] = os.getenv("UNFURL_SEARCH_ROOT")
+        if self.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
+            self.overrides["skip_secret_files"] = True
 
         if parent:
             self.parent = parent

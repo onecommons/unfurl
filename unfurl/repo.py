@@ -518,10 +518,10 @@ class RepoView:
     def save_secrets(self):
         return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
 
-    def commit(self, msg: str, add_all: bool = False) -> int:
+    def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:
         assert not self.read_only
         repo = assert_not_none(self.repo)
-        if self.yaml:
+        if self.yaml and save_secrets:
             for saved in self.save_secrets():
                 local_path = str(saved.relative_to(repo.working_dir))
                 repo.repo.git.add(local_path)

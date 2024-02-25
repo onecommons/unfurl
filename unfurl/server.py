@@ -2156,6 +2156,8 @@ def _patch_ensemble(
         ENVIRONMENT=environment,
         UNFURL_CLOUD_VARS_URL=cloud_vars_url,
         apply_url_credentials=True,
+        # we need to decrypt/encrypt yaml but we can skip secret files (expensive)
+        skip_secret_files=True,
     )
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
