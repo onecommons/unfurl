@@ -279,6 +279,7 @@ class OperationalInstance(Operational):
     """
     A concrete implementation of Operational
     """
+    _lastStatus: Optional[Status] = None
 
     def __init__(
         self,

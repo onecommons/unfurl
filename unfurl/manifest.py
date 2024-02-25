@@ -42,7 +42,13 @@ from .util import (
     taketwo,
 )
 from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
-from .packages import Package, PackageSpec, PackagesType, find_canonical, get_package_id_from_url
+from .packages import (
+    Package,
+    PackageSpec,
+    PackagesType,
+    find_canonical,
+    get_package_id_from_url,
+)
 from .merge import merge_dicts
 from .result import ChangeRecord, ResourceRef
 from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
@@ -89,10 +95,9 @@ def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str,
     return dict((n, follow_alias(v)) for n, v in connections.items())
 
 
-class ChangeRecordRecord(ChangeRecord):
+class ChangeRecordRecord(ChangeRecord, OperationalInstance):
     target: str = ""
     operation: str = ""
-    dependencies: Sequence = ()
 
 
 class Manifest(AttributeManager):
@@ -285,7 +290,7 @@ class Manifest(AttributeManager):
     #  or generate a template setting interface with the referenced implementations
 
     @staticmethod
-    def load_status(status, instance=None):
+    def load_status(status, instance: Optional[OperationalInstance] = None):
         if not instance:
             instance = OperationalInstance()
         if not status:
@@ -301,7 +306,7 @@ class Manifest(AttributeManager):
         else:
             instance._localStatus = to_enum(Status, readyState.get("local"))
             instance._state = to_enum(NodeState, readyState.get("state"))
-
+            instance._lastStatus = to_enum(Status, readyState.get("effective"))
         return instance
 
     @staticmethod
@@ -509,7 +514,13 @@ class Manifest(AttributeManager):
                 self.load_error(f"missing import {importName}")
 
         if imported:
-            operational = self.load_status(dict(readyState=imported.local_status))
+            imported_status = dict(
+                readyState=dict(
+                    local=imported.local_status,
+                    effective=imported._lastStatus, 
+                )
+            )
+            operational = self.load_status(imported_status)
         else:
             operational = self.load_status(status)
         if isinstance(templateName, str):
@@ -579,7 +590,7 @@ class Manifest(AttributeManager):
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
             if verbose:
-                instance_label  += f"({instance.template.global_type})"
+                instance_label += f"({instance.template.global_type})"
             local = (
                 f"({'None' if instance.local_status is None else instance.local_status.name})"
                 if verbose
@@ -630,7 +641,11 @@ class Manifest(AttributeManager):
         if self.repo:
             url = self.repo.url
         else:
-            url = self.tosca.topology.path or "" if self.tosca and self.tosca.topology else ""
+            url = (
+                self.tosca.topology.path or ""
+                if self.tosca and self.tosca.topology
+                else ""
+            )
         if url and self.package_specs:
             namespace_id, _, _ = get_package_id_from_url(url)
             canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
@@ -688,10 +703,14 @@ class Manifest(AttributeManager):
         repositories = self._get_repositories(config)
         lock = config.get("lock")
         if lock and "package_rules" in lock:
-            package_specs = [PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])]
+            package_specs = [
+                PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])
+            ]
             if package_specs and not self.package_specs:
                 # only use lock section package rules if the environment didn't set some already
-                logger.debug("applying package rules from lock section: %s", package_specs)
+                logger.debug(
+                    "applying package rules from lock section: %s", package_specs
+                )
                 self.package_specs = package_specs
 
         for name, tpl in repositories.items():

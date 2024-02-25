@@ -914,7 +914,16 @@ def to_graphql_resource(
     template = cast(
         Optional[ResourceTemplate], db["ResourceTemplate"].get(instance.template.name)
     )
-    pending = not instance.status or instance.status == Status.pending
+    try:
+        if instance._lastStatus is not None:  # "effective" status in the YAML
+            status = instance._lastStatus
+        else:
+            status = instance.status
+    except:
+        status = Status.error
+        logger.error(f"Error getting live status for resource {instance.nested_name}", exc_info=True)
+
+    pending = not status or status == Status.pending
     if not template:
         if pending or "virtual" in instance.template.directives:
             return None
@@ -932,7 +941,7 @@ def to_graphql_resource(
         title=template.get("title", instance.name),
         template=ResourceTemplateName(instance.template.name),
         state=instance.state,
-        status=instance.status,
+        status=status,
         __typename="Resource",
         imported=instance.imported,
     )
