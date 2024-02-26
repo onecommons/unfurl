@@ -8,6 +8,8 @@ Python API
 API for writing service templates
 ---------------------------------
 
+See `here <https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md>`_ for an overview of the TOSCA Python DSL.
+
 TOSCA Field Specifiers
 ~~~~~~~~~~~~~~~~~~~~~~
 

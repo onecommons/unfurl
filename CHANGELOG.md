@@ -1,5 +1,201 @@
 # Changelog for Unfurl
 
+## v1.0.0 - 2024-2-26
+
+<small>[Compare with 0.9.1](https://github.com/onecommons/unfurl/compare/v0.9.1...v1.0.0) </small>
+
+### Features
+
+We've strived to maintain backwards compatibility and API stability for a while now, so for this release we decided to go ahead and christen it 1.0 🎉.
+
+Major new features include:
+
+#### TOSCA namespaces and global type identifiers
+
+This release adds features designed to enable 3rd party type libraries to be shared within the same TOSCA topology and for Unfurl API consumers (such as Unfurl Cloud) to manage them.
+
+* Namespace isolation.
+
+Each imported service template is placed in a separate namespace that is used to resolve type references in the file. It includes the types defined in that file along with the types it imports, with those type names prefixed if `namespace_prefix` key is set on the import definition. The namespace will be unique to that import unless an explicit namespace is declared (see below). This can be disabled or limited using the new  `UNFURL_GLOBAL_NAMESPACE_PACKAGES` environment variable (see _Breaking changes_ below). Note that the Python DSL already behaves this way, as documented [here](https://github.com/onecommons/unfurl/tree/main/tosca-package#imports-and-repositories).
+
+* Support for TOSCA 1.3's `namespace` field
+
+If a service template explicitly declares a namespace using the `namespace` keyword, its namespace will be assigned that name and namespace isolation will be disabled for any templates it imports -- so any import will share the same namespace unless it also declares its own namespace. In addition, any other template that declares the same namespace identifier will be placed in the same namespace. Shared namespaces means a template can reference types it didn't explicitly import and overwrite existing type definitions with the same name and so declaring namespaces is not recommended.
+
+* Globally unique identifiers for types.
+
+Namespaces can be used to generate globally unique type names and updated the Unfurl Server APIs and GraphQl/JSON export format to use these globally unique names.
+Follow the format `<typename>@<namespace_id>` where `namespace_id` is namespace the type was declared in.  If a namespace id isn't explicitly declared using the `namespace` keyword, one will be generated using the package id of its repository or current project, and optionally, a file path if it isn't the root service template.
+For example: `ContainerComputeHost@unfurl.cloud>/onecommons/std` (a type defined in `service-template.yaml`) and `EC2Instance@unfurl.cloud>/onecommons/std:aws` (a type defined in `aws.yaml`). TOSCA and unfurl types defined in the core vocabulary (and don't need to be imported) are not qualified. Built-in unfurl types that do need to be imported use `unfurl` as there package id, for example: `unfurl.nodes.Installer.Terraform@unfurl:tosca_plugins/artifacts`.
+Generation of type global names with export and the APIs can be disabled by setting the `UNFURL_EXPORT_LOCALNAMES` environment variable (See _Breaking changes_ below).
+
+* Cross-package interoperability with type metadata.
+
+A package can declare compatibility with types in different packages without having to import those packages using the `aliases` and `deprecates` keywords in the metadata section of a type definition. The keywords value can be either a fully qualified type name or a list of fully qualified type names and indicate that the type is equivalent to the listed types. This is used both by the parser and by the API (export includes those types in exported types `extends` section) used by Unfurl Cloud's UI.
+
+#### Unfurl Server and export APIs
+
+* Unfurl Server (and the Unfurl Cloud front-end) patching API now uses global type names to generate import statements with prefixes as needed to prevent clashes packages with the same name.
+
+* Support for HTTP caching: Improved etag generation and Cache-Control headers that enable the browser and proxy caches to use stale content while processing slow requests. Use the `CACHE_CONTROL_SERVE_STALE` environment variable to set.
+
+* Add a Dockerfile that includes a nginx caching proxy in front of unfurl server. Provide prebuilt container images as `onecommons/unfurl:v1.0.0-server-cached` on docker.io and ghcr.io.
+
+* Improvements to Redis caching: Track dependencies better, cache commit dates for more efficient shallow clones, improved error handling and recovery.
+
+* Local developer mode will now serve content from any local repository tracked by the current project or the home project (in `local/unfurl.yaml`). It also improves handling local changes and error recovery.
+
+* Improve type annotations for new Graphql types and consolidated Graphql Schema.
+
+* Add support for a `property_metadata` metadata key to apply metadata to individual properties on a TOSCA datatype.
+
+For example, this property declaration applies the `user_settable` metadata key to the environment property on unfurl.datatypes.DockerContainer:
+
+```yaml
+      container:
+        type: unfurl.datatypes.DockerContainer
+        metadata:
+          property_metadata:
+            environment:
+              user_settable: true
+```
+
+#### Python DSL
+
+Service templates written in Python now have the following integration points with Unfurl's runtime:
+
+* ToscaType implementations of TOSCA operations can return a Python method instead of an artifact or configurator and that method will converted to a configurator.
+* If TOSCA operation attempts to execute runtime-only functionality it will be invoked during the job's render phase instead of converted to YAML.
+* Introduce a `Computed()` field specifier for TOSCA properties whose value is computed at runtime with the given method.
+* Add a `unfurl.tosca_plugins.functions` module containing utility functions that can be executed in the safe mode Python sandbox. This allows these functions to be executed in "spec" mode (e.g. as part of a class definition or in `_class_init`).
+* Add a `unfurl.expr` module containing type-safe python equivalents to Unfurl's eval expression functions.
+* Add methods and free functions providing type-safes equivalents to Unfurl's query expressions: `find_configured_by`, `find_hosted_on`, `find_required_by` and `find_all_required_by` APIs.
+* Providing these apis required synchronizing a job's task context as a per-thread global runtime state, add public apis for querying global state and retrieving the current `RefContext`.
+* Treat non-required instance properties as optional (return None instead of raising KeyError)
+* Add a public `unfurl.testing.create_runner()` api for writing unit tests for Python DSL service templates.
+
+Various improvements to YAML-to-Python and Python-to-YAML conversion, including:
+
+* Better support for artifacts
+* Better default operation conversion
+* Support for aliased references (multiple variables assigned to the same type).
+* Special case module attributes named `__root__` to generate TOSCA `substitution_mappings` (aka `root`). For example:
+
+```python
+    __root__ = my_template
+
+or
+
+    __root__ = MyNodeType
+```
+
+DSL API improvements:
+
+* Add a `NodeTemplateDirective` string enum for type-safe node template directives.
+* Add a `@anymethod` method decorator for creating methods that can act as both a classmethods and regular method.
+* Revamp Options api for typed and validated metadata on field specifiers.
+* Add a `DEFAULT` sentinel value to indicate that a field should have a default value constructed from the type annotation. This helps when using forward references to types that aren't defined yet as well as prevent a bit of DRY.
+* Add a similar `CONSTRAINED` sentinel value to indicate that the property's value will be set in `_class_init`.
+* Add a `unfurl.support.register_custom_constraint()` API for registering custom TOSCA property constraint types.
+* Add UNFURL_TEST_SAFE_LOADER environment variable to force a runtime exception if the tosca loader isn't in safe mode or to disable safe mode (for testing).UNFURL_TEST_SAFE_LOADER=never option to disable, any other non-empty value to enforce safe mode.
+* Improve the [API documentation](https://docs.unfurl.run/api.html#api-for-writing-service-templates).
+* Release tosca package 0.0.7
+
+#### Packages
+
+* Package version resolution during loading of an ensemble now honors the lock section of the ensemble if present. After an ensemble is deployed, the version tag recorded in the lock section for a package will take precedence.
+
+* The lock section will record if a repository was missing version tags, in that case, subsequent deployments will attempt to fetch the first version tag. (As opposed to the default behavior of fetching the latest version tag if one wasn't explicitly specified.)
+
+* Package rules are now serialized in the lock section, following the format used for `UNFURL_PACKAGE_RULES` environment variables. These rules will be applied in future unfurl invocation if the `UNFURL_PACKAGE_RULES` environment variable is missing.
+
+* Package rules are applied more widely, for example when matching repository URLs and to namespace ids.
+
+* A "packages" key has be added to Deployment graphql object containing the packages and versions used by the deployment.
+
+### Artifact enhancements
+
+Support for the following built-in keywords on artifact definitions have been added as TOSCA extensions:
+
+* `contents`: Artifacts can now specify their contents inline using the new  field. Contents can be auto-generated using eval expression or jinja templates.
+* `target`:  The node template to deploy the artifact to (default is the node template the artifact is defined in).
+* `permissions`: A string field indicating the file permissions to apply when an artifact is deployed as a file.
+* `order`: A number field that provides a weight for establishing the order in which declared artifacts are processed.
+* `intent`: A string field for declaring the (user-defined) intent for the artifact.
+
+* Built-in artifact fields will now be evaluated like user-defined properties at runtime (e.g. they can contain eval expressions).
+* Artifact can now be dynamically created when declared in resultTemplates.
+
+### Other Features
+
+* Support Python 3.12
+
+* Add an `unfurl.testing` module for unit tests.
+
+* Update the `dashboard` skeleton to use the new `onecommons/std` repository.
+
+* The runtime will add a default relationship of type of `unfurl.relationships.ConnectsTo.ComputeMachines` to the current environment when a primary provider isn't defined in that environment.
+
+* Add support for a `validation` key in type metadata to provide user-defined eval expressions for validating properties and custom datatypes (equivalent to the `validation` key in property metadata).
+
+* Add `required` and `notnull` options to the "strict" field on "eval" expressions. This provides simple validation of eval expressions, e.g.:
+
+```yaml
+    eval: .::foo
+    strict: required  # raise error if no results are found
+```
+
+or
+
+```yaml
+    eval: .::foo
+    strict: notnull # raise error if result isn't found or is null
+```
+
+### Breaking changes
+
+* Prior to this release all imports shared the same namespace for types. For example, one imported file could reference a type declared in another file if both those files happened to be both imported by another service template.
+
+With this release this behavior is only enabled if the importing template "namespace" key and the imported templates don't declare a different namespace. Otherwise, each TOSCA import now has its own namespace. Types only have visibility and templates.
+
+If it is a package you can't modify, you can use
+`UNFURL_GLOBAL_NAMESPACE_PACKAGES` expects space separated list of namespaces names with wildcards. So `UNFURL_GLOBAL_NAMESPACE_PACKAGES='*'` would enable that flag for all service templates.
+
+If missing, defaults to "unfurl.cloud/onecommons/unfurl-types*"
+
+* The unfurl server API and the ``export`` cli command now exports type names as fully qualified. This can be disabled by setting the ``UNFURL_EXPORT_LOCALNAMES`` environment variable. This will environment variable will be removed in a future release.
+
+* To enable Python 3.12, Unfurl now depends on ansible-core version 2.15.9.
+
+### Minor Enhancements and Notable Bug Fixes
+
+* **job** If a node template is created for a "discovered" instance that has a parent, set that parent as the "host" requirement for the template.
+* **job** Improve the job summary table and other logging tweaks.
+* **job** Report blocked tasks separately from failed jobs (and mark more tasks as blocked).
+* **plan** Improve heuristic for detecting circular dependencies and deadlocks (fixes #281)
+* **job** don't silently skip operations when instantiating a configurator class fails.
+* **runtime** Fix to assure the reevaluation of computed results when the computation's dependencies change.
+* **cli** Add verbose output to the `status` command if `-v` flag is used.
+* **cloudmap** add --repository cli option
+* **cloudmap** add a `save_internal` config setting for Gitlab hosts.
+* **job** Add heuristic for setting the status on relationship instances when the task's configurator doesn't explicitly set it.
+* **job** add unfurl install path to the `$PATH` passed to tasks.
+* **job** By default, dry run jobs print the modified ensemble.yaml to the console instead of saving to disk. Use `UNFURL_SKIP_SAVE=never` to force them to be saved.
+* **parser** Remove attribute definition if a derived type re-declares it as a property.
+* **parser**: Move default node template (those with a "default" directive) completely from inner topology to the root topology.
+* loader, export: don't add environment instances or imports to ensemble except when generating json for the `environments`.
+By default, don't instantiate environment instances unless they are imported from external ensembles. Similarly, don't include imports declared in an environment unless they have a namespace_prefix that referenced by a connection in the environment.
+* **logging** add a `UNFURL_LOG_TRUNCATE` environment variable to change the maximum log message length (default: 748)
+* **parser** Accept relationship types defined in TOSCA extensions in requirement definitions.
+* **eval** have template function's path parameter make relative paths relative to source location
+* **dns** install octodns artifact if needed
+* **ansible** load ansible collection artifact as soon as they are installed.
+* **kompose** make sure service names should conform to dns host name syntax
+* **kompose** fix `expose` input parameter
+* **kompose** implement the `env` input parameter
+* **kompose** update artifact version
+* **package wide** many improvements to type annotations; for example, introducing TypedDicts and overloaded signatures for the to_label family of functions.
+
 ## v0.9.1 - 2023-10-25
 
 <small>[Compare with 0.9.0](https://github.com/onecommons/unfurl/compare/v0.9.0...v0.9.1) </small>
@@ -31,8 +227,8 @@ class GenericTerraformManagedResource(tosca.nodes.Root):
 * Allow TOSCA data types to declare a "transform" in metadata that is applied as a property transform.
 
 * `node_filter` improvements:
-   - Recursively merge `requirements` keys in node filters when determining the node_filter for a requirement.
-   - Allow `get_nodes_of_type` TOSCA function in node_filter `match` expressions.
+  * Recursively merge `requirements` keys in node filters when determining the node_filter for a requirement.
+  * Allow `get_nodes_of_type` TOSCA function in node_filter `match` expressions.
 
 * Release 0.0.5 version of the Python tosca package.
 

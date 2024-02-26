@@ -510,16 +510,16 @@ def is_computed(val) -> bool:
     return has_function(val)
 
 
-class _Sentinal:
+class _Sentinel:
     def __init__(self, name):
         self.name = name
 
     def __repr__(self):
-        return "<Sentinal: " + self.name + ">"
+        return "<Sentinel: " + self.name + ">"
 
 
-_Missing = _Sentinal("_Missing")
-_RecursionGuard = _Sentinal("_RecursionGuard")
+_Missing = _Sentinel("_Missing")
+_RecursionGuard = _Sentinel("_RecursionGuard")
 MAX_CHANGE_COUNT = 0xFFFFFFFFFFFF
 
 
