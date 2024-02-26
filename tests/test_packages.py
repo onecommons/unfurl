@@ -247,7 +247,7 @@ spec:
       - repository: unfurl
         file: configurators/templates/dns.yaml
 """
-ENSEMBLE_UNFURL_PAST = _ENSEMBLE_TPL % "v0.9.1"
+ENSEMBLE_UNFURL_PAST = _ENSEMBLE_TPL % "v1.0"
 ENSEMBLE_UNFURL_FUTURE = _ENSEMBLE_TPL % "2.0"
 
 

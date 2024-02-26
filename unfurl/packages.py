@@ -82,7 +82,7 @@ class UnfurlPackageUpdateNeeded(UnfurlError):
 
 
 def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
-    """Return true if ``revision`` looks like a semver with major version >= 1"""
+    """Return true if ``revision`` looks like a semver (with major version >= 1 unless include_unreleased is True)."""
     if not revision:
         return False
     revision = str(revision)
