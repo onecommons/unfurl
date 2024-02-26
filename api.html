@@ -85,6 +85,7 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#module-unfurl.logs">Utility classes and functions</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#module-unfurl.eval">Eval module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-unfurl.graphql">Graphql module</a></li>
 </ul>
 </li>
 </ul>
@@ -147,6 +148,7 @@
 <li><p><a class="reference internal" href="#module-unfurl.logs" id="id14">Utility classes and functions</a></p>
 <ul>
 <li><p><a class="reference internal" href="#module-unfurl.eval" id="id15">Eval module</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.graphql" id="id16">Graphql module</a></p></li>
 </ul>
 </li>
 </ul>
@@ -155,6 +157,7 @@
 </div>
 <section id="api-for-writing-service-templates">
 <h2><a class="toc-backref" href="#id2">API for writing service templates</a><a class="headerlink" href="#api-for-writing-service-templates" title="Permalink to this headline"></a></h2>
+<p>See <a class="reference external" href="https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md">here</a> for an overview of the TOSCA Python DSL.</p>
 <section id="tosca-field-specifiers">
 <h3><a class="toc-backref" href="#id3">TOSCA Field Specifiers</a><a class="headerlink" href="#tosca-field-specifiers" title="Permalink to this headline"></a></h3>
 <p>The follow are functions that are used as field specified when declaring attributes on TOSCA type. Use these if you need to specify TOSCA specific information about the field or if the TOSCA field type can’t be inferred from the Python’s attribute’s type. For example:</p>
@@ -3393,6 +3396,146 @@ use resolve() which always returns a (possible empty) of matches</p>
 </dl>
 </dd></dl>
 
+</section>
+<section id="module-unfurl.graphql">
+<span id="graphql-module"></span><h3><a class="toc-backref" href="#id16">Graphql module</a><a class="headerlink" href="#module-unfurl.graphql" title="Permalink to this headline"></a></h3>
+<p>This module defines GraphQL representations of ensembles and Unfurl environments,
+including simplified representations of TOSCA types and node templates as documented by the GraphQL schema below.</p>
+<p>These objects are exported as JSON by the <a class="reference internal" href="cli.html#unfurl-export"><span class="std std-ref">export</span></a> command and by unfurl server API endpoints.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>type DeploymentTemplate {
+  name: String!
+  title: String!
+  slug: String!
+  description: String
+
+  blueprint: ApplicationBlueprint!
+  primary: ResourceTemplate!
+  resourceTemplates: [ResourceTemplate!]
+  cloud: ResourceType
+  environmentVariableNames: [String!]
+  source: String
+  projectPath: String!
+  commitTime: String
+}
+
+type Deployment {
+  title: String!
+  primary: Resource
+  resources: [Resource!]
+  deploymentTemplate: DeploymentTemplate!
+  url: url
+  status: Status
+  summary: String
+  workflow: String
+  deployTime: String
+  packages: JSON
+}
+
+type ResourceType {
+    name: String!
+    title: String
+    extends: [ResourceType!]
+    description: String
+    badge: String
+    icon: String
+    visibility: String
+    details_url: String
+    inputsSchema: JSON
+    computedPropertiesSchema: JSON
+    outputsSchema: JSON
+    requirements: [RequirementConstraint!]
+    implementations: [String]
+    implementation_requirements: [String]
+    directives: [String]
+    metadata: JSON
+    _sourceinfo: JSON
+}
+
+type RequirementConstraint {
+    name: String!
+    title: String
+    description: String
+    resourceType: ResourceType!
+    match: ResourceTemplate
+    min: Int
+    max: Int
+    badge: String
+    visibility: String
+    icon: String
+    inputsSchema: Required[JSON]
+    requirementsFilter: [RequirementConstraint!]
+}
+
+type ResourceTemplate {
+    name: String!
+    title: String
+    type: ResourceType!
+    visibility: String
+    directives: [String!]
+    imported: String
+    metadata: JSON
+
+    description: string
+
+    # Maps to an object that conforms to type.inputsSchema
+    properties: [Input!]
+
+    dependencies: [Requirement!]
+}
+
+type Requirement {
+  name: String!
+  constraint: RequirementConstraint!
+  match: ResourceTemplate
+  target: Resource
+  visibility: String
+}
+
+type Resource {
+  name: String!
+  title: String!
+  url: String
+  template: ResourceTemplate!
+  status: Status
+  state: State
+  attributes: [Input!]
+  computedProperties: [Input!]
+  connections: [Requirement!]
+  protected: Boolean
+  imported: String
+}
+
+type DeploymentEnvironment {
+    name: String!
+    connections: [ResourceTemplate!]
+    instances: [ResourceTemplate!]
+    primary_provider: ResourceTemplate
+    repositories: JSON!
+}
+
+type DeploymentPath {
+  name: String!
+  environment: String!
+  project_id: String
+  pipelines: [JSON!]
+  incremental_deploy: boolean!
+}
+
+type ApplicationBlueprint {
+  name: String!
+  title: String
+  description: String
+  primary: ResourceType!
+  primaryDeploymentBlueprint: String
+  deploymentTemplates: [DeploymentTemplate!]
+
+  livePreview: String
+  sourceCodeUrl: String
+  image: String
+  projectIcon: String
+}
+</pre></div>
+</div>
 </section>
 </section>
 </section>
