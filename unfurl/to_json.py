@@ -1633,8 +1633,8 @@ def _annotate_requirement(
             req["match"] = match
         elif list(match)[0] == "get_nodes_of_type":
             # override the resourceType
-            type_match = match["get_nodes_of_type"]
-            reqtype = types.get(reqtypename)
+            type_match = types.expand_typename(match["get_nodes_of_type"])
+            reqtype = types.get(type_match)
             if not reqtype:
                 reqtype = _node_typename_to_graphql(type_match, topology, types)
             if reqtype:
