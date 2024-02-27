@@ -723,7 +723,6 @@ def _update_root_type(
     for req in jsontype.setdefault("requirements", []):
         if req["name"] in names or req["match"]:
             req["min"] = 0
-            req["match"] = None
     # templates created with this type need to have the substitute directive
     jsontype["directives"] = ["substitute"]
     # find all the default nodes that are being referenced directly or indirectly
