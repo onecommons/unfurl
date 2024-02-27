@@ -226,6 +226,13 @@ class EvalTest(unittest.TestCase):
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
         assert result4 == ["test"]
 
+        test3 = {
+          "eval": "a",
+          "foreach": "$true"
+        }
+        result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
+        assert result4 == ["test"]
+
         test4 = {
           "eval": "empty_list",
           "foreach": "$item"

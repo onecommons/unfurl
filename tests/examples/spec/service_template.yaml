@@ -10,10 +10,20 @@ repositories:
     url: file:.
   almost-an-url:
     url: git@github.com:onecommons/unfurl.git
+data_types:
+  A_Datatype:
+    properties:
+      prop:
+        type: string
+
 node_types:
   Test:
     derived_from: Nested
     properties:
+      a_datatype:
+        type: A_Datatype
+        default:
+          prop: test
       defaultexpession:
         type: string
         default:
