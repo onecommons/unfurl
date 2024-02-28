@@ -58,6 +58,10 @@ from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__
 import black
 import black.mode
 import black.report
+try:
+    import unfurl
+except ImportError:
+    unfurl = None  # type: ignore  # not installed
 
 logger = logging.getLogger("tosca")
 
@@ -184,12 +188,12 @@ def section2typename(section: str) -> str:
 
 
 class Imports:
-    def __init__(self, imports=None):
+    def __init__(self, unfurl_prelude: bool):
         self._imports: Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]] = {}
-        self._add_imports("", imports or {})
-        self._import_statements = set()
-        self.declared = []
-        self.from_tosca = set(
+        self.prelude_prelude: str = "import unfurl" if unfurl_prelude else ""
+        self._import_statements: Set[str] = set()
+        self.declared: List[str] = []
+        self.from_tosca: Set[str] = set(
             [
                 "Artifact",
                 "Attribute",
@@ -264,7 +268,7 @@ class Imports:
         return (
             textwrap.dedent(
                 f"""
-        import unfurl
+        {self.prelude_prelude}
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
         from tosca import ({", ".join(sorted(self.from_tosca))})
@@ -325,7 +329,7 @@ class Convert:
             python_compatible = sys.version_info[1]
         self.python_compatible = python_compatible
         self._builtin_prefix = builtin_prefix
-        self.imports = imports or Imports()
+        self.imports = imports or Imports(bool(unfurl))
         self.import_prefixes: Dict[str, str] = {}
         assert self.template.topology_template
         self.custom_defs = custom_defs or self.template.topology_template.custom_defs
@@ -1613,7 +1617,7 @@ def generate_builtins(import_resolver, format=True) -> str:
     return convert_service_template(
         tosca_template,
         7,
-        f"tosca.",
+        "tosca.",
         format,
         custom_defs,
     )
@@ -1674,7 +1678,7 @@ def convert_service_template(
     converted: Optional[Set[str]] = None,
 ) -> str:
     src = ""
-    imports = Imports()
+    imports = Imports(bool(unfurl) and builtin_prefix!="tosca.")
     if not builtin_prefix:
         imports._set_builtin_imports()
         imports._set_ext_imports()
