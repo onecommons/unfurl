@@ -1182,10 +1182,9 @@ class NodeSpec(EntitySpec):
         return self.capabilities.get(name)
 
     def add_relationship(self, reqSpec: "RequirementSpec"):
-        # self is the target node
+        # self is the target node, find the source for the give RequirementSpec
         source_topology = reqSpec.parentNode.topology
         substituted = source_topology.parent_topology is self.topology
-        req_source_name = reqSpec.parentNode.name
         if (
             source_topology
             and substituted
@@ -1203,15 +1202,20 @@ class NodeSpec(EntitySpec):
             # XXX this won't distinguish between more than one relationship between the same two nodes
             # to fix this have the RelationshipTemplate remember the name of the requirement
             rel_source_name = relSpec.toscaEntityTemplate.source.name
-            if rel_source_name == req_source_name:
-                assert (
-                    not reqSpec.relationship
-                    or reqSpec.relationship.name == relSpec.name
-                ), (
-                    reqSpec.relationship,
-                    relSpec,
-                )
+            if (
+                relSpec.toscaEntityTemplate.source.topology_template
+                is source_topology.topology_template
+            ):
+                _req_source_name = reqSpec.parentNode.name
+            else:
+                _req_source_name = req_source_name
+            if rel_source_name == _req_source_name:
                 reqSpec.relationship = relSpec
+                if not relSpec.requirement:
+                    relSpec.requirement = reqSpec
+                    relSpec._isReferencedBy.append(self)  # type: ignore
+                elif relSpec.requirement.name != reqSpec.name:
+                    continue
                 assert (
                     not relSpec.requirement or relSpec.requirement.name == reqSpec.name
                 ), (
@@ -1219,9 +1223,13 @@ class NodeSpec(EntitySpec):
                     relSpec.requirement,
                     reqSpec,
                 )
-                if not relSpec.requirement:
-                    relSpec.requirement = reqSpec
-                    relSpec._isReferencedBy.append(self)  # type: ignore
+                assert (
+                    not reqSpec.relationship
+                    or reqSpec.relationship.name == relSpec.name
+                ), (
+                    reqSpec.relationship,
+                    relSpec,
+                )
                 break
         else:
             msg = f'Relationship not found for requirement "{reqSpec.name}" on "{reqSpec.parentNode}" targeting "{self.name}"'
