@@ -949,10 +949,12 @@ class EntitySpec(ResourceRef):
     def aggregate_only(self):
         "The template is only the sum of its parts."
         for iDef in self.get_interfaces():
-            if iDef.interfacename in ("Standard", "Configure"):
-                return False
-            if iDef.interfacename == "Install" and iDef.name == "discover":
-                return False
+            # XXX need to a much better to indicate that this operation doesn't instantiate a live resource
+            if iDef.entry_state != "initial":
+                if iDef.interfacename in ("Standard", "Configure"):
+                    return False
+                if iDef.interfacename == "Install" and iDef.name == "discover":
+                    return False
         # no implementations found
         return True
 
