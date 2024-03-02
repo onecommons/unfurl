@@ -58,6 +58,7 @@ from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__
 import black
 import black.mode
 import black.report
+
 try:
     import unfurl
 except ImportError:
@@ -557,8 +558,16 @@ class Convert:
         return self.maybe_forward_refs(*(self.python_name_from_type(t) for t in types))
 
     def maybe_forward_refs(self, *types) -> Sequence[str]:
+        def may_quote(tn):
+            if self._builtin_prefix:
+                return repr(tn)
+            elif tn.startswith("unfurl.") or tn.startswith("tosca."):
+                return tn
+            else:
+                return repr(tn)
+
         if self.forward_refs:
-            return [repr(t) for t in types]
+            return [may_quote(t) for t in types]
         else:
             return types
 
@@ -681,9 +690,7 @@ class Convert:
         else:
             # it's a tosca datatype
             datatype = _tosca.TOSCA_SHORT_NAMES.get(datatype, datatype)
-            typename = self.python_name_from_type(datatype)
-            if self.forward_refs:
-                typename = repr(typename)
+            typename = self.maybe_forward_refs(self.python_name_from_type(datatype))[0]
         if schema.entry_schema:
             item_type_name = self._prop_type(Schema(None, schema.entry_schema))
         else:
@@ -1678,7 +1685,7 @@ def convert_service_template(
     converted: Optional[Set[str]] = None,
 ) -> str:
     src = ""
-    imports = Imports(bool(unfurl) and builtin_prefix!="tosca.")
+    imports = Imports(bool(unfurl) and builtin_prefix != "tosca.")
     if not builtin_prefix:
         imports._set_builtin_imports()
         imports._set_ext_imports()
