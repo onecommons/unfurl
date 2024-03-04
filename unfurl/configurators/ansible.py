@@ -16,8 +16,10 @@ from ansible.plugins.callback.default import CallbackModule
 from ansible.utils.display import Display
 
 from tosca import ToscaInputs
+from ..runtime import EntityInstance, NodeInstance, RelationshipInstance
+from ..projectpaths import WorkFolder
 from . import TemplateConfigurator, TemplateInputs
-from ..configurator import Status
+from ..configurator import Status, TaskView
 from ..result import serialize_value
 from ..util import assert_form
 from ..logs import getLogger
@@ -26,7 +28,6 @@ from ..support import reload_collections
 logger = getLogger("unfurl")
 
 display = Display()
-
 
 
 class AnsibleInputs(TemplateInputs):
@@ -135,7 +136,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             hostVars["ansible_host"] = hostVars["ip_address"]
         return hostVars
 
-    def _update_vars(self, connection, hostVars):
+    def _update_vars(self, connection: RelationshipInstance, hostVars: Dict[str, Any]):
         creds = connection.attributes.get("credential")
         if creds:
             if "user" in creds:
@@ -147,7 +148,9 @@ class AnsibleConfigurator(TemplateConfigurator):
                 hostVars.update(creds["keys"])
         hostVars.update(connection.attributes.get("hostvars", {}))
 
-    def _make_inventory(self, host, allVars, task):
+    def _make_inventory(
+        self, host: Optional[NodeInstance], allVars: Dict[str, Any], task: TaskView
+    ):
         if host:
             hostVars = self._get_host_vars(host)
             connection = task.find_connection(
@@ -155,7 +158,6 @@ class AnsibleConfigurator(TemplateConfigurator):
             )
             if connection:
                 self._update_vars(connection, hostVars)
-
             if "ansible_host" not in hostVars:
                 ip_address = host.attributes.get("public_ip") or host.attributes.get(
                     "private_ip"
@@ -192,18 +194,17 @@ class AnsibleConfigurator(TemplateConfigurator):
         # note: allVars is inventory vars shared by all hosts
         return dict(all=dict(hosts=hosts, vars=allVars, children=children))
 
-    def get_inventory(self, task, cwd):
-        inventory = task.inputs.get("inventory")
+    def get_inventory(self, task: TaskView, cwd: WorkFolder):
+        inventory = task.inputs.get_copy("inventory")
         if inventory and isinstance(inventory, str):
             # XXX if user set inventory file we can create a folder to merge them
             # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
             return inventory  # assume its a file path
-
         if not inventory:
             # XXX merge inventory
             # default to localhost if not inventory
             inventory = self._make_inventory(task.operation_host, inventory or {}, task)
-        # XXX cache and reuse file
+        # XXX cache and reuse
         return cwd.write_file(inventory, "inventory.yaml")
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
@@ -239,7 +240,7 @@ class AnsibleConfigurator(TemplateConfigurator):
     def find_playbook(self, task):
         return task.inputs["playbook"]
 
-    def get_playbook(self, task, cwd):
+    def get_playbook(self, task: TaskView, cwd: WorkFolder):
         playbook = self.find_playbook(task)
         if isinstance(playbook, str):
             # assume it's file path
@@ -250,7 +251,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             play["environment"] = envvars
         return cwd.write_file(serialize_value(playbook), "playbook.yml")
 
-    def get_playbook_args(self, task):
+    def get_playbook_args(self, task: TaskView):
         args = task.inputs.get("playbookArgs", [])
         if not isinstance(args, MutableSequence):
             args = [args]
