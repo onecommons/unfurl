@@ -16,14 +16,15 @@ from ansible.plugins.callback.default import CallbackModule
 from ansible.utils.display import Display
 
 from tosca import ToscaInputs
-from ..runtime import EntityInstance, NodeInstance, RelationshipInstance
-from ..projectpaths import WorkFolder
+from ..runtime import NodeInstance, RelationshipInstance
+from ..projectpaths import FilePath, WorkFolder, get_path
 from . import TemplateConfigurator, TemplateInputs
 from ..configurator import Status, TaskView
-from ..result import serialize_value
-from ..util import assert_form
+from ..result import Result, serialize_value
+from ..util import UnfurlTaskError, assert_form
 from ..logs import getLogger
 from ..support import reload_collections
+from ..yamlloader import yaml
 
 logger = getLogger("unfurl")
 
@@ -89,6 +90,32 @@ def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
     return resultDict, outputs
 
 
+def get_yaml_property(task: TaskView, prop_name: str, load_file: bool):
+    prop_value = task.inputs.get(prop_name)
+    if isinstance(prop_value, str):
+        if "\n" in prop_value:
+            return yaml.load(prop_value)
+        else:
+            if not os.path.isabs(prop_value):
+                prop_value = get_path(task.inputs.context, prop_value, "src")
+            if os.path.exists(prop_value):
+                # set this as FilePath so we can monitor changes to it
+                result = task.inputs._attributes[prop_name]
+                if not isinstance(result, Result) or not result.external:
+                    task.inputs[prop_name] = FilePath(prop_value)
+                if load_file:
+                    with open(prop_value) as f:
+                        playbook_contents = f.read()
+                    return yaml.load(playbook_contents)
+                else:
+                    return prop_value
+            else:
+                raise UnfurlTaskError(
+                    task, f'Ansible {prop_name} "{prop_value}" does not exist'
+                )
+    return prop_value
+
+
 class AnsibleConfigurator(TemplateConfigurator):
     """The current resource is the inventory."""
 
@@ -130,7 +157,6 @@ class AnsibleConfigurator(TemplateConfigurator):
             for name in ("port", "host", "connection", "user")
             if name in props
         }
-        # ansible_user
         hostVars.update(props.get("hostvars", {}))
         if "ansible_host" not in hostVars and hostVars.get("ip_address"):
             hostVars["ansible_host"] = hostVars["ip_address"]
@@ -164,6 +190,8 @@ class AnsibleConfigurator(TemplateConfigurator):
                 )
                 if ip_address:
                     hostVars["ansible_host"] = ip_address
+                    if "ansible_connection" not in hostVars:
+                        hostVars["ansible_connection"] = "ssh"
 
             project_id = host.attributes.get("project_id")
             if project_id:
@@ -195,7 +223,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         return dict(all=dict(hosts=hosts, vars=allVars, children=children))
 
     def get_inventory(self, task: TaskView, cwd: WorkFolder):
-        inventory = task.inputs.get_copy("inventory")
+        inventory = get_yaml_property(task, "inventory", False)
         if inventory and isinstance(inventory, str):
             # XXX if user set inventory file we can create a folder to merge them
             # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
@@ -205,7 +233,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             # default to localhost if not inventory
             inventory = self._make_inventory(task.operation_host, inventory or {}, task)
         # XXX cache and reuse
-        return cwd.write_file(inventory, "inventory.yaml")
+        return cwd.write_file(serialize_value(inventory), "inventory.yml")
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
@@ -237,8 +265,8 @@ class AnsibleConfigurator(TemplateConfigurator):
         else:
             return playbook
 
-    def find_playbook(self, task):
-        return task.inputs["playbook"]
+    def find_playbook(self, task: TaskView):
+        return get_yaml_property(task, "playbook", True)
 
     def get_playbook(self, task: TaskView, cwd: WorkFolder):
         playbook = self.find_playbook(task)

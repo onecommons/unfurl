@@ -240,7 +240,7 @@ class RunTest(unittest.TestCase):
 
                 p = Path(os.environ["UNFURL_WORKDIR"])
 
-                files = list(p.glob("**/*inventory.yaml"))
+                files = list(p.glob("**/*inventory.yml"))
                 self.assertEqual(len(files), 1, files)
                 inventory = files[-1]
                 expectedInventory = """all:
