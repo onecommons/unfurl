@@ -725,33 +725,6 @@ def _update_root_type(
             req["min"] = 0
     # templates created with this type need to have the substitute directive
     jsontype["directives"] = ["substitute"]
-    # find all the default nodes that are being referenced directly or indirectly
-    # this will find the required nodes
-    list(_get_templates_from_topology(topology, set(), None))
-    placeholders = [
-        node
-        for node in topology.node_templates.values()
-        if (
-            "default" in node.directives
-            or node.name in topology.spec.overridden_default_templates
-        )
-        and node.type != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
-        and node.required
-    ]
-    # add those as requirement on the root type
-    for node in placeholders:
-        # XXX copy node_filter and metadata from get_relationship_templates()
-        placeholder_req = {node.name: dict(node=node.type)}
-        req_json = requirement_to_graphql(
-            topology,
-            placeholder_req,
-            types,
-            True,
-            include_matches=False,
-            type_definition=node.toscaEntityTemplate.type_definition,  # type: ignore
-        )
-        if req_json:
-            jsontype["requirements"].append(req_json)  # type: ignore
 
 
 def to_graphql_nodetypes(
