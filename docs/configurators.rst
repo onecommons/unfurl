@@ -110,9 +110,9 @@ If an inventory file isn't specified in ``inputs``, Unfurl will generate an Ansi
 as the host. The inventory will include groups and variables derived from the following sources:
 
 * If the ``operation_host`` has an ``endpoint`` of  type ``unfurl.capabilities.Endpoint.SSH`` or ``unfurl.capabilities.Endpoint.Ansible``
-  use that capabilities ``host``, ``port``, ``connection``, ``user``, ``credential``, and ``hostvars`` properties.
+  use that capabilities ``host``, ``port``, ``connection``, ``user``, and ``hostvars`` properties.
 * If the ``operation_host`` has relationship template or connection to the target instance of
-  type ``unfurl.relationships.ConnectsTo.Ansible`` uses its ``connection`` and ``hostvars`` properties.
+  type ``unfurl.relationships.ConnectsTo.Ansible`` uses its ``credential`` and ``hostvars`` properties.
 * If the operation_host is declared as a member of group of type ``unfurl.groups.AnsibleInventoryGroup`` in the service template,
   the group's name will be added as an ansible group along with the contents of the group's ``hostvars`` property.
 * If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's :ref:`public_ip<tosca_types>` or ``private_ip`` in that order, otherwise set it to ``localhost``.
