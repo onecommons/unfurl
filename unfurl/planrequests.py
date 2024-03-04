@@ -29,7 +29,7 @@ from .spec import ArtifactSpec, EntitySpec
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
-    from .configurator import Dependency
+    from .configurator import Dependency, Configurator
     from .manifest import Manifest
 
 from .util import (
@@ -124,7 +124,7 @@ class ConfigurationSpec:
         expanded = serialize_value(target.attributes)
         return find_schema_errors(expanded, self.preConditions)
 
-    def create(self):
+    def create(self) -> "Configurator":
         className: str = self.className
         if ":" in className:
             from .dsl import DslMethodConfigurator

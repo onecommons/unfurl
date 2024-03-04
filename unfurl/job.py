@@ -13,6 +13,7 @@ import os
 import json
 from typing import (
     Any,
+    Generator,
     Iterable,
     List,
     Dict,
@@ -34,7 +35,7 @@ from .support import (
     NodeState,
     AttributeChanges,
 )
-from .result import ResourceRef, serialize_value, ChangeRecord
+from .result import ResourceRef, ResultsItem, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import (
@@ -108,12 +109,6 @@ class ConfigChange(OperationalInstance, ChangeRecord):
             ChangeRecord.__init__(self, parentJob.changeId, parentJob.startTime)
         else:  # generate a new job id and use the given startTime
             ChangeRecord.__init__(self, startTime=startTime, previousId=previousId)
-
-    def get_operational_dependencies(self) -> Iterable[Operational]:
-        for d in self.dependencies:
-            if d.target != self.target:  # type: ignore
-                yield d
-
 
 class JobOptions:
     """
@@ -226,27 +221,27 @@ class ConfigTask(TaskView, ConfigChange):
     updates Configurator's target's status and lastConfigChange
     """
 
-    def __init__(self, job, configSpec, target, reason=None):
+    def __init__(self, job: "Job", configSpec: ConfigurationSpec, target: EntityInstance, reason: Optional[str]=None):
         ConfigChange.__init__(self, job)
         TaskView.__init__(self, job.manifest, configSpec, target, reason)
         self.dry_run = job.dry_run
         self.verbose = job.jobOptions.verbose
-        self._configurator = None
-        self.generator = None
+        self._configurator: Optional[Configurator] = None
+        self.generator: Optional[Generator] = None
         self.job = job
         self.changeList: List[AttributeChanges] = []
-        self.result = None
-        self.outputs = None
+        self.result: Any = None
+        self.outputs: Optional[dict] = None
         # for summary:
-        self.modified_target = False
-        self.target_status = target.status
-        self.target_state = target.state
-        self.blocked = False
+        self.modified_target: bool = False
+        self.target_status: Status = target.status
+        self.target_state: Optional[NodeState] = target.state
+        self.blocked: bool = False
 
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml, self)
         self.target.root.set_attribute_manager(self._attributeManager)
-        self._resolved_inputs = {}
+        self._resolved_inputs: Dict[str, ResultsItem] = {}
 
     def _status(self, seen: Dict[int, Operational]) -> Status:
         status = self.local_status
@@ -272,6 +267,11 @@ class ConfigTask(TaskView, ConfigChange):
         return locals()
 
     priority: Priority = property(**__priority())  # type: ignore
+
+    def get_operational_dependencies(self) -> Iterable[Operational]:
+        for d in self.dependencies:
+            if cast(Dependency, d).target != self.target:
+                yield d
 
     @property
     def configurator(self) -> Configurator:
@@ -995,12 +995,13 @@ class Job(ConfigChange):
                     _task, success = self._run_operation(
                         req, workflow, not_ready, depth
                     )
+                _final_req: Optional[TaskRequest] = req
                 if not _task:
                     if req.is_final_for_workflow:
                         # we didn't need to run this one, but we need to finalize the workflow
-                        req = req.reassign_final_for_workflow()  # type: ignore
-                        if req:
-                            _task = req.task
+                        _final_req = req.reassign_final_for_workflow()
+                        if _final_req:
+                            _task = _final_req.task
                     if not _task:
                         continue
                 task = _task
@@ -1012,8 +1013,8 @@ class Job(ConfigChange):
                             f"Critical task failed: {task.name} for {task.target.name}"
                         )
                 # task won't be returned from _run_operation if it doesn't run, so use req
-                if req and req.is_final_for_workflow and req.completed:
-                    req.finish_workflow()
+                if _final_req and _final_req.is_final_for_workflow and _final_req.completed:
+                    _final_req.finish_workflow()
 
         return task  # return the last task executed
 
@@ -1428,7 +1429,7 @@ class Job(ConfigChange):
 
     def _plan_summary(
         self,
-        plan_requests: List[TaskRequest],
+        plan_requests: List[PlanRequest],
         external_requests: Iterable[Tuple[Any, Any]],
     ) -> Tuple[str, int]:
         return JobReporter.plan_summary(self, plan_requests, external_requests)
@@ -1505,7 +1506,7 @@ def create_job(manifest, joboptions, previousId=None):
     return job
 
 
-def _plan(manifest, jobOptions):
+def _plan(manifest: "YamlManifest", jobOptions: JobOptions):
     assert jobOptions
     job = create_job(
         manifest,
@@ -1522,7 +1523,7 @@ def _plan(manifest, jobOptions):
     return job
 
 
-def _render(job):
+def _render(job: Job):
     # note: we need to call render() before lock because render might run this ensemble as an external_job
     with change_cwd(job.manifest.get_base_dir()):
         ready, notReady, errors = job.render()

@@ -29,7 +29,7 @@ from ansible.parsing.dataloader import DataLoader
 from .projectpaths import File
 
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
-from .result import ResourceRef, ChangeAware, ResultsMap
+from .result import ChangeRecord, ResourceRef, ChangeAware, ResultsMap
 
 from .support import (
     AttributeManager,
@@ -215,7 +215,7 @@ class Operational(ChangeAware):
         else:
             return max(self.last_state_change, self.last_config_change)
 
-    def has_changed(self, changeset) -> bool:
+    def has_changed(self, changeset: Optional["ChangeRecord"]) -> bool:
         # if changed since the last time we checked
         if not self.last_change:
             return False

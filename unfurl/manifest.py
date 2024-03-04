@@ -98,6 +98,7 @@ def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str,
 class ChangeRecordRecord(ChangeRecord, OperationalInstance):
     target: str = ""
     operation: str = ""
+    digestValue: str = ""
 
 
 class Manifest(AttributeManager):

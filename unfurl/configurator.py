@@ -288,22 +288,22 @@ class Configurator(metaclass=AutoRegisterClass):
         """
         # XXX user definition should be able to exclude inputs from digest
         # XXX might throw AttributeError
-        inputs = task._resolved_inputs  # type: ignore
+        inputs = cast("ConfigTask", task)._resolved_inputs
 
         # sensitive values are always redacted so no point in including them in the digest
         # (for cleaner output and security-in-depth)
-        keys = [
+        keys: List[str] = [
             k
             for k in inputs.keys()
             if k not in self.exclude_from_digest
             and not isinstance(inputs[k].resolved, sensitive)
         ]
-        values = [inputs[key] for key in keys]
+        values: List[Any] = [inputs[key] for key in keys]
 
         for dep in task.dependencies:
             assert isinstance(dep, Dependency)
             if not isinstance(dep.expected, sensitive):
-                keys.append(dep.expr)
+                keys.append(str(dep.expr))
                 values.append(dep.expected)
 
         if keys:
@@ -369,13 +369,13 @@ class Configurator(metaclass=AutoRegisterClass):
 
         newDigest = get_digest(results, manifest=task._manifest)
         # note: digestValue attribute is set in Manifest.load_config_change
-        mismatch = changeset.digestValue != newDigest  # type: ignore
+        mismatch = changeset.digestValue != newDigest
         if mismatch:
             task.logger.verbose(
                 "digests didn't match for %s with %s: old %s, new %s",
                 task.target.name,
                 _parameters,
-                changeset.digestValue,  # type: ignore
+                changeset.digestValue,
                 newDigest,
             )
         return mismatch
@@ -1015,9 +1015,9 @@ class TaskView:
             # XXX track all status attributes (esp. state and created) and remove this hack
             operational = Manifest.load_status(resourceSpec)
             if operational.local_status is not None:
-                existingResource.local_status = operational.local_status  # type: ignore
+                existingResource.local_status = operational.local_status
             if operational.state is not None:
-                existingResource.state = operational.state  # type: ignore
+                existingResource.state = operational.state
             updated = True
 
         protected = resourceSpec.get("protected")
@@ -1365,25 +1365,29 @@ class Dependency(Operational):
         if config is None:
             return self._is_unexpected()
         changeId = config.changeId
-        # Manifest.load_config_change sets config.target
-        context = RefContext(config.target, dict(val=self.expected, changeId=changeId))  # type: ignore
-        result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
-
-        if self.schema:
-            # result isn't as expected, something changed
-            if not validate_schema(result, self.schema):
+        if self.target and isinstance(config, ChangeRecordRecord):
+            # Manifest.load_config_change sets config.target
+            target_instance = self.target.query(config.target)
+            if not isinstance(target_instance, EntityInstance):
                 return False
-        else:
-            if self.expected is not None:
-                expected = map_value(self.expected, context)
-                if result != expected:
-                    logger.debug("has_changed: %s != %s", result, expected)
-                    return True
-            elif not result:
-                # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
-                return True
+            context = RefContext(target_instance, dict(val=self.expected, changeId=changeId))
+            result = Ref(self.expr).resolve_one(context)
 
-        if self.has_value_changed(result, config):
-            return True
+            if self.schema:
+                # result isn't as expected, something changed
+                if not validate_schema(result, self.schema):
+                    return False
+            else:
+                if self.expected is not None:
+                    expected = map_value(self.expected, context)
+                    if result != expected:
+                        logger.debug("has_changed: %s != %s", result, expected)
+                        return True
+                elif not result:
+                    # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
+                    return True
+
+            if self.has_value_changed(result, config):
+                return True
 
         return False

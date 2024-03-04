@@ -499,7 +499,7 @@ class ToscaFieldType(Enum):
 
 
 class _REQUIRED_TYPE:
-    pass
+    "sentinel object"
 
 
 REQUIRED = _REQUIRED_TYPE()
