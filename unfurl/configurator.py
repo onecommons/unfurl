@@ -470,7 +470,7 @@ class TaskView:
         self.target = target
         self.reason = reason
         self.logger = TaskLoggerAdapter(logger, self)  # type: ignore
-        self.cwd = os.path.abspath(self.target.base_dir)
+        self.cwd: str = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
         self.dry_run: Optional[bool] = None
         self.verbose = 0  # set by ConfigView
@@ -493,7 +493,7 @@ class TaskView:
         self._attributeManager: AttributeManager = None  # type: ignore
         self.job: Optional["Job"] = None
         # public:
-        self.operation_host = find_operation_host(target, configSpec.operation_host)
+        self.operation_host: Optional[NodeInstance] = find_operation_host(target, configSpec.operation_host)
 
     @property
     def environ(self) -> Dict[str, str]:
@@ -557,7 +557,7 @@ class TaskView:
                 target = self.target
             HOST = (target.parent or target).attributes
             ORCHESTRATOR = target.root.find_instance_or_external("localhost")
-            vars = dict(
+            vars: Dict[str, Any] = dict(
                 task=self.get_settings(),
                 connections=self._get_connections(),
                 SELF=self.target.attributes,
@@ -745,13 +745,16 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection = cast(
-            Optional[RelationshipInstance],
-            Ref(
-                f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
-                vars=dict(target=target),
-            ).resolve_one(ctx),
-        )
+        connection: Optional[RelationshipInstance] = None
+        if ctx.vars.get("OPERATION_HOST"):
+            operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
+            connection = cast(
+                Optional[RelationshipInstance],
+                Ref(
+                    f"$operation_host::.requirements::*[.type={relation}][.target=$target]",
+                    vars=dict(target=target, operation_host=operation_host),
+                ).resolve_one(ctx),
+            )
 
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
         if not connection:
