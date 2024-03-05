@@ -50,7 +50,8 @@ def test_localhost():
 def test_lifecycle():
     src_path = str(Path(__file__).parent / "examples" / "build_artifact-ensemble.yaml")
     # verify that the build artifact got installed as part of an external job
-    for job in isolated_lifecycle(src_path):
+    env = dict(UNFURL_HOME="./unfurl_home")  # create a home project in the temporary
+    for job in isolated_lifecycle(src_path, env=env):
         if job.step.step == 2:  # deploy
             summary = job.json_summary()
             # print("with home", job.json_summary(True))
@@ -81,7 +82,7 @@ def test_lifecycle():
 
 
 def test_lifecycle_no_home():
-    env = dict(UNFURL_HOME="")  # no home
+    env = dict(UNFURL_HOME="")  # no home (not needed, this is the default for isolated_lifecycle)
     src_path = str(Path(__file__).parent / "examples" / "build_artifact-ensemble.yaml")
     for job in isolated_lifecycle(src_path, env=env):
         # verify that the build artifact got installed as part of an job request

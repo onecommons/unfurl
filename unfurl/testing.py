@@ -4,7 +4,7 @@
 Utility functions for unit tests.
 """
 from dataclasses import dataclass
-from typing import Any, List, Optional, Iterable, Tuple
+from typing import Any, List, Optional, Iterable, Tuple, Union
 import shutil
 import traceback
 import time
@@ -27,11 +27,22 @@ import tosca
 from tosca.python2yaml import PythonToYaml
 from .dsl import proxy_instance
 
+try:
+    from mypy import api
+
+    def assert_no_mypy_errors(path):
+        stdout, stderr, return_code = api.run([path])
+        if stdout:
+            print(stdout)
+            assert "no issues found in 1 source file" in stdout
+        assert return_code == 0, (stderr, stdout)
+except ImportError:
+    assert_no_mypy_errors = None  # type: ignore
 
 @dataclass
 class Step:
     workflow: str
-    target_status: Status
+    target_status: Status = Status.ok
     changed: Optional[int] = None
     total: Optional[int] = None
     step: int = 0
@@ -52,6 +63,19 @@ DEFAULT_STEPS = (
     Step("check", Status.absent, changed=0),
 )
 
+DEFAULT_STEPS_DEPLOY_ONCE = (
+    Step("check", Status.absent),
+    Step("deploy", Status.ok, changed=-1),  # check that some changes were made
+    Step("check", Status.ok, changed=0),  # check that no changes were made
+    Step("undeploy", Status.absent, changed=-1),
+    Step("check", Status.absent, changed=0),
+)
+
+DEFAULT_STEPS_NO_CHECK = (
+    Step("deploy", Status.ok, changed=-1),  # check that some changes were made
+    Step("undeploy", Status.absent, changed=-1),
+)
+
 
 def _check_job(job, i, step):
     step.step = i
@@ -66,15 +90,15 @@ def _check_job(job, i, step):
     print(job.json_summary(True))
 
     if step.total is not None:
-        assert summary["job"]["total"] == step.total, f"{step_str} unexpected {summary}"
+        assert summary["job"]["total"] == step.total, f"{step_str} unexpected total jobs {summary}"
 
     if step.changed is not None:
         if step.changed == -1:
-            assert summary["job"]["changed"], f"{step_str} unexpected {summary}"
+            assert summary["job"]["changed"], f"{step_str} expected to see modified tasks {summary}"
         else:
             assert (
                 summary["job"]["changed"] == step.changed
-            ), f"{step_str} unexpected {summary}"
+            ), f"{step_str} number {step.changed} of tasks mismatch: {summary}"
 
     for task in job.workDone.values():
         if task.status is not None and task.priority > Priority.ignore:
@@ -101,8 +125,8 @@ def _home(env):
         return env
     else:
         if env is None:
-            env = {}
-        env["UNFURL_HOME"] = "./unfurl_home"
+            env = dict(UNFURL_SEARCH_ROOT=".")
+        env["UNFURL_HOME"] = ""
         return env
 
 
@@ -129,11 +153,14 @@ def init_project(cli_runner, path=None, env=None, args=None):
 def isolated_lifecycle(
     path: str,
     steps: Iterable[Step] = DEFAULT_STEPS,
+    *,
     env=None,
     init_args=None,
     tmp_dir=None,
+    job_args=None,
     sleep=None,
-) -> Iterable[Job]:
+    wait=False
+) -> Iterable[Union[str, Job]]:
     cli_runner = CliRunner()
     with cli_runner.isolated_filesystem(
         tmp_dir or os.getenv("UNFURL_TEST_TMPDIR")
@@ -142,6 +169,8 @@ def isolated_lifecycle(
         path = init_project(cli_runner, path, env, init_args)
         if path and os.path.isdir(path):
             os.chdir(path)
+        if wait:
+            yield tmp_path
         for i, step in enumerate(steps, start=1):
             print(f"starting step #{i} - {step.workflow}")
             args: List[str] = [
@@ -149,7 +178,9 @@ def isolated_lifecycle(
                 step.workflow,
                 "--starttime",
                 str(i),
-            ]
+            ] + (job_args or [])
+            if step.workflow not in ["check", "plan"]:
+                args.append("-a")  # needed when called outside of tox
             result = cli_runner.invoke(cli, args, env=_home(env))
             print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(  

@@ -190,5 +190,6 @@ class DockerTest(unittest.TestCase):
             isolated_lifecycle(
                 src_path,
                 steps=DEFAULT_STEPS[1:],
+                env = dict(UNFURL_HOME="./unfurl_home")
             )
         )

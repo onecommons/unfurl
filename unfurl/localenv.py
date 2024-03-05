@@ -1031,7 +1031,7 @@ class LocalEnv:
             else:
                 # this can happen when can_be_empty is True
                 raise UnfurlError(
-                    "Can't find an Unfurl ensemble or project or home project."
+                    f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
                 )
 
         if override_context and override_context != "defaults":
