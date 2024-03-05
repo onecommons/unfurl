@@ -1659,6 +1659,14 @@ class FieldProjection(EvalData):
                 raise AttributeError(f"{ti.types[0]} has no field '{name}'")
         return FieldProjection(field, self)
 
+    def __getitem__(self, key):
+        indexed = FieldProjection(self.field, self.parent)
+        if isinstance(indexed.expr, dict):
+            expr = indexed.expr.get("eval")
+            if expr and isinstance(expr, str):
+                indexed.expr["eval"] = f"{expr}::{key}"
+        return indexed
+
     def get_requirement_filter(self, tosca_name: str):
         """
         node_filter:
