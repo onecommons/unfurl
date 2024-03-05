@@ -354,7 +354,10 @@ class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
     def __init__(
-        self, exp: Union[str, Mapping], vars: Optional[dict] = None, trace: Optional[int] = None
+        self,
+        exp: Union[str, Mapping],
+        vars: Optional[dict] = None,
+        trace: Optional[int] = None,
     ) -> None:
         self.vars = {"true": True, "false": False, "null": None}
 
@@ -393,8 +396,7 @@ class Ref:
         ctx: RefContext,
         wantList: Literal[True] = True,
         strict: Optional[bool] = None,
-    ) -> List[Any]:
-        ...
+    ) -> List[Any]: ...
 
     @overload
     def resolve(
@@ -402,8 +404,7 @@ class Ref:
         ctx: RefContext,
         wantList: Literal[False],
         strict: Optional[bool] = None,
-    ) -> ResolveOneUnion:
-        ...
+    ) -> ResolveOneUnion: ...
 
     @overload
     def resolve(
@@ -411,8 +412,7 @@ class Ref:
         ctx: RefContext,
         wantList: str,  # == "result"
         strict: Optional[bool] = None,
-    ) -> List[Result]:
-        ...
+    ) -> List[Result]: ...
 
     @overload
     def resolve(
@@ -420,8 +420,7 @@ class Ref:
         ctx: RefContext,
         wantList: Union[bool, str] = True,
         strict: Optional[bool] = None,
-    ) -> Union[List[Result], List[Any], ResolveOneUnion]:
-        ...
+    ) -> Union[List[Result], List[Any], ResolveOneUnion]: ...
 
     # returns a list of values, a list of Result, or resolve_one
     def resolve(
@@ -518,7 +517,10 @@ class Ref:
 
 
 def eval_as_boolean(arg, ctx):
-    result = eval_ref(arg, ctx)
+    if ctx.kw.get("map_value"):
+        return bool(map_value(arg, ctx))
+    else:
+        result = eval_ref(arg, ctx)
     return not not result[0].resolved if result else False
 
 
@@ -555,6 +557,7 @@ def not_func(arg, ctx):
 def and_func(arg, ctx):
     args = eval_for_func(arg, ctx)
     assert_form(args, MutableSequence)
+    val = False
     for arg in args:
         val = eval_for_func(arg, ctx)
         if not val:
@@ -798,7 +801,10 @@ def _eval_ref_results(val, ctx) -> List[Result]:
 
 def eval_for_func(val, ctx) -> Any:
     "like `eval_ref` except it returns the resolved value"
-    results = eval_ref(val, ctx)
+    if ctx.kw.get("map_value"):
+        return map_value(val, ctx)
+    else:
+        results = eval_ref(val, ctx)
     if not results:
         return None
     if len(results) == 1:

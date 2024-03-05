@@ -171,9 +171,12 @@ def test_hosted_on():
 
 
 def test_expressions():
+    tosca.global_state.mode = "spec"
     class Test(tosca.nodes.Root):
         url: str = expr.uri()
         path1: str = expr.get_dir(None, "src")
+        default_expr: str = expr.fallback(None, "foo")
+        or_expr: str = expr.or_expr(default_expr, "ignored")
     class test(tosca.Namespace):
         service = Service()
         test_node = Test()
@@ -193,8 +196,10 @@ def test_expressions():
     assert expr.uri(topology.test_node) == topology.test_node.url
     assert functions.to_label("fo!oo", replace='_') == 'fo_oo'
     assert expr.template(topology.test_node, contents="{%if 1 %}{{SELF.url}}{%endif%}") == "#::test.test_node"
+    assert topology.test_node.default_expr == "foo"
+    assert topology.test_node.or_expr == "foo"
     # XXX test:
-    # "if_expr", or_expr, and_expr
+    # "if_expr", and_expr
     # "lookup",
     # "to_env",
     # "get_ensemble_metadata",

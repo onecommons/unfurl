@@ -109,7 +109,7 @@ def negate(val) -> bool:
     else:
         if isinstance(val, EvalData):
             val = val.expr
-        return cast(bool, EvalData(dict(eval={"not": val})))
+        return cast(bool, EvalData(dict(eval={"not": val, "map_value": 1})))
 
 
 def as_bool(val) -> bool:
@@ -118,7 +118,7 @@ def as_bool(val) -> bool:
     else:
         if isinstance(val, EvalData):
             val = val.expr
-        return cast(bool, EvalData(dict(eval={"not": {"not": val}})))
+        return cast(bool, EvalData(dict(eval={"not": {"not": val, "map_value": 1}})))
 
 
 def get_input(name: str, default: Any = MISSING):
@@ -141,9 +141,23 @@ def has_env(name: str) -> bool:
         return EvalData({"has_env": name})  # type: ignore
 
 
+@overload
+def get_env(name: str, default: str, *, ctx=None) -> str:
+    ...
+
+@overload
+def get_env(name: str, *, ctx=None) -> Optional[str]:
+    ...
+
+
+@overload
+def get_env(*, ctx=None) -> Dict[str, str]:
+    ...
+
+
 def get_env(
-    name: Optional[str], default: Optional[str] = None, ctx=None
-) -> Union[str, None, Dict[str, str]]:
+    name = None, default = None, *, ctx=None
+):
     # only ctx.environ is used
     if name is None and default is None:
         args = None
@@ -153,7 +167,7 @@ def get_env(
         assert ctx or global_state_context()
         return support.get_env(args, ctx or global_state_context())
     else:
-        return EvalData({"get_env": args})  # type: ignore
+        return EvalData({"get_env": args})
 
 
 T = TypeVar("T")
@@ -175,25 +189,33 @@ def if_expr(if_cond, then: T, otherwise: U = None) -> Union[T, U]:
             "'if_expr()' can not be valuate in runtime mode, instead just use a Python 'if' statement or expression."
         )
     else:
-        return EvalData({"eval": {"if": if_cond, "then": then, "else": otherwise}})  # type: ignore
+        return EvalData({"eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}})  # type: ignore
 
 
-def or_expr(self, __value: Any) -> "EvalData":
+def or_expr(left: T, right: U) -> Union[T, U]:
     if global_state_mode() == "runtime":
         raise UnfurlError(
             "'or_expr()' can not be valuate in runtime mode, instead just use Python's 'or' operator."
         )
     else:
-        return EvalData(dict(eval={"or": [self.expr, __value]}))
+        return EvalData(dict(eval={"or": [left, right], "map_value": 1}))  # type: ignore
+
+def fallback(left: Optional[T], right: T) -> T:
+    if global_state_mode() == "runtime":
+        raise UnfurlError(
+            "'fallback()' can not be valuate in runtime mode, instead just use Python's 'or' operator."
+        )
+    else:
+        return EvalData(dict(eval={"or": [left, right], "map_value": 1}))  # type: ignore
 
 
-def and_expr(self, __value: Any) -> "EvalData":
+def and_expr(left: T, right: U) -> Union[T, U]:
     if global_state_mode() == "runtime":
         raise UnfurlError(
             "'and_expr()' can not be valuate in runtime mode, instead just use a Python 'and' operator."
         )
     else:
-        return EvalData(dict(eval={"and": [self.expr, __value]}))
+        return EvalData(dict(eval={"or": [left, right], "map_value": 1}))  # type: ignore
 
 
 def to_env(args: Dict[str, str], update_os_environ=False) -> Dict[str, str]:
