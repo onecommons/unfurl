@@ -60,6 +60,7 @@ from .eval import Ref, map_value, RefContext
 from .runtime import (
     ArtifactInstance,
     EntityInstance,
+    HasInstancesInstance,
     NodeInstance,
     RelationshipInstance,
     Operational,
@@ -94,14 +95,12 @@ class ConfiguratorResult:
         success: bool,
         modified: Optional[bool],
         status: Optional[Status] = None,
-        configChanged: Optional[bool] = None,
-        result: object = None,
+        result: Optional[Union[dict, str]] = None,
         outputs: Optional[dict] = None,
         exception: Optional[UnfurlTaskError] = None,
     ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
-        self.configChanged = configChanged
         self.result = result
         self.success = success
         self.outputs = outputs
@@ -395,7 +394,11 @@ class _ConnectionsMap(dict):
         # reverse so nearest relationships replace less specific ones that have matching names
         # XXX why is rel sometimes a Result?
         by_type = {  # the list() is for Python 3.7
-            rel.resolved.template.global_type if isinstance(rel, Result) else rel.template.global_type: rel
+            (
+                rel.resolved.template.global_type
+                if isinstance(rel, Result)
+                else rel.template.global_type
+            ): rel
             for rel in reversed(list(self.values()))
         }
         return by_type.values()
@@ -475,9 +478,9 @@ class TaskView:
         self.dry_run: Optional[bool] = None
         self.verbose = 0  # set by ConfigView
         # private:
-        self._errors: List[
-            UnfurlTaskError
-        ] = []  # UnfurlTaskError objects appends themselves to this list
+        self._errors: List[UnfurlTaskError] = (
+            []
+        )  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._manifest = manifest
         self.messages: List[Any] = []
@@ -493,7 +496,9 @@ class TaskView:
         self._attributeManager: AttributeManager = None  # type: ignore
         self.job: Optional["Job"] = None
         # public:
-        self.operation_host: Optional[NodeInstance] = find_operation_host(target, configSpec.operation_host)
+        self.operation_host: Optional[HasInstancesInstance] = find_operation_host(
+            target, configSpec.operation_host
+        )
 
     @property
     def environ(self) -> Dict[str, str]:
@@ -595,7 +600,7 @@ class TaskView:
 
     @staticmethod
     def _get_connection(
-        source: NodeInstance, target: Optional[NodeInstance], seen: dict
+        source: HasInstancesInstance, target: Optional[NodeInstance], seen: dict
     ) -> None:
         """
         Find the requirements on source that match the target
@@ -730,7 +735,7 @@ class TaskView:
     @staticmethod
     def find_connection(
         ctx: RefContext,
-        target: NodeInstance,
+        target: EntityInstance,
         relation: str = "tosca.relationships.ConnectsTo",
     ) -> Optional[RelationshipInstance]:
         """
@@ -824,9 +829,7 @@ class TaskView:
         modified: Optional[Union[Status, bool]] = None,
         status: Optional[Status] = None,
         result: Optional[Union[dict, str]] = None,
-        outputs: Optional[
-            dict
-        ] = None,  # so the docstring says dict, but ConfiguratorResult
+        outputs: Optional[dict] = None,
         captureException: Optional[object] = None,
     ) -> ConfiguratorResult:
         """:py:meth:`unfurl.configurator.Configurator.run` should call this method and return or yield its return value before terminating.
@@ -852,23 +855,22 @@ class TaskView:
             status = modified
             modified = True
 
-        kw = dict(result=result, outputs=outputs)  # type: kwType
         if captureException is not None:
             logLevel = logging.DEBUG if success else logging.ERROR
-            kw["exception"] = UnfurlTaskError(self, captureException, logLevel)  # type: ignore
+            exception = UnfurlTaskError(self, captureException, logLevel)
+        else:
+            exception = None
 
-        # Typechecking
-        class kwTypeBase(TypedDict):
-            result: Optional[Union[dict, str]]
-            outputs: Optional[dict]
-
-        class kwType(kwTypeBase, total=False):
-            exception: UnfurlTaskError
-
-        kw = cast(kwType, kw)
         if outputs:
             self._set_outputs(outputs)
-        return ConfiguratorResult(success, modified, status, **kw)
+        return ConfiguratorResult(
+            success,
+            modified,
+            status,
+            result,
+            outputs,
+            exception,
+        )
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources
@@ -1370,7 +1372,9 @@ class Dependency(Operational):
             target_instance = self.target.query(config.target)
             if not isinstance(target_instance, EntityInstance):
                 return False
-            context = RefContext(target_instance, dict(val=self.expected, changeId=changeId))
+            context = RefContext(
+                target_instance, dict(val=self.expected, changeId=changeId)
+            )
             result = Ref(self.expr).resolve_one(context)
 
             if self.schema:

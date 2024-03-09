@@ -665,7 +665,7 @@ class JobRequest:
         return f"JobRequest({self.name})"
 
 
-def find_operation_host(target, operation_host):
+def find_operation_host(target, operation_host: Optional[str]) -> Optional[HasInstancesInstance]:
     # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
     if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
         return target.root.find_instance_or_external("localhost")

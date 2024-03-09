@@ -7,11 +7,11 @@ from tosca import ToscaInputs
 from ..eval import Ref, map_value
 from ..configurator import Configurator, TaskView
 from ..result import Results, ResultsMap
-from ..util import register_short_names
+from ..util import UnfurlTaskError, register_short_names
 from ..support import Status
 from ..planrequests import set_default_command, ConfigurationSpecKeywords
 import importlib
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union, cast
 from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
@@ -60,7 +60,7 @@ class TemplateInputs(ToscaInputs):
 class TemplateConfigurator(Configurator):
     exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")
 
-    def process_result_template(self, task: "TaskView", result):
+    def process_result_template(self, task: "TaskView", result: Dict[str, Any]):
         """
         for both the ansible and shell configurators
         result can include: "returncode", "msg", "error", "stdout", "stderr"
@@ -90,7 +90,7 @@ class TemplateConfigurator(Configurator):
                     trace = 0
                 if Ref.is_ref(resultTemplate):
                     results = task.query(
-                        {"eval": resultTemplate}, vars=result, throw=True
+                        resultTemplate, vars=result, throw=True
                     )
                 else:
                     # lazily evaluated by update_instances() below
@@ -144,9 +144,11 @@ class TemplateConfigurator(Configurator):
             kw.update(done)  # "done" overrides kw
         return task.done(**kw)
 
-    def run(self, task: "TaskView"):
+    def run(self, task: "TaskView") -> Generator:
         runResult = task.rendered
         done = task.inputs.get_copy("done", {})
+        if not isinstance(done, dict):
+            raise UnfurlTaskError(task, 'input "done" must be a dict')
         if "result" not in done:
             if not isinstance(runResult, Mapping):
                 done["result"] = {"run": runResult, "outputs": done.get("outputs")}
