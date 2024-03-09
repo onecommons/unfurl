@@ -1,5 +1,7 @@
-- hosts: localhost
+- name: a play
+  hosts: localhost
   gather_facts: no
+  connection: local
   tasks:
     - name: set_one_fact
       set_fact:

@@ -35,12 +35,7 @@ Available configurators include:
 Ansible
 ========
 
-The Ansible configurator executes the given playbook.
-
-Unfurl installs `Ansible 4.7 <https://docs.ansible.com/ansible/latest/index.html>`_  as a library.
-These `Ansible modules <https://docs.ansible.com/ansible/latest/collections/index.html>`_ are available by default.
-
-You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.
+The Ansible configurator executes the given playbook. You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.
 
 Example
 -------
@@ -75,7 +70,7 @@ Inputs
 
   :playbook: (*required*) If string, treat as a file path to the Ansible playbook to run, otherwise treat as an inline playbook
   :inventory: If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline YAML inventory.
-              If omitted, the inventory host will be set to the ``operation_host``
+              If omitted, the inventory will be generated (see below)
   :extraVars: A dictionary of variables that will be passed to the playbook as Ansible facts
   :playbookArgs: A list of strings that will be passed to ``ansible-playbook`` as command-line arguments
   :resultTemplate: Same behavior as defined for `Shell` but will also include ``outputs`` as a variable.
@@ -83,9 +78,35 @@ Inputs
 Other ``implementation`` keys
 -----------------------------
 
-  :operation_host: Defaults to ORCHESTRATOR (localhost). Set to HOST to have Ansible connect to the Compute instance that is hosting the instance targeted by this task.
+  :operation_host: If set, names the host.
   :environment: If set, environment directives will processed and passed to the playbooks ``environment``
-  :outputs: Keys are the names of Ansible facts to be extracted after the playbook completes. Value are currently ignored.
+  :outputs: A dictionary whose keys are the names of Ansible facts to be extracted after the playbook completes. If the value isn't null, it names the attribute to set with the Ansible fact's value.
+
+Playbook processing
+-------------------
+
+The ``playbook`` input can be set to a full playbook or a list of tasks. If inventory is auto-generated and the "hosts" keyword is empty or missing from the playbook, "hosts" will be set to the host found in the auto-generated inventory, as described below.
+
+
+Inventory
+---------
+
+If an inventory file isn't specified in ``inputs``, Unfurl will generate an Ansible inventory for the target host. The target host will be selected by searching for a node in the following order:
+
+* The ``operation_host`` if explicitly set.
+* The current target if it looks like a host (i.e. has an Ansible or SSH endpoint or is a Compute resource)
+* Search the current target's ``hostedOn`` relationship for a node that looks like a host.
+* Fallback to "localhost" with a local ansible connection.
+
+The inventory facts for the selected host is built from the following sources:
+
+* If host has an ``endpoint`` of  type ``unfurl.capabilities.Endpoint.SSH`` or ``unfurl.capabilities.Endpoint.Ansible`` use that capability's ``host``, ``port``, ``connection``, ``user``, and ``hostvars`` properties.
+* If there is a relationship template or connection of
+  type ``unfurl.relationships.ConnectsTo.Ansible`` that targets the endpoint, uses its ``credential`` and ``hostvars`` properties. (These can be set in the environment's :std:ref:`connections` section.)
+* If the host is declared as a member of group of type ``unfurl.groups.AnsibleInventoryGroup`` in the service template,
+  the group's name will be added as an ansible group along with the contents of the group's ``hostvars`` property.
+* If ``ansible_host`` wasn't previously set, ``ansible_host`` will be set to the host's :ref:`public_ip<tosca_types>` or ``private_ip`` in that order if present, otherwise set it to ``localhost``.
+* If the host is a Google compute instance the host name will be set to ``INSTANCE_NAME.ZONE.PROJECT`` e.g. ``instance-1.us-central1-a.purple-sanctum-25912``. This is for compatibility with the ``gcloud compute config-ssh`` command to enable Unfurl to use those credentials.
 
 Execution environment
 ---------------------
@@ -97,26 +118,12 @@ Execution environment
   (See also the `Ansible Configurations Documentation`_)
 
   Note: Because Ansible is initialized at the beginning of execution,
-  if the ``no-runtime`` command option is used or if no runtime is available
+  if the ``--no-runtime`` command option is used or if no runtime is available
   ``ANSIBLE_CONFIG`` will only be applied in the environment that executes Unfurl.
   It will not be applied if set via `environment` declaration.
 
   .. _Ansible Configurations Documentation: https://docs.ansible.com/ansible/latest/reference_appendices/config.html#the-configuration-file.
 
-Inventory
----------
-
-If an inventory file isn't specified in ``inputs``, Unfurl will generate an Ansible inventory using the ``operation_host``
-as the host. The inventory will include groups and variables derived from the following sources:
-
-* If the ``operation_host`` has an ``endpoint`` of  type ``unfurl.capabilities.Endpoint.SSH`` or ``unfurl.capabilities.Endpoint.Ansible``
-  use that capabilities ``host``, ``port``, ``connection``, ``user``, and ``hostvars`` properties.
-* If the ``operation_host`` has relationship template or connection to the target instance of
-  type ``unfurl.relationships.ConnectsTo.Ansible`` uses its ``credential`` and ``hostvars`` properties.
-* If the operation_host is declared as a member of group of type ``unfurl.groups.AnsibleInventoryGroup`` in the service template,
-  the group's name will be added as an ansible group along with the contents of the group's ``hostvars`` property.
-* If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's :ref:`public_ip<tosca_types>` or ``private_ip`` in that order, otherwise set it to ``localhost``.
-* If the host is a Google compute instance the host name will be set to ``INSTANCE_NAME.ZONE.PROJECT`` e.g. ``instance-1.us-central1-a.purple-sanctum-25912``. This is for compatibility with the ``gcloud compute config-ssh`` command to enable Unfurl to use those credentials.
 
 Cmd
 ====

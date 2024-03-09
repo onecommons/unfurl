@@ -246,7 +246,7 @@ class ConnectionConfigurator(ClusterConfigurator):
     def should_run(self, task):
         return Priority.critical  # abort if unable to connect to the cluster
 
-    def run(self, task):
+    def run(self, task: TaskView):
         connection = task.target
         assert isinstance(connection, RelationshipInstance)
         connectionConfig = _get_connection_config(connection)
@@ -370,7 +370,12 @@ class ResourceConfigurator(AnsibleConfigurator):
             moduleSpec.update(extra_configuration)
         return [{"kubernetes.core.k8s_info": moduleSpec}]
 
-    def find_playbook(self, task):
+    def _find_host(self, task: TaskView):
+        if task.configSpec.operation_host:  # explicitly set
+            return super()._find_host(task)
+        return None, None  # use local connection, don't search for hosts
+
+    def find_playbook(self, task: TaskView):
         # this is called by AnsibleConfigurator.get_playbook()
         definition = self.get_definition(task)
         connectionConfig = _get_connection(task.inputs.context)

@@ -16,15 +16,20 @@ if not sys.warnoptions:
     # Ansible generates tons of ResourceWarnings
     warnings.simplefilter("ignore", ResourceWarning)
 
+"""
+See also test_examples.py::RunTest::test_ansible and ::RunTest::test_remote
+for test runs a ansible command on a (mock) remote instance.
+"""
 
-class AnsibleTest:
-    def setup(self):
+test_playbook_path = str(Path(__file__).parent / "examples" / "testplaybook.yaml")
+class TestAnsible:
+    def setup_method(self):
         self.results = {}
 
     @staticmethod
     def run_playbook(args=None):
         return run_playbooks(
-            str(Path(__file__).parent / "examples" / "testplaybook.yaml"),
+            test_playbook_path,
             "localhost,",
             {
                 "ansible_connection": "local",
@@ -46,7 +51,7 @@ class AnsibleTest:
 
     # setting UNFURL_LOGGING can break this test, so skip if it's set
     @pytest.mark.skipif(
-        os.getenv("UNFURL_LOGGING"), reason="this test requires default log level"
+        bool(os.getenv("UNFURL_LOGGING")), reason="this test requires default log level"
     )
     def test_verbosity(self):
         results = self.run_playbook()
@@ -59,10 +64,10 @@ class AnsibleTest:
         assert not results.resultsByStatus.skipped.get("test-verbosity")
 
 
-class AnsibleConfiguratorTest:
-    def setup(self):
-        path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
-        with open(path) as f:
+class TestAnsibleConfigurator:
+    def setup_method(self):
+        self.path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
+        with open(self.path) as f:
             self.manifest = f.read()
 
     def test_configurator(self):
