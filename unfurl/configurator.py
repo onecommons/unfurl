@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 from .support import (
     AttributeManager,
+    NodeState,
     Status,
     ResourceChanges,
     Priority,
@@ -816,6 +817,12 @@ class TaskView:
                         self,
                         f"invalid or unsupported mapping for output '{key}': {mapping}",
                     )
+                elif mapping == ".status":
+                    if value:
+                        self.target.local_status = to_enum(Status, value)
+                elif mapping == ".state":
+                    if value:
+                        self.target.state = to_enum(NodeState, value)
                 else:
                     self.target.attributes[mapping] = value
             elif metadata_key:

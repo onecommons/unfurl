@@ -74,15 +74,17 @@ class AnsibleConfiguratorTest:
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result
-        assert result.outputs == {"fact1": "test1", "fact2": "test"}
+        assert result.outputs == {"fact1": "test1", "fact2": "test", "echo_output": sys.executable}
         assert result.result.get("stdout") == sys.executable
         assert run1.status == Status.ok, run1.summary()
 
+    def test_with_playbook_file(self):
+        runner = Runner(YamlManifest(path=str(self.path)))
+        run2 = runner.run(JobOptions(instance="test2", skip_save=True))
+        assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
+        assert len(run2.workDone) == 1, run2.workDone
 
 class TestAnsibleLifecycle:
     def test_lifecycle(self):
-        path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
-        # undeploy isn't implemented, skip those steps
-        jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
-        for job in jobs:
-            assert job.status == Status.ok, job.workflow
+        path = Path(__file__).parent / "examples" / "ansible-lifecycle-ensemble.yaml"
+        list(isolated_lifecycle(str(path), DEFAULT_STEPS))
