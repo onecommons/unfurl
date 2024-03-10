@@ -3,8 +3,7 @@ import pytest
 import unfurl
 import tosca
 from unfurl.testing import runtime_test
-from unfurl.tosca_plugins import expr,functions
-from unfurl.configurators.terraform import tfoutput, tfvar
+from unfurl.tosca_plugins import expr, functions
 from typing import Optional, Type
 from unfurl.util import UnfurlError
 
@@ -64,14 +63,14 @@ def test_options():
         def __init__(self, val: str):
             super().__init__(dict(my_option=val))
 
-    p = tosca.Property(options=tfvar)
+    p = tosca.Property(options=expr.tfvar)
     assert p.metadata == dict(tfvar=True)
-    tosca.Attribute(options=tfoutput)
+    tosca.Attribute(options=expr.tfoutput)
     with pytest.raises(ValueError):
-        tosca.Attribute(options=tfvar)
+        tosca.Attribute(options=expr.tfvar)
     with pytest.raises(ValueError):
-        tosca.Property(options=tfoutput)
-    field = tosca.Property(options=tfvar | MyOption("foo"))
+        tosca.Property(options=expr.tfoutput)
+    field = tosca.Property(options=expr.tfvar | MyOption("foo"))
     assert field.metadata == dict(tfvar=True, my_option="foo")
 
 

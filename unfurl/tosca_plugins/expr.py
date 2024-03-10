@@ -42,8 +42,11 @@ from tosca import (
 )
 import tosca
 
+tfvar = tosca.PropertyOptions(dict(tfvar=True))
+tfoutput = tosca.AttributeOptions(dict(tfoutput=True))
+
 if TYPE_CHECKING or not safe_mode():
-    # we don't want
+    # these imports aren't safe
     from .. import support
     from ..dsl import InstanceProxyBase, proxy_instance
     from ..eval import Ref, RefContext
@@ -68,6 +71,8 @@ else:
 
 
 __all__ = [
+    "tfoutput",
+    "tfvar",
     "has_env",
     "get_env",
     "get_input",
