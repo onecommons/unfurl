@@ -123,10 +123,14 @@ class ColorHandler(logging.StreamHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         message = self.format(record)
-        if not record.exc_info and not record.stack_info:
-            truncate_length = getattr(record, "truncate", DEFAULT_TRUNCATE_LENGTH)
-            if truncate_length:
-                message = truncate(message, truncate_length)
+        truncate_length = getattr(record, "truncate", DEFAULT_TRUNCATE_LENGTH)
+        if truncate_length:
+            # don't truncate stack traces
+            if record.exc_text:
+                truncate_length = max(len(record.exc_text)*2, truncate_length)
+            if record.stack_info:
+                truncate_length = max(len(record.stack_info)*2, truncate_length)
+            message = truncate(message, truncate_length)
         # Hide meta job output because it seems to also be logged captured by
         # the root logger.
         if record.name.startswith(HIDDEN_MSG_LOGGER):
