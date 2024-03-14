@@ -712,8 +712,8 @@ class Plan:
 
         if opts.prune:
             # XXX warn or error if prune used with a filter option
-            test = (
-                lambda resource: Reason.prune if id(resource) not in visited else False
+            test = lambda resource: (
+                Reason.prune if id(resource) not in visited else False
             )
             yield from self.generate_delete_configurations(test)
 
@@ -1111,13 +1111,14 @@ def order_templates(
 def get_ancestor_templates(
     source: NodeSpec, templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
-    if source.abstract != "select":
-        for req in source.requirements.values():
-            target = req.relationship and req.relationship.target
-            if target and target is not source:
-                for ancestor in get_ancestor_templates(target, templates):
-                    yield ancestor
-    yield source
+    if not source.toscaEntityTemplate.is_replaced_by_outer():
+        if source.abstract != "select":
+            for req in source.requirements.values():
+                target = req.relationship and req.relationship.target
+                if target and target is not source:
+                    for ancestor in get_ancestor_templates(target, templates):
+                        yield ancestor
+        yield source
 
 
 def get_operational_dependents(

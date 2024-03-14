@@ -1127,6 +1127,10 @@ class NodeSpec(EntitySpec):
                     else:
                         msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
                         ExceptionCollector.appendException(UnfurlValidationError(msg))
+                if name in self._requirements:
+                    logger.warning(
+                        f"More than one requirement for {name} on {self.nested_name} not supported."
+                    )
                 self._requirements[name] = reqSpec
         return self._requirements
 
@@ -1144,7 +1148,9 @@ class NodeSpec(EntitySpec):
         """
         returns a list of RelationshipSpecs that are targeting this node template.
         """
-        for r in self.toscaEntityTemplate.get_relationship_templates():
+        for r in cast(
+            NodeTemplate, self.toscaEntityTemplate
+        ).get_relationship_templates():
             assert r.source
             # calling requirement property will ensure the RelationshipSpec is properly linked
             template = self.spec.node_from_template(r.source)
@@ -1153,12 +1159,13 @@ class NodeSpec(EntitySpec):
         return self._get_relationship_specs()
 
     def _get_relationship_specs(self) -> List["RelationshipSpec"]:
-        if len(self._relationships) != len(
-            self.toscaEntityTemplate.get_relationship_templates()
-        ):
-            # get_relationship_templates() is a list of RelationshipTemplates that target the node
+        # get_relationship_templates() is a list of RelationshipTemplates that target the node
+        rel_templates = cast(
+            NodeTemplate, self.toscaEntityTemplate
+        ).get_relationship_templates()
+        if len(self._relationships) != len(rel_templates):
             rIds = {id(r.toscaEntityTemplate) for r in self._relationships}
-            for r in self.toscaEntityTemplate.get_relationship_templates():
+            for r in rel_templates:
                 if id(r) not in rIds and r.capability:
                     self._relationships.append(RelationshipSpec(r, self.topology, self))
         return self._relationships
