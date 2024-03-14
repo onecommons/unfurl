@@ -5,7 +5,6 @@ from tosca import *
 from unfurl.configurator import TaskView
 from unfurl.configurators import DoneDict, TemplateConfigurator, TemplateInputs
 
-
 class Base(tosca.nodes.Root):
     url: str  # test that a derived class safely override a property with a computed property
 
@@ -51,11 +50,10 @@ class Test(Base):
         return TemplateConfigurator(TemplateInputs(run="test me", done=done))
 
 
-class MyDataType(tosca.DataType):
+class MyDataType(tosca.OpenDataType):
     ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
         factory=lambda: tosca.datatypes.NetworkPortSpec(source=port80, target=port80)
     )
-
 
 generic = unfurl.nodes.Generic("generic")
 assert generic._name == "generic"

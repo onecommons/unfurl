@@ -816,7 +816,7 @@ class Convert:
         if not self._builtin_prefix:
             cls_name = self.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(toscatype, baseclass_name)
-        metadata = toscatype.defs.get("metadata")
+        metadata = toscatype.defs and toscatype.defs.get("metadata")
         if metadata and metadata.get("alias"):
             assert "," not in base_names
             return f"{cls_name} = {base_names}"
