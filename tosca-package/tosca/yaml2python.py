@@ -47,7 +47,7 @@ from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.interfaces import OperationDef, _create_operations
 from toscaparser.tosca_template import ToscaTemplate
-from toscaparser.elements.entity_type import EntityType
+from toscaparser.elements.entity_type import EntityType, Namespace
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.artifacttype import ArtifactTypeDef
 from toscaparser.elements.constraints import constraint_mapping, Schema
@@ -1537,6 +1537,10 @@ class Convert:
 
         assert self.template.tpl is not None
         tpl, namespace_id = self.template.nested_tosca_tpls[file_path]
+        if isinstance(self.custom_defs, Namespace):
+            custom_defs = self.custom_defs.find_namespace(namespace_id)
+        else:
+            custom_defs = self.custom_defs
         file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
         tpl["tosca_definitions_version"] = self.template.tpl[
@@ -1564,7 +1568,7 @@ class Convert:
                 self.python_compatible,
                 self._builtin_prefix,
                 format,
-                custom_defs=self.custom_defs,
+                custom_defs=custom_defs,
                 path=import_path,
                 write_policy=self.write_policy,
                 base_dir=base_dir or self.base_dir,
