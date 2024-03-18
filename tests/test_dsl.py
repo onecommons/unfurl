@@ -978,6 +978,11 @@ def test_convert_import(test_input, exp_import, exp_path):
             "from tosca_repositories.repo import foo",
             "tosca_repositories/repo/foo",
         ),
+        (
+            dict(repository="repo", file="__init__.yaml", namespace_prefix="repo"),
+            "from tosca_repositories import repo",
+            "tosca_repositories/repo/__init__",
+        ),
     ],
 )
 # patch repo lookup so we don't need to write the whole template

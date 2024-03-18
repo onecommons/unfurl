@@ -403,9 +403,11 @@ class Convert:
             module_name = ""
 
         # import should be .path.to.file
-        module_name = ".".join(
-            ["" if d == ".." else d for d in [module_name, *dirname.parts]]
-        )
+        module_parts = module_name.split(".") + ["" if d == ".." else d for d in dirname.parts]
+        if filename == "__init__" and len(module_parts) > 1:
+            # "from package import module" instead of "from package.module import __init__"
+            filename = module_parts.pop()
+        module_name = ".".join(module_parts)
 
         # generate import statement
         if namespace_prefix:
@@ -428,7 +430,7 @@ class Convert:
             python_prefix = ""
 
         # add path to file in repo to repo path
-        import_path = import_path / dirname / filename
+        import_path = import_path / dirname / filepath.stem
 
         full_name = f"{module_name}.{filename}"
         return (
