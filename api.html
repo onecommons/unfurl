@@ -916,13 +916,16 @@ will be evaluated using the current context’s instance.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.and_expr">
-<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">and_expr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">__value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.and_expr" title="Permalink to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">and_expr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">left</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">right</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.and_expr" title="Permalink to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>__value</strong> (<em>Any</em>) – </p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>left</strong> (<em>unfurl.tosca_plugins.expr.T</em>) – </p></li>
+<li><p><strong>right</strong> (<em>unfurl.tosca_plugins.expr.U</em>) – </p></li>
+</ul>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p>tosca._tosca.EvalData</p>
+<dd class="field-even"><p><em>Union</em>[unfurl.tosca_plugins.expr.T, unfurl.tosca_plugins.expr.U]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -953,19 +956,12 @@ will be evaluated using the current context’s instance.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.get_env">
-<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">get_env</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.get_env" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – </p></li>
-<li><p><strong>default</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – </p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type</dt>
-<dd class="field-even"><p><em>Union</em>[str, None, <em>Dict</em>[str, str]]</p>
-</dd>
-</dl>
-</dd></dl>
+<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">get_env</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'None'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#unfurl.tosca_plugins.expr.get_env" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">get_env</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'None'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">get_env</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'None'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.get_input">
@@ -1050,13 +1046,16 @@ Instead just use a Python ‘if’ statement or expression.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.or_expr">
-<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">or_expr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">__value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.or_expr" title="Permalink to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">or_expr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">left</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">right</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.or_expr" title="Permalink to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>__value</strong> (<em>Any</em>) – </p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>left</strong> (<em>unfurl.tosca_plugins.expr.T</em>) – </p></li>
+<li><p><strong>right</strong> (<em>unfurl.tosca_plugins.expr.U</em>) – </p></li>
+</ul>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p>tosca._tosca.EvalData</p>
+<dd class="field-even"><p><em>Union</em>[unfurl.tosca_plugins.expr.T, unfurl.tosca_plugins.expr.U]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1341,7 +1340,7 @@ as an alternative to using the full name (“module.class”) when setting the i
 
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.configurator.ConfiguratorResult">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">ConfiguratorResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">success</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modified</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">configChanged</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">result</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exception</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.ConfiguratorResult" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">ConfiguratorResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">success</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modified</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">result</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exception</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.ConfiguratorResult" title="Permalink to this definition"></a></dt>
 <dd><p>Represents the result of a task that ran.</p>
 <p>See <a class="reference internal" href="#unfurl.configurator.TaskView.done" title="unfurl.configurator.TaskView.done"><code class="xref py py-meth docutils literal notranslate"><span class="pre">TaskView.done()</span></code></a> for more documentation.</p>
 <dl class="field-list simple">
@@ -1350,8 +1349,7 @@ as an alternative to using the full name (“module.class”) when setting the i
 <li><p><strong>success</strong> (<em>bool</em>) – </p></li>
 <li><p><strong>modified</strong> (<em>Optional</em><em>[</em><em>bool</em><em>]</em>) – </p></li>
 <li><p><strong>status</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status"><em>unfurl.support.Status</em></a><em>]</em>) – </p></li>
-<li><p><strong>configChanged</strong> (<em>Optional</em><em>[</em><em>bool</em><em>]</em>) – </p></li>
-<li><p><strong>result</strong> (<em>object</em>) – </p></li>
+<li><p><strong>result</strong> (<em>Optional</em><em>[</em><em>Union</em><em>[</em><em>dict</em><em>, </em><em>str</em><em>]</em><em>]</em>) – </p></li>
 <li><p><strong>outputs</strong> (<em>Optional</em><em>[</em><em>dict</em><em>]</em>) – </p></li>
 <li><p><strong>exception</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="#unfurl.util.UnfurlTaskError" title="unfurl.util.UnfurlTaskError"><em>unfurl.util.UnfurlTaskError</em></a><em>]</em>) – </p></li>
 </ul>
@@ -2171,8 +2169,11 @@ Otherwise return ok.
 <span class="sig-name descname"><span class="pre">has_changed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">changeset</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.has_changed" title="Permalink to this definition"></a></dt>
 <dd><p>Whether or not this object changed since the give ChangeRecord.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p>bool</p>
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>changeset</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="#unfurl.result.ChangeRecord" title="unfurl.result.ChangeRecord"><em>unfurl.result.ChangeRecord</em></a><em>]</em>) – </p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>bool</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2935,17 +2936,6 @@ There are two kinds of dependencies:</p>
 <dd class="field-even"><p>None</p>
 </dd>
 </dl>
-<dl class="py method">
-<dt class="sig sig-object py" id="unfurl.job.ConfigChange.get_operational_dependencies">
-<span class="sig-name descname"><span class="pre">get_operational_dependencies</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.ConfigChange.get_operational_dependencies" title="Permalink to this definition"></a></dt>
-<dd><p>Return an iterator of <a class="reference internal" href="#unfurl.runtime.Operational" title="unfurl.runtime.Operational"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Operational</span></code></a> object that this instance depends on to be operational.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p><em>Iterable</em>[<a class="reference internal" href="#unfurl.runtime.Operational" title="unfurl.runtime.Operational">unfurl.runtime.Operational</a>]</p>
-</dd>
-</dl>
-</dd></dl>
-
 </dd></dl>
 
 <dl class="py class">
@@ -3407,6 +3397,8 @@ including simplified representations of TOSCA types and node templates as docume
   title: String!
   slug: String!
   description: String
+  visibility: String
+  metadata: JSON
 
   blueprint: ApplicationBlueprint!
   primary: ResourceTemplate!

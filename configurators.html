@@ -61,8 +61,9 @@
 <li class="toctree-l3"><a class="reference internal" href="#example">Example</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#inputs">Inputs</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#other-implementation-keys">Other <code class="docutils literal notranslate"><span class="pre">implementation</span></code> keys</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#execution-environment">Execution environment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#playbook-processing">Playbook processing</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#inventory">Inventory</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#execution-environment">Execution environment</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#cmd">Cmd</a><ul>
@@ -242,10 +243,7 @@ it will use the <code class="docutils literal notranslate"><span class="pre">Ans
 </div>
 <section id="ansible">
 <span id="id1"></span><h2><a class="toc-backref" href="#id37">Ansible</a><a class="headerlink" href="#ansible" title="Permalink to this headline"></a></h2>
-<p>The Ansible configurator executes the given playbook.</p>
-<p>Unfurl installs <a class="reference external" href="https://docs.ansible.com/ansible/latest/index.html">Ansible 4.7</a>  as a library.
-These <a class="reference external" href="https://docs.ansible.com/ansible/latest/collections/index.html">Ansible modules</a> are available by default.</p>
-<p>You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.</p>
+<p>The Ansible configurator executes the given playbook. You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
 <div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
@@ -282,7 +280,7 @@ These <a class="reference external" href="https://docs.ansible.com/ansible/lates
 </dd>
 <dt class="field-even">inventory</dt>
 <dd class="field-even"><p>If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline YAML inventory.
-If omitted, the inventory host will be set to the <code class="docutils literal notranslate"><span class="pre">operation_host</span></code></p>
+If omitted, the inventory will be generated (see below)</p>
 </dd>
 <dt class="field-odd">extraVars</dt>
 <dd class="field-odd"><p>A dictionary of variables that will be passed to the playbook as Ansible facts</p>
@@ -301,16 +299,40 @@ If omitted, the inventory host will be set to the <code class="docutils literal 
 <blockquote>
 <div><dl class="field-list simple">
 <dt class="field-odd">operation_host</dt>
-<dd class="field-odd"><p>Defaults to ORCHESTRATOR (localhost). Set to HOST to have Ansible connect to the Compute instance that is hosting the instance targeted by this task.</p>
+<dd class="field-odd"><p>If set, names the host.</p>
 </dd>
 <dt class="field-even">environment</dt>
 <dd class="field-even"><p>If set, environment directives will processed and passed to the playbooks <code class="docutils literal notranslate"><span class="pre">environment</span></code></p>
 </dd>
 <dt class="field-odd">outputs</dt>
-<dd class="field-odd"><p>Keys are the names of Ansible facts to be extracted after the playbook completes. Value are currently ignored.</p>
+<dd class="field-odd"><p>A dictionary whose keys are the names of Ansible facts to be extracted after the playbook completes. If the value isn’t null, it names the attribute to set with the Ansible fact’s value.</p>
 </dd>
 </dl>
 </div></blockquote>
+</section>
+<section id="playbook-processing">
+<h3>Playbook processing<a class="headerlink" href="#playbook-processing" title="Permalink to this headline"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">playbook</span></code> input can be set to a full playbook or a list of tasks. If inventory is auto-generated and the “hosts” keyword is empty or missing from the playbook, “hosts” will be set to the host found in the auto-generated inventory, as described below.</p>
+</section>
+<section id="inventory">
+<h3>Inventory<a class="headerlink" href="#inventory" title="Permalink to this headline"></a></h3>
+<p>If an inventory file isn’t specified in <code class="docutils literal notranslate"><span class="pre">inputs</span></code>, Unfurl will generate an Ansible inventory for the target host. The target host will be selected by searching for a node in the following order:</p>
+<ul class="simple">
+<li><p>The <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> if explicitly set.</p></li>
+<li><p>The current target if it looks like a host (i.e. has an Ansible or SSH endpoint or is a Compute resource)</p></li>
+<li><p>Search the current target’s <code class="docutils literal notranslate"><span class="pre">hostedOn</span></code> relationship for a node that looks like a host.</p></li>
+<li><p>Fallback to “localhost” with a local ansible connection.</p></li>
+</ul>
+<p>The inventory facts for the selected host is built from the following sources:</p>
+<ul class="simple">
+<li><p>If host has an <code class="docutils literal notranslate"><span class="pre">endpoint</span></code> of  type <code class="docutils literal notranslate"><span class="pre">unfurl.capabilities.Endpoint.SSH</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl.capabilities.Endpoint.Ansible</span></code> use that capability’s <code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">connection</span></code>, <code class="docutils literal notranslate"><span class="pre">user</span></code>, and <code class="docutils literal notranslate"><span class="pre">hostvars</span></code> properties.</p></li>
+<li><p>If there is a relationship template or connection of
+type <code class="docutils literal notranslate"><span class="pre">unfurl.relationships.ConnectsTo.Ansible</span></code> that targets the endpoint, uses its <code class="docutils literal notranslate"><span class="pre">credential</span></code> and <code class="docutils literal notranslate"><span class="pre">hostvars</span></code> properties. (These can be set in the environment’s <a class="reference internal" href="runtime.html#connections"><span class="std std-ref">Connections</span></a> section.)</p></li>
+<li><p>If the host is declared as a member of group of type <code class="docutils literal notranslate"><span class="pre">unfurl.groups.AnsibleInventoryGroup</span></code> in the service template,
+the group’s name will be added as an ansible group along with the contents of the group’s <code class="docutils literal notranslate"><span class="pre">hostvars</span></code> property.</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">ansible_host</span></code> wasn’t previously set, <code class="docutils literal notranslate"><span class="pre">ansible_host</span></code> will be set to the host’s <a class="reference internal" href="toscadef.html#tosca-types"><span class="std std-ref">public_ip</span></a> or <code class="docutils literal notranslate"><span class="pre">private_ip</span></code> in that order if present, otherwise set it to <code class="docutils literal notranslate"><span class="pre">localhost</span></code>.</p></li>
+<li><p>If the host is a Google compute instance the host name will be set to <code class="docutils literal notranslate"><span class="pre">INSTANCE_NAME.ZONE.PROJECT</span></code> e.g. <code class="docutils literal notranslate"><span class="pre">instance-1.us-central1-a.purple-sanctum-25912</span></code>. This is for compatibility with the <code class="docutils literal notranslate"><span class="pre">gcloud</span> <span class="pre">compute</span> <span class="pre">config-ssh</span></code> command to enable Unfurl to use those credentials.</p></li>
+</ul>
 </section>
 <section id="execution-environment">
 <h3>Execution environment<a class="headerlink" href="#execution-environment" title="Permalink to this headline"></a></h3>
@@ -321,25 +343,10 @@ If you want to load an Ansible configuration file set the <code class="docutils 
 If you want Ansible to search standard locations set to an empty or invalid value like <code class="docutils literal notranslate"><span class="pre">ANSIBLE_CONFIG=</span></code>.
 (See also the <a class="reference external" href="https://docs.ansible.com/ansible/latest/reference_appendices/config.html#the-configuration-file.">Ansible Configurations Documentation</a>)</p>
 <p>Note: Because Ansible is initialized at the beginning of execution,
-if the <code class="docutils literal notranslate"><span class="pre">no-runtime</span></code> command option is used or if no runtime is available
+if the <code class="docutils literal notranslate"><span class="pre">--no-runtime</span></code> command option is used or if no runtime is available
 <code class="docutils literal notranslate"><span class="pre">ANSIBLE_CONFIG</span></code> will only be applied in the environment that executes Unfurl.
 It will not be applied if set via <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a> declaration.</p>
 </div></blockquote>
-</section>
-<section id="inventory">
-<h3>Inventory<a class="headerlink" href="#inventory" title="Permalink to this headline"></a></h3>
-<p>If an inventory file isn’t specified in <code class="docutils literal notranslate"><span class="pre">inputs</span></code>, Unfurl will generate an Ansible inventory using the <code class="docutils literal notranslate"><span class="pre">operation_host</span></code>
-as the host. The inventory will include groups and variables derived from the following sources:</p>
-<ul class="simple">
-<li><p>If the <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> has an <code class="docutils literal notranslate"><span class="pre">endpoint</span></code> of  type <code class="docutils literal notranslate"><span class="pre">unfurl.capabilities.Endpoint.SSH</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl.capabilities.Endpoint.Ansible</span></code>
-use that capabilities <code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">connection</span></code>, <code class="docutils literal notranslate"><span class="pre">user</span></code>, <code class="docutils literal notranslate"><span class="pre">credential</span></code>, and <code class="docutils literal notranslate"><span class="pre">hostvars</span></code> properties.</p></li>
-<li><p>If the <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> has relationship template or connection to the target instance of
-type <code class="docutils literal notranslate"><span class="pre">unfurl.relationships.ConnectsTo.Ansible</span></code> uses its <code class="docutils literal notranslate"><span class="pre">connection</span></code> and <code class="docutils literal notranslate"><span class="pre">hostvars</span></code> properties.</p></li>
-<li><p>If the operation_host is declared as a member of group of type <code class="docutils literal notranslate"><span class="pre">unfurl.groups.AnsibleInventoryGroup</span></code> in the service template,
-the group’s name will be added as an ansible group along with the contents of the group’s <code class="docutils literal notranslate"><span class="pre">hostvars</span></code> property.</p></li>
-<li><p>If <code class="docutils literal notranslate"><span class="pre">ansible_host</span></code> wasn’t previously set, the host name will be set to the operation_host’s <a class="reference internal" href="toscadef.html#tosca-types"><span class="std std-ref">public_ip</span></a> or <code class="docutils literal notranslate"><span class="pre">private_ip</span></code> in that order, otherwise set it to <code class="docutils literal notranslate"><span class="pre">localhost</span></code>.</p></li>
-<li><p>If the host is a Google compute instance the host name will be set to <code class="docutils literal notranslate"><span class="pre">INSTANCE_NAME.ZONE.PROJECT</span></code> e.g. <code class="docutils literal notranslate"><span class="pre">instance-1.us-central1-a.purple-sanctum-25912</span></code>. This is for compatibility with the <code class="docutils literal notranslate"><span class="pre">gcloud</span> <span class="pre">compute</span> <span class="pre">config-ssh</span></code> command to enable Unfurl to use those credentials.</p></li>
-</ul>
 </section>
 </section>
 <section id="cmd">
