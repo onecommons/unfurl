@@ -1,0 +1,31 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test:
+          type: tosca.nodes.Root
+          interfaces:
+            Install:
+              check:
+            Standard:
+              operations:
+                create:
+                delete:
+            defaults:
+              implementation: Ansible
+              outputs:
+                status: .status
+              inputs:
+                playbook:
+                  q:
+                  - when: task.operation == 'check' and not '.present' | eval
+                    set_fact:
+                      status: "absent" # if unknown or missing assume it doesn't exist
+                  - when: task.operation == 'delete'
+                    set_fact:
+                      status: "absent"
+                  - when: task.operation == 'configure'
+                    set_fact:
+                      status: "ok"

@@ -7,7 +7,7 @@ import functools
 import logging
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Union, cast
 
 import ansible.constants as C
 from ansible import context
@@ -16,17 +16,25 @@ from ansible.plugins.callback.default import CallbackModule
 from ansible.utils.display import Display
 
 from tosca import ToscaInputs
+from ..runtime import (
+    CapabilityInstance,
+    EntityInstance,
+    HasInstancesInstance,
+    NodeInstance,
+    RelationshipInstance,
+)
+from ..projectpaths import FilePath, WorkFolder, get_path
 from . import TemplateConfigurator, TemplateInputs
-from ..configurator import Status
-from ..result import serialize_value
-from ..util import assert_form
+from ..configurator import ConfiguratorResult, Status, TaskView
+from ..result import Result, serialize_value
+from ..util import UnfurlTaskError, assert_form
 from ..logs import getLogger
 from ..support import reload_collections
+from ..yamlloader import yaml
 
 logger = getLogger("unfurl")
 
 display = Display()
-
 
 
 class AnsibleInputs(TemplateInputs):
@@ -88,8 +96,49 @@ def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
     return resultDict, outputs
 
 
+def get_yaml_property(task: TaskView, prop_name: str, load_file: bool):
+    prop_value = task.inputs.get(prop_name)
+    if isinstance(prop_value, str):
+        if "\n" in prop_value:
+            return yaml.load(prop_value)
+        else:
+            if not os.path.isabs(prop_value):
+                prop_value = get_path(task.inputs.context, prop_value, "src")
+            if os.path.exists(prop_value):
+                # set this as FilePath so we can monitor changes to it
+                result = task.inputs._attributes[prop_name]
+                if not isinstance(result, Result) or not result.external:
+                    task.inputs[prop_name] = FilePath(prop_value)
+                if load_file:
+                    with open(prop_value) as f:
+                        playbook_contents = f.read()
+                    return yaml.load(playbook_contents)
+                else:
+                    return prop_value
+            else:
+                raise UnfurlTaskError(
+                    task, f'Ansible {prop_name} "{prop_value}" does not exist'
+                )
+    return prop_value
+
+
 class AnsibleConfigurator(TemplateConfigurator):
-    """The current resource is the inventory."""
+    """The task's target is the inventory.
+    The template can inline a list of ansible tasks or supply a whole playbook.
+    In either case, if the "hosts" key in playbook is missing or empty this configurator will choose the host based on the following criteria:
+    * operation_host if present
+    * the current target if it looks like a host (e.g. has an endpoint or is compute resource)
+    * search the current target's hostedOn relationship for a node that looks like a host
+    * localhost with a local connection
+
+    If template doesn't supply its own Ansible inventory file as an input parameter, then generate a inventory file for the selected host.
+    The inventory is built from the following sources:
+    * the endpoint
+    * the compute node's attributes
+    * groups of type AnsibleInventoryGroup that the host node is a member of.
+    * relationship templates (of type unfurl.relationships.ConnectsTo.Ansible) that target the endpoint.
+    These can be set in the environment's "connection" section.
+    """
 
     def __init__(self, *args: ToscaInputs, **kw) -> None:
         super().__init__(*args, **kw)
@@ -113,29 +162,29 @@ class AnsibleConfigurator(TemplateConfigurator):
         vars.update(group.properties.get("hostvars", {}))
         return dict(hosts={}, vars=vars, children=children)
 
-    def _get_host_vars(self, node):
-        # return ansible_connection, ansible_host, ansible_user, ansible_port
-        connections = node.get_capabilities("endpoint")
-        for connection in connections:
+    def _find_endpoint(self, node: NodeInstance) -> Optional[CapabilityInstance]:
+        for connection in node.capabilities:
             if connection.template.is_compatible_type(
                 "unfurl.capabilities.Endpoint.Ansible"
             ):
-                break
-        else:
-            return {}
-        props = connection.attributes
+                return connection
+        return None
+
+    def _get_host_vars_from_endpoint(self, endpoint: CapabilityInstance):
+        # return ansible_connection, ansible_host, ansible_user, ansible_port
+        props = endpoint.attributes
         hostVars = {
             "ansible_" + name: props[name]
             for name in ("port", "host", "connection", "user")
             if name in props
         }
-        # ansible_user
         hostVars.update(props.get("hostvars", {}))
         if "ansible_host" not in hostVars and hostVars.get("ip_address"):
             hostVars["ansible_host"] = hostVars["ip_address"]
         return hostVars
 
-    def _update_vars(self, connection, hostVars):
+    def _get_host_vars_from_connection(self, connection: RelationshipInstance):
+        hostVars = {}
         creds = connection.attributes.get("credential")
         if creds:
             if "user" in creds:
@@ -146,22 +195,41 @@ class AnsibleConfigurator(TemplateConfigurator):
             if "keys" in creds:
                 hostVars.update(creds["keys"])
         hostVars.update(connection.attributes.get("hostvars", {}))
+        return hostVars
 
-    def _make_inventory(self, host, allVars, task):
+    def _is_host(self, host: NodeInstance):
+        # XXX hackish
+        return bool(
+            host.attributes.get("public_ip") or host.attributes.get("private_ip")
+        )
+
+    def _make_inventory(
+        self,
+        host: Optional[NodeInstance],
+        endpoint: Optional[CapabilityInstance],
+        allVars: Dict[str, Any],
+        task: TaskView,
+    ) -> Tuple[Dict[str, Any], str]:
+        # make a one-off ansible inventory for the current task
+        # XXX add debug/verbose logging to indicate which was chosen
+        hostVars = {}
         if host:
-            hostVars = self._get_host_vars(host)
+            # if a host node is provided build it from an Ansible SSH endpoint capability, the relationship targeting it and from attributes on the compute node itself
+            if endpoint:
+                hostVars = self._get_host_vars_from_endpoint(endpoint)
             connection = task.find_connection(
                 task.inputs.context, host, "unfurl.relationships.ConnectsTo.Ansible"
             )
             if connection:
-                self._update_vars(connection, hostVars)
-
+                hostVars.update(self._get_host_vars_from_connection(connection))
             if "ansible_host" not in hostVars:
                 ip_address = host.attributes.get("public_ip") or host.attributes.get(
                     "private_ip"
                 )
                 if ip_address:
                     hostVars["ansible_host"] = ip_address
+                    if "ansible_connection" not in hostVars:
+                        hostVars["ansible_connection"] = "ssh"
 
             project_id = host.attributes.get("project_id")
             if project_id:
@@ -177,34 +245,53 @@ class AnsibleConfigurator(TemplateConfigurator):
                 if group.is_compatible_type("unfurl.groups.AnsibleInventoryGroup")
             }
         else:
-            hostVars = {}
-            hosts = {"localhost": hostVars}
+            # no host instance targeted, default to localhost
+            hostname = "localhost"
+            hosts = {hostname: hostVars}
             children = {}
 
         if (
-            next(iter(hosts)) == "localhost"
-            and "ansible_python_interpreter" not in hostVars
-        ):
-            # we need to set this in case we are running inside a virtual environment, see:
+            hostname == "localhost" or hostVars.get("ansible_connection") == "local"
+        ) and "ansible_python_interpreter" not in hostVars:
+            # we need to set this in case we are running inside a Python virtual environment, see:
             # https://docs.ansible.com/ansible/latest/scenario_guides/guide_rax.html#running-from-a-python-virtual-environment-optional
             hostVars["ansible_python_interpreter"] = sys.executable
 
         # note: allVars is inventory vars shared by all hosts
-        return dict(all=dict(hosts=hosts, vars=allVars, children=children))
+        return dict(all=dict(hosts=hosts, vars=allVars, children=children)), hostname
 
-    def get_inventory(self, task, cwd):
-        inventory = task.inputs.get("inventory")
+    def _find_host(
+        self, task: TaskView
+    ) -> Tuple[Optional[NodeInstance], Optional[CapabilityInstance]]:
+        if task.configSpec.operation_host:  # explicitly set
+            if isinstance(task.operation_host, NodeInstance):
+                return task.operation_host, self._find_endpoint(task.operation_host)
+            return None, None  # it must be set to the root, use localhost
+        if isinstance(task.target, NodeInstance):
+            endpoint = self._find_endpoint(task.target)
+            if endpoint or self._is_host(task.target):
+                return task.target, endpoint
+            else:
+                for host in task.target.hosted_on:
+                    endpoint = self._find_endpoint(task.target)
+                    if endpoint or self._is_host(host):
+                        return host, endpoint
+        return None, None
+
+    def get_inventory(self, task: TaskView, cwd: WorkFolder) -> Tuple[str, str]:
+        inventory = get_yaml_property(task, "inventory", False)
         if inventory and isinstance(inventory, str):
             # XXX if user set inventory file we can create a folder to merge them
             # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
-            return inventory  # assume its a file path
-
+            return inventory, ""  # assume its a file path
         if not inventory:
             # XXX merge inventory
-            # default to localhost if not inventory
-            inventory = self._make_inventory(task.operation_host, inventory or {}, task)
-        # XXX cache and reuse file
-        return cwd.write_file(inventory, "inventory.yaml")
+            host, endpoint = self._find_host(task)
+            inventory, hostname = self._make_inventory(
+                host, endpoint, inventory or {}, task
+            )
+        # XXX cache and reuse
+        return cwd.write_file(serialize_value(inventory), "inventory.yml"), hostname
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
@@ -224,33 +311,49 @@ class AnsibleConfigurator(TemplateConfigurator):
         vars["__unfurl"] = task.inputs.context
         return vars
 
-    def _make_playbook(self, playbook, task):
-        playbook = assert_form(playbook, MutableSequence)
-        # XXX use host group instead of localhost depending on operation_host
-        hosts = task.operation_host and task.operation_host.name or "localhost"
-        if playbook and not "hosts" in playbook[0]:
-            play = dict(hosts=hosts, gather_facts=False, tasks=playbook)
-            if hosts == "localhost":
+    def _make_play(self, play, task: TaskView, host: str):
+        if not play.get("hosts"):
+            if not host:
+                raise UnfurlTaskError(
+                    task,
+                    f"'hosts' missing from playbook but inventory was user specified.",
+                )
+            # XXX default to host group instead of localhost depending on operation_host?
+            # host is the name of the host set by _make_inventory
+            play["hosts"] = host
+            if host == "localhost":
                 play["connection"] = "local"
-            return [play]
+                play["gather_facts"] = False
+        return play
+
+    def _make_playbook(self, playbook, task: TaskView, host: str):
+        if (
+            not playbook
+            or not isinstance(playbook, MutableSequence)
+            or not isinstance(playbook[0], Mapping)
+        ):
+            raise UnfurlTaskError(task, f"malformed playbook: {playbook}")
+        if "tasks" not in playbook[0]:
+            play = dict(tasks=playbook)
+            return [self._make_play(play, task, host)]
         else:
-            return playbook
+            return [self._make_play(play, task, host) for play in playbook]
 
-    def find_playbook(self, task):
-        return task.inputs["playbook"]
+    def find_playbook(self, task: TaskView):
+        return get_yaml_property(task, "playbook", True)
 
-    def get_playbook(self, task, cwd):
+    def get_playbook(self, task: TaskView, cwd: WorkFolder, host: str):
         playbook = self.find_playbook(task)
         if isinstance(playbook, str):
             # assume it's file path
             return playbook
-        playbook = self._make_playbook(playbook, task)
+        playbook = self._make_playbook(playbook, task, host)
         envvars = task.get_environment(True)
         for play in playbook:
             play["environment"] = envvars
         return cwd.write_file(serialize_value(playbook), "playbook.yml")
 
-    def get_playbook_args(self, task):
+    def get_playbook_args(self, task: TaskView):
         args = task.inputs.get("playbookArgs", [])
         if not isinstance(args, MutableSequence):
             args = [args]
@@ -265,9 +368,9 @@ class AnsibleConfigurator(TemplateConfigurator):
     def get_result_keys(self, task, results):
         return task.inputs.get("resultKeys", [])
 
-    def process_result(self, task, result):
+    def process_result(self, task: TaskView, result: ConfiguratorResult):
         errors, status = self.process_result_template(
-            task, dict(result.result, success=result.success, outputs=result.outputs)
+            task, dict(cast(dict, result.result), success=result.success, outputs=result.outputs)
         )
         result.success = not errors
         return result
@@ -275,8 +378,8 @@ class AnsibleConfigurator(TemplateConfigurator):
     def render(self, task):
         cwd = task.set_work_folder()
         # build host inventory from resource
-        inventory = self.get_inventory(task, cwd)
-        playbook = self.get_playbook(task, cwd)
+        inventory, hostname = self.get_inventory(task, cwd)
+        playbook = self.get_playbook(task, cwd, hostname)
         playbookArgs = self.get_playbook_args(task)
         args = _render_playbook(playbook, inventory, playbookArgs)
         return args

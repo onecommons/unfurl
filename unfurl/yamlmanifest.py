@@ -761,6 +761,7 @@ class YamlManifest(ReadOnlyManifest):
         checkstatus = (
             resource.template.type == "unfurl.nodes.LocalRepository"
             or "default" in resource.template.directives
+            or resource.template.toscaEntityTemplate.is_replaced_by_outer()
         )
         ret = self._save_entity_if_instantiated(resource, checkstatus)
         if not ret:

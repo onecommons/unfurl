@@ -499,7 +499,7 @@ class ToscaFieldType(Enum):
 
 
 class _REQUIRED_TYPE:
-    pass
+    "sentinel object"
 
 
 REQUIRED = _REQUIRED_TYPE()
@@ -1658,6 +1658,14 @@ class FieldProjection(EvalData):
             if not isinstance(field, _Tosca_Field):
                 raise AttributeError(f"{ti.types[0]} has no field '{name}'")
         return FieldProjection(field, self)
+
+    def __getitem__(self, key):
+        indexed = FieldProjection(self.field, self.parent)
+        if isinstance(indexed.expr, dict):
+            expr = indexed.expr.get("eval")
+            if expr and isinstance(expr, str):
+                indexed.expr["eval"] = f"{expr}::{key}"
+        return indexed
 
     def get_requirement_filter(self, tosca_name: str):
         """
@@ -3174,7 +3182,7 @@ class WritePolicy(Enum):
 
     def deny_message(self, unchanged=False) -> str:
         if unchanged:
-            return 'overwrite policy is "auto" but the contents have not changed'
+            return f'overwrite policy is "{self.name}" but the contents have not changed'
         if self == WritePolicy.auto:
             return 'overwrite policy is "auto" and the file was last modified by another process'
         if self == WritePolicy.never:
@@ -3197,6 +3205,10 @@ class WritePolicy(Enum):
         self, input_path: str, output_path: str, new_src: Optional[str] = None
     ) -> Tuple[bool, bool]:
         if self == WritePolicy.always:
+            if new_src and os.path.exists(output_path):
+                with open(output_path) as out:
+                    contents = out.read()
+                return True, self.has_contents_unchanged(new_src, contents)
             return True, False
         if self == WritePolicy.never:
             return not os.path.exists(output_path), False
@@ -3224,8 +3236,8 @@ class WritePolicy(Enum):
     def has_contents_unchanged(self, new_src: Optional[str], old_src: str) -> bool:
         if new_src is None:
             return False
-        new_lines = [l.strip() for l in new_src.splitlines() if not l.startswith("#")]
-        old_lines = [l.strip() for l in old_src.splitlines() if not l.startswith("#")]
+        new_lines = [l.strip() for l in new_src.splitlines() if l.strip() and not l.startswith("#")]
+        old_lines = [l.strip() for l in old_src.splitlines() if l.strip() and not l.startswith("#")]
         if len(new_lines) == len(old_lines):
             return new_lines == old_lines
         return False

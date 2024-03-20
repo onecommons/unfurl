@@ -463,10 +463,11 @@ class Package:
 
     def is_mutable_ref(self) -> bool:
         # is this package pointing to ref that could change?
-        return not self.locked
-        # XXX:
-        # treat tags immutable unless it looks like a non-exact semver tag:
-        # return not self.revision or self.has_semver() or self.revision_is_branch()
+        if self.locked:
+            return False
+        if self.discovered or not self.revision:
+            return True
+        return not self.has_semver(True)  # if set to an explicit version tag, assume it wont change
 
     def add_reference(self, repoview: RepoView) -> bool:
         if repoview not in self.repositories:

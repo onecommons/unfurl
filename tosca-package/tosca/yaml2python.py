@@ -47,7 +47,7 @@ from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.interfaces import OperationDef, _create_operations
 from toscaparser.tosca_template import ToscaTemplate
-from toscaparser.elements.entity_type import EntityType
+from toscaparser.elements.entity_type import EntityType, Namespace
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.artifacttype import ArtifactTypeDef
 from toscaparser.elements.constraints import constraint_mapping, Schema
@@ -58,6 +58,11 @@ from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__
 import black
 import black.mode
 import black.report
+
+try:
+    import unfurl
+except ImportError:
+    unfurl = None  # type: ignore  # not installed
 
 logger = logging.getLogger("tosca")
 
@@ -184,12 +189,12 @@ def section2typename(section: str) -> str:
 
 
 class Imports:
-    def __init__(self, imports=None):
+    def __init__(self, unfurl_prelude: bool):
         self._imports: Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]] = {}
-        self._add_imports("", imports or {})
-        self._import_statements = set()
-        self.declared = []
-        self.from_tosca = set(
+        self.prelude_prelude: str = "import unfurl" if unfurl_prelude else ""
+        self._import_statements: Set[str] = set()
+        self.declared: List[str] = []
+        self.from_tosca: Set[str] = set(
             [
                 "Artifact",
                 "Attribute",
@@ -264,7 +269,7 @@ class Imports:
         return (
             textwrap.dedent(
                 f"""
-        import unfurl
+        {self.prelude_prelude}
         from typing import List, Dict, Any, Tuple, Union, Sequence
         from typing_extensions import Annotated
         from tosca import ({", ".join(sorted(self.from_tosca))})
@@ -325,7 +330,7 @@ class Convert:
             python_compatible = sys.version_info[1]
         self.python_compatible = python_compatible
         self._builtin_prefix = builtin_prefix
-        self.imports = imports or Imports()
+        self.imports = imports or Imports(bool(unfurl))
         self.import_prefixes: Dict[str, str] = {}
         assert self.template.topology_template
         self.custom_defs = custom_defs or self.template.topology_template.custom_defs
@@ -398,9 +403,11 @@ class Convert:
             module_name = ""
 
         # import should be .path.to.file
-        module_name = ".".join(
-            ["" if d == ".." else d for d in [module_name, *dirname.parts]]
-        )
+        module_parts = module_name.split(".") + ["" if d == ".." else d for d in dirname.parts]
+        if filename == "__init__" and len(module_parts) > 1:
+            # "from package import module" instead of "from package.module import __init__"
+            filename = module_parts.pop()
+        module_name = ".".join(module_parts)
 
         # generate import statement
         if namespace_prefix:
@@ -423,7 +430,7 @@ class Convert:
             python_prefix = ""
 
         # add path to file in repo to repo path
-        import_path = import_path / dirname / filename
+        import_path = import_path / dirname / filepath.stem
 
         full_name = f"{module_name}.{filename}"
         return (
@@ -553,8 +560,16 @@ class Convert:
         return self.maybe_forward_refs(*(self.python_name_from_type(t) for t in types))
 
     def maybe_forward_refs(self, *types) -> Sequence[str]:
+        def may_quote(tn):
+            if self._builtin_prefix:
+                return repr(tn)
+            elif tn.startswith("unfurl.") or tn.startswith("tosca."):
+                return tn
+            else:
+                return repr(tn)
+
         if self.forward_refs:
-            return [repr(t) for t in types]
+            return [may_quote(t) for t in types]
         else:
             return types
 
@@ -677,9 +692,7 @@ class Convert:
         else:
             # it's a tosca datatype
             datatype = _tosca.TOSCA_SHORT_NAMES.get(datatype, datatype)
-            typename = self.python_name_from_type(datatype)
-            if self.forward_refs:
-                typename = repr(typename)
+            typename = self.maybe_forward_refs(self.python_name_from_type(datatype))[0]
         if schema.entry_schema:
             item_type_name = self._prop_type(Schema(None, schema.entry_schema))
         else:
@@ -805,7 +818,7 @@ class Convert:
         if not self._builtin_prefix:
             cls_name = self.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(toscatype, baseclass_name)
-        metadata = toscatype.defs.get("metadata")
+        metadata = toscatype.defs and toscatype.defs.get("metadata")
         if metadata and metadata.get("alias"):
             assert "," not in base_names
             return f"{cls_name} = {base_names}"
@@ -1526,6 +1539,10 @@ class Convert:
 
         assert self.template.tpl is not None
         tpl, namespace_id = self.template.nested_tosca_tpls[file_path]
+        if isinstance(self.custom_defs, Namespace):
+            custom_defs = self.custom_defs.find_namespace(namespace_id)
+        else:
+            custom_defs = self.custom_defs
         file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
         tpl["tosca_definitions_version"] = self.template.tpl[
@@ -1553,7 +1570,7 @@ class Convert:
                 self.python_compatible,
                 self._builtin_prefix,
                 format,
-                custom_defs=self.custom_defs,
+                custom_defs=custom_defs,
                 path=import_path,
                 write_policy=self.write_policy,
                 base_dir=base_dir or self.base_dir,
@@ -1613,7 +1630,7 @@ def generate_builtins(import_resolver, format=True) -> str:
     return convert_service_template(
         tosca_template,
         7,
-        f"tosca.",
+        "tosca.",
         format,
         custom_defs,
     )
@@ -1674,7 +1691,7 @@ def convert_service_template(
     converted: Optional[Set[str]] = None,
 ) -> str:
     src = ""
-    imports = Imports()
+    imports = Imports(bool(unfurl) and builtin_prefix != "tosca.")
     if not builtin_prefix:
         imports._set_builtin_imports()
         imports._set_ext_imports()

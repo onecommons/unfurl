@@ -35,6 +35,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generator,
     Generic,
     List,
     MutableMapping,
@@ -61,26 +62,20 @@ from tosca._tosca import (
     _get_field_from_prop_ref,
     _get_expr_prefix,
 )
-from toscaparser.elements.portspectype import PortSpec
-from toscaparser.nodetemplate import NodeTemplate
 from .logs import getLogger
 from .eval import RefContext, _map_value, set_eval_func, Ref
 from .result import Results, ResultsItem, ResultsMap, CollectionProxy
 from .runtime import EntityInstance, NodeInstance, RelationshipInstance
 from .spec import EntitySpec, NodeSpec, RelationshipSpec
+from .support import Status
 from .repo import RepoView
-from .util import UnfurlError, check_class_registry, get_base_dir, register_class
-from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy, PythonToYaml
-from unfurl.configurator import Configurator, TaskView
+from .util import UnfurlError, get_base_dir
+from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
+from .configurator import Configurator, ConfiguratorResult, TaskView
 import sys
-import toscaparser.capabilities
-from toscaparser.entity_template import EntityTemplate
-from toscaparser.nodetemplate import NodeTemplate
-from unfurl.yamlmanifest import YamlManifest
 
 if TYPE_CHECKING:
     from .yamlloader import ImportResolver
-    from .job import Runner
 
 logger = getLogger("unfurl")
 
@@ -198,19 +193,21 @@ class DslMethodConfigurator(Configurator):
                 self.func = result
         return super().render(task)
 
-    def _is_generator(self):
+    def _is_generator(self) -> bool:
         # Note: this needs to called after configurator is set in render()
         if self.configurator:
             return self.configurator._is_generator()
         return inspect.isgeneratorfunction(self.func)
 
-    def run(self, task):
+    def run(
+        self, task: "TaskView"
+    ) -> Union[Generator, ConfiguratorResult, "Status", bool]:
         if self.configurator:
             return self.configurator.run(task)
         obj = proxy_instance(task.target, self.cls, task.inputs.context)
         return obj._invoke(self.func, task)
 
-    def can_dry_run(self, task):
+    def can_dry_run(self, task: "TaskView") -> bool:
         if self.configurator:
             return self.configurator.can_dry_run(task)
         return False

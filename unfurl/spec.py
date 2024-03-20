@@ -568,6 +568,7 @@ class ToscaSpec:
     def _post_node_filter_validation(self):
         assert self.topology
         for nodespec in self.topology.node_templates.values():
+            ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
             nodespec.toscaEntityTemplate.revalidate_properties()
 
@@ -949,10 +950,12 @@ class EntitySpec(ResourceRef):
     def aggregate_only(self):
         "The template is only the sum of its parts."
         for iDef in self.get_interfaces():
-            if iDef.interfacename in ("Standard", "Configure"):
-                return False
-            if iDef.interfacename == "Install" and iDef.name == "discover":
-                return False
+            # XXX need to a much better to indicate that this operation doesn't instantiate a live resource
+            if iDef.entry_state != "initial":
+                if iDef.interfacename in ("Standard", "Configure"):
+                    return False
+                if iDef.interfacename == "Install" and iDef.name == "discover":
+                    return False
         # no implementations found
         return True
 
@@ -1125,6 +1128,10 @@ class NodeSpec(EntitySpec):
                     else:
                         msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
                         ExceptionCollector.appendException(UnfurlValidationError(msg))
+                if name in self._requirements:
+                    logger.warning(
+                        f"More than one requirement for {name} on {self.nested_name} not supported."
+                    )
                 self._requirements[name] = reqSpec
         return self._requirements
 
@@ -1142,7 +1149,9 @@ class NodeSpec(EntitySpec):
         """
         returns a list of RelationshipSpecs that are targeting this node template.
         """
-        for r in self.toscaEntityTemplate.get_relationship_templates():
+        for r in cast(
+            NodeTemplate, self.toscaEntityTemplate
+        ).get_relationship_templates():
             assert r.source
             # calling requirement property will ensure the RelationshipSpec is properly linked
             template = self.spec.node_from_template(r.source)
@@ -1151,12 +1160,13 @@ class NodeSpec(EntitySpec):
         return self._get_relationship_specs()
 
     def _get_relationship_specs(self) -> List["RelationshipSpec"]:
-        if len(self._relationships) != len(
-            self.toscaEntityTemplate.get_relationship_templates()
-        ):
-            # get_relationship_templates() is a list of RelationshipTemplates that target the node
+        # get_relationship_templates() is a list of RelationshipTemplates that target the node
+        rel_templates = cast(
+            NodeTemplate, self.toscaEntityTemplate
+        ).get_relationship_templates()
+        if len(self._relationships) != len(rel_templates):
             rIds = {id(r.toscaEntityTemplate) for r in self._relationships}
-            for r in self.toscaEntityTemplate.get_relationship_templates():
+            for r in rel_templates:
                 if id(r) not in rIds and r.capability:
                     self._relationships.append(RelationshipSpec(r, self.topology, self))
         return self._relationships
@@ -1182,10 +1192,9 @@ class NodeSpec(EntitySpec):
         return self.capabilities.get(name)
 
     def add_relationship(self, reqSpec: "RequirementSpec"):
-        # self is the target node
+        # self is the target node, find the source for the give RequirementSpec
         source_topology = reqSpec.parentNode.topology
         substituted = source_topology.parent_topology is self.topology
-        req_source_name = reqSpec.parentNode.name
         if (
             source_topology
             and substituted
@@ -1203,15 +1212,20 @@ class NodeSpec(EntitySpec):
             # XXX this won't distinguish between more than one relationship between the same two nodes
             # to fix this have the RelationshipTemplate remember the name of the requirement
             rel_source_name = relSpec.toscaEntityTemplate.source.name
-            if rel_source_name == req_source_name:
-                assert (
-                    not reqSpec.relationship
-                    or reqSpec.relationship.name == relSpec.name
-                ), (
-                    reqSpec.relationship,
-                    relSpec,
-                )
+            if (
+                relSpec.toscaEntityTemplate.source.topology_template
+                is source_topology.topology_template
+            ):
+                _req_source_name = reqSpec.parentNode.name
+            else:
+                _req_source_name = req_source_name
+            if rel_source_name == _req_source_name:
                 reqSpec.relationship = relSpec
+                if not relSpec.requirement:
+                    relSpec.requirement = reqSpec
+                    relSpec._isReferencedBy.append(self)  # type: ignore
+                elif relSpec.requirement.name != reqSpec.name:
+                    continue
                 assert (
                     not relSpec.requirement or relSpec.requirement.name == reqSpec.name
                 ), (
@@ -1219,9 +1233,13 @@ class NodeSpec(EntitySpec):
                     relSpec.requirement,
                     reqSpec,
                 )
-                if not relSpec.requirement:
-                    relSpec.requirement = reqSpec
-                    relSpec._isReferencedBy.append(self)  # type: ignore
+                assert (
+                    not reqSpec.relationship
+                    or reqSpec.relationship.name == relSpec.name
+                ), (
+                    reqSpec.relationship,
+                    relSpec,
+                )
                 break
         else:
             msg = f'Relationship not found for requirement "{reqSpec.name}" on "{reqSpec.parentNode}" targeting "{self.name}"'

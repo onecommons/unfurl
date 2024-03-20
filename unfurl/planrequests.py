@@ -29,7 +29,7 @@ from .spec import ArtifactSpec, EntitySpec
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
-    from .configurator import Dependency
+    from .configurator import Dependency, Configurator
     from .manifest import Manifest
 
 from .util import (
@@ -124,7 +124,7 @@ class ConfigurationSpec:
         expanded = serialize_value(target.attributes)
         return find_schema_errors(expanded, self.preConditions)
 
-    def create(self):
+    def create(self) -> "Configurator":
         className: str = self.className
         if ":" in className:
             from .dsl import DslMethodConfigurator
@@ -665,7 +665,7 @@ class JobRequest:
         return f"JobRequest({self.name})"
 
 
-def find_operation_host(target, operation_host):
+def find_operation_host(target, operation_host: Optional[str]) -> Optional[HasInstancesInstance]:
     # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
     if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
         return target.root.find_instance_or_external("localhost")

@@ -16,15 +16,20 @@ if not sys.warnoptions:
     # Ansible generates tons of ResourceWarnings
     warnings.simplefilter("ignore", ResourceWarning)
 
+"""
+See also test_examples.py::RunTest::test_ansible and ::RunTest::test_remote
+for test runs a ansible command on a (mock) remote instance.
+"""
 
-class AnsibleTest:
-    def setup(self):
+test_playbook_path = str(Path(__file__).parent / "examples" / "testplaybook.yaml")
+class TestAnsible:
+    def setup_method(self):
         self.results = {}
 
     @staticmethod
     def run_playbook(args=None):
         return run_playbooks(
-            str(Path(__file__).parent / "examples" / "testplaybook.yaml"),
+            test_playbook_path,
             "localhost,",
             {
                 "ansible_connection": "local",
@@ -46,7 +51,7 @@ class AnsibleTest:
 
     # setting UNFURL_LOGGING can break this test, so skip if it's set
     @pytest.mark.skipif(
-        os.getenv("UNFURL_LOGGING"), reason="this test requires default log level"
+        bool(os.getenv("UNFURL_LOGGING")), reason="this test requires default log level"
     )
     def test_verbosity(self):
         results = self.run_playbook()
@@ -59,10 +64,10 @@ class AnsibleTest:
         assert not results.resultsByStatus.skipped.get("test-verbosity")
 
 
-class AnsibleConfiguratorTest:
-    def setup(self):
-        path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
-        with open(path) as f:
+class TestAnsibleConfigurator:
+    def setup_method(self):
+        self.path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
+        with open(self.path) as f:
             self.manifest = f.read()
 
     def test_configurator(self):
@@ -74,15 +79,17 @@ class AnsibleConfiguratorTest:
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result
-        assert result.outputs == {"fact1": "test1", "fact2": "test"}
+        assert result.outputs == {"fact1": "test1", "fact2": "test", "echo_output": sys.executable}
         assert result.result.get("stdout") == sys.executable
         assert run1.status == Status.ok, run1.summary()
 
+    def test_with_playbook_file(self):
+        runner = Runner(YamlManifest(path=str(self.path)))
+        run2 = runner.run(JobOptions(instance="test2", skip_save=True))
+        assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
+        assert len(run2.workDone) == 1, run2.workDone
 
 class TestAnsibleLifecycle:
     def test_lifecycle(self):
-        path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
-        # undeploy isn't implemented, skip those steps
-        jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
-        for job in jobs:
-            assert job.status == Status.ok, job.workflow
+        path = Path(__file__).parent / "examples" / "ansible-lifecycle-ensemble.yaml"
+        list(isolated_lifecycle(str(path), DEFAULT_STEPS))

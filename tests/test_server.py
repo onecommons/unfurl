@@ -86,7 +86,7 @@ delete_patch = """
 
 _static_server_port = 8090
 _server_port = 8091
-CLOUD_TEST_SERVER = "https://gitlab.com"  # if changed, need to set package rules # "https://unfurl.cloud"
+CLOUD_TEST_SERVER = "https://unfurl.cloud"
 
 
 #  Increment port just in case server ports aren't closed in time for next test
@@ -373,7 +373,7 @@ def test_server_export_remote():
             expected = _strip_sourceinfo(json.loads(cleaned_output))
             assert _strip_sourceinfo(res.json()) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
 
-            dep_commit = GitRepo(Repo("application-blueprint/unfurl-types")).revision
+            dep_commit = GitRepo(Repo("application-blueprint/std")).revision
             etag = server._make_etag(hex(int(last_commit, 16) 
                                          ^ int(get_package_digest(True), 16)
                                          ^ int(dep_commit, 16)))

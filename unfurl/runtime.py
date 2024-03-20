@@ -29,7 +29,7 @@ from ansible.parsing.dataloader import DataLoader
 from .projectpaths import File
 
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
-from .result import ResourceRef, ChangeAware, ResultsMap
+from .result import ChangeRecord, ResourceRef, ChangeAware, ResultsMap
 
 from .support import (
     AttributeManager,
@@ -215,7 +215,7 @@ class Operational(ChangeAware):
         else:
             return max(self.last_state_change, self.last_config_change)
 
-    def has_changed(self, changeset) -> bool:
+    def has_changed(self, changeset: Optional["ChangeRecord"]) -> bool:
         # if changed since the last time we checked
         if not self.last_change:
             return False
@@ -480,14 +480,14 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterator[Operational]:
         if self.parent and self.parent is not self.root:
             yield self.parent
 
         for d in self.dependencies:
             yield d
 
-    def is_computed(self):
+    def is_computed(self) -> bool:
         return self.template.aggregate_only()
 
     @property
@@ -562,7 +562,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def names(self):
         return self.attributes
 
-    def get_default_relationships(self, relation=None) -> List["RelationshipInstance"]:
+    def get_default_relationships(self, relation: Optional[str]=None) -> List["RelationshipInstance"]:
         return self.root.get_default_relationships(relation)
 
     @property
@@ -702,7 +702,7 @@ class HasInstancesInstance(EntityInstance):
 
     find_instance = find_resource
 
-    def find_instance_or_external(self, resourceid):
+    def find_instance_or_external(self, resourceid) -> Optional["HasInstancesInstance"]:
         instance = self.find_instance(resourceid)
         if instance:
             return instance
@@ -1062,7 +1062,7 @@ class NodeInstance(HasInstancesInstance):
             return self.template.spec.get_repository(self.template.name)
         return None
 
-    def _get_default_relationships(self, relation=None):
+    def _get_default_relationships(self, relation: Optional[str]=None):
         if self.root is self:
             return
         for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
@@ -1070,11 +1070,11 @@ class NodeInstance(HasInstancesInstance):
                 if rel.template.matches_target(capability.template):
                     yield rel
 
-    def get_default_relationships(self, relation=None) -> List[RelationshipInstance]:
+    def get_default_relationships(self, relation: Optional[str]=None) -> List[RelationshipInstance]:
         return list(self._get_default_relationships(relation))
 
     @property
-    def sources(self):
+    def sources(self) -> Dict[str, Union[EntityInstance, List[EntityInstance]]]:
         dep: Dict[str, Union[EntityInstance, List[EntityInstance]]] = {}
         for cap in self.capabilities:
             for rel in cap.relationships:
@@ -1089,7 +1089,7 @@ class NodeInstance(HasInstancesInstance):
                         dep[rel.name] = rel.source
         return dep
 
-    def _configured_by(self):
+    def _configured_by(self) -> Iterator["NodeInstance"]:
         for cap in self.capabilities:
             for rel in cap.relationships:
                 if rel.source:
@@ -1100,10 +1100,10 @@ class NodeInstance(HasInstancesInstance):
                     yield from rel.source._configured_by()
 
     @property
-    def configured_by(self):
+    def configured_by(self) -> List["NodeInstance"]:
         return list(self._configured_by())
 
-    def _hosted_on(self):
+    def _hosted_on(self) -> Iterator["NodeInstance"]:
         for rel in self.requirements:
             if rel.target:
                 if rel.template.is_compatible_type("tosca.relationships.HostedOn"):
@@ -1111,7 +1111,7 @@ class NodeInstance(HasInstancesInstance):
                 yield from rel.target._hosted_on()
 
     @property
-    def hosted_on(self):
+    def hosted_on(self) -> List["NodeInstance"]:
         return list(self._hosted_on())
 
     @property

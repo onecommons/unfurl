@@ -284,7 +284,7 @@ class ToscaSyntaxTest(unittest.TestCase):
             tosca_tpl.get("repositories")
             for tosca_tpl, namespace_id in manifest.tosca.template.nested_tosca_tpls.values()
         ]
-        assert ["A.Nested", "A.nodes.types", "A.Test"] == list(
+        assert ["A.Nested", "A.nodes.types", "A.Test", "A.A_Datatype"] == list(
             manifest.tosca.template.topology_template.custom_defs
         )
 

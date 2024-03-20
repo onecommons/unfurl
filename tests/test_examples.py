@@ -1,3 +1,4 @@
+import sys
 import unittest
 import io
 import os
@@ -240,7 +241,7 @@ class RunTest(unittest.TestCase):
 
                 p = Path(os.environ["UNFURL_WORKDIR"])
 
-                files = list(p.glob("**/*inventory.yaml"))
+                files = list(p.glob("**/*inventory.yml"))
                 self.assertEqual(len(files), 1, files)
                 inventory = files[-1]
                 expectedInventory = """all:
@@ -251,6 +252,7 @@ class RunTest(unittest.TestCase):
       ansible_user: ubuntu
       ansible_pipelining: yes
       ansible_private_key_file: ~/.ssh/example-key.pem
+      ansible_python_interpreter: %s
   vars: {}
   children:
     example_group:
@@ -258,7 +260,7 @@ class RunTest(unittest.TestCase):
       vars:
         var_for_ansible_playbook: test
       children: {}
-"""
+""" % sys.executable
                 with inventory.open() as f:
                     inventory_contents = f.read()
                     assert inventory_contents == expectedInventory

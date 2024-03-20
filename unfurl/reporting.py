@@ -140,7 +140,7 @@ class JobReporter:
     @staticmethod
     def _list_plan_summary(
         requests: Sequence[Union[PlanRequest, JobRequest]],
-        target: NodeInstance,
+        target: Optional[NodeInstance],
         parent_summary_list: List[dict],
         include_rendered: bool,
         workflow: str,
@@ -196,7 +196,14 @@ class JobReporter:
         if job.external_requests:
             for m, requests in job.external_requests:
                 summary.extend(JobReporter._job_request_summary(requests, m))
-        JobReporter._list_plan_summary(job.plan_requests, None, summary, include_rendered, job.workflow)  # type: ignore
+        if job.plan_requests:
+            JobReporter._list_plan_summary(
+                job.plan_requests,
+                None,
+                summary,
+                include_rendered,
+                job.jobOptions.workflow,
+            )
         if not pretty:
             return summary
         else:
@@ -230,7 +237,7 @@ class JobReporter:
                 else t._localStatus or Status.unknown
             )
         )
-        tasks = sorted(tasks, key=key)  # type: ignore
+        tasks = sorted(tasks, key=key)
         stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
             if not k:  # is a Status
@@ -251,8 +258,9 @@ class JobReporter:
     @staticmethod
     def plan_summary(
         job: "Job",
-        plan_requests: List[TaskRequest],
+        plan_requests: List[PlanRequest],
         external_requests: Iterable[Tuple[Any, Any]],
+        verbose=False,
     ) -> Tuple[str, int]:
         """
         Node "site" (status, state, created):
@@ -265,14 +273,17 @@ class JobReporter:
         count = 0
 
         def _summary(
-            requests: List[Union[JobRequest, TaskRequest, TaskRequestGroup]],
+            requests: Sequence[Union[JobRequest, PlanRequest]],
             target: Optional[EntityInstance],
             indent: int,
         ) -> None:
             nonlocal count
             for request in requests:
-                isGroup = isinstance(request, TaskRequestGroup)
-                if isGroup and not request.children:  # type: ignore
+                if isinstance(request, TaskRequestGroup):
+                    group = request
+                else:
+                    group = None
+                if group and not group.children:
                     continue
                 if isinstance(request, JobRequest):
                     count += 1
@@ -293,36 +304,45 @@ class JobReporter:
                         filter(
                             None,
                             (
-                                target.status.name if target.status is not None else "",  # type: ignore
-                                target.state.name if target.state is not None else "",  # type: ignore
-                                "managed" if target.created else "",  # type: ignore
+                                target.status.name if target.status is not None else "",
+                                target.state.name if target.state is not None else "",
+                                "managed" if target.created else "",
                             ),
                         )
                     )
-                    nodeStr = f'Node "{target.template.nested_name}" ({status}):'  # type: ignore
+                    nodeStr = f'Node "{target.template.nested_name}" ({status}):'
                     output.append(" " * indent + nodeStr)
-                if isGroup:
+                if group:
                     output.append(
-                        "%s- %s:" % (" " * indent, (request.workflow or "sequence"))  # type: ignore
+                        "%s- %s:" % (" " * indent, (group.workflow or "sequence"))
                     )
-                    _summary(request.children, target, indent + INDENT)  # type: ignore
+                    _summary(group.children, target, indent + INDENT)
                 else:
                     count += 1
-                    output.append(" " * indent + f"- operation {request.name}")  # type: ignore
+                    output.append(" " * indent + f"- operation {request.name}")
                     if request.task:
                         if request.task._workFolders:
                             for wf in request.task._workFolders.values():
                                 output.append(" " * indent + f"   rendered at {wf.cwd}")
                         if request.not_ready:
-                            output.append(
-                                " " * indent + "   (render waiting for dependents)"
-                            )
+                            if verbose:
+                                output.append(
+                                    " " * indent + "   render waiting for dependents:"
+                                )
+                                output.append(
+                                    " " * indent
+                                    + f"   {[d.name for d in request.get_unfulfilled_refs()]}"
+                                )
+                            else:
+                                output.append(
+                                    " " * indent + "   (render waiting for dependents)"
+                                )
                         elif request.task._errors:  # don't report error if waiting
                             output.append(" " * indent + "   (errors while rendering)")
 
         opts = job.jobOptions.get_user_settings()
         options = ",".join([f"{k} = {opts[k]}" for k in opts if k != "planOnly"])
-        header = f"Plan for {job.workflow}"  # type: ignore
+        header = f"Plan for {job.jobOptions.workflow}"
         if options:
             header += f" ({options})"
         output: List[str] = [header + ":\n"]
@@ -334,7 +354,7 @@ class JobReporter:
                 for j in jr:
                     output.append(" " * INDENT + j.name)
 
-        _summary(plan_requests, None, 0)  # type: ignore
+        _summary(plan_requests, None, 0)
         if not count:
             output.append("Nothing to do.")
         return "\n".join(output), count
@@ -380,7 +400,7 @@ class JobReporter:
             reason = task.reason or ""
             resource = task.target.nested_name
             if task.status is None:
-                status = ""  # type: ignore  # unreachable
+                status = ""
             else:
                 status = f"[{task.status.color}]{task.status.name.upper()}[/]"
             state = task.target_state and task.target_state.name or ""

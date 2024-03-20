@@ -13,6 +13,8 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       title: String!
       slug: String!
       description: String
+      visibility: String
+      metadata: JSON
 
       blueprint: ApplicationBlueprint!
       primary: ResourceTemplate!

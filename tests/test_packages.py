@@ -154,7 +154,7 @@ def test_remote_tags():
     package_id, url, revision = get_package_id_from_url("unfurl.cloud/onecommons/*")
     assert package_id, (package_id, revision, url)
     assert not url, (package_id, revision, url)
-    types_url = "https://unfurl.cloud/onecommons/unfurl-types.git"
+    types_url = "https://unfurl.cloud/onecommons/std"
     latest_version_tag = Package("", types_url, None).find_latest_semver_from_repo(
         get_remote_tags
     )
@@ -174,6 +174,7 @@ def test_remote_tags():
                     "clone",
                     "--mono",
                     "--skeleton=dashboard",
+                    "--use-deployment-blueprint=testing",
                     "https://gitlab.com/onecommons/project-templates/application-blueprint.git",
                 ],
             )
@@ -187,8 +188,8 @@ def test_remote_tags():
             localConfig.config.config["environments"] = dict(
                 defaults={
                     "repositories": {
-                        "gitlab.com/onecommons/unfurl-types": dict(
-                            url="https://gitlab.com/onecommons/unfurl-types.git#v0.7.5"
+                        "gitlab.com/onecommons/std": dict(
+                            url=f"https://gitlab.com/onecommons/std.git#v{latest_version_tag}"
                         )
                     }
                 }
@@ -205,12 +206,11 @@ def test_remote_tags():
             )
             assert result.exit_code == 0, result
 
-            clonedtypes = git.cmd.Git("application-blueprint/unfurl-types")
+            clonedtypes = git.cmd.Git("application-blueprint/std")
             origin = clonedtypes.remote(["get-url", "origin"])
             # should be on unfurl.cloud:
             assert origin == types_url, origin
-            # XXX enable this assert when unfurl-types have v1 tag
-            # assert clonedtypes.describe() == "v"+latest_version_tag
+            assert clonedtypes.describe() == "v"+latest_version_tag
 
             # add a rule to set the version to the "main" branch
             os.environ["UNFURL_PACKAGE_RULES"] = (

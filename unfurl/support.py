@@ -399,6 +399,14 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     class _UnfurlUndefined(DebugUndefined):
         __slots__ = ()
 
+        def _log_message(self) -> None:
+            msg = "Template: %s" % self._undefined_message
+            # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
+            log.debug("%s\nTemplate source:\n%s", msg, value)
+            log.warning(msg)
+            if ctx.task:  # already logged, so don't log
+                UnfurlTaskError(ctx.task, msg, False)
+
         def _fail_with_undefined_error(  # type: ignore
             self, *args: Any, **kwargs: Any
         ) -> "NoReturn":
@@ -406,6 +414,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                 super()._fail_with_undefined_error(*args, **kwargs)
             except self._undefined_exception as e:
                 msg = "Template: %s" % self._undefined_message
+                log.debug("%s\nTemplate source:\n%s", msg, value)
                 log.warning(msg)
                 if ctx.task:  # already logged, so don't log
                     UnfurlTaskError(ctx.task, msg, False)
@@ -433,13 +442,6 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             return self  # see ChainableUndefined
 
         __getitem__ = __getattr__  # type: ignore
-
-        def _log_message(self) -> None:
-            msg = "Template: %s" % self._undefined_message
-            # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
-            log.warning(msg)
-            if ctx.task:  # already logged, so don't log
-                UnfurlTaskError(ctx.task, msg, False)
 
         # see LoggingUndefined:
         def __str__(self) -> str:

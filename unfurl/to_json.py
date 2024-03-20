@@ -723,36 +723,8 @@ def _update_root_type(
     for req in jsontype.setdefault("requirements", []):
         if req["name"] in names or req["match"]:
             req["min"] = 0
-            req["match"] = None
     # templates created with this type need to have the substitute directive
     jsontype["directives"] = ["substitute"]
-    # find all the default nodes that are being referenced directly or indirectly
-    # this will find the required nodes
-    list(_get_templates_from_topology(topology, set(), None))
-    placeholders = [
-        node
-        for node in topology.node_templates.values()
-        if (
-            "default" in node.directives
-            or node.name in topology.spec.overridden_default_templates
-        )
-        and node.type != "unfurl.nodes.LocalRepository"  # exclude reified artifacts
-        and node.required
-    ]
-    # add those as requirement on the root type
-    for node in placeholders:
-        # XXX copy node_filter and metadata from get_relationship_templates()
-        placeholder_req = {node.name: dict(node=node.type)}
-        req_json = requirement_to_graphql(
-            topology,
-            placeholder_req,
-            types,
-            True,
-            include_matches=False,
-            type_definition=node.toscaEntityTemplate.type_definition,  # type: ignore
-        )
-        if req_json:
-            jsontype["requirements"].append(req_json)  # type: ignore
 
 
 def to_graphql_nodetypes(
@@ -1633,8 +1605,8 @@ def _annotate_requirement(
             req["match"] = match
         elif list(match)[0] == "get_nodes_of_type":
             # override the resourceType
-            type_match = match["get_nodes_of_type"]
-            reqtype = types.get(reqtypename)
+            type_match = types.expand_typename(match["get_nodes_of_type"])
+            reqtype = types.get(type_match)
             if not reqtype:
                 reqtype = _node_typename_to_graphql(type_match, topology, types)
             if reqtype:

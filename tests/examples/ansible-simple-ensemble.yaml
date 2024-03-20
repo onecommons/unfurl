@@ -6,6 +6,7 @@ configurations:
     outputs:
       fact1:
       fact2:
+      echo_output: echo_attribute
     inputs:
       playbook:
         q:
@@ -14,6 +15,9 @@ configurations:
               fact2: "{{ SELF.testProp }}"
           - name: Hello
             command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
+            register: echo_results
+          - set_fact:
+              echo_output: "{{ echo_results.stdout }}"
 spec:
   service_template:
     topology_template:
@@ -25,3 +29,15 @@ spec:
           interfaces:
             Standard:
               +/configurations:
+        test2:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                create:
+            defaults:
+              implementation:
+                className: unfurl.configurators.ansible.AnsibleConfigurator
+              inputs:
+                playbook: testplaybook.yaml
+changes: [] # add so changes are saved here

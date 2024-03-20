@@ -32,7 +32,7 @@
               env: {} # merged with container.environment
 """
 
-from typing import cast, Union, Optional, List, Dict, Any
+from typing import cast, Union, Optional, TYPE_CHECKING, Dict, Any
 from toscaparser.elements.portspectype import PortSpec
 from ..tosca_plugins.functions import to_dns_label
 from ..result import serialize_value
@@ -52,10 +52,12 @@ from pathlib import Path
 TIMEOUT = 180  # default timeout in seconds (3 minutes)
 NAMEMAX = 52  # max service name length
 
+if TYPE_CHECKING:
+    from .templates.docker import unfurl_datatypes_DockerContainer
 
 class KomposeInputs(ShellInputs):
     files: Union[None, Dict[str, Dict[str, Any]]] = None
-    container: Union[None, Dict[str, Any]] = None
+    container: Union[None, "unfurl_datatypes_DockerContainer"] = None
     image: Optional[str] = None
     service_name: Optional[str] = None
     registry_url: Optional[str] = None
@@ -66,7 +68,6 @@ class KomposeInputs(ShellInputs):
     expose: Union[bool, str, None] = None
     ingress_extras: Union[None, Dict[str, Any]] = None
     env: Union[None, Dict[str, str]] = None
-
 
 def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
     if service_name:

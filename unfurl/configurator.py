@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 from .support import (
     AttributeManager,
+    NodeState,
     Status,
     ResourceChanges,
     Priority,
@@ -60,6 +61,7 @@ from .eval import Ref, map_value, RefContext
 from .runtime import (
     ArtifactInstance,
     EntityInstance,
+    HasInstancesInstance,
     NodeInstance,
     RelationshipInstance,
     Operational,
@@ -94,14 +96,12 @@ class ConfiguratorResult:
         success: bool,
         modified: Optional[bool],
         status: Optional[Status] = None,
-        configChanged: Optional[bool] = None,
-        result: object = None,
+        result: Optional[Union[dict, str]] = None,
         outputs: Optional[dict] = None,
         exception: Optional[UnfurlTaskError] = None,
     ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
-        self.configChanged = configChanged
         self.result = result
         self.success = success
         self.outputs = outputs
@@ -288,22 +288,22 @@ class Configurator(metaclass=AutoRegisterClass):
         """
         # XXX user definition should be able to exclude inputs from digest
         # XXX might throw AttributeError
-        inputs = task._resolved_inputs  # type: ignore
+        inputs = cast("ConfigTask", task)._resolved_inputs
 
         # sensitive values are always redacted so no point in including them in the digest
         # (for cleaner output and security-in-depth)
-        keys = [
+        keys: List[str] = [
             k
             for k in inputs.keys()
             if k not in self.exclude_from_digest
             and not isinstance(inputs[k].resolved, sensitive)
         ]
-        values = [inputs[key] for key in keys]
+        values: List[Any] = [inputs[key] for key in keys]
 
         for dep in task.dependencies:
             assert isinstance(dep, Dependency)
             if not isinstance(dep.expected, sensitive):
-                keys.append(dep.expr)
+                keys.append(str(dep.expr))
                 values.append(dep.expected)
 
         if keys:
@@ -369,13 +369,13 @@ class Configurator(metaclass=AutoRegisterClass):
 
         newDigest = get_digest(results, manifest=task._manifest)
         # note: digestValue attribute is set in Manifest.load_config_change
-        mismatch = changeset.digestValue != newDigest  # type: ignore
+        mismatch = changeset.digestValue != newDigest
         if mismatch:
             task.logger.verbose(
                 "digests didn't match for %s with %s: old %s, new %s",
                 task.target.name,
                 _parameters,
-                changeset.digestValue,  # type: ignore
+                changeset.digestValue,
                 newDigest,
             )
         return mismatch
@@ -395,7 +395,11 @@ class _ConnectionsMap(dict):
         # reverse so nearest relationships replace less specific ones that have matching names
         # XXX why is rel sometimes a Result?
         by_type = {  # the list() is for Python 3.7
-            rel.resolved.template.global_type if isinstance(rel, Result) else rel.template.global_type: rel
+            (
+                rel.resolved.template.global_type
+                if isinstance(rel, Result)
+                else rel.template.global_type
+            ): rel
             for rel in reversed(list(self.values()))
         }
         return by_type.values()
@@ -470,14 +474,14 @@ class TaskView:
         self.target = target
         self.reason = reason
         self.logger = TaskLoggerAdapter(logger, self)  # type: ignore
-        self.cwd = os.path.abspath(self.target.base_dir)
+        self.cwd: str = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
         self.dry_run: Optional[bool] = None
         self.verbose = 0  # set by ConfigView
         # private:
-        self._errors: List[
-            UnfurlTaskError
-        ] = []  # UnfurlTaskError objects appends themselves to this list
+        self._errors: List[UnfurlTaskError] = (
+            []
+        )  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._manifest = manifest
         self.messages: List[Any] = []
@@ -493,7 +497,9 @@ class TaskView:
         self._attributeManager: AttributeManager = None  # type: ignore
         self.job: Optional["Job"] = None
         # public:
-        self.operation_host = find_operation_host(target, configSpec.operation_host)
+        self.operation_host: Optional[HasInstancesInstance] = find_operation_host(
+            target, configSpec.operation_host
+        )
 
     @property
     def environ(self) -> Dict[str, str]:
@@ -557,7 +563,7 @@ class TaskView:
                 target = self.target
             HOST = (target.parent or target).attributes
             ORCHESTRATOR = target.root.find_instance_or_external("localhost")
-            vars = dict(
+            vars: Dict[str, Any] = dict(
                 task=self.get_settings(),
                 connections=self._get_connections(),
                 SELF=self.target.attributes,
@@ -595,7 +601,7 @@ class TaskView:
 
     @staticmethod
     def _get_connection(
-        source: NodeInstance, target: Optional[NodeInstance], seen: dict
+        source: HasInstancesInstance, target: Optional[NodeInstance], seen: dict
     ) -> None:
         """
         Find the requirements on source that match the target
@@ -730,7 +736,7 @@ class TaskView:
     @staticmethod
     def find_connection(
         ctx: RefContext,
-        target: NodeInstance,
+        target: EntityInstance,
         relation: str = "tosca.relationships.ConnectsTo",
     ) -> Optional[RelationshipInstance]:
         """
@@ -745,13 +751,16 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection = cast(
-            Optional[RelationshipInstance],
-            Ref(
-                f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
-                vars=dict(target=target),
-            ).resolve_one(ctx),
-        )
+        connection: Optional[RelationshipInstance] = None
+        if ctx.vars.get("OPERATION_HOST"):
+            operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
+            connection = cast(
+                Optional[RelationshipInstance],
+                Ref(
+                    f"$operation_host::.requirements::*[.type={relation}][.target=$target]",
+                    vars=dict(target=target, operation_host=operation_host),
+                ).resolve_one(ctx),
+            )
 
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
         if not connection:
@@ -808,6 +817,12 @@ class TaskView:
                         self,
                         f"invalid or unsupported mapping for output '{key}': {mapping}",
                     )
+                elif mapping == ".status":
+                    if value:
+                        self.target.local_status = to_enum(Status, value)
+                elif mapping == ".state":
+                    if value:
+                        self.target.state = to_enum(NodeState, value)
                 else:
                     self.target.attributes[mapping] = value
             elif metadata_key:
@@ -821,9 +836,7 @@ class TaskView:
         modified: Optional[Union[Status, bool]] = None,
         status: Optional[Status] = None,
         result: Optional[Union[dict, str]] = None,
-        outputs: Optional[
-            dict
-        ] = None,  # so the docstring says dict, but ConfiguratorResult
+        outputs: Optional[dict] = None,
         captureException: Optional[object] = None,
     ) -> ConfiguratorResult:
         """:py:meth:`unfurl.configurator.Configurator.run` should call this method and return or yield its return value before terminating.
@@ -849,23 +862,22 @@ class TaskView:
             status = modified
             modified = True
 
-        kw = dict(result=result, outputs=outputs)  # type: kwType
         if captureException is not None:
             logLevel = logging.DEBUG if success else logging.ERROR
-            kw["exception"] = UnfurlTaskError(self, captureException, logLevel)  # type: ignore
+            exception = UnfurlTaskError(self, captureException, logLevel)
+        else:
+            exception = None
 
-        # Typechecking
-        class kwTypeBase(TypedDict):
-            result: Optional[Union[dict, str]]
-            outputs: Optional[dict]
-
-        class kwType(kwTypeBase, total=False):
-            exception: UnfurlTaskError
-
-        kw = cast(kwType, kw)
         if outputs:
             self._set_outputs(outputs)
-        return ConfiguratorResult(success, modified, status, **kw)
+        return ConfiguratorResult(
+            success,
+            modified,
+            status,
+            result,
+            outputs,
+            exception,
+        )
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources
@@ -1012,9 +1024,9 @@ class TaskView:
             # XXX track all status attributes (esp. state and created) and remove this hack
             operational = Manifest.load_status(resourceSpec)
             if operational.local_status is not None:
-                existingResource.local_status = operational.local_status  # type: ignore
+                existingResource.local_status = operational.local_status
             if operational.state is not None:
-                existingResource.state = operational.state  # type: ignore
+                existingResource.state = operational.state
             updated = True
 
         protected = resourceSpec.get("protected")
@@ -1362,25 +1374,31 @@ class Dependency(Operational):
         if config is None:
             return self._is_unexpected()
         changeId = config.changeId
-        # Manifest.load_config_change sets config.target
-        context = RefContext(config.target, dict(val=self.expected, changeId=changeId))  # type: ignore
-        result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
-
-        if self.schema:
-            # result isn't as expected, something changed
-            if not validate_schema(result, self.schema):
+        if self.target and isinstance(config, ChangeRecordRecord):
+            # Manifest.load_config_change sets config.target
+            target_instance = self.target.query(config.target)
+            if not isinstance(target_instance, EntityInstance):
                 return False
-        else:
-            if self.expected is not None:
-                expected = map_value(self.expected, context)
-                if result != expected:
-                    logger.debug("has_changed: %s != %s", result, expected)
-                    return True
-            elif not result:
-                # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
-                return True
+            context = RefContext(
+                target_instance, dict(val=self.expected, changeId=changeId)
+            )
+            result = Ref(self.expr).resolve_one(context)
 
-        if self.has_value_changed(result, config):
-            return True
+            if self.schema:
+                # result isn't as expected, something changed
+                if not validate_schema(result, self.schema):
+                    return False
+            else:
+                if self.expected is not None:
+                    expected = map_value(self.expected, context)
+                    if result != expected:
+                        logger.debug("has_changed: %s != %s", result, expected)
+                        return True
+                elif not result:
+                    # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
+                    return True
+
+            if self.has_value_changed(result, config):
+                return True
 
         return False
