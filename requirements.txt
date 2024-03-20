@@ -4,7 +4,7 @@ click>=8.0.1,<8.1.4 # BSD 3-clause
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml==0.17.21
 charset-normalizer==2.1.1 # pin
-cryptography==38.0.3 # pin
+cryptography==42.0.4 # pin
 # use range because ansible-core support for 3.7 stops at 2.11.12
 ansible-core >= 2.11.12, <= 2.15.9 # gpl 3
 GitPython==3.1.41; python_version>='3.7' # BSD
