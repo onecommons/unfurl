@@ -1,7 +1,7 @@
 [project]
 name = "tosca"
 version = "0.0.8"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 authors = [
   { name="Adam Souzis", email="adam@onecommons.org" },
 ]
