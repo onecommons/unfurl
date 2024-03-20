@@ -568,6 +568,7 @@ class ToscaSpec:
     def _post_node_filter_validation(self):
         assert self.topology
         for nodespec in self.topology.node_templates.values():
+            ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
             nodespec.toscaEntityTemplate.revalidate_properties()
 

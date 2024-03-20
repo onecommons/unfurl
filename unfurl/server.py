@@ -360,6 +360,7 @@ _cache_inflight_timeout = int(
 class CacheDirective:
     cache: bool = True  # save cache entry
     store: bool = True  # store value in cache
+    check_file: bool = True # check if the file in the key has changed
     # cache timeout or default (default default: never expires)
     timeout: Optional[int] = None
     latest_commit: Optional[str] = None
@@ -795,7 +796,13 @@ class CacheEntry:
                 )
                 self.hit = True
                 return value, None
-
+            if self.directives and not self.directives.check_file:
+                logger.info(
+                    "cache miss for %s (stale but check_file disabled) with %s",
+                    full_key,
+                    latest_commit or cached_latest_commit,
+                )
+                return None, None  # treat as cache miss
             # the latest_commit is newer than the cached_latest_commit, check if the file has changed
             new_commit, new_commit_date = self._set_commit_info()
             if new_commit == last_commit:
@@ -1231,6 +1238,9 @@ def _export(
         args=args,
         stale_pull_age=stale_pull_age,
     )
+    if requested_format == "blueprint":
+        # blueprint exports can depend on more than just the file in the key
+        cache_entry.directives = CacheDirective(check_file=False)
     err, json_summary = cache_entry.get_or_set(
         cache,
         _export_cache_work,
