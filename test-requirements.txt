@@ -1,4 +1,4 @@
-moto[server]==3.1.4
+moto[server]==3.1.18
 # pins for moto:
 boto3==1.21.46
 botocore==1.24.46
