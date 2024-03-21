@@ -164,7 +164,7 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     return cache.delete_many(*keys)  # type: ignore
 
 
-def clear_all(cache, prefix):
+def clear_all(cache, prefix) -> None:
     backend = cache.cache
     redis = getattr(backend, "_write_client", None)
     if redis:
@@ -1424,6 +1424,18 @@ def populate_cache():
             return err
     else:
         return "OK"
+
+
+@app.route("/empty_cache", methods=["POST"])
+def empty_cache():
+    project_id = get_project_id(request)
+    # only members of this project (with write permission) has permission for this
+    admin_project = os.environ.get("UNFURL_SERVER_ADMIN_PROJECT")
+    if not project_id or project_id != admin_project:
+        return create_error_response("UNAUTHORIZED", "Unauthorized project")
+    prefix = request.args.get("cache_prefix", flask_config["CACHE_KEY_PREFIX"])
+    clear_all(cache, prefix)
+    return "OK"
 
 
 @app.route("/clear_project_file_cache", methods=["POST"])
