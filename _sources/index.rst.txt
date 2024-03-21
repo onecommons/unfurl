@@ -31,6 +31,8 @@ Table of Contents
 
    tosca.rst
 
+   Python alternative to YAML <dsl.md>
+
    jobs.rst
 
    runtime.rst
