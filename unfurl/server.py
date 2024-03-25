@@ -1790,7 +1790,7 @@ def _patch_deployment_blueprint(
     if deleted:
         del deployment_blueprints[deployment_blueprint]
     else:
-        keys = ["title", "cloud", "description", "primary", "source", "projectPath"]
+        keys = ["title", "cloud", "description", "primary", "source", "projectPath", "branch"]
         for key, prop in patch.items():
             if key in keys:
                 current[key] = prop
