@@ -23,6 +23,7 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       environmentVariableNames: [String!]
       source: String
       projectPath: String!
+      branch: String
       commitTime: String
     }
 
@@ -234,6 +235,7 @@ class DeploymentTemplate(GraphqlObject, total=False):
     environmentVariableNames: List[str]
     source: NotRequired[Optional[str]]
     projectPath: str
+    branch: NotRequired[Optional[str]]
     commitTime: str
     ResourceTemplate: "ResourceTemplatesByName"
 
