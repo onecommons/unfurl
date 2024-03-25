@@ -155,7 +155,7 @@ def write_service_template(projectdir, templateDir=None):
 def write_ensemble_manifest(
     destDir: str,
     manifestName: str,
-    specRepo,
+    specRepo: GitRepo,
     specDir=None,
     extraVars=None,
     templateDir=None,
@@ -164,7 +164,11 @@ def write_ensemble_manifest(
         specDir = os.path.abspath(specDir)
     else:
         specDir = ""
-    vars = dict(specRepoUrl=specRepo.get_url_with_path(specDir, True))
+    if extraVars:
+        revision = extraVars.get("revision") or ""
+    else:
+        revision = ""
+    vars = dict(specRepoUrl=specRepo.get_url_with_path(specDir, True, revision))
     if extraVars:
         vars.update(extraVars)
     return write_template(destDir, manifestName, "manifest.yaml.j2", vars, templateDir)
@@ -639,6 +643,7 @@ class EnsembleBuilder:
 
         self.source_project: Optional[Project] = None  # step 1
         self.source_path: Optional[str] = None  # step 1 relative path in source_project
+        self.source_revision: Optional[str] = None  # step 1
 
         self.templateVars: Any = None  # step 2
         self.environment: Any = None  # step 2 environment name
@@ -720,11 +725,12 @@ class EnsembleBuilder:
             )
         )
         spec_repo_view, relPath, bare = specProject.find_path_in_repos(sourceDir)
-        if not spec_repo_view:
+        if not spec_repo_view or not spec_repo_view.repo:
             raise UnfurlError(
                 '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
                 % os.path.abspath(sourceDir)
             )
+        self.templateVars["revision"] = self.source_revision or ""
         manifestPath = write_ensemble_manifest(
             os.path.join(project.projectRoot, destDir),
             manifestName,
@@ -848,7 +854,7 @@ class EnsembleBuilder:
     def clone_remote_project(self, currentProject, destDir):
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
-
+        self.source_revision = revision
         if currentProject:
             repo = currentProject.find_or_create_working_dir(repoURL, revision)
             destDir = repo.working_dir
