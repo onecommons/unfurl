@@ -30,8 +30,8 @@ from .dsl import proxy_instance
 try:
     from mypy import api
 
-    def assert_no_mypy_errors(path):
-        stdout, stderr, return_code = api.run([path])
+    def assert_no_mypy_errors(path, *args):
+        stdout, stderr, return_code = api.run([path, *args] )
         if stdout:
             print(stdout)
             assert "no issues found in 1 source file" in stdout
