@@ -1289,7 +1289,7 @@ class GitlabManager(RepositoryHost):
             branches={
                 b.name: b.commit["id"] for b in project.branches.list(iterator=True)
             },
-            tags={t.name: t.target for t in project.tags.list(iterator=True)},
+            tags={t.name: t.commit["id"] for t in project.tags.list(iterator=True)},
         )
         if self.save_internal:
             repository.internal_id = str(project.get_id())
