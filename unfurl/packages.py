@@ -562,9 +562,9 @@ def resolve_package(
         existing = packages[package.package_id]
         if not existing:  # the repository isn't a package
             return None
-        # we don't want different implementations of the same package so use the one
-        # we already have. But we need to check if it compatible with the version requested here.
-        if existing.repositories and not package.is_compatible_with(existing):
+        # We don't want different implementations of the same package so use the one we already have.
+        # But first check if it compatible with the version requested here.
+        if not existing.is_compatible_with(package):
             # XXX if we need a later version, update the existing package and reload any content from it
             # XXX update existing.repositories and invalidate associated file_refs in the cache
             # XXX switch to raising UnfurlPackageUpdateNeeded after updating repositories and cache
