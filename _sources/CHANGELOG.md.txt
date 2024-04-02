@@ -1,5 +1,76 @@
 # Changelog for Unfurl
 
+## v1.1.0 - 2024-4-02
+
+<small>[Compare with 1.0.0](https://github.com/onecommons/unfurl/compare/v1.0.0...v1.1.0) </small>
+
+### Major changes
+
+#### Ansible configurator
+
+* A playbook's host is now set automatically if not explicitly specified. See <https://docs.unfurl.run/configurators.html#playbook-processing> for the selection rules.
+* If `playbook` and `inventory` input parameters have a string value, detect whether to treat as a file path or parse to YAML.
+* Fix rendering of `inventory.yml` when the `inventory` input parameter is set to inline YAML.
+* If the `ansible_connection` host var is not explicitly set, default to "ssh" if we're also setting `ansible_host` to the node's `ip_address`.
+
+#### Update tosca package to v0.0.8
+
+Release includes the following fixes and enhancements:
+
+* yaml to python: more idiomatic Python when importing ``__init__.yaml``
+* yaml to python: use import namespace when following imports
+* yaml to python: don't forward reference built-in types
+* overwrite policy: don't overwrite if converted contents didn't change
+* remove dependency on unfurl package.
+* support array and key access in field projections
+* allow regular data as arguments to boolean expressions.
+* add `fallback(left: Optional[T], right: T) -> T` to `unfurl.tosca_plugins.expr` for type-safe default expressions.
+* move `tfoutput` and `tfvar` Options to `unfurl.tosca_plugins.expr` (this make them available in safe mode).
+
+#### Server enhancements and fixes
+
+* Add a `/empty_cache` POST endpoint for clearing entire cache (using optional `prefix` parameter). Access requires `UNFURL_SERVER_ADMIN_PROJECT` environment variable to be set and the `auth_project` URL parameter to match it.
+* Patch and export now support the "branch" field on DeploymentTemplate
+* Invalidate cached blueprint export even if file in the key didn't change.
+
+### Other Notable bug fixes
+
+897c32ba testing: add mypy testing api and make lifecycle api more flexible
+
+3f80e5bf job: fix for TaskView.find_connection()
+
+269f981c runtime: refine "is resource computed" heuristic
+
+253f55aa cloudmap: fix tag refs on gitlab hosts
+
+61da0c6f clone: apply revision if found in fragment of the cloned url
+
+63e2f48a kompose: have KomposeInputs use ``unfurl_datatypes_DockerContainer``
+
+03feb7d7 plan: exclude replaced node templates from relationships
+
+0922b557 logging: smarter truncation of log messages with stack traces
+
+aaabb8a2 packages: fix resolving package compatibility
+
+667c59d9 export: stop clearing out requirement match pointing to nested templates
+
+5bfef1d8 export: fix `get_nodes_of_type` in match filters
+
+a3c8fb54 export: stop hoisting default templates as requirements.
+
+df2d3e97 parser: fix matching when a requirement target is substituted by the outer topology template.
+
+a3f7feae parser: fix typename checking when evaluating 'node' field on requirements
+
+b570246f parser: use the type's namespace when creating properties.
+
+1b965e5b parser: fix ``Namespace.get_global_name_and_prefix()``
+
+### Breaking changes
+
+Drop support for Python 3.7
+
 ## v1.0.0 - 2024-2-26
 
 <small>[Compare with 0.9.1](https://github.com/onecommons/unfurl/compare/v0.9.1...v1.0.0) </small>

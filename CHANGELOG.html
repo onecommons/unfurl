@@ -66,6 +66,17 @@
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Changelog for Unfurl</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#v1-1-0-2024-4-02">v1.1.0 - 2024-4-02</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#major-changes">Major changes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#ansible-configurator">Ansible configurator</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#update-tosca-package-to-v0-0-8">Update tosca package to v0.0.8</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#server-enhancements-and-fixes">Server enhancements and fixes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#other-notable-bug-fixes">Other Notable bug fixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#breaking-changes">Breaking changes</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#v1-0-0-2024-2-26">v1.0.0 - 2024-2-26</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#features">Features</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#tosca-namespaces-and-global-type-identifiers">TOSCA namespaces and global type identifiers</a></li>
@@ -76,21 +87,21 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#artifact-enhancements">Artifact enhancements</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#other-features">Other Features</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#breaking-changes">Breaking changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id1">Breaking changes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#minor-enhancements-and-notable-bug-fixes">Minor Enhancements and Notable Bug Fixes</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#v0-9-1-2023-10-25">v0.9.1 - 2023-10-25</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id1">Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id2">Features</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#tosca-and-python-dsl">TOSCA and Python DSL</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#id2">Packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id3">Packages</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#id3">Minor Enhancements and Notable Bug Fixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id4">Minor Enhancements and Notable Bug Fixes</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#v0-9-0-friday-10-13-23">v0.9.0 - Friday 10-13-23</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id4">Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id5">Features</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#introduce-python-dsl-for-tosca"><em><strong>Introduce Python DSL for TOSCA</strong></em></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-cloud-local-development-mode">Unfurl Cloud local development mode</a></li>
 </ul>
@@ -102,12 +113,12 @@
 <li class="toctree-l4"><a class="reference internal" href="#new-environment-variables">New Environment Variables</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#id5">Minor Enhancements and Notable Bug Fixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id6">Minor Enhancements and Notable Bug Fixes</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#id6">0.8.0 - 2023-07-26</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id7">Breaking Changes</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id8">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id7">0.8.0 - 2023-07-26</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id8">Breaking Changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id9">Features</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#bug-fixes">Bug Fixes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#misc">Misc</a></li>
 </ul>
@@ -142,6 +153,68 @@
              
   <section id="changelog-for-unfurl">
 <h1>Changelog for Unfurl<a class="headerlink" href="#changelog-for-unfurl" title="Permalink to this headline"></a></h1>
+<section id="v1-1-0-2024-4-02">
+<h2>v1.1.0 - 2024-4-02<a class="headerlink" href="#v1-1-0-2024-4-02" title="Permalink to this headline"></a></h2>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v1.0.0...v1.1.0">Compare with 1.0.0</a> </small></p>
+<section id="major-changes">
+<h3>Major changes<a class="headerlink" href="#major-changes" title="Permalink to this headline"></a></h3>
+<section id="ansible-configurator">
+<h4>Ansible configurator<a class="headerlink" href="#ansible-configurator" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>A playbook’s host is now set automatically if not explicitly specified. See <a class="reference external" href="https://docs.unfurl.run/configurators.html#playbook-processing">https://docs.unfurl.run/configurators.html#playbook-processing</a> for the selection rules.</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">playbook</span></code> and <code class="docutils literal notranslate"><span class="pre">inventory</span></code> input parameters have a string value, detect whether to treat as a file path or parse to YAML.</p></li>
+<li><p>Fix rendering of <code class="docutils literal notranslate"><span class="pre">inventory.yml</span></code> when the <code class="docutils literal notranslate"><span class="pre">inventory</span></code> input parameter is set to inline YAML.</p></li>
+<li><p>If the <code class="docutils literal notranslate"><span class="pre">ansible_connection</span></code> host var is not explicitly set, default to “ssh” if we’re also setting <code class="docutils literal notranslate"><span class="pre">ansible_host</span></code> to the node’s <code class="docutils literal notranslate"><span class="pre">ip_address</span></code>.</p></li>
+</ul>
+</section>
+<section id="update-tosca-package-to-v0-0-8">
+<h4>Update tosca package to v0.0.8<a class="headerlink" href="#update-tosca-package-to-v0-0-8" title="Permalink to this headline"></a></h4>
+<p>Release includes the following fixes and enhancements:</p>
+<ul class="simple">
+<li><p>yaml to python: more idiomatic Python when importing <code class="docutils literal notranslate"><span class="pre">__init__.yaml</span></code></p></li>
+<li><p>yaml to python: use import namespace when following imports</p></li>
+<li><p>yaml to python: don’t forward reference built-in types</p></li>
+<li><p>overwrite policy: don’t overwrite if converted contents didn’t change</p></li>
+<li><p>remove dependency on unfurl package.</p></li>
+<li><p>support array and key access in field projections</p></li>
+<li><p>allow regular data as arguments to boolean expressions.</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">fallback(left:</span> <span class="pre">Optional[T],</span> <span class="pre">right:</span> <span class="pre">T)</span> <span class="pre">-&gt;</span> <span class="pre">T</span></code> to <code class="docutils literal notranslate"><span class="pre">unfurl.tosca_plugins.expr</span></code> for type-safe default expressions.</p></li>
+<li><p>move <code class="docutils literal notranslate"><span class="pre">tfoutput</span></code> and <code class="docutils literal notranslate"><span class="pre">tfvar</span></code> Options to <code class="docutils literal notranslate"><span class="pre">unfurl.tosca_plugins.expr</span></code> (this make them available in safe mode).</p></li>
+</ul>
+</section>
+<section id="server-enhancements-and-fixes">
+<h4>Server enhancements and fixes<a class="headerlink" href="#server-enhancements-and-fixes" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Add a <code class="docutils literal notranslate"><span class="pre">/empty_cache</span></code> POST endpoint for clearing entire cache (using optional <code class="docutils literal notranslate"><span class="pre">prefix</span></code> parameter). Access requires <code class="docutils literal notranslate"><span class="pre">UNFURL_SERVER_ADMIN_PROJECT</span></code> environment variable to be set and the <code class="docutils literal notranslate"><span class="pre">auth_project</span></code> URL parameter to match it.</p></li>
+<li><p>Patch and export now support the “branch” field on DeploymentTemplate</p></li>
+<li><p>Invalidate cached blueprint export even if file in the key didn’t change.</p></li>
+</ul>
+</section>
+</section>
+<section id="other-notable-bug-fixes">
+<h3>Other Notable bug fixes<a class="headerlink" href="#other-notable-bug-fixes" title="Permalink to this headline"></a></h3>
+<p>897c32ba testing: add mypy testing api and make lifecycle api more flexible</p>
+<p>3f80e5bf job: fix for TaskView.find_connection()</p>
+<p>269f981c runtime: refine “is resource computed” heuristic</p>
+<p>253f55aa cloudmap: fix tag refs on gitlab hosts</p>
+<p>61da0c6f clone: apply revision if found in fragment of the cloned url</p>
+<p>63e2f48a kompose: have KomposeInputs use <code class="docutils literal notranslate"><span class="pre">unfurl_datatypes_DockerContainer</span></code></p>
+<p>03feb7d7 plan: exclude replaced node templates from relationships</p>
+<p>0922b557 logging: smarter truncation of log messages with stack traces</p>
+<p>aaabb8a2 packages: fix resolving package compatibility</p>
+<p>667c59d9 export: stop clearing out requirement match pointing to nested templates</p>
+<p>5bfef1d8 export: fix <code class="docutils literal notranslate"><span class="pre">get_nodes_of_type</span></code> in match filters</p>
+<p>a3c8fb54 export: stop hoisting default templates as requirements.</p>
+<p>df2d3e97 parser: fix matching when a requirement target is substituted by the outer topology template.</p>
+<p>a3f7feae parser: fix typename checking when evaluating ‘node’ field on requirements</p>
+<p>b570246f parser: use the type’s namespace when creating properties.</p>
+<p>1b965e5b parser: fix <code class="docutils literal notranslate"><span class="pre">Namespace.get_global_name_and_prefix()</span></code></p>
+</section>
+<section id="breaking-changes">
+<h3>Breaking changes<a class="headerlink" href="#breaking-changes" title="Permalink to this headline"></a></h3>
+<p>Drop support for Python 3.7</p>
+</section>
+</section>
 <section id="v1-0-0-2024-2-26">
 <h2>v1.0.0 - 2024-2-26<a class="headerlink" href="#v1-0-0-2024-2-26" title="Permalink to this headline"></a></h2>
 <p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.9.1...v1.0.0">Compare with 0.9.1</a> </small></p>
@@ -278,8 +351,8 @@ Generation of type global names with export and the APIs can be disabled by sett
 </pre></div>
 </div>
 </section>
-<section id="breaking-changes">
-<h3>Breaking changes<a class="headerlink" href="#breaking-changes" title="Permalink to this headline"></a></h3>
+<section id="id1">
+<h3>Breaking changes<a class="headerlink" href="#id1" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p>Prior to this release all imports shared the same namespace for types. For example, one imported file could reference a type declared in another file if both those files happened to be both imported by another service template.</p></li>
 </ul>
@@ -327,8 +400,8 @@ By default, don’t instantiate environment instances unless they are imported f
 <section id="v0-9-1-2023-10-25">
 <h2>v0.9.1 - 2023-10-25<a class="headerlink" href="#v0-9-1-2023-10-25" title="Permalink to this headline"></a></h2>
 <p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.9.0...v0.9.1">Compare with 0.9.0</a> </small></p>
-<section id="id1">
-<h3>Features<a class="headerlink" href="#id1" title="Permalink to this headline"></a></h3>
+<section id="id2">
+<h3>Features<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
 <section id="tosca-and-python-dsl">
 <h4>TOSCA and Python DSL<a class="headerlink" href="#tosca-and-python-dsl" title="Permalink to this headline"></a></h4>
 <ul class="simple">
@@ -359,8 +432,8 @@ By default, don’t instantiate environment instances unless they are imported f
 <li><p>Release 0.0.5 version of the Python tosca package.</p></li>
 </ul>
 </section>
-<section id="id2">
-<h4>Packages<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h4>
+<section id="id3">
+<h4>Packages<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h4>
 <ul class="simple">
 <li><p>Allow service templates to declare the unfurl version they are compatible with.</p></li>
 </ul>
@@ -381,8 +454,8 @@ By default, don’t instantiate environment instances unless they are imported f
 </ul>
 </section>
 </section>
-<section id="id3">
-<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
+<section id="id4">
+<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id4" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p><strong>parser</strong> allow merge keys to be optional, e.g. “+?/a/d”</p></li>
 <li><p><strong>loader</strong>: Add a <code class="docutils literal notranslate"><span class="pre">UNFURL_OVERWRITE_POLICY</span></code> environment variable to guide the loader’s python to yaml converter.</p></li>
@@ -395,8 +468,8 @@ By default, don’t instantiate environment instances unless they are imported f
 <section id="v0-9-0-friday-10-13-23">
 <h2>v0.9.0 - Friday 10-13-23<a class="headerlink" href="#v0-9-0-friday-10-13-23" title="Permalink to this headline"></a></h2>
 <p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0">Compare with 0.8.0</a> </small></p>
-<section id="id4">
-<h3>Features<a class="headerlink" href="#id4" title="Permalink to this headline"></a></h3>
+<section id="id5">
+<h3>Features<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
 <section id="introduce-python-dsl-for-tosca">
 <h4><em><strong>Introduce Python DSL for TOSCA</strong></em><a class="headerlink" href="#introduce-python-dsl-for-tosca" title="Permalink to this headline"></a></h4>
 <p>Write TOSCA as Python modules instead of YAML. Features include:</p>
@@ -490,8 +563,8 @@ By default, don’t instantiate environment instances unless they are imported f
 </ul>
 </section>
 </section>
-<section id="id5">
-<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
+<section id="id6">
+<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id6" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p><strong>artifacts:</strong> Add an <code class="docutils literal notranslate"><span class="pre">asdf</span></code> artifact for <code class="docutils literal notranslate"><span class="pre">kompose</span></code> and have the <strong>kompose</strong> configurator schedule the artifact if <code class="docutils literal notranslate"><span class="pre">kompose</span></code> is missing.</p></li>
 <li><p><strong>parser:</strong> treat import failures are fatal errors (abort parsing and validation).</p></li>
@@ -510,17 +583,17 @@ By default, don’t instantiate environment instances unless they are imported f
 </ul>
 </section>
 </section>
-<section id="id6">
-<h2>0.8.0 - 2023-07-26<a class="headerlink" href="#id6" title="Permalink to this headline"></a></h2>
-<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.7.1...v0.8.0">Compare with 0.7.1</a></small></p>
 <section id="id7">
-<h3>Breaking Changes<a class="headerlink" href="#id7" title="Permalink to this headline"></a></h3>
+<h2>0.8.0 - 2023-07-26<a class="headerlink" href="#id7" title="Permalink to this headline"></a></h2>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.7.1...v0.8.0">Compare with 0.7.1</a></small></p>
+<section id="id8">
+<h3>Breaking Changes<a class="headerlink" href="#id8" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p>The Unfurl package now only depends on the <a class="reference external" href="https://pypi.org/project/ansible-core">ansible-core</a> package instead of the full <a class="reference external" href="https://pypi.org/project/ansible/">ansible</a> package. Unfurl projects that depend on ansible modules installed by that package will not work with new Unfurl installations unless it is installed by some other means – or, better, declare an Ansible collection artifact as a dependency on the template that requires it. For an example, see this usage in the <a class="reference external" href="https://github.com/onecommons/unfurl/blob/v0.7.2/unfurl/configurators/docker-template.yaml#L127C29-L127C29">docker-template.yaml</a>.</p></li>
 </ul>
 </section>
-<section id="id8">
-<h3>Features<a class="headerlink" href="#id8" title="Permalink to this headline"></a></h3>
+<section id="id9">
+<h3>Features<a class="headerlink" href="#id9" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p>Allow Ansible collections to be declared as TOSCA artifacts. Some predefined ones are defined <a class="reference external" href="https://github.com/onecommons/unfurl/blob/v0.7.2/unfurl/tosca_plugins/artifacts.yaml#L163">here</a>.</p></li>
 <li><p>Unfurl Server now tracks the dependent repositories accessed when generating cached representations (e.g. for <code class="docutils literal notranslate"><span class="pre">/export</span></code>) and uses that information to invalidate cache items when the dependencies change.</p></li>
