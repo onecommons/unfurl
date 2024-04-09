@@ -1,31 +1,12 @@
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-# the context will be merged with the corresponding context in the project config:
-context:
-  # local and secret are special cases that must be defined in the local config
-  local:
-   schema:
-     name1:
-       type: string
-  secret:
-   schema: # expected JSON schema for attributes
-     name1:
-       type: string
-  # environment:
-  # runtime:
-  external:
-    name: # manifest to represent as a resource
-      manifest:
-        file: .
-      instance: "*" # name or "*", default is "root"
-
 spec:
   service_template:
+    # tosca service template goes here:
     topology_template:
       node_templates:
         aNodeTemplate:
           type: tosca:Root
-    # tosca service template goes here
 status:
   # inputs:
   # outputs:
@@ -60,3 +41,19 @@ lastJob:
   readyState:
     local: ok
 jobLog: jobs.tsv
+lock:
+  runtime:
+    unfurl:
+      version: 1.1.0
+      digest: 9c2c1b4a
+    toolVersions: {}
+  package_rules:
+    - "unfurl.cloud/onecommons/* #main"
+    - "unfurl.cloud/onecommons/std github.com/user1/myfork"
+  repositories:
+    - url: http://unfurl.cloud/onecommons/std
+      package_id: unfurl.cloud/onecommons/std
+      commit: 2da68fe0d1014805d15fc9134352626cb136e066
+      initial: 2da68fe0d1014805d15fc9134352626cb136e066
+      discovered_revision: 1.0.0
+      tag: v1.0.0 # current commit is on this tag

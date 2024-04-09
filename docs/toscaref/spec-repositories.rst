@@ -1,3 +1,5 @@
+.. _tosca_repositories:
+
 Repositories
 ============
 

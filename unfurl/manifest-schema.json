@@ -118,7 +118,8 @@
           "$ref": "#/definitions/namedObjects"
         },
         "repositories": {
-          "type": "object"
+          "type": "object",
+          "description": ":ref:`TOSCA repositories<tosca_repositories>`"
         },
         "cloudmaps": {
           "type": "object"
@@ -257,16 +258,26 @@
       ],
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
-        },
         "url": {
           "type": "string",
-          "format": "uri"
+          "format": "uri",
+          "description": "repository URL"
+        },
+        "package_id": {
+          "type": "string",
+          "description": "set if repository is a package"
+        },
+        "name": {
+          "type": "string",
+          "description": "name repository (set if package_id is missing)"
         },
         "revision": {
           "type": "string",
           "description": "intended revision (branch or tag) declared by user"
+        },
+        "discovered_revision": {
+          "type": "string",
+          "description": "discovered version tag or (MISSING) if not found"
         },
         "commit": {
           "type": "string",
@@ -523,6 +534,92 @@
           "$ref": "#/definitions/status"
         }
       ]
+    },
+    "lock": {
+      "title": "Lock",
+      "$$target": "#/definitions/lock",
+      "description": "Lock Section",
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "type": "object",
+          "properties": {
+            "unfurl": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                }
+              }
+            },
+            "toolVersions": {
+              "type": "object"
+            }
+          }
+        },
+        "package_rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/repositories"
+          }
+        },
+        "ensembles": {
+          "type": "object",
+          "allOf": [
+            {
+              "$ref": "#/definitions/namedObjects"
+            },
+            {
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "changeId": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/definitions/changeId"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "digest": {
+                    "type": "string"
+                  },
+                  "manifest": {
+                    "type": "object",
+                    "properties": {
+                      "file": {
+                        "type": "string"
+                      },
+                      "repository": {
+                        "type": "string"
+                      },
+                      "project": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
     }
   },
   "type": "object",
@@ -614,75 +711,9 @@
     },
     "changes": {
       "$ref": "#/definitions/changes"
-    }
-  },
-  "lock": {
-    "type": "object",
-    "properties": {
-      "runtime": {
-        "type": "object",
-        "properties": {
-          "unfurl": {
-            "type": "object",
-            "properties": {
-              "version": {
-                "type": "string"
-              },
-              "digest": {
-                "type": "string"
-              }
-            }
-          },
-          "toolVersions": {
-            "type": "object"
-          }
-        }
-      },
-      "repositories": {
-        "type": "array",
-        "items": {
-          "$ref": "#/definitions/repositories"
-        }
-      },
-      "ensembles": {
-        "type": "object",
-        "allOf": [
-          {
-            "$ref": "#/definitions/namedObjects"
-          },
-          {
-            "additionalProperties": {
-              "type": "object",
-              "properties": {
-                "uri": {
-                  "type": "string",
-                  "format": "uri"
-                },
-                "changeId": {
-                  "$ref": "#/definitions/changeId"
-                },
-                "digest": {
-                  "type": "string"
-                },
-                "manifest": {
-                  "type": "object",
-                  "properties": {
-                    "file": {
-                      "type": "string"
-                    },
-                    "repository": {
-                      "type": "string"
-                    },
-                    "project": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        ]
-      }
+    },
+    "lock": {
+      "$ref": "#/definitions/lock"
     }
   },
   "required": [
