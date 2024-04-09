@@ -130,7 +130,6 @@ class Manifest(AttributeManager):
             self.cache = {}
         self.imports = Imports()
         self.imports.manifest = self
-        self._importedManifests: Dict = {}
         self.modules: Optional[Dict] = None
 
     def _add_repositories_from_environment(self) -> None:

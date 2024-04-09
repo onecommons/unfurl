@@ -826,19 +826,19 @@ class EntitySpec(ResourceRef):
     def policies(self):
         return []
 
-    def is_compatible_target(self, targetStr):
+    def is_compatible_target(self, targetStr) -> bool:
         if self.name == targetStr:
             return True
         return self.toscaEntityTemplate.is_derived_from(targetStr)
 
-    def is_compatible_type(self, typeStr):
+    def is_compatible_type(self, typeStr) -> bool:
         return self.toscaEntityTemplate.is_derived_from(typeStr)
 
     @property
-    def uri(self):
+    def uri(self) -> str:
         return self.get_uri()
 
-    def get_uri(self):
+    def get_uri(self) -> str:
         return self.name  # XXX
 
     def __repr__(self):
@@ -1911,7 +1911,7 @@ class ArtifactSpec(EntitySpec):
     def as_value(self) -> Optional[ExternalValue]:
         if self.is_compatible_type("tosca.artifacts.Deployment.Image.Container.Docker"):
             artifactDef = self.toscaEntityTemplate
-            assert not artifactDef.checksum or artifactDef.checksum_algorithm == 256
+            assert not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
             kw = dict(tag=self.properties.get("tag"), digest=artifactDef.checksum)
             if self.repository:
                 kw["registry_host"] = self.repository.hostname

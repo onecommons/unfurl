@@ -200,6 +200,7 @@ class ReadOnlyManifest(Manifest):
         if path:
             path = os.path.abspath(path)
         super().__init__(path, localEnv)
+        self._importedManifests: Dict[int, Optional["YamlManifest"]] = {}
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
         self.manifest = YamlConfig(
@@ -238,14 +239,14 @@ class ReadOnlyManifest(Manifest):
         return uris
 
     @property
-    def uri(self):
+    def uri(self) -> str:
         uris = self.uris
         if uris:
             return uris[0]
         else:
             return ""
 
-    def has_uri(self, uri):
+    def has_uri(self, uri) -> bool:
         return uri in self.uris
 
     @property
@@ -256,13 +257,13 @@ class ReadOnlyManifest(Manifest):
     def yaml(self):
         return self.manifest.yaml
 
-    def get_base_dir(self):
+    def get_base_dir(self) -> str:
         if self.path:
             return get_base_dir(self.path)
         else:
             return "."
 
-    def is_path_to_self(self, path):
+    def is_path_to_self(self, path) -> bool:
         if self.path is None or path is None:
             return False
         return os.path.abspath(self.path) == os.path.abspath(path)

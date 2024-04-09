@@ -1131,7 +1131,7 @@ def _get_container_image_from_repository(
     )
 
 
-def get_artifact(ctx: RefContext, entity, artifact_name, location=None, remove=None):
+def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], artifact_name: str, location=None, remove=None):
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)

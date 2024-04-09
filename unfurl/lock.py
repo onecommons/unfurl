@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Optional, cast
 from ruamel.yaml.comments import CommentedMap
 
 from .repo import RepoView

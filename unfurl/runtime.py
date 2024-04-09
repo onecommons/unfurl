@@ -90,7 +90,7 @@ class Operational(ChangeAware):
             return True
         if self.state is None:
             # self.state is sometimes None even though it shouldn't be
-            return False
+            return False  # type: ignore
         if state == NodeState.error or self.state == NodeState.error:
             return self.state == state
         if state < NodeState.stopping:
@@ -122,7 +122,7 @@ class Operational(ChangeAware):
         return ()  # type: ignore  # mypy doesn't like empty tuples
 
     @property
-    def manual_override_status(self) -> None:
+    def manual_override_status(self) -> Optional[Status]:
         return None
 
     # derived properties:
@@ -156,6 +156,7 @@ class Operational(ChangeAware):
         Otherwise the local_status is compared with its aggregate dependent status
         and worser value is choosen.
         """
+        status: Optional[Status]
         if self.manual_override_status is not None:
             status = self.manual_override_status
             if status >= Status.error:
@@ -419,7 +420,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
             p = getattr(parent, self.parentRelation)
             p.append(self)
 
-        self.template: EntitySpec = template or self.templateType()  # type: ignore
+        self.template: EntitySpec = template or self.templateType(None, cast(TopologySpec, None))
         assert isinstance(self.template, self.templateType)
         self._properties: Dict[str, Any] = {}
 
