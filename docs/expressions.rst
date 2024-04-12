@@ -5,18 +5,18 @@ Expression Functions
 TOSCA functions and other stand-alone functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Stand-alone functions don't need to be wrapped in an "eval"
+Stand-alone functions don't need to be wrapped in an "eval".
 
   ============================  ========================================================
   Key                           Value
   ============================  ========================================================
   `concat`                      ``[ string* ]``
-  `get_artifact`                ``[ instance_name, artifact_name]``
-  `get_attribute`               ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
+  `get_artifact`                ``[ template_name, artifact_name]``
+  `get_attribute`               ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`get_env`            :regexp:`[ name, default? return ] | name`
   :std:ref:`get_input`          ``name``
   :std:ref:`get_nodes_of_type`  ``type_name``
-  `get_property`                ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
+  `get_property`                ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`has_env`            ``name``
   `join`                        ``[ string+, delimiter? ]``
   `q`                           ``any``
@@ -32,14 +32,21 @@ concat
 get_artifact
 ^^^^^^^^^^^^
 
-  The get_artifact function is used to retrieve artifact location between modelable entities defined in the same service template.
+  The ``get_artifact`` function returns the location of the referenced artifact.
+  The location depends on the type of artifact. If the artifact is a Docker container image, return the image name in the form of
+  "registry/repository/name:tag" or "registry/repository/name@sha256:digest".
+  If it is a file, return a local file path that is resolvable while the unfurl is running.
+  In this case, calling get_artifact may have the side effect of downloading the file or cloning a git repository.
 
-  If the artifact is a Docker image, return the image name in the form of
-  "registry/repository/name:tag" or "registry/repository/name@sha256:digest"
+  The first argument is either a string or a instance reference (from an `eval expression <eval expressions>`).
 
-  If entity_name or artifact_name is not found return ``null``.
+  If it is a string it should be the name of a node template or one of ``SELF``, ``SOURCE``, ``TARGET``, ``HOST``.
+  If no node template is found return ``null``.
 
-  See :tosca_spec:`get_artifact <_Toc50125538>`.
+  The second argument is the name of the artifact associated with the node template referenced by the first argument.
+  If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return ``null``.
+
+  See also the :tosca_spec:`TOSCA get_artifact spec <_Toc50125538>` (but note that ``location`` and ``remove`` arguments are not currently supported).
 
 get_attribute
 ^^^^^^^^^^^^^
@@ -237,7 +244,7 @@ get_dir
   :project: The root directory of the current project.
   :unfurl.home: The location of home project (UNFURL_HOME).
 
-  Otherwise look for a repository with the given name and return its path or None if not found.
+  Otherwise look for a `repository <tosca_repositories>` with the given name and return its path or None if not found.
 
   Also available as a jinja2 filter.
 
@@ -527,6 +534,7 @@ Built-in keys start with a leading **.**:
 .relationships relationships that target this capability
 .targets       map with requirement names as keys and target instances as values
 .sources       map with requirement names as keys and source instances as values
+.repository    repository associated with this artifact or resource
 .hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
 .configured_by Follow .sources, filtering by the ``Configures`` relationship
 .descendants   (including self)

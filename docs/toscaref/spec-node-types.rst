@@ -6,6 +6,8 @@ Node Types
 ``node_types`` are used for defining common properties and behaviors for :ref:`Node Templates <node_templates>`.
 ``node-templates`` can then be created based on these types, inheriting their definitions.
 
+A partial definition (type only) is treated a requirement that the node template declares an artifact of that name and type.
+
 Declaration
 ++++++++++++
 
@@ -14,10 +16,10 @@ Declaration
  node_types:
 
   type1:
-    derived_from: unfurl.types.Root
-    interfaces:
-      ...
+    derived_from: tosca.nodes.Root
     properties:
+      ...
+    interfaces:
       ...
 
   type2:
@@ -29,17 +31,18 @@ Declaration
 Definition
 ++++++++++++
 
-============ ======== ========== ===================================
-Keyname      Required Type       Description
-============ ======== ========== ===================================
-derived_from no       string     A string referencing a parent type.
-metadata     no       dictionary A dictionary of node metadata.
-properties   no       dictionary A dictionary of node properties.
-attributes   no       dictionary A dictionary of node attributes.
-capabilities no       dictionary A dictionary of node capabilities.
-requirements no       dictionary A dictionary of node requirements.
-interfaces   no       dictionary A dictionary of node interfaces.
-============ ======== ========== ===================================
+============ ======== ==============   =====================================
+Keyname      Required Type             Description
+============ ======== ==============   =====================================
+derived_from yes      string or list   Parent type(s).
+metadata     no       dictionary       A dictionary of node metadata.
+properties   no       dictionary       A dictionary of node properties.
+attributes   no       dictionary       A dictionary of node attributes.
+capabilities no       dictionary       A dictionary of node capabilities.
+requirements no       dictionary       A dictionary of node requirements.
+artifacts    no       dictionary       A dictionary of artifact definitions.
+interfaces   no       dictionary       A dictionary of node interfaces.
+============ ======== ==============   =====================================
 
 derived_from
 ------------
@@ -51,6 +54,8 @@ and behaviors, this time in between *types*.
 Using this mechanism, one can build various type hierarchies which can
 be reused over different application service templates.
 
+As a TOSCA extension, Unfurl support multiple inheritance if a ``derived_from`` if a list of type names.
+
 When a type derives from another type, its ``interfaces`` and
 ``properties`` keys get merged with the parent type’s ``interfaces`` and
 ``properties`` keys. The merge is on the property/operation level: A
@@ -61,16 +66,6 @@ possible to add in the deriving type additional operation mappings to an
 interface defined in the parent type. See the `examples
 section <#examples>`__ for more on this.
 
-
-interfaces
-------------
-
-The ``interfaces`` property may be used to define common behaviors for
-node templates.
-
-.. seealso::
-
- For more information, please refer to the :ref:`Interfaces<interfaces_spec>` section.
 
 properties
 ------------
@@ -107,6 +102,22 @@ keys:
      - boolean
      - Specifies whether the property is required.
 
+artifacts
+---------
+
+As a TOSCA extension, Unfurl let's you define `artifacts` on node types in addition to node templates.
+If the artifact is partially defined (``type`` only), then node templates will be required to declare an artifact of that name and type.
+If the artifact has a complete definition it will be treated as if it was declared on node templates that match this node type.
+
+interfaces
+------------
+
+The ``interfaces`` property may be used to define common behaviors for
+node templates.
+
+.. seealso::
+
+ For more information, please refer to the :ref:`Interfaces<interfaces_spec>` section.
 
 
 Examples

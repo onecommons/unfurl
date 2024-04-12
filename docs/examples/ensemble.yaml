@@ -1,5 +1,7 @@
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
+metadata:
+  uri: https://unfurl.cloud/user1/dashboard.git#:ensemble/ensemble.yaml
 spec:
   service_template:
     # tosca service template goes here:

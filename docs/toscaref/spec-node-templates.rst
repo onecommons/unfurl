@@ -3,7 +3,7 @@
 Node Templates
 ==============
 
-``node_templates`` represent the actual instances of :ref:`Node Types <node_types>` which would eventually
+``node_templates`` represent instances of :ref:`Node Types <node_types>` which would eventually
 represent a running application/service as described in the service template.
 
 Declaration
@@ -18,6 +18,8 @@ is a node template.
 
      node_template_1:
        type: ...
+       artifacts:
+         ...
        properties:
          ...
        interfaces:
@@ -43,6 +45,10 @@ Definition
      - yes
      - string
      - The :ref:`node_type <node_types>` of this node template.
+   * - artifacts
+     - no
+     - dict
+     - See :tosca_spec2:`TOSCA Artifact definition <_Toc50125252>`
    * - properties
      - no
      - dict

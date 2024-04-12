@@ -5,7 +5,7 @@ Metadata Elements
 Version
 =========================
 
-``tosca_definitions_version`` is a top level element of the service template which is used to specify the version of TOSCA to be used. 
+``tosca_definitions_version`` is a top level element of the `service template` which is used to specify the version of TOSCA to be used.
 
 Use ``tosca_simple_unfurl_1_0_0`` to enable Unfurl extensions or the standard ``tosca_simple_yaml_1_3``.
 
@@ -41,7 +41,7 @@ Example
 Metadata
 ========
 
-``metadata`` allows a declaration of a map of keynames with string values. It is used to associate domain-specific metadata with the Service Template. 
+``metadata`` allows a declaration of a map of key to string values or, as an Unfurl extension, any JSON type. It is used to associate domain-specific metadata with the Service Template.
 
 
 Example
