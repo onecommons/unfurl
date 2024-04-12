@@ -12,8 +12,12 @@ Files
 ensemble.yaml
 ~~~~~~~~~~~~~
 
+Example:
+
 .. include:: examples/ensemble.yaml
    :code: YAML
+
+JSON Schema:
 
 .. jsonschema:: manifest-schema.json
 
@@ -21,8 +25,12 @@ ensemble.yaml
 job.yaml
 ~~~~~~~~
 
+Example:
+
 .. include:: examples/job.yaml
    :code: YAML
+
+JSON Schema:
 
 .. jsonschema:: changelog-schema.json
 
@@ -30,8 +38,12 @@ job.yaml
 unfurl.yaml
 ~~~~~~~~~~~
 
+Example:
+
 .. include:: examples/unfurl.yaml
    :code: YAML
+
+JSON Schema:
 
 .. jsonschema:: unfurl-schema.json
 
@@ -55,6 +67,8 @@ Sections
 .. jsonschema:: manifest-schema.json#/definitions/configurationSpec
 
 .. jsonschema:: manifest-schema.json#/definitions/changes
+
+.. jsonschema:: manifest-schema.json#/definitions/lock
 
 
 Definitions

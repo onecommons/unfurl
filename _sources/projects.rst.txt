@@ -31,12 +31,12 @@ Secrets are like locals except they are marked :std:ref:`sensitive` and redacted
 Repositories
 ------------
 
-You can specify repositories using TOSCA's ``repositories`` syntax in the environment so ensemble can reference a repository by name to specify its location.
+You can specify repositories using TOSCA's `tosca_repositories` syntax in the environment so ensemble can reference a repository by name to specify its location.
 
 Imports
 -------
 
-You can include TOSCA's ``import`` statements in the environment and those TOSCA templates will be imported into the ensemble's service template.
+You can include TOSCA's `tosca_imports` statements in the environment and those TOSCA templates will be imported into the ensemble's service template.
 
 Connections
 -----------

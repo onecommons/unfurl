@@ -35,10 +35,11 @@ A leading '?' indicates that reference maybe missing, otherwise the processing w
 
 ``absolute path``: [/path]+ A path that is resolved following <jsonpointer> RFC
 
-If the value of the merge directive is empty, merge the result using algorithm described below.
-If the directive contains "include" and the value is a string, treat the value as a file path or a URL to a YAML or JSON file.
-If the value is "raw", include the result without any further processing.
+If the directive contains "include", its value can be a map or a string. If it is a string, treat the value as a file path or a URL to a YAML or JSON file.
+If it is a map, it must have a ``file`` key whose value is file path or URL, and optionally a "repository" key.
 
+For other directives, if the value of the merge directive is empty, merge the result using algorithm described below.
+If the value is "raw", include the result without any further processing.
 
 The resolved value is merged into the directive's dictionary using the following rules\:
 

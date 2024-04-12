@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
@@ -71,8 +72,9 @@
 <li class="toctree-l3"><a class="reference internal" href="#declaration">Declaration</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#definition">Definition</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#derived-from">derived_from</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#interfaces">interfaces</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#properties">properties</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#artifacts">artifacts</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#interfaces">interfaces</a></li>
 </ul>
 </li>
 </ul>
@@ -118,15 +120,16 @@
 <span id="id1"></span><h1>Node Types<a class="headerlink" href="#node-types" title="Permalink to this headline"></a></h1>
 <p><code class="docutils literal notranslate"><span class="pre">node_types</span></code> are used for defining common properties and behaviors for <a class="reference internal" href="spec-node-templates.html#node-templates"><span class="std std-ref">Node Templates</span></a>.
 <code class="docutils literal notranslate"><span class="pre">node-templates</span></code> can then be created based on these types, inheriting their definitions.</p>
+<p>A partial definition (type only) is treated a requirement that the node template declares an artifact of that name and type.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 
 <span class="w"> </span><span class="nt">type1</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.types.Root</span>
-<span class="w">   </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">   </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Root</span>
 <span class="w">   </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">   </span><span class="nt">interfaces</span><span class="p">:</span>
 <span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 
 <span class="w"> </span><span class="nt">type2</span><span class="p">:</span>
@@ -139,10 +142,10 @@
 <h2>Definition<a class="headerlink" href="#definition" title="Permalink to this headline"></a></h2>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 12%" />
-<col style="width: 15%" />
-<col style="width: 54%" />
+<col style="width: 17%" />
+<col style="width: 11%" />
+<col style="width: 20%" />
+<col style="width: 52%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Keyname</p></th>
@@ -153,9 +156,9 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p>derived_from</p></td>
-<td><p>no</p></td>
-<td><p>string</p></td>
-<td><p>A string referencing a parent type.</p></td>
+<td><p>yes</p></td>
+<td><p>string or list</p></td>
+<td><p>Parent type(s).</p></td>
 </tr>
 <tr class="row-odd"><td><p>metadata</p></td>
 <td><p>no</p></td>
@@ -182,7 +185,12 @@
 <td><p>dictionary</p></td>
 <td><p>A dictionary of node requirements.</p></td>
 </tr>
-<tr class="row-even"><td><p>interfaces</p></td>
+<tr class="row-even"><td><p>artifacts</p></td>
+<td><p>no</p></td>
+<td><p>dictionary</p></td>
+<td><p>A dictionary of artifact definitions.</p></td>
+</tr>
+<tr class="row-odd"><td><p>interfaces</p></td>
 <td><p>no</p></td>
 <td><p>dictionary</p></td>
 <td><p>A dictionary of node interfaces.</p></td>
@@ -196,6 +204,7 @@ existing type. This is useful for further extracting common properties
 and behaviors, this time in between <em>types</em>.</p>
 <p>Using this mechanism, one can build various type hierarchies which can
 be reused over different application service templates.</p>
+<p>As a TOSCA extension, Unfurl support multiple inheritance if a <code class="docutils literal notranslate"><span class="pre">derived_from</span></code> if a list of type names.</p>
 <p>When a type derives from another type, its <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> and
 <code class="docutils literal notranslate"><span class="pre">properties</span></code> keys get merged with the parent type’s <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> and
 <code class="docutils literal notranslate"><span class="pre">properties</span></code> keys. The merge is on the property/operation level: A
@@ -205,15 +214,6 @@ interface operation mapping - however, it is important to note that it’s
 possible to add in the deriving type additional operation mappings to an
 interface defined in the parent type. See the <a class="reference external" href="#examples">examples
 section</a> for more on this.</p>
-</section>
-<section id="interfaces">
-<h3>interfaces<a class="headerlink" href="#interfaces" title="Permalink to this headline"></a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> property may be used to define common behaviors for
-node templates.</p>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>For more information, please refer to the <a class="reference internal" href="spec-interfaces.html#interfaces-spec"><span class="std std-ref">Interfaces</span></a> section.</p>
-</div>
 </section>
 <section id="properties">
 <h3>properties<a class="headerlink" href="#properties" title="Permalink to this headline"></a></h3>
@@ -259,6 +259,21 @@ keys:</p>
 </tr>
 </tbody>
 </table>
+</section>
+<section id="artifacts">
+<h3>artifacts<a class="headerlink" href="#artifacts" title="Permalink to this headline"></a></h3>
+<p>As a TOSCA extension, Unfurl let’s you define <a class="reference internal" href="#artifacts"><span class="std std-ref">artifacts</span></a> on node types in addition to node templates.
+If the artifact is partially defined (<code class="docutils literal notranslate"><span class="pre">type</span></code> only), then node templates will be required to declare an artifact of that name and type.
+If the artifact has a complete definition it will be treated as if it was declared on node templates that match this node type.</p>
+</section>
+<section id="interfaces">
+<h3>interfaces<a class="headerlink" href="#interfaces" title="Permalink to this headline"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> property may be used to define common behaviors for
+node templates.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, please refer to the <a class="reference internal" href="spec-interfaces.html#interfaces-spec"><span class="std std-ref">Interfaces</span></a> section.</p>
+</div>
 <section id="examples">
 <h4>Examples<a class="headerlink" href="#examples" title="Permalink to this headline"></a></h4>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>

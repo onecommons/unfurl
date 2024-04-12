@@ -9,9 +9,10 @@ Extensions
 * add 'any' schema type for properties and attributes definitions
 * 'additionalProperties' field in type and template metadata
 * allow metadata field on inputs, outputs, artifacts, and repositories
+* metadata values can be JSON (instead only strings)
 * add "sensitive" property and datatype metadata field
 * add "immutable" property metadata field
-* add "environment" keyword to implementation definition
+* add "environment" keyword to ``implementation`` definition
 * add "eval" function
 * add "type" in capability assignment
 * allow workflows to be imported
@@ -27,14 +28,21 @@ Extensions
 * add "when" keyword to "imports" to allow conditional imports
 * add "decorators" section for rule-based enhancements of node templates
 * add "requirements" section to node_filters
-* allow "root" as alias for ``substitution_mappings``
-* add "node" keyword to ``substitution_mappings`` section
-* add ``not_implemented``, ``invoke``, ``entry_state`` keyword for operations (so an operation aren't inherited)
+* add "match" key to node_filters for selecting nodes
+* allow "root" to used as alias for the `substitution_mappings <substitution_mappings>` keyword.
+* add "node" keyword to `substitution_mappings <substitution_mappings>` section
+* add ``not_implemented`` keyword for operations (set to prevent operation inheritance)
+* add ``invoke`` keyword for operations (delegates to another operation)
+* add ``entry_state`` for operations (only invoke if target has advanced to given node state)
 * allow ``TOSCAVersion`` to accept Semantic Versioning 2.0 syntax
 * allow "required" key in artifact definitions on node types
 * allow "revision" keyword in repository definitions
 * allow "imported" key on template definitions
 * ``derived_from`` can accept a list types, enabling multiple inheritance.
+* add ``removed`` property status value
+* artifacts can be declared on node types.
+* add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts
+
 
 Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -44,7 +52,7 @@ conform with the TOSCA 1.3 specification:
 
 * The ``get_operation_output`` function (use :ref:`resultTemplate<resulttemplate>` instead)
 * "copy" keyword (use the ``dsl`` section or :ref:`merge directives<yaml_merge_directives>` instead)
-* `get_artifact` function (only implemented for artifacts that are container images)
+* the ``location`` and ``remove`` arguments to the `get_artifact` function
 * CSAR manifests and archives (implemented but untested)
 * substitution mappings: only input mappings are supported (set ``node`` to a node template instead)
 * triggers

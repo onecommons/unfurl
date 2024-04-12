@@ -1,8 +1,11 @@
+.. _tosca_repositories:
+
 Repositories
 ============
 
-``repositories`` refers to a named external repository which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.
+``repositories`` refers to a named `repository <repository>` which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.
 
+If the repository name matches the package id syntax, Unfurl will treat repository declaration as a package rule.
 
 Declaration
 +++++++++++
@@ -11,11 +14,19 @@ Declaration
 
  <repository_name>:
 
-   description: <repository_description>
-
    url: <repository_address>
 
-   credential: <authorization_credential>
+   # optional keys:
+
+   description: <repository_description>
+
+   credential: <authorization_credential (see tosca.datatypes.Credential)>
+
+   # optional Unfurl extensions:
+
+   revision: <revision>
+
+   metadata: <metadata>
 
 
 Example

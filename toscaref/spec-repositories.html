@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
@@ -110,17 +111,26 @@
            <div itemprop="articleBody">
              
   <section id="repositories">
-<h1>Repositories<a class="headerlink" href="#repositories" title="Permalink to this headline"></a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">repositories</span></code> refers to a named external repository which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.</p>
+<span id="tosca-repositories"></span><h1>Repositories<a class="headerlink" href="#repositories" title="Permalink to this headline"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">repositories</span></code> refers to a named <a class="reference internal" href="../packages.html#repository"><span class="std std-ref">repository</span></a> which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.</p>
+<p>If the repository name matches the package id syntax, Unfurl will treat repository declaration as a package rule.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;repository_name&gt;</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;repository_description&gt;</span>
-
 <span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;repository_address&gt;</span>
 
-<span class="w">  </span><span class="nt">credential</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;authorization_credential&gt;</span>
+<span class="w">  </span><span class="c1"># optional keys:</span>
+
+<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;repository_description&gt;</span>
+
+<span class="w">  </span><span class="nt">credential</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;authorization_credential (see tosca.datatypes.Credential)&gt;</span>
+
+<span class="w">  </span><span class="c1"># optional Unfurl extensions:</span>
+
+<span class="w">  </span><span class="nt">revision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;revision&gt;</span>
+
+<span class="w">  </span><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;metadata&gt;</span>
 </pre></div>
 </div>
 </section>

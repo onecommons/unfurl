@@ -33,6 +33,8 @@ Table of Contents
 
    Python alternative to YAML <dsl.md>
 
+   packages.rst
+
    jobs.rst
 
    runtime.rst

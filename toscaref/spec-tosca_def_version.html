@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
@@ -124,7 +125,7 @@
 <h1>Metadata Elements<a class="headerlink" href="#metadata-elements" title="Permalink to this headline"></a></h1>
 <section id="version">
 <h2>Version<a class="headerlink" href="#version" title="Permalink to this headline"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">tosca_definitions_version</span></code> is a top level element of the service template which is used to specify the version of TOSCA to be used.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tosca_definitions_version</span></code> is a top level element of the <a class="reference internal" href="../tosca.html#service-template"><span class="std std-ref">Service Template</span></a> which is used to specify the version of TOSCA to be used.</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">tosca_simple_unfurl_1_0_0</span></code> to enable Unfurl extensions or the standard <code class="docutils literal notranslate"><span class="pre">tosca_simple_yaml_1_3</span></code>.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
@@ -153,7 +154,7 @@
 </section>
 <section id="metadata">
 <h2>Metadata<a class="headerlink" href="#metadata" title="Permalink to this headline"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">metadata</span></code> allows a declaration of a map of keynames with string values. It is used to associate domain-specific metadata with the Service Template.</p>
+<p><code class="docutils literal notranslate"><span class="pre">metadata</span></code> allows a declaration of a map of key to string values or, as an Unfurl extension, any JSON type. It is used to associate domain-specific metadata with the Service Template.</p>
 <section id="id2">
 <h3>Example<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">metadata</span><span class="p">:</span>

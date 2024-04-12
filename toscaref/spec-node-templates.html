@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
@@ -123,7 +124,7 @@
              
   <section id="node-templates">
 <span id="id1"></span><h1>Node Templates<a class="headerlink" href="#node-templates" title="Permalink to this headline"></a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">node_templates</span></code> represent the actual instances of <a class="reference internal" href="spec-node-types.html#node-types"><span class="std std-ref">Node Types</span></a> which would eventually
+<p><code class="docutils literal notranslate"><span class="pre">node_templates</span></code> represent instances of <a class="reference internal" href="spec-node-types.html#node-types"><span class="std std-ref">Node Types</span></a> which would eventually
 represent a running application/service as described in the service template.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
@@ -133,6 +134,8 @@ is a node template.</p>
 
 <span class="w">  </span><span class="nt">node_template_1</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
 <span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
@@ -167,17 +170,22 @@ is a node template.</p>
 <td><p>string</p></td>
 <td><p>The <a class="reference internal" href="spec-node-types.html#node-types"><span class="std std-ref">node_type</span></a> of this node template.</p></td>
 </tr>
-<tr class="row-odd"><td><p>properties</p></td>
+<tr class="row-odd"><td><p>artifacts</p></td>
+<td><p>no</p></td>
+<td><p>dict</p></td>
+<td><p>See <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125252">TOSCA Artifact definition</a></p></td>
+</tr>
+<tr class="row-even"><td><p>properties</p></td>
 <td><p>no</p></td>
 <td><p>dict</p></td>
 <td><p>The properties of the node template matching its node type properties schema.</p></td>
 </tr>
-<tr class="row-even"><td><p>interfaces</p></td>
+<tr class="row-odd"><td><p>interfaces</p></td>
 <td><p>no</p></td>
 <td><p>interfaces</p></td>
 <td><p>Used for mapping plugins to <a class="reference internal" href="spec-node-types.html#interfaces"><span class="std std-ref">interfaces</span></a> operation or for specifying inputs for already mapped node type operations.</p></td>
 </tr>
-<tr class="row-odd"><td><p>requirements</p></td>
+<tr class="row-even"><td><p>requirements</p></td>
 <td><p>no</p></td>
 <td><p>requirements</p></td>
 <td><p>Used for specifying the <a class="reference internal" href="spec-requirements.html#requirements"><span class="std std-ref">requirements</span></a> this node template has.</p></td>

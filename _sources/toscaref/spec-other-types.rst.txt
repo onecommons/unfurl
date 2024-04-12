@@ -36,7 +36,6 @@ Example
 
 .. seealso:: For more information, refer to the :tosca_spec2:`TOSCA Artifact Type section <_Toc50125358>`
 
-
 .. _capability_types:
 
 Capability Types

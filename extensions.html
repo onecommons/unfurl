@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
@@ -118,9 +119,10 @@
 <li><p>add ‘any’ schema type for properties and attributes definitions</p></li>
 <li><p>‘additionalProperties’ field in type and template metadata</p></li>
 <li><p>allow metadata field on inputs, outputs, artifacts, and repositories</p></li>
+<li><p>metadata values can be JSON (instead only strings)</p></li>
 <li><p>add “sensitive” property and datatype metadata field</p></li>
 <li><p>add “immutable” property metadata field</p></li>
-<li><p>add “environment” keyword to implementation definition</p></li>
+<li><p>add “environment” keyword to <code class="docutils literal notranslate"><span class="pre">implementation</span></code> definition</p></li>
 <li><p>add “eval” function</p></li>
 <li><p>add “type” in capability assignment</p></li>
 <li><p>allow workflows to be imported</p></li>
@@ -136,14 +138,20 @@
 <li><p>add “when” keyword to “imports” to allow conditional imports</p></li>
 <li><p>add “decorators” section for rule-based enhancements of node templates</p></li>
 <li><p>add “requirements” section to node_filters</p></li>
-<li><p>allow “root” as alias for <code class="docutils literal notranslate"><span class="pre">substitution_mappings</span></code></p></li>
-<li><p>add “node” keyword to <code class="docutils literal notranslate"><span class="pre">substitution_mappings</span></code> section</p></li>
-<li><p>add <code class="docutils literal notranslate"><span class="pre">not_implemented</span></code>, <code class="docutils literal notranslate"><span class="pre">invoke</span></code>, <code class="docutils literal notranslate"><span class="pre">entry_state</span></code> keyword for operations (so an operation aren’t inherited)</p></li>
+<li><p>add “match” key to node_filters for selecting nodes</p></li>
+<li><p>allow “root” to used as alias for the <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">substitution_mappings</span></a> keyword.</p></li>
+<li><p>add “node” keyword to <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">substitution_mappings</span></a> section</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">not_implemented</span></code> keyword for operations (set to prevent operation inheritance)</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">invoke</span></code> keyword for operations (delegates to another operation)</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">entry_state</span></code> for operations (only invoke if target has advanced to given node state)</p></li>
 <li><p>allow <code class="docutils literal notranslate"><span class="pre">TOSCAVersion</span></code> to accept Semantic Versioning 2.0 syntax</p></li>
 <li><p>allow “required” key in artifact definitions on node types</p></li>
 <li><p>allow “revision” keyword in repository definitions</p></li>
 <li><p>allow “imported” key on template definitions</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">derived_from</span></code> can accept a list types, enabling multiple inheritance.</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">removed</span></code> property status value</p></li>
+<li><p>artifacts can be declared on node types.</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">target</span></code>, <code class="docutils literal notranslate"><span class="pre">contents</span></code>, <code class="docutils literal notranslate"><span class="pre">order</span></code>, <code class="docutils literal notranslate"><span class="pre">permissions</span></code>, and <code class="docutils literal notranslate"><span class="pre">intent</span></code> keywords to artifacts</p></li>
 </ul>
 </section>
 <section id="not-yet-implemented">
@@ -153,7 +161,7 @@ conform with the TOSCA 1.3 specification:</p>
 <ul class="simple">
 <li><p>The <code class="docutils literal notranslate"><span class="pre">get_operation_output</span></code> function (use <a class="reference internal" href="configurators.html#resulttemplate"><span class="std std-ref">resultTemplate</span></a> instead)</p></li>
 <li><p>“copy” keyword (use the <code class="docutils literal notranslate"><span class="pre">dsl</span></code> section or <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directives</span></a> instead)</p></li>
-<li><p><a class="reference internal" href="expressions.html#get-artifact"><span class="std std-ref">get_artifact</span></a> function (only implemented for artifacts that are container images)</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">location</span></code> and <code class="docutils literal notranslate"><span class="pre">remove</span></code> arguments to the <a class="reference internal" href="expressions.html#get-artifact"><span class="std std-ref">get_artifact</span></a> function</p></li>
 <li><p>CSAR manifests and archives (implemented but untested)</p></li>
 <li><p>substitution mappings: only input mappings are supported (set <code class="docutils literal notranslate"><span class="pre">node</span></code> to a node template instead)</p></li>
 <li><p>triggers</p></li>

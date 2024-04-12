@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
@@ -141,7 +142,7 @@
 <h1>Expression Functions<a class="headerlink" href="#expression-functions" title="Permalink to this headline"></a></h1>
 <section id="tosca-functions-and-other-stand-alone-functions">
 <h2>TOSCA functions and other stand-alone functions<a class="headerlink" href="#tosca-functions-and-other-stand-alone-functions" title="Permalink to this headline"></a></h2>
-<p>Stand-alone functions don’t need to be wrapped in an “eval”</p>
+<p>Stand-alone functions don’t need to be wrapped in an “eval”.</p>
 <blockquote>
 <div><table class="docutils align-default">
 <colgroup>
@@ -158,10 +159,10 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">string*</span> <span class="pre">]</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#get-artifact"><span class="std std-ref">get_artifact</span></a></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">instance_name,</span> <span class="pre">artifact_name]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">template_name,</span> <span class="pre">artifact_name]</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="#get-attribute"><span class="std std-ref">get_attribute</span></a></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">instance_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">template_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#get-env"><span class="std std-ref">get_env</span></a></p></td>
 <td><p><code class="regexp docutils literal notranslate"><span class="pre">[</span> <span class="pre">name,</span> <span class="pre">default?</span> <span class="pre">return</span> <span class="pre">]</span> <span class="pre">|</span> <span class="pre">name</span></code></p></td>
@@ -173,7 +174,7 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">type_name</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="#get-property"><span class="std std-ref">get_property</span></a></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">instance_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">template_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#has-env"><span class="std std-ref">has_env</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
@@ -200,11 +201,17 @@
 <section id="get-artifact">
 <h3>get_artifact<a class="headerlink" href="#get-artifact" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>The get_artifact function is used to retrieve artifact location between modelable entities defined in the same service template.</p>
-<p>If the artifact is a Docker image, return the image name in the form of
-“registry/repository/name:tag” or “registry/repository/name&#64;sha256:digest”</p>
-<p>If entity_name or artifact_name is not found return <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p>
-<p>See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125538">get_artifact</a>.</p>
+<div><p>The <code class="docutils literal notranslate"><span class="pre">get_artifact</span></code> function returns the location of the referenced artifact.
+The location depends on the type of artifact. If the artifact is a Docker container image, return the image name in the form of
+“registry/repository/name:tag” or “registry/repository/name&#64;sha256:digest”.
+If it is a file, return a local file path that is resolvable while the unfurl is running.
+In this case, calling get_artifact may have the side effect of downloading the file or cloning a git repository.</p>
+<p>The first argument is either a string or a instance reference (from an <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">eval expression</span></a>).</p>
+<p>If it is a string it should be the name of a node template or one of <code class="docutils literal notranslate"><span class="pre">SELF</span></code>, <code class="docutils literal notranslate"><span class="pre">SOURCE</span></code>, <code class="docutils literal notranslate"><span class="pre">TARGET</span></code>, <code class="docutils literal notranslate"><span class="pre">HOST</span></code>.
+If no node template is found return <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p>
+<p>The second argument is the name of the artifact associated with the node template referenced by the first argument.
+If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p>
+<p>See also the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125538">TOSCA get_artifact spec</a> (but note that <code class="docutils literal notranslate"><span class="pre">location</span></code> and <code class="docutils literal notranslate"><span class="pre">remove</span></code> arguments are not currently supported).</p>
 </div></blockquote>
 </section>
 <section id="get-attribute">
@@ -532,7 +539,7 @@ upon evaluation of this function, otherwise it will be read.</p>
 <dd class="field-even"><p>The location of home project (UNFURL_HOME).</p>
 </dd>
 </dl>
-<p>Otherwise look for a repository with the given name and return its path or None if not found.</p>
+<p>Otherwise look for a <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">repository</span></a> with the given name and return its path or None if not found.</p>
 <p>Also available as a jinja2 filter.</p>
 </div></blockquote>
 </section>
@@ -928,16 +935,19 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 <tr class="row-odd"><td><p>.sources</p></td>
 <td><p>map with requirement names as keys and source instances as values</p></td>
 </tr>
-<tr class="row-even"><td><p>.hosted_on</p></td>
+<tr class="row-even"><td><p>.repository</p></td>
+<td><p>repository associated with this artifact or resource</p></td>
+</tr>
+<tr class="row-odd"><td><p>.hosted_on</p></td>
 <td><p>Follow .targets, filtering by the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship</p></td>
 </tr>
-<tr class="row-odd"><td><p>.configured_by</p></td>
+<tr class="row-even"><td><p>.configured_by</p></td>
 <td><p>Follow .sources, filtering by the <code class="docutils literal notranslate"><span class="pre">Configures</span></code> relationship</p></td>
 </tr>
-<tr class="row-even"><td><p>.descendants</p></td>
+<tr class="row-odd"><td><p>.descendants</p></td>
 <td><p>(including self)</p></td>
 </tr>
-<tr class="row-odd"><td><p>.all</p></td>
+<tr class="row-even"><td><p>.all</p></td>
 <td><p>dictionary of child resources with their names as keys</p></td>
 </tr>
 </tbody>

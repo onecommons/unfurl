@@ -4,7 +4,7 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Substitution Mapping &mdash; Unfurl Documentation</title>
+  <title>Substitution Mappings &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
@@ -109,7 +110,7 @@
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="../toscaref.html">TOSCA Language Reference</a></li>
           <li class="breadcrumb-item"><a href="spec-topology-template.html">Topology Template</a></li>
-      <li class="breadcrumb-item active">Substitution Mapping</li>
+      <li class="breadcrumb-item active">Substitution Mappings</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/toscaref/spec-substitution-mapping.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -119,34 +120,47 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="substitution-mapping">
-<span id="id1"></span><h1>Substitution Mapping<a class="headerlink" href="#substitution-mapping" title="Permalink to this headline"></a></h1>
-<p>A substitution mapping allows a given topology template to be used as an implementation of abstract node templates of a specific node type. This allows the consumption of complex systems using a simplified vision.</p>
+  <section id="substitution-mappings">
+<span id="id1"></span><h1>Substitution Mappings<a class="headerlink" href="#substitution-mappings" title="Permalink to this headline"></a></h1>
+<p>TOSCA lets you replace a node template in one topology with another topology in its entirety.
+To make a topology available for substitution, add a <code class="docutils literal notranslate"><span class="pre">substitution_mappings</span></code> section to the topology template.
+To use this topology in another topology, declare a node template with a <code class="docutils literal notranslate"><span class="pre">substitute</span></code> directive and Unfurl will find a matching topology to replace the node template.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">substitution_mappings</span></code> section describes how to map the topology to the substituted node template’s type, properties, attributes, and requirements.
+As a TOSCA extension, Unfurl adds a <code class="docutils literal notranslate"><span class="pre">node</span></code> key to point to a node template in that topology to be used to replace the substituted node template in the other topology.
+This way, you don’t need to provide a full mapping.</p>
+<p>In addition, <code class="docutils literal notranslate"><span class="pre">root</span></code> can be used as an alias for the <code class="docutils literal notranslate"><span class="pre">substitution_mappings</span></code> keyword.
+This is also used by Unfurl to figure out which node templates to include in the plan for a deployment job.
+If it is present, only node templates reachable from that root template will be included in the plan.
+If it is not declared, all node templates in the topology will be included.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;node_type_name&gt;</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">substitution_mappings</span><span class="p">:</span><span class="w">  </span><span class="c1"># or root:</span>
 
-<span class="nt">substitution_filter </span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;node_filter&gt;</span>
+<span class="w">   </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;node_template_name&gt;</span><span class="w">  </span><span class="c1"># unfurl extension</span>
 
-<span class="nt">properties</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">node_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;node_type_name&gt;</span>
 
-<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">&lt;property_mappings&gt;</span>
+<span class="w">   </span><span class="nt">substitution_filter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;node_filter&gt;</span>
 
-<span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">properties</span><span class="p">:</span><span class="w">  </span><span class="c1"># mapping to map topology inputs to node template properties</span>
 
-<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">&lt;capability_mappings&gt;</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">&lt;property_mappings&gt;</span>
 
-<span class="nt">requirements</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">attributes</span><span class="p">:</span><span class="w"> </span><span class="c1"># mappings to map topology outputs to node template attributes</span>
 
-<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">&lt;requirement_mappings&gt;</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">&lt;attribute_mappings&gt;</span>
 
-<span class="nt">attributes</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">requirements</span><span class="p">:</span>
 
-<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">&lt;attribute_mappings&gt;</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">&lt;requirement_mappings&gt;</span>
 
-<span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">capabilities</span><span class="p">:</span><span class="w">   </span><span class="c1"># currently unsupported</span>
 
-<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">&lt;interface_mappings&gt;</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">&lt;capability_mappings&gt;</span>
+
+<span class="w">   </span><span class="nt">interfaces</span><span class="p">:</span><span class="w">    </span><span class="c1"># currently unsupported</span>
+
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">&lt;interface_mappings&gt;</span>
 </pre></div>
 </div>
 <div class="admonition seealso">

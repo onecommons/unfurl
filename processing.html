@@ -55,6 +55,7 @@
 <li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
@@ -135,8 +136,9 @@
 <p><code class="docutils literal notranslate"><span class="pre">*anchor</span></code>: a reference to YAML anchor that appears in either the current document or, a file was specified, from that file.</p>
 <p><code class="docutils literal notranslate"><span class="pre">relative</span> <span class="pre">path</span></code>: ‘.’+ The path starting at current location this key appears in.</p>
 <p><code class="docutils literal notranslate"><span class="pre">absolute</span> <span class="pre">path</span></code>: [/path]+ A path that is resolved following &lt;jsonpointer&gt; RFC</p>
-<p>If the value of the merge directive is empty, merge the result using algorithm described below.
-If the directive contains “include” and the value is a string, treat the value as a file path or a URL to a YAML or JSON file.
+<p>If the directive contains “include”, its value can be a map or a string. If it is a string, treat the value as a file path or a URL to a YAML or JSON file.
+If it is a map, it must have a <code class="docutils literal notranslate"><span class="pre">file</span></code> key whose value is file path or URL, and optionally a “repository” key.</p>
+<p>For other directives, if the value of the merge directive is empty, merge the result using algorithm described below.
 If the value is “raw”, include the result without any further processing.</p>
 <p>The resolved value is merged into the directive’s dictionary using the following rules:</p>
 <blockquote>
