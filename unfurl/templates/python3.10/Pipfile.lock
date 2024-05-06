@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "b11eccbf41eee71d66f997e30feaf7d2b7720bdc6ddc95f9b9d35d6511d411d4"
+            "sha256": "7295594ce8c9d95276d93d11179e27e4e18f6bd5188e8be0210be732afe5563e"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -656,11 +656,12 @@
         },
         "jinja2": {
             "hashes": [
-                "sha256:7d6d50dd97d52cbc355597bd845fabfbac3f551e1f99619e39a35ce8c370b5fa",
-                "sha256:ac8bd6544d4bb2c9792bf3a159e80bba8fda7f07e81bc3aed565432d5925ba90"
+                "sha256:4a3aee7acbbe7303aede8e9648d13b8bf88a429282aa6122a993f0ac800cb369",
+                "sha256:bc5dd2abb727a5319567b7a813e6a2e7318c39f4f487cfe6c89c6f9c7d25197d"
             ],
             "index": "pypi",
-            "version": "==3.1.3"
+            "markers": "python_version >= '3.7'",
+            "version": "==3.1.4"
         },
         "jmespath": {
             "hashes": [
@@ -740,6 +741,7 @@
                 "sha256:fc7b548b17d238737688817ab67deebb30e8073c95749d55538ed473130ec0c7"
             ],
             "index": "pypi",
+            "markers": "python_version >= '3.7'",
             "version": "==2.1.1"
         },
         "mypy-extensions": {
