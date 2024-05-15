@@ -1090,30 +1090,44 @@ class NodeInstance(HasInstancesInstance):
                         dep[rel.name] = rel.source
         return dep
 
-    def _configured_by(self) -> Iterator["NodeInstance"]:
+    def _configured_by(self, seen) -> Iterator["NodeInstance"]:
         for cap in self.capabilities:
             for rel in cap.relationships:
                 if rel.source:
+                    if id(rel.source) in seen:
+                        logger.debug(
+                            f"Circular operational dependency during configured_by in {seen}"
+                        )
+                        continue
+                    seen[id(rel.source)] = rel.source
+
                     if rel.template.is_compatible_type(
                         "unfurl.relationships.Configures"
                     ):
                         yield rel.source
-                    yield from rel.source._configured_by()
+                    yield from rel.source._configured_by(seen)
 
     @property
     def configured_by(self) -> List["NodeInstance"]:
-        return list(self._configured_by())
+        return list(self._configured_by({}))
 
-    def _hosted_on(self) -> Iterator["NodeInstance"]:
+    def _hosted_on(self, seen) -> Iterator["NodeInstance"]:
         for rel in self.requirements:
             if rel.target:
+                if id(rel.target) in seen:
+                    logger.debug(
+                        f"Circular operational dependency during hosting_on in {seen}"
+                    )
+                    continue
+                seen[id(rel.target)] = rel.target
+
                 if rel.template.is_compatible_type("tosca.relationships.HostedOn"):
                     yield rel.target
-                yield from rel.target._hosted_on()
+                yield from rel.target._hosted_on(seen)
 
     @property
     def hosted_on(self) -> List["NodeInstance"]:
-        return list(self._hosted_on())
+        return list(self._hosted_on({}))
 
     @property
     def targets(self) -> Dict[str, Union["NodeInstance", List["NodeInstance"]]]:
