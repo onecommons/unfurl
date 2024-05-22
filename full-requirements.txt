@@ -1,6 +1,3 @@
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# NB: this need to stay in in sync with [extras] in setup.cfg
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 docker[tls] # Apache 2.0
 kubernetes==24.2.0
 octodns == 0.9.14 # MIT
@@ -12,6 +9,3 @@ google-cloud-dns==0.34.0
 google-auth # Apache 2.0
 gunicorn==20.1.0
 redis==4.4.4
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# NB: this need to stay in in sync with [extras] in setup.cfg
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
