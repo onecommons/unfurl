@@ -1,4 +1,5 @@
 docker[tls] # Apache 2.0
+requests<2.32.0 # temporary pin to fix docker breakage See https://github.com/docker/docker-py/issues/3256
 kubernetes==24.2.0
 octodns == 0.9.14 # MIT
 boto3 # Apache 2.0
