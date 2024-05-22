@@ -1,6 +1,8 @@
 # https://setuptools.pypa.io/en/latest/userguide/miscellaneous.html
 include CHANGELOG.md
 global-exclude *.py[cod] __pycache__ *.so .DS_Store
+include rust/Cargo.toml rust/Cargo.lock rust/README.md
+recursive-include rust/src *.rs
 graft unfurl
 prune unfurl/vendor/tosca/vendor/toscaparser/tests
 global-exclude *.py[cod] __pycache__ *.so

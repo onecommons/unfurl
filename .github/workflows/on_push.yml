@@ -27,6 +27,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           check-latest: true
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+            profile: minimal
+            toolchain: stable
+            components: clippy
+            override: true
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
