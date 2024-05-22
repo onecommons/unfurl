@@ -259,7 +259,9 @@ class ToscaSpec:
             p.name: PolicySpec(p, self.topology)
             for p in self.template.topology_template.policies
         }
-        # this ToscaSpec is now ready, now we can call validate_relationships() which may invoke the find_matching_node callback
+
+        # this ToscaSpec is now ready, now we can call validate_relationships()
+        # which calls relationships() and may invoke the find_matching_node callback
         self.template.validate_relationships()
         self._post_node_filter_validation()
         ExceptionCollector.collecting = False
@@ -668,7 +670,7 @@ def find_env_vars(props_iter):
                     yield name, env_var_value(value)
 
 
-def find_props(attributes, propertyDefs, flatten=False):
+def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
     if not attributes:
         return
     for propdef in propertyDefs.values():
@@ -1911,7 +1913,9 @@ class ArtifactSpec(EntitySpec):
     def as_value(self) -> Optional[ExternalValue]:
         if self.is_compatible_type("tosca.artifacts.Deployment.Image.Container.Docker"):
             artifactDef = self.toscaEntityTemplate
-            assert not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
+            assert (
+                not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
+            )
             kw = dict(tag=self.properties.get("tag"), digest=artifactDef.checksum)
             if self.repository:
                 kw["registry_host"] = self.repository.hostname

@@ -864,11 +864,11 @@ def test_env_sub():
 
 def test_analyze_expr():
     result = analyze_expr(".targets::foo::baz")
-    assert result and result.get_keys() == ["", ".targets", "foo", "baz"]
+    assert result and result.get_keys() == ["$start", ".targets", "foo", "baz"]
 
     result = analyze_expr("$SOURCE::.targets::foo::baz", ["SOURCE"])
     assert result and result.get_keys() == ["SOURCE", ".targets", "foo", "baz"]
 
     result = analyze_expr({"get_property": ["HOST", "host", "disk_size"]})
-    assert result and not result.key
+    assert result and result.get_keys() == ['$start']
 

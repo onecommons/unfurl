@@ -78,6 +78,7 @@ from .packages import (
     get_package_from_url,
     resolve_package,
 )
+from .solver import solve_topology
 from . import DEFAULT_CLOUD_SERVER
 
 from .logs import getLogger
@@ -308,6 +309,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+        self.solve_topology = solve_topology
 
     GLOBAL_NAMESPACE_PACKAGES = os.getenv(
         "UNFURL_GLOBAL_NAMESPACE_PACKAGES",

@@ -132,10 +132,8 @@ def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
         topology.service.find_all_required_by(requirement, expected_type) == []
     )
 
-    # XXX this is broken because the node_filter match is evaluated too early and so .sources is empty
-    # assert topology.connection.parent == topology.service
+    assert topology.connection.parent == topology.service
     # print ( topology.connection._instance.template.sources )
-    assert topology.service.parent == None
 
     with pytest.raises(TypeError):
         topology.connection.find_required_by(Service.connects_to, tosca.nodes.Compute)

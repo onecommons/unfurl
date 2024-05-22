@@ -704,7 +704,7 @@ class SafeRefContext(RefContext):
 
 
 def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
-    ctx = ctx_cls(AnyRef(""), vars={n: AnyRef(n) for n in var_list})
+    ctx = ctx_cls(AnyRef("$start"), vars={n: AnyRef(n) for n in var_list})
     try:
         result = Ref(expr).resolve(ctx)
     except:
