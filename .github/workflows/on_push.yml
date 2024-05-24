@@ -364,7 +364,8 @@ jobs:
         CIBW_BUILD_FRONTEND: "build"
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
         # rust doesn't seem to be available for musl linux on i686
-        CIBW_SKIP: '*-musllinux_i686'
+        # and skip rare archs to speed up builds
+        CIBW_SKIP: '*-musllinux_i686 *ppc* *s390x'
         # we build for "alt_arch_name" if it exists, else 'auto
         CIBW_ARCHS: ${{ matrix.alt_arch_name || 'auto' }}
         # see https://cibuildwheel.readthedocs.io/en/stable/faq/#universal2, tests can run on cross-compiled binaries
@@ -388,7 +389,7 @@ jobs:
 
     - run: twine check dist/*
 
-    - uses: actions/upload-artifact@v3  # v4 doesn't allow same filename to be reloaded, see https://github.com/actions/upload-artifact/issues/478
+    - uses: actions/upload-artifact@v3  # v4 doesn't allow same filename to be reloaded, see https://github.com/actions/upload-artifact/blob/main/docs/MIGRATION.md#merging-multiple-artifacts
       with:
         name: pypi_files
         path: dist
