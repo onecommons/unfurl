@@ -851,6 +851,25 @@ class EnsembleBuilder:
         ), f"project not found in {search}, cloned to {newrepo.working_dir}"
         return self.source_project
 
+    def resolve_input_source(self, current_project):
+        if self.input_source.startswith("cloudmap:"):
+            from .cloudmap import CloudMap
+
+            local_env = LocalEnv(
+                can_be_empty=True,
+                homePath=self.home_path,
+                project=current_project,
+                override_context=self.options.get("use_environment"),
+            )
+            cloudmap = CloudMap.get_db(local_env)
+            repo_key = self.input_source[len("cloudmap:"):]
+            repo_record = cloudmap.repositories.get(repo_key)
+            if repo_record:
+                self.input_source = repo_record.git_url()
+            else:
+                raise UnfurlError(f"Could not find {repo_key} in the cloudmap.")
+        return self.input_source
+
     def clone_remote_project(self, currentProject, destDir):
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
@@ -1027,6 +1046,7 @@ def clone(
                 + '": file already exists with that name'
             )
     currentProject = find_project(dest, builder.home_path)
+    source = builder.resolve_input_source(currentProject)
 
     ### step 1: clone the source repository and set the the source path
     sourceProject = None
