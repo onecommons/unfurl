@@ -1,5 +1,5 @@
 use ascent::hashbrown::HashMap;
-use log::info;
+use log::debug;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
@@ -180,9 +180,9 @@ pub fn solve(_topology: Vec<Node>, type_parents: ToscaTypes) -> PyResult<Require
     for e in _topology {
         add_node_to_topology(e, &mut prog, &type_parents)?;
     }
-    info!("prog queries {:?}, {:?}", prog.req_term_query, prog.query);
+    debug!("solving queries {:?}, {:?}", prog.req_term_query, prog.query);
     prog.run();
-    info!("prog results {:?}", prog.result);
+    debug!("solve results {:?}", prog.result);
     // return requirement_match
     let mut requirements = RequirementMatches::new();
     for (source_node_name, req_name, target_node_name, target_capability_name) in

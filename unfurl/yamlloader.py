@@ -78,7 +78,6 @@ from .packages import (
     get_package_from_url,
     resolve_package,
 )
-from .solver import solve_topology
 from . import DEFAULT_CLOUD_SERVER
 
 from .logs import getLogger
@@ -99,6 +98,12 @@ if TYPE_CHECKING:
     from .manifest import Manifest
 
 logger = getLogger("unfurl")
+
+try:
+    from .solver import solve_topology
+except ImportError:
+    solve_topology = None
+    logger.warning("Failed to import tosca_solver extension, topology inference is disabled.")
 
 yaml_perf = 0.0
 
