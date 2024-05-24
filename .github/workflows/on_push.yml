@@ -30,10 +30,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-            profile: minimal
             toolchain: stable
             components: clippy
-            override: true
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -81,7 +79,7 @@ jobs:
         run: tox -e docs -- -W --keep-going
       - name: upload docs
         if: matrix.python == 3.9
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: DocumentationHTML
           path: .tox/docs/html/
@@ -310,16 +308,14 @@ jobs:
         include:
           - os: ubuntu
             platform: linux
-          # - os: windows
-          #   ls: dir
           - os: ubuntu
             arch: alt
             alt_arch_name: aarch64
           - os: macos
             arch: alt
             alt_arch_name: arm64
-          - os: macos
-            arch: main
+          # - os: macos
+          #   arch: main
 
     runs-on: ${{ format('{0}-latest', matrix.os) }}
     steps:
@@ -336,11 +332,9 @@ jobs:
       if: matrix.os != 'ubuntu'
       uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
         toolchain: nightly
-        override: true
 
-    - run: rustup target add aarch64-apple-darwin
+    - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       if: matrix.os == 'macos'
 
     - run: rustup toolchain install stable-i686-pc-windows-msvc
@@ -368,7 +362,6 @@ jobs:
       run: cibuildwheel --output-dir dist
       env:
         CIBW_BUILD_FRONTEND: "build"
-        CIBW_BUILD_VERBOSITY: 2
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
         # rust doesn't seem to be available for musl linux on i686
         CIBW_SKIP: '*-musllinux_i686'
@@ -380,6 +373,7 @@ jobs:
         # CIBW_TEST_COMMAND: 'pytest {project}/tests -s'
         CIBW_ENVIRONMENT: 'PATH="$HOME/.cargo/bin:$PATH"'
         CIBW_ENVIRONMENT_WINDOWS: 'PATH="$UserProfile\.cargo\bin;$PATH"'
+        CIBW_ARCHS_MACOS: "universal2"
         CIBW_MANYLINUX_I686_IMAGE: manylinux2014
         CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
         CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_1
@@ -394,7 +388,7 @@ jobs:
 
     - run: twine check dist/*
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3  # v4 doesn't allow same filename to be reloaded, see https://github.com/actions/upload-artifact/issues/478
       with:
         name: pypi_files
         path: dist
