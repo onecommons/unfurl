@@ -1431,6 +1431,12 @@ def help(ctx, cmd=""):
     envvar="UNFURL_SERVE_CORS",
     help='enable CORS with origin (e.g. "*")',
 )
+@click.option(
+    "--gui",
+    envvar="UNFURL_SERVE_GUI",
+    is_flag=True,
+    help='Serve the Unfurl GUI app'
+)
 def serve(
     ctx,
     port,
@@ -1440,6 +1446,7 @@ def serve(
     project_or_ensemble_path,
     cors,
     cloud_server,
+    gui,
     **options,
 ):
     """Run unfurl as a server."""
@@ -1461,6 +1468,7 @@ def serve(
         project_or_ensemble_path,
         options,
         cloud_server,
+        gui,
     )
 
 

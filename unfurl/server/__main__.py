@@ -53,13 +53,13 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from .graphql import ImportDef, ResourceTypesByName, get_local_type
-from .manifest import relabel_dict
-from .packages import Package, get_package_from_url, is_semver
+from ..graphql import ImportDef, ResourceTypesByName, get_local_type
+from ..manifest import relabel_dict
+from ..packages import Package, get_package_from_url, is_semver
 
-from .projectpaths import rmtree
-from .localenv import LocalEnv, Project
-from .repo import (
+from ..projectpaths import rmtree
+from ..localenv import LocalEnv, Project
+from ..repo import (
     GitRepo,
     Repo,
     RepoView,
@@ -70,14 +70,14 @@ from .repo import (
     split_git_url,
     get_remote_tags,
 )
-from .util import UnfurlError, get_package_digest, is_relative_to, unique_name
-from .logs import getLogger, add_log_file
-from .yamlmanifest import YamlManifest
-from .yamlloader import ImportResolver_Context, SimpleCacheResolver
-from . import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
-from . import to_json
-from . import init
-from .cloudmap import Repository, RepositoryDict
+from ..util import UnfurlError, get_package_digest, is_relative_to, unique_name
+from ..logs import getLogger, add_log_file
+from ..yamlmanifest import YamlManifest
+from ..yamlloader import ImportResolver_Context, SimpleCacheResolver
+from .. import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
+from .. import to_json
+from .. import init
+from ..cloudmap import Repository, RepositoryDict
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
 
@@ -2361,6 +2361,7 @@ def serve(
     project_path,
     options: dict,
     cloud_server=None,
+    gui: bool = False,
 ):
     """Start a simple HTTP server which will expose part of the CLI's API.
 
@@ -2403,6 +2404,11 @@ def serve(
         logger.warning(
             f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
         )
+
+    if gui:
+        from .gui import create_gui_routes
+
+        create_gui_routes()
 
     enter_safe_mode()
 
