@@ -1,4 +1,9 @@
 import os
+from typing import Optional
+
+from ..repo import GitRepo
+
+from ..localenv import LocalEnv
 from .__main__ import app
 from . import __main__ as ufserver
 from flask import request, Response, Request, jsonify, send_file
@@ -42,12 +47,15 @@ for filename in ['README', 'README.md', 'README.txt']:
             readme = file.read()
         break
 
-err, localenv = ufserver._make_readonly_localenv(UNFURL_SERVE_PATH, "")
-localrepo = ufserver._get_project_repo(UNFURL_SERVE_PATH, "", {})
+# err, localenv = ufserver._make_readonly_localenv(UNFURL_SERVE_PATH, "")
+# localrepo = ufserver._get_project_repo(UNFURL_SERVE_PATH, "", {})
+localenv = LocalEnv(UNFURL_SERVE_PATH)
+assert localenv.instance_repoview and localenv.instance_repoview.repo
+localrepo = localenv.instance_repoview.repo
 
 localrepo_is_dashboard = len(glob("unfurl.y*ml")) > 0 and len(glob("ensemble-template.y*ml")) == 0
 
-if localrepo_is_dashboard and localrepo.remote.url:
+if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
     parsed = urlparse(localrepo.remote.url)
     [user, password, *rest] = re.split(r'[@:]', parsed.netloc)
 
@@ -89,6 +97,8 @@ def serve_document(path):
     repo = get_repo(server_fragment)
 
     inspect([repo, path, server_fragment])
+    if not repo:
+        return "Not found", 404
     format = 'environments'
     if glob(os.path.join(repo.working_dir, 'ensemble-template.y*ml')):
         format = 'blueprint'
@@ -135,10 +145,10 @@ def proxy_webpack(url):
     return Response(res.content, res.status_code, headers)
 
 
-def get_repo(project_path):
+def get_repo(project_path) -> Optional[GitRepo]:
     project_path = project_path.rstrip('/')
-    if project_path == localenv.project.name or project_path == f"{user}/{localenv.project.name}":
-        repo = localrepo
+    if localenv.project and (project_path == localenv.project.name or project_path == f"{user}/{localenv.project.name}"):
+        repo: Optional[GitRepo] = localrepo
     else:
         repo = ufserver._get_project_repo(project_path, "", {})
 
@@ -160,6 +170,8 @@ def create_gui_routes():
     @app.route('/api/v4/projects/<path:project_path>/repository/branches')
     def branches(project_path):
         repo = get_repo(project_path)
+        if not repo:
+            return "Not found", 404
 
         return jsonify(
             #TODO
@@ -171,17 +183,18 @@ def create_gui_routes():
     def project(project_path):
         repo = get_repo(project_path)
         inspect([repo, project_path])
-
+        if not repo:
+            return {}
         return {"name": os.path.basename(repo.project_path())}
 
 
     @app.route('/<path:project_path>/-/raw/<branch>/<path:file>')
     def local_file(project_path, branch, file):
         repo = get_repo(project_path)
-
-        full_path = os.path.join(repo.working_dir, file)
-        if os.path.exists(full_path):
-            return send_file(full_path)
+        if repo:
+            full_path = os.path.join(repo.working_dir, file)
+            if os.path.exists(full_path):
+                return send_file(full_path)
 
         return "Not found", 404
 
