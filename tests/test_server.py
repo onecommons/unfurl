@@ -11,7 +11,7 @@ from multiprocessing import Process, set_start_method
 import requests
 from click.testing import CliRunner
 from git import Repo
-from unfurl import server
+from unfurl.server import __main__ as server
 
 import pytest
 from tests.utils import init_project, run_cmd

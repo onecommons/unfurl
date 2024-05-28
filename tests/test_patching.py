@@ -1,6 +1,6 @@
 import traceback
 from unfurl.localenv import LocalEnv
-from unfurl.server import _apply_environment_patch
+from unfurl.server.__main__ import _apply_environment_patch
 from click.testing import CliRunner
 from unfurl.testing import run_cmd
 from unfurl.to_json import to_environments
