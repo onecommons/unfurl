@@ -63,7 +63,11 @@ if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
 def get_head_contents(f):
     with open(f, 'r') as file:
         contents = file.read()
-        return re.search(r'<head.*?>(.*?)</head>', contents, re.DOTALL).group(1)
+        match = re.search(r'<head.*?>(.*?)</head>', contents, re.DOTALL)
+        if match:
+            return match.group(1)
+        else:
+            return ""
 
 
 if WEBPACK_ORIGIN:

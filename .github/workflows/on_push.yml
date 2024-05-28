@@ -68,7 +68,7 @@ jobs:
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -v -e $PY_V
           tox -e $PY_V -v -- -vv -n auto --dist loadfile
-          .tox/$PY_V/bin/mypy unfurl
+          .tox/$PY_V/bin/mypy unfurl --install-types --non-interactive
       - name: build docs
         if: matrix.python == 3.9
         run: tox -e docs -- -W --keep-going
