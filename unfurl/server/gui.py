@@ -53,7 +53,12 @@ localenv = LocalEnv(UNFURL_SERVE_PATH)
 assert localenv.instance_repoview and localenv.instance_repoview.repo
 localrepo = localenv.instance_repoview.repo
 
-localrepo_is_dashboard = len(glob("unfurl.y*ml")) > 0 and len(glob("ensemble-template.y*ml")) == 0
+localrepo_is_dashboard = (
+    len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml"))) > 0 and
+    len(glob(os.path.join("ensemble-template.y*ml"))) == 0
+)
+
+home_project = localrepo.project_path() if localrepo_is_dashboard else None
 
 if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
     parsed = urlparse(localrepo.remote.url)
@@ -97,10 +102,9 @@ else:
 
 
 def serve_document(path):
-    server_fragment = re.split(r"/(deployment-drafts|-)", path)[0]
+    server_fragment = re.split(r"/?(deployment-drafts|-)", path)[0]
     repo = get_repo(server_fragment)
 
-    inspect([repo, path, server_fragment])
     if not repo:
         return "Not found", 404
     format = 'environments'
@@ -123,8 +127,8 @@ def serve_document(path):
         head=(project_head if format == 'blueprint' else dashboard_head),
         project_path=project_path,
         namespace=os.path.dirname(project_path),
-        home_project = "dashboard" if localrepo_is_dashboard else None,
-        working_dir_project = f"{user}/dashboard" if localrepo_is_dashboard else project_name
+        home_project = home_project,
+        working_dir_project = home_project if localrepo_is_dashboard else project_path
     )
 
 
@@ -151,12 +155,11 @@ def proxy_webpack(url):
 
 def get_repo(project_path) -> Optional[GitRepo]:
     project_path = project_path.rstrip('/')
-    if localenv.project and (project_path == localenv.project.name or project_path == f"{user}/{localenv.project.name}"):
+    if localrepo and (project_path == localrepo.project_path()):
         repo: Optional[GitRepo] = localrepo
     else:
         repo = ufserver._get_project_repo(project_path, "", {})
 
-    inspect([project_path, repo])
     return repo
 
 
@@ -186,7 +189,6 @@ def create_gui_routes():
     @app.route('/api/v4/projects/<path:project_path>')
     def project(project_path):
         repo = get_repo(project_path)
-        inspect([repo, project_path])
         if not repo:
             return {}
         return {"name": os.path.basename(repo.project_path())}
@@ -206,8 +208,6 @@ def create_gui_routes():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_webpack(path):
-        # if path == '':
-            # path = 'dashboard'
         if 'text/html' in request.headers['accept']:
             return serve_document(path)
 
