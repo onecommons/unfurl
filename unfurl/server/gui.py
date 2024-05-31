@@ -39,13 +39,6 @@ env = Environment(loader=FileSystemLoader(
 ))
 blueprint_template = env.get_template('project.j2.html')
 dashboard_template = env.get_template('dashboard.j2.html')
-readme = None
-
-for filename in ['README', 'README.md', 'README.txt']:
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            readme = file.read()
-        break
 
 # err, localenv = ufserver._make_readonly_localenv(UNFURL_SERVE_PATH, "")
 # localrepo = ufserver._get_project_repo(UNFURL_SERVE_PATH, "", {})
@@ -63,6 +56,15 @@ home_project = localrepo.project_path() if localrepo_is_dashboard else None
 if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
     parsed = urlparse(localrepo.remote.url)
     [user, password, *rest] = re.split(r'[@:]', parsed.netloc)
+
+
+def get_project_readme(repo):
+    for filename in ['README', 'README.md', 'README.txt']:
+        path = os.path.join(repo.working_dir, filename)
+        inspect(path)
+        if os.path.exists(path):
+            with open(path, 'r') as file:
+                return file.read()
 
 
 def get_head_contents(f):
@@ -122,7 +124,7 @@ def serve_document(path):
 
     return template.render(
         name=project_name,
-        readme=readme,
+        readme=get_project_readme(repo),
         user=user,
         head=(project_head if format == 'blueprint' else dashboard_head),
         project_path=project_path,
