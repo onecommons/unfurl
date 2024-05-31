@@ -102,7 +102,7 @@ else:
 
 
 def serve_document(path):
-    server_fragment = re.split(r"/?(deployment-drafts|-)", path)[0]
+    server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)[0]
     repo = get_repo(server_fragment)
 
     if not repo:
@@ -159,6 +159,8 @@ def get_repo(project_path) -> Optional[GitRepo]:
         repo: Optional[GitRepo] = localrepo
     else:
         repo = ufserver._get_project_repo(project_path, "", {})
+        if not repo:
+            repo = ufserver._get_project_repo(os.path.basename(project_path), "", {})
 
     return repo
 
