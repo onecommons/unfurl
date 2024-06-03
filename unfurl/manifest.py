@@ -78,7 +78,7 @@ def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str,
     if localEnv:
         project = localEnv.project or localEnv.homeProject
         if project:
-            environments = project.contexts  # type: ignore
+            environments = project.contexts
 
     # handle items like newname : oldname to rename merged connections
     def follow_alias(v):

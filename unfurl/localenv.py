@@ -431,12 +431,15 @@ class Project:
     def _set_contexts(self) -> None:
         # merge project contexts with parent contexts
         contexts = self.localConfig.config.expanded.get("environments") or {}
+        # handle null environments:
+        dict_cls = getattr(contexts, "mapCtor", contexts.__class__)
+        contexts = dict_cls( (n, dict_cls() if v is None else v) for n, v in contexts.items())
         if self.parentProject:
-            parentContexts = self.parentProject.contexts  # type: ignore
+            parentContexts = self.parentProject.contexts
             contexts = merge_dicts(
                 parentContexts, contexts, replaceKeys=LocalConfig.replaceKeys
             )
-        self.contexts = contexts
+        self.contexts: Dict[str, dict] = contexts
 
     def get_context(
         self, contextName: Optional[str], context: Optional[dict] = None
