@@ -102,7 +102,7 @@ logger = getLogger("unfurl")
 try:
     from .solver import solve_topology
 except ImportError:
-    solve_topology = None
+    solve_topology = None  # type: ignore
     logger.warning("Failed to import tosca_solver extension, topology inference is disabled.")
 
 yaml_perf = 0.0

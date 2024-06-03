@@ -266,7 +266,7 @@ impl PartialOrd for SimpleValue {
             (SimpleValue::list { v }, SimpleValue::list { v: v2 }) => v.partial_cmp(v2),
             (SimpleValue::range { v }, SimpleValue::range { v: v2 }) => v.partial_cmp(v2),
             (SimpleValue::map { v }, SimpleValue::map { v: v2 }) => v.partial_cmp(v2),
-            _ => None,  // different types of SimpleValues are not comparable
+            _ => None, // different types of SimpleValues are not comparable
         }
     }
 }
@@ -317,7 +317,7 @@ impl ToscaValue {
 
     #[setter]
     fn set_v(&mut self, value: SimpleValue) -> PyResult<()> {
-        self.v= value;
+        self.v = value;
         Ok(())
     }
 }
@@ -330,12 +330,13 @@ pub enum FieldValue {
         // Expr(Vec<QuerySegment>),
     },
     Capability {
-        tosca_type: String,
+        tosca_type: String, // the capability type
         properties: Vec<Field>,
     },
     Requirement {
         terms: Vec<CriteriaTerm>,
-        tosca_type: Option<String>,
+        tosca_type: Option<String>, // the relationship type
+        restrictions: Vec<Field>, // node_filter requirement or property constraints to apply to the match
     },
 }
 
@@ -400,7 +401,7 @@ ascent! {
 
     // node_template definition
     relation capability (NodeName, CapabilityName, EntityRef);
-    relation requirement(NodeName, ReqName, Criteria);
+    relation requirement(NodeName, ReqName, Criteria, Vec<Field>);
     relation relationship(NodeName, ReqName, TypeName);
     relation req_term_node_name(NodeName, ReqName, CriteriaTerm, NodeName);
     relation req_term_node_type(NodeName, ReqName, CriteriaTerm, TypeName);
@@ -413,30 +414,30 @@ ascent! {
     relation requirement_match(NodeName, ReqName, NodeName, CapabilityName);
 
     term_match(source, req, criteria, ct, target, None) <--
-        node(target, typename), requirement(source, req, criteria),
+        node(target, typename), requirement(source, req, criteria, restrictions),
         req_term_node_name(source, req, ct, target) if source != target;
 
     term_match(source, req, criteria, ct, target, None) <--
-        node(target, typename), requirement(source, req, criteria),
+        node(target, typename), requirement(source, req, criteria, restrictions),
         req_term_node_type(source, req, ct, typename) if source != target;
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
         capability(target, cap_name, cap_id), entity(cap_id, typename),
-        requirement(source, req, criteria),
+        requirement(source, req, criteria, restrictions),
         req_term_cap_type(source, req, ct, typename) if source != target;
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
-        capability(target, cap_name, _), requirement(source, req, criteria),
+        capability(target, cap_name, _), requirement(source, req, criteria, restrictions),
         term_match(source, req, criteria, _, target, _),  // only match req_term_capname after we found candidate target nodes
         req_term_cap_name(source, req, ct, cap_name);
 
     term_match(source, req, criteria, ct, target, None) <--
         property_value (target, capname, propname, value),
-        requirement(source, req, criteria),
+        requirement(source, req, criteria, restrictions),
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
 
     term_match(source, req, criteria, ct, target, None) <--
-        result(source, req, q_id, target, true), requirement(source, req, criteria),
+        result(source, req, q_id, target, true), requirement(source, req, criteria, restrictions),
         req_term_query(node, req, ct, q_id);
 
     filtered(name, req_name, target, cn, criteria, Criteria::singleton(term.clone())) <--
@@ -452,7 +453,8 @@ ascent! {
         filtered(name, req_name, target, fcn, criteria, filter) if match_criteria(filter, criteria);
 
     // node_filter/requirements
-    // filtered  <-- for (target_criteria, target_req) in criteria.node_filter_match_requirements.iter(), requirement_match(criteria);
+    // filtered  <-- for (target_criteria, target_req) in criteria.node_filter_match_requirements.iter(),
+    //               requirement_match(criteria);
 
     // graph navigation
     relation required_by(NodeName, ReqName, NodeName);

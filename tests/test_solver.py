@@ -85,7 +85,7 @@ def test_solve():
     assert na.name == "a"
     assert na.tosca_type == "Foo"
     assert na.fields == [f]
-    nodes = [Node("a"), Node("b")]
+    nodes = {"a": Node("a"), "b": Node("b")}
     types = dict(a=["a", "Root"])
     solved = solve(nodes, types)
     assert not solved

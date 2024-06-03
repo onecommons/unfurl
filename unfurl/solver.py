@@ -31,9 +31,10 @@ class Node:
         self.name: str = name
         self.tosca_type: str = type
         self.fields: List[Field] = fields or []
+        self.has_restrictions: bool = False
 
     def __repr__(self) -> str:
-        return f"Node({self.name}, {self.tosca_type}, {self.fields!r})"
+        return f"Node({self.name}, {self.tosca_type}, {self.has_restrictions}, {self.fields!r})"
 
 
 def deduce_type(value):
@@ -180,6 +181,7 @@ def convert(
     # XXX if nt is in nested topology and replaced, partially convert the outer node instead
     assert nt.type_definition
     entity = Node(nt.name, nt.type_definition.type)
+    has_restrictions = False
     # print( entity.name )
     types[nt.type_definition.type] = [p.type for p in nt.type_definition.ancestors()]
     for cap in nt.get_capabilities_objects():
@@ -210,120 +212,157 @@ def convert(
         if type_req_dict:
             req_dict = dict(type_req_dict, **req_dict)
         required = "occurrences" not in req_dict or req_dict["occurrences"][0]
-        terms = []
-        capability = req_dict.get("capability")
-        if capability:
-            cap_type = topology_template.find_type(
-                capability, req_dict.get("!namespace-capability")
+        match_type = not on_type_only or required
+        field, found_restrictions = get_req_terms(
+            nt, types, topology_template, name, req_dict, match_type
+        )
+        # print("terms", terms)
+        if field:
+            entity.fields.append(field)
+        if found_restrictions:
+            has_restrictions = True
+    # print("rels", nt.relationships, nt.missing_requirements)
+    entity.has_restrictions = has_restrictions
+    return entity
+
+
+def add_match(terms, match):
+    if isinstance(match, dict) and (node_type := match.get("get_nodes_of_type")):
+        terms.append(CriteriaTerm.NodeType(node_type))
+    else:
+        skip = False
+        query = []
+        result = analyze_expr(match)
+        if result:
+            expr_list = result.get_keys()
+            # logger.warning(f"{match} {expr_list=}")
+            query_type = None
+            for key in expr_list:
+                if key == "$start":
+                    continue
+                if query_type is not None:
+                    query.append((query_type, key))
+                    query_type = None
+                else:
+                    if key.startswith("."):
+                        if key == ".configured_by":
+                            query.append(
+                                (
+                                    QueryType.RequiredByType,
+                                    "unfurl.relationships.Configures",
+                                )
+                            )
+                        elif key == ".hosted_on":
+                            query.append(
+                                (
+                                    QueryType.TransitiveRelationType,
+                                    "tosca.relationships.HostedOn",
+                                )
+                            )
+                        else:
+                            query_type = getattr(QueryType, key[1:].title(), None)
+                            if query_type is None:
+                                skip = True
+                                break
+                    else:  # key is prop
+                        query.append((QueryType.PropSource, key))
+                    # logger.warning(f"{skip} {query=}")
+        if query and not skip:
+            terms.append(CriteriaTerm.NodeMatch(query))
+
+
+def get_req_terms(
+    nt: NodeTemplate,
+    types: Dict[str, List[str]],
+    topology_template: TopologyTemplate,
+    name: str,
+    req_dict: dict,
+    match_type: bool,
+) -> Tuple[Optional[Field], bool]:
+    terms = []
+    restrictions = []
+    capability = req_dict.get("capability")
+    if capability:
+        cap_type = topology_template.find_type(
+            capability, req_dict.get("!namespace-capability")
+        )
+        if not cap_type:
+            terms.append(CriteriaTerm.CapabilityName(capability))
+        elif match_type:
+            # only match by type if the template has declared the requirement
+            terms.append(CriteriaTerm.CapabilityTypeGroup([capability]))
+    rel_type = None
+    relationship = req_dict.get("relationship")
+    if relationship:
+        relname = nt.get_rel_typename(name, req_dict)
+        # print("!relname", name, relationship, relname)
+        if relname:
+            rel = cast(
+                Optional[RelationshipType],
+                topology_template.find_type(
+                    relname, req_dict.get("!namespace-relationship")
+                ),
             )
-            if not cap_type:
-                terms.append(CriteriaTerm.CapabilityName(capability))
-            elif not on_type_only or required:
-                # only match by type if the template has declared the requirement
-                terms.append(CriteriaTerm.CapabilityTypeGroup([capability]))
-        rel_type = None
-        relationship = req_dict.get("relationship")
-        if relationship:
-            relname = nt.get_rel_typename(name, req_dict)
-            # print("!relname", name, relationship, relname)
-            if relname:
-                rel = cast(
-                    Optional[RelationshipType],
-                    topology_template.find_type(
-                        relname, req_dict.get("!namespace-relationship")
-                    ),
-                )
-                # print("!relname2", rel, rel and rel.valid_target_types)
-                if rel:
-                    rel_type = rel.type
-                    types[rel.type] = [p.type for p in rel.ancestors()]
-                    if rel.valid_target_types:
-                        terms.append(
-                            CriteriaTerm.CapabilityTypeGroup(rel.valid_target_types)
-                        )
-        node = req_dict.get("node")
-        if node:
-            if node in topology_template.node_templates:
-                # XXX if nt.substitution: nt.substitution.add_relationship(name, node)  # replacement nested node template with this outer one
-                terms.append(CriteriaTerm.NodeName(node))
-            elif not on_type_only or required:
-                # only match by type if the template declared the requirement
-                terms.append(CriteriaTerm.NodeType(node))
+            # print("!relname2", rel, rel and rel.valid_target_types)
+            if rel:
+                rel_type = rel.type
+                types[rel.type] = [p.type for p in rel.ancestors()]
+                if rel.valid_target_types:
+                    terms.append(
+                        CriteriaTerm.CapabilityTypeGroup(rel.valid_target_types)
+                    )
+    node = req_dict.get("node")
+    if node:
+        if node in topology_template.node_templates:
+            # XXX if nt.substitution: nt.substitution.add_relationship(name, node)  # replacement nested node template with this outer one
+            terms.append(CriteriaTerm.NodeName(node))
+        elif match_type:
+            # only match by type if the template declared the requirement
+            terms.append(CriteriaTerm.NodeType(node))
         node_filter = req_dict.get("node_filter")
         if node_filter:
             # print("node_filter", node_filter)
             match = node_filter.get("match")
             if match:
-                if isinstance(match, dict) and (
-                    node_type := match.get("get_nodes_of_type")
-                ):
-                    terms.append(CriteriaTerm.NodeType(node_type))
-                else:
-                    skip = False
-                    query = []
-                    result = analyze_expr(match)
-                    if result:
-                        expr_list = result.get_keys()
-                        # logger.warning(f"{match} {expr_list=}")
-                        query_type = None
-                        for key in expr_list:
-                            if key == "$start":
-                                continue
-                            if query_type is not None:
-                                query.append((query_type, key))
-                                query_type = None
-                            else:
-                                if key.startswith("."):
-                                    if key == ".configured_by":
-                                        query.append(
-                                            (
-                                                QueryType.RequiredByType,
-                                                "unfurl.relationships.Configures",
-                                            )
-                                        )
-                                    elif key == ".hosted_on":
-                                        query.append(
-                                            (
-                                                QueryType.TransitiveRelationType,
-                                                "tosca.relationships.HostedOn",
-                                            )
-                                        )
-                                    else:
-                                        query_type = getattr(
-                                            QueryType, key[1:].title(), None
-                                        )
-                                        if query_type is None:
-                                            skip = True
-                                            break
-                                else:  # key is prop
-                                    query.append((QueryType.PropSource, key))
-                    # logger.warning(f"{skip} {query=}")
-                    if query and not skip:
-                        terms.append(CriteriaTerm.NodeMatch(query))
+                add_match(terms, match)
             filter2term(terms, node_filter, None)
             for cap_filters in node_filter.get("capabilities", []):
                 cap_name, cap_filter = list(cap_filters.items())[0]
                 # print("cap", cap_name, cap_filter)
                 filter2term(terms, cap_filter, cap_name)
-            # XXX if requirements in node_filter
-            # print("terms", terms)
-        if terms:
-            entity.fields.append(Field(name, FieldValue.Requirement(terms, rel_type)))
-    # print("rels", nt.relationships, nt.missing_requirements)
-    return entity
+            for req_req in node_filter.get("requirements") or []:
+                req_req_name = list(req_req)[0]
+                req_field, _ = get_req_terms(
+                    nt,
+                    types,
+                    topology_template,
+                    req_req_name,
+                    req_req[req_req_name],
+                    True,
+                )
+                if req_field:
+                    restrictions.append(req_field)
+            # XXX add properties that are value constraints
+    if terms:
+        return Field(name, FieldValue.Requirement(terms, rel_type, restrictions)), bool(
+            restrictions
+        )
+    else:
+        return None, False
 
 
 def solve_topology(topology_template: TopologyTemplate) -> Solution:
     types: Dict[str, List[str]] = {}
-    nodes = [
-        convert(node, types, topology_template)
-        for node in topology_template.node_templates.values()
-    ]
+    nodes = {}
+    for node_template in topology_template.node_templates.values():
+        node = convert(node_template, types, topology_template)
+        nodes[node.name] = node
+
     # print("missing", topology_template.node_templates["app"].missing_requirements)
     # print ('types', types)
-    logger.debug("\n\n".join(repr(n) for n in nodes))
+    logger.debug("!solving " + "\n\n".join(repr(n) for n in nodes.values()))
     solved = cast(Solution, solve(nodes, types))
-    logger.debug(f"!solved! {solved}")
+    logger.debug(f"!solved!")  #  {solved}")
     for (source_name, req), targets in solved.items():
         source = topology_template.node_templates[source_name]
         if len(targets) > 1:
