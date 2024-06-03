@@ -11,6 +11,19 @@
       <div class="container-fluid container-limited limit-container-width">
         <main class="content" id="content-body" style="display: block !important;" itemscope
           itemtype="http://schema.org/SoftwareSourceCode">
+          <div class="flash-container flash-container-page sticky" data-qa-selector="flash_container">
+            {% for variant in [
+            "variant-success",
+            "variant-warning",
+            "variant-alert variant-danger",
+            "variant-notice variant-info"
+            ] %}
+            <div class="{{variant}} mb-2">
+              <span />
+              <div class="close-icon-wrapper js-close-icon"></div>
+            </div>
+            {% endfor %}
+          </div>
 
 
           {% block content %}
