@@ -49,6 +49,9 @@
     gon.home_project = {{home_project | tojson}}
     gon.unfurl_server_url = '/'
     gon.working_dir_project = "{{working_dir_project}}"
+    {% if origin %}
+    gon.gitlab_url = "{{origin}}"
+    {% endif %}
 
     // gon.user_color_scheme = "white"
     // gon.test_env = false
@@ -61,7 +64,6 @@
     // gon.markdown_surround_selection = true
     // gon.recaptcha_api_server_url = "https://www.google.com/recaptcha/api.js"
     // gon.recaptcha_sitekey = null
-    // gon.gitlab_url = "https://app.dev2.unfurl.cloud"
     // gon.revision = "e6e1593395b"
     // gon.feature_category = "continuous_integration"
     // gon.gitlab_logo = "/assets/gitlab_logo-7ae504fe4f68fdebb3c2034e36621930cd36ea87924c11ff65dbcb8ed50dca58.png"

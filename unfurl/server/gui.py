@@ -37,6 +37,7 @@ with app.app_context():
 env = Environment(loader=FileSystemLoader(
     os.path.join(local_dir, 'templates')
 ))
+origin = None
 blueprint_template = env.get_template('project.j2.html')
 dashboard_template = env.get_template('dashboard.j2.html')
 
@@ -56,6 +57,8 @@ home_project = localrepo.project_path() if localrepo_is_dashboard else None
 if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
     parsed = urlparse(localrepo.remote.url)
     [user, password, *rest] = re.split(r'[@:]', parsed.netloc)
+
+    origin = f"{parsed.scheme}://{parsed.hostname}"
 
 
 def get_project_readme(repo):
@@ -126,6 +129,7 @@ def serve_document(path):
         name=project_name,
         readme=get_project_readme(repo),
         user=user,
+        origin=origin,
         head=(project_head if format == 'blueprint' else dashboard_head),
         project_path=project_path,
         namespace=os.path.dirname(project_path),
@@ -212,7 +216,7 @@ def create_gui_routes():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_webpack(path):
-        if 'text/html' in request.headers['accept']:
+        if 'accept' in request.headers and 'text/html' in request.headers['accept']:
             return serve_document(path)
 
 
