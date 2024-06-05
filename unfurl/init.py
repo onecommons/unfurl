@@ -29,7 +29,8 @@ from .util import UnfurlError, assert_not_none, substitute_env
 from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib
 
-_templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
+_skeleton_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "skeletons")
+_template_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
 
 
 def rename_for_backup(dir):
@@ -55,21 +56,21 @@ def write_template(folder, filename, template, vars, templateDir=None):
 
     if templateDir and not (os.path.isabs(templateDir) or templateDir[0] == "."):
         # built-in template
-        templateDir = os.path.join(_templatePath, templateDir)
+        templateDir = os.path.join(_skeleton_path, templateDir)
 
     if templateDir:
-        searchPath = [templateDir, _templatePath]
+        searchPath = [templateDir, _skeleton_path]
     else:
-        searchPath = [_templatePath]
+        searchPath = [_skeleton_path]
 
     if not templateDir or not os.path.exists(os.path.join(templateDir, template)):
         # use default file if missing from templateDir
-        templateDir = _templatePath
+        templateDir = _skeleton_path
 
     with open(os.path.join(templateDir, template)) as f:
         source = f.read()
     instance = NodeInstance()
-    instance._baseDir = _templatePath
+    instance._baseDir = _skeleton_path
 
     overrides = dict(loader=FileSystemLoader(searchPath))
     content = apply_template(source, RefContext(instance, vars), overrides)
@@ -851,6 +852,25 @@ class EnsembleBuilder:
         ), f"project not found in {search}, cloned to {newrepo.working_dir}"
         return self.source_project
 
+    def resolve_input_source(self, current_project):
+        if self.input_source.startswith("cloudmap:"):
+            from .cloudmap import CloudMap
+
+            local_env = LocalEnv(
+                can_be_empty=True,
+                homePath=self.home_path,
+                project=current_project,
+                override_context=self.options.get("use_environment"),
+            )
+            cloudmap = CloudMap.get_db(local_env)
+            repo_key = self.input_source[len("cloudmap:"):]
+            repo_record = cloudmap.repositories.get(repo_key)
+            if repo_record:
+                self.input_source = repo_record.git_url()
+            else:
+                raise UnfurlError(f"Could not find {repo_key} in the cloudmap.")
+        return self.input_source
+
     def clone_remote_project(self, currentProject, destDir):
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
@@ -1027,6 +1047,7 @@ def clone(
                 + '": file already exists with that name'
             )
     currentProject = find_project(dest, builder.home_path)
+    source = builder.resolve_input_source(currentProject)
 
     ### step 1: clone the source repository and set the the source path
     sourceProject = None
@@ -1193,7 +1214,7 @@ def _add_unfurl_to_venv(projectdir):
     """
     # this should only be used when the current unfurl is installed in editor mode
     # otherwise it will be exposing all packages in the current python's site-packages
-    base = os.path.dirname(os.path.dirname(_templatePath))
+    base = os.path.dirname(os.path.dirname(_template_path))
     sitePackageDir = None
     libDir = os.path.join(projectdir, os.path.join(".venv", "lib"))
     for name in os.listdir(libDir):
@@ -1216,7 +1237,7 @@ def pipfile_template_dir(pythonPath):
     # version = subprocess.run([pythonPath, "-V"]).stdout.decode()[
     #     7:10
     # ]  # e.g. Python 3.8.1 => 3.8
-    return os.path.join(_templatePath, "python" + version)  # e.g. templates/python3.8
+    return os.path.join(_template_path, "python" + version)  # e.g. templates/python3.8
 
 
 def copy_pipfiles(pipfileLocation, projectDir):

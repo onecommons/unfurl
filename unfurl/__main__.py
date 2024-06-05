@@ -726,7 +726,7 @@ def plan(ctx, ensemble=None, **options):
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
-    help="Absolute path to a directory of project skeleton templates.",
+    help="Path to a directory of project skeleton templates.",
 )
 @click.option(
     "--create-environment",

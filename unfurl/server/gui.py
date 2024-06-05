@@ -199,8 +199,8 @@ def _set_variables(env_vars: List[EnvVar]):
     for envvar in env_vars:
         environment_scope = envvar["environment_scope"]
         env_nam = "defaults" if environment_scope == "*" else environment_scope
-        secrets = {}  # find_secret(env_nam)
-        env = {}
+        secrets: dict = {}  # find_secret(env_nam)
+        env: dict = {}
         key = envvar["key"]
         # XXX if variable_type == "file": tempfile: contents: value
         if envvar.get("_destroy"):
@@ -230,7 +230,7 @@ def _yield_variables() -> Iterator[EnvVar]:
             scope = env_name
         for name, value in env_vars.items():
             masked = is_sensitive(value)
-            variable_type = "env_var"
+            variable_type: Union[Literal["env_var"], Literal["file"]] = "env_var"
             if isinstance(value, dict) and "eval" in value:
                 eval_ref = value["eval"]
                 if "sensitive" in eval_ref:

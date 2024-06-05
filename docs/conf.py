@@ -47,6 +47,7 @@ myst_enable_extensions = [
 extlinks = {
     "onecommons": ("https://onecommons.org/%s", None),
     "unfurl_site": ("https://unfurl.run/%s", None),
+    "unfurl_github": ("https://github.com/onecommons/unfurl/tree/main/", None),
     "tosca_spec": (
         "_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
         "TOSCA 1.3 Specification: %",

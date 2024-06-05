@@ -1094,10 +1094,10 @@ def order_templates(
                     seen.add(operationHostSpec)
                     yield operationHostSpec
 
-        for nodespec in get_ancestor_templates(source, templates):
+        for nodespec in get_ancestor_templates([source], templates):
             if nodespec is not source:
                 # ancestor is required by source
-                nodespec._isReferencedBy.append(source)  # type: ignore
+                cast(list, nodespec._isReferencedBy).append(source)
             if nodespec in seen:
                 continue
             seen.add(nodespec)
@@ -1109,14 +1109,15 @@ def order_templates(
 
 
 def get_ancestor_templates(
-    source: NodeSpec, templates: Dict[str, NodeSpec]
+    stack: List[NodeSpec], templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
+    source = stack[-1]
     if not source.toscaEntityTemplate.is_replaced_by_outer():
         if source.abstract != "select":
             for req in source.requirements.values():
                 target = req.relationship and req.relationship.target
-                if target and target is not source:
-                    for ancestor in get_ancestor_templates(target, templates):
+                if target and target not in stack:
+                    for ancestor in get_ancestor_templates(stack + [target], templates):
                         yield ancestor
         yield source
 

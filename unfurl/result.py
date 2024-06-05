@@ -182,7 +182,7 @@ class AnyRef(ResourceRef):
     def _resolve(self, key):
         return AnyRef(key, self)
 
-    def get_keys(self):
+    def get_keys(self) -> List[str]:
         return [p.key for p in reversed(self.ancestors)]
 
 
