@@ -1,5 +1,8 @@
 import os
-from typing import Optional
+from typing import Any, Iterator, List, Literal, Optional, Union
+from typing_extensions import TypedDict, Required
+
+from ..logs import is_sensitive, getLogger
 
 from ..repo import GitRepo
 
@@ -14,11 +17,13 @@ from glob import glob
 from rich import inspect
 from urllib.parse import urlparse
 
+logger = getLogger("unfurl.gui")
+
 local_dir = os.path.dirname(os.path.abspath(__file__))
 
 with app.app_context():
-    UFGUI_DIR = os.getenv('UFGUI_DIR', local_dir)
-    WEBPACK_ORIGIN = os.getenv('WEBPACK_ORIGIN') # implied dev mode
+    UFGUI_DIR = os.getenv("UFGUI_DIR", local_dir)
+    WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")  # implied dev mode
     DIST = os.path.join(UFGUI_DIR, "dist")
     PUBLIC = os.path.join(UFGUI_DIR, "public")
 
@@ -31,49 +36,46 @@ with app.app_context():
     this, set up an application context with app.app_context().  See the
     documentation for more information.
     """
-    UNFURL_SERVE_PATH = "" #os.getenv("UNFURL_SERVE_PATH", "")
-    user = os.getenv('USER', 'unfurl-user')
+    UNFURL_SERVE_PATH = ""  # os.getenv("UNFURL_SERVE_PATH", "")
+    user = os.getenv("USER", "unfurl-user")
 
-env = Environment(loader=FileSystemLoader(
-    os.path.join(local_dir, 'templates')
-))
+env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 origin = None
-blueprint_template = env.get_template('project.j2.html')
-dashboard_template = env.get_template('dashboard.j2.html')
+blueprint_template = env.get_template("project.j2.html")
+dashboard_template = env.get_template("dashboard.j2.html")
 
-# err, localenv = ufserver._make_readonly_localenv(UNFURL_SERVE_PATH, "")
-# localrepo = ufserver._get_project_repo(UNFURL_SERVE_PATH, "", {})
-localenv = LocalEnv(UNFURL_SERVE_PATH)
+# the overrides is a hackish way to load all env vars for all environments
+localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
 assert localenv.instance_repoview and localenv.instance_repoview.repo
 localrepo = localenv.instance_repoview.repo
 
 localrepo_is_dashboard = (
-    len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml"))) > 0 and
-    len(glob(os.path.join("ensemble-template.y*ml"))) == 0
+    len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml"))) > 0
+    and len(glob(os.path.join("ensemble-template.y*ml"))) == 0
 )
 
 home_project = localrepo.project_path() if localrepo_is_dashboard else None
 
 if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
     parsed = urlparse(localrepo.remote.url)
-    [user, password, *rest] = re.split(r'[@:]', parsed.netloc)
+    [user, password, *rest] = re.split(r"[@:]", parsed.netloc)
 
     origin = f"{parsed.scheme}://{parsed.hostname}"
 
 
 def get_project_readme(repo):
-    for filename in ['README', 'README.md', 'README.txt']:
+    for filename in ["README", "README.md", "README.txt"]:
         path = os.path.join(repo.working_dir, filename)
         inspect(path)
         if os.path.exists(path):
-            with open(path, 'r') as file:
+            with open(path, "r") as file:
                 return file.read()
 
 
 def get_head_contents(f):
-    with open(f, 'r') as file:
+    with open(f, "r") as file:
         contents = file.read()
-        match = re.search(r'<head.*?>(.*?)</head>', contents, re.DOTALL)
+        match = re.search(r"<head.*?>(.*?)</head>", contents, re.DOTALL)
         if match:
             return match.group(1)
         else:
@@ -102,8 +104,12 @@ if WEBPACK_ORIGIN:
 
     """
 else:
-    project_head = f"<head>{get_head_contents(os.path.join(DIST, 'project.html'))}</head>"
-    dashboard_head = f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
+    project_head = (
+        f"<head>{get_head_contents(os.path.join(DIST, 'project.html'))}</head>"
+    )
+    dashboard_head = (
+        f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
+    )
 
 
 def serve_document(path):
@@ -112,15 +118,14 @@ def serve_document(path):
 
     if not repo:
         return "Not found", 404
-    format = 'environments'
-    if glob(os.path.join(repo.working_dir, 'ensemble-template.y*ml')):
-        format = 'blueprint'
+    format = "environments"
+    if glob(os.path.join(repo.working_dir, "ensemble-template.y*ml")):
+        format = "blueprint"
 
     project_path = repo.project_path()
     project_name = os.path.basename(project_path)
 
-
-    if format == 'blueprint':
+    if format == "blueprint":
         template = blueprint_template
     else:
         template = dashboard_template
@@ -130,37 +135,42 @@ def serve_document(path):
         readme=get_project_readme(repo),
         user=user,
         origin=origin,
-        head=(project_head if format == 'blueprint' else dashboard_head),
+        head=(project_head if format == "blueprint" else dashboard_head),
         project_path=project_path,
         namespace=os.path.dirname(project_path),
-        home_project = home_project,
-        working_dir_project = home_project if localrepo_is_dashboard else project_path
+        home_project=home_project,
+        working_dir_project=home_project if localrepo_is_dashboard else project_path,
     )
 
 
 def proxy_webpack(url):
     res = requests.request(  # ref. https://stackoverflow.com/a/36601467/248616
-        method          = request.method,
-        url             = url,
-        headers         = {k:v for k,v in request.headers if k.lower() != 'host'}, # exclude 'host' header
-        data            = request.get_data(),
-        cookies         = request.cookies,
-        allow_redirects = False,
+        method=request.method,
+        url=url,
+        headers={
+            k: v for k, v in request.headers if k.lower() != "host"
+        },  # exclude 'host' header
+        data=request.get_data(),
+        cookies=request.cookies,
+        allow_redirects=False,
     )
 
-    #region exlcude some keys in :res response
-    excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']  #NOTE we here exclude all "hop-by-hop headers" defined by RFC 2616 section 13.5.1 ref. https://www.rfc-editor.org/rfc/rfc2616#section-13.5.1
-    headers          = [
-        (k,v) for k,v in res.raw.headers.items()
-        if k.lower() not in excluded_headers
+    # exclude some keys in :res response
+    excluded_headers = [
+        "content-encoding",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+    ]  # NOTE we here exclude all "hop-by-hop headers" defined by RFC 2616 section 13.5.1 ref. https://www.rfc-editor.org/rfc/rfc2616#section-13.5.1
+    headers = [
+        (k, v) for k, v in res.raw.headers.items() if k.lower() not in excluded_headers
     ]
-    #endregion exlcude some keys in :res response
 
     return Response(res.content, res.status_code, headers)
 
 
 def get_repo(project_path) -> Optional[GitRepo]:
-    project_path = project_path.rstrip('/')
+    project_path = project_path.rstrip("/")
     if localrepo and (project_path == localrepo.project_path()):
         repo: Optional[GitRepo] = localrepo
     else:
@@ -171,38 +181,112 @@ def get_repo(project_path) -> Optional[GitRepo]:
     return repo
 
 
+class EnvVar(TypedDict, total=False):
+    # see https://docs.gitlab.com/ee/api/project_level_variables.html
+    id: Union[int, str]  # ID or URL-encoded path of the project
+    key: Required[str]
+    masked: Required[bool]
+    environment_scope: Required[str]
+    value: Any
+    secret_value: Any  # ??? not sent by api
+    _destroy: bool
+    variable_type: Union[Literal["env_var"], Literal["file"]]
+    raw: Literal[False]  # if true value isn't expanded
+    protected: Literal[False]
+
+
+def _set_variables(env_vars: List[EnvVar]):
+    for envvar in env_vars:
+        environment_scope = envvar["environment_scope"]
+        env_nam = "defaults" if environment_scope == "*" else environment_scope
+        secrets = {}  # find_secret(env_nam)
+        env = {}
+        key = envvar["key"]
+        # XXX if variable_type == "file": tempfile: contents: value
+        if envvar.get("_destroy"):
+            env.pop(key, None)
+            secrets.pop(key, None)
+        else:
+            if envvar["masked"]:
+                env.pop(key, None)  # in case this flag changed
+                # mark sensitive
+                env[key] = {"eval": dict(sensitive=envvar.get("secret_value"))}
+            else:
+                secrets.pop(key, None)  # in case this flag changed
+                env[key] = envvar.get("value")
+    return {}
+
+
+def _yield_variables() -> Iterator[EnvVar]:
+    project = localenv.project or localenv.homeProject
+    assert project
+    for env_name, context in project.contexts.items():
+        env_vars = context and context.get("variables")
+        if not env_vars:
+            continue
+        if env_name == "defaults":
+            scope = "*"
+        else:
+            scope = env_name
+        for name, value in env_vars.items():
+            masked = is_sensitive(value)
+            variable_type = "env_var"
+            if isinstance(value, dict) and "eval" in value:
+                eval_ref = value["eval"]
+                if "sensitive" in eval_ref:
+                    masked = True
+                    value = eval_ref["sensitive"]
+                if "tempfile" in eval_ref:
+                    variable_type = "file"
+                    value = eval_ref["tempfile"]
+            yield EnvVar(
+                id=scope + ":" + name,
+                key=name,
+                masked=masked,
+                variable_type=variable_type,
+                value=value,
+                environment_scope=scope,
+                protected=False,
+                raw=False,
+            )
+
+
 def create_gui_routes():
-    @app.route('/<user>/dashboard/-/variables', methods=["GET", "PATCH"])
-    def variables(user):
-        return {"variables": []}
+    @app.route("/<user>/dashboard/-/variables", methods=["GET"])
+    def get_variables(user):
+        return {"variables": list(_yield_variables())}
 
+    @app.route("/<user>/dashboard/-/variables", methods=["PATCH"])
+    def set_variables(user):
+        body = request.json
+        if isinstance(body, dict) and "variables_attributes" in body:
+            return _set_variables(body["variables_attributes"])
+        else:
+            return "Bad Request", 400
 
-    @app.route('/api/v4/unfurl_access_token')
+    @app.route("/api/v4/unfurl_access_token")
     def unfurl_access_token():
         return {"token": password}
 
-
-    @app.route('/api/v4/projects/<path:project_path>/repository/branches')
+    @app.route("/api/v4/projects/<path:project_path>/repository/branches")
     def branches(project_path):
         repo = get_repo(project_path)
         if not repo:
             return "Not found", 404
 
         return jsonify(
-            #TODO
+            # TODO
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
 
-
-    @app.route('/api/v4/projects/<path:project_path>')
+    @app.route("/api/v4/projects/<path:project_path>")
     def project(project_path):
         repo = get_repo(project_path)
         if not repo:
             return {}
         return {"name": os.path.basename(repo.project_path())}
 
-
-    @app.route('/<path:project_path>/-/raw/<branch>/<path:file>')
+    @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
     def local_file(project_path, branch, file):
         repo = get_repo(project_path)
         if repo:
@@ -212,26 +296,22 @@ def create_gui_routes():
 
         return "Not found", 404
 
-
-    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
     def serve_webpack(path):
-        if 'accept' in request.headers and 'text/html' in request.headers['accept']:
+        if "accept" in request.headers and "text/html" in request.headers["accept"]:
             return serve_document(path)
-
 
         if WEBPACK_ORIGIN:
             url = f"{WEBPACK_ORIGIN}/{path}"
         else:
             url = path
 
+        qs = request.query_string.decode("utf-8")
+        if qs != "":
+            url += "?" + qs
 
-        qs = request.query_string.decode('utf-8')
-        if qs != '':
-            url += '?' + qs
-
-
-        if request.headers['sec-fetch-dest'] == 'iframe':
+        if request.headers["sec-fetch-dest"] == "iframe":
             return "Not found", 404
 
         if WEBPACK_ORIGIN:

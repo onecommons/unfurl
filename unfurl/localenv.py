@@ -387,7 +387,7 @@ class Project:
 
     def get_manifest_path(
         self, localEnv: "LocalEnv", manifestPath: Optional[str], can_be_empty: bool
-    ) -> Tuple[Optional["Project"], str, str]:
+    ) -> Tuple[Optional["Project"], Optional[str], str]:
         if manifestPath:
             # at this point a named manifest
             location = self.find_ensemble_by_name(manifestPath)
@@ -666,6 +666,8 @@ class Project:
         if merge == "maplist" and template is not None:
             environment = url_vars.get("ENVIRONMENT")
             if not environment:
+                # find the name of the environment that the current ensemble's is using
+                # (we're still loading, so can't use manifest_context_name)
                 environment = expanded.get("default_environment")
                 ensembles = expanded.get("ensembles") or []
                 if "manifest_path" in url_vars:
@@ -681,7 +683,7 @@ class Project:
                 if ensemble_tpl:
                     environment = ensemble_tpl.get("environment", environment)
             template = CommentedMap(_maplist(template, environment))
-            logger.debug("retrieved remote environment vars: %s", template)
+            logger.debug("retrieved remote environment vars for %s: %s", (environment or "defaults"), template)
         return includekey, template
 
 
@@ -860,7 +862,7 @@ class LocalConfig:
 def _maplist(template, environment_scope=None):
     for var in template:
         scope = var.get("environment_scope", "*")
-        if scope != "*" and scope != environment_scope:
+        if scope != "*" and environment_scope != "*" and scope != environment_scope:
             # match or if environment_scope is None skip any != *
             continue
         value = var["value"]
