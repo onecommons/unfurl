@@ -16,6 +16,8 @@ import re
 from glob import glob
 from rich import inspect
 from urllib.parse import urlparse
+from ruamel.yaml.comments import CommentedMap
+
 
 logger = getLogger("unfurl.gui")
 
@@ -190,31 +192,66 @@ class EnvVar(TypedDict, total=False):
     value: Any
     secret_value: Any  # ??? not sent by api
     _destroy: bool
-    variable_type: Union[Literal["env_var"], Literal["file"]]
+    variable_type: Required[Union[Literal["env_var"], Literal["file"]]]
     raw: Literal[False]  # if true value isn't expanded
     protected: Literal[False]
 
 
 def _set_variables(env_vars: List[EnvVar]):
+    project = localenv.project or localenv.homeProject
+    assert project
+    secret_config_key, secret_config = project.localConfig.find_secret_include()
+    secret_environments = (
+        secret_config.setdefault("environments", CommentedMap())
+        if secret_config
+        else None
+    )
+    config: dict = project.localConfig.config.config
+    assert config
+    env = config.setdefault("environments", CommentedMap())
+    modified_secrets = False
+    modified_config = False
     for envvar in env_vars:
         environment_scope = envvar["environment_scope"]
-        env_nam = "defaults" if environment_scope == "*" else environment_scope
-        secrets: dict = {}  # find_secret(env_nam)
-        env: dict = {}
+        env_name = "defaults" if environment_scope == "*" else environment_scope
         key = envvar["key"]
-        # XXX if variable_type == "file": tempfile: contents: value
+        value = envvar.get("value")
+        if envvar["variable_type"] == "file":
+            value = {"eval": dict(tempfile=value)}
         if envvar.get("_destroy"):
-            env.pop(key, None)
-            secrets.pop(key, None)
+            if env_name in env and key in env[env_name]:
+                modified_config = True
+                del env[env_name][key]
+            secret_env = (
+                secret_environments.get(env_name) if secret_environments else None
+            )
+            if secret_env and key in secret_env:
+                modified_secrets = True
+                del secret_env[key]
         else:
             if envvar["masked"]:
                 env.pop(key, None)  # in case this flag changed
-                # mark sensitive
-                env[key] = {"eval": dict(sensitive=envvar.get("secret_value"))}
+                if secret_environments is not None:
+                    secret_env = secret_environments.setdefault(
+                        env_name, CommentedMap()
+                    )
+                    modified_secrets = True
+                    secret_env[key] = {"eval": dict(sensitive=value)}  # mark sensitive
             else:
-                secrets.pop(key, None)  # in case this flag changed
-                env[key] = envvar.get("value")
-    return {}
+                # in case this flag changed
+                secret_env = (
+                    secret_environments.get(env_name) if secret_environments else None
+                )
+                if secret_env and key in secret_env:
+                    modified_secrets = True
+                    del secret_env[key]
+                modified_config = True
+                env.setdefault(env_name, CommentedMap())[key] = value
+    if modified_secrets:
+        project.localConfig.config.save_include(secret_config_key)
+    if modified_config:
+        project.localConfig.config.save()
+    return {"variables": list(_yield_variables())}
 
 
 def _yield_variables() -> Iterator[EnvVar]:

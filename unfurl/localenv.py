@@ -433,7 +433,9 @@ class Project:
         contexts = self.localConfig.config.expanded.get("environments") or {}
         # handle null environments:
         dict_cls = getattr(contexts, "mapCtor", contexts.__class__)
-        contexts = dict_cls( (n, dict_cls() if v is None else v) for n, v in contexts.items())
+        contexts = dict_cls(
+            (n, dict_cls() if v is None else v) for n, v in contexts.items()
+        )
         if self.parentProject:
             parentContexts = self.parentProject.contexts
             contexts = merge_dicts(
@@ -619,9 +621,9 @@ class Project:
         self, project, for_context=None, changed=False, save_project=True
     ):
         self.localConfig.register_project(project, for_context, changed, save_project)
-        self.workingDirs[
-            project.project_repoview.working_dir
-        ] = project.project_repoview
+        self.workingDirs[project.project_repoview.working_dir] = (
+            project.project_repoview
+        )
 
     def load_yaml_include(
         self,
@@ -683,7 +685,11 @@ class Project:
                 if ensemble_tpl:
                     environment = ensemble_tpl.get("environment", environment)
             template = CommentedMap(_maplist(template, environment))
-            logger.debug("retrieved remote environment vars for %s: %s", (environment or "defaults"), template)
+            logger.debug(
+                "retrieved remote environment vars for %s: %s",
+                (environment or "defaults"),
+                template,
+            )
         return includekey, template
 
 
@@ -796,6 +802,17 @@ class LocalConfig:
 
         return name
 
+    def find_secret_include(self) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        base = self.config.get_base_dir()
+        key, include = self.config.search_includes(
+            pathPrefix=os.path.join(base, "secrets")
+        )
+        if key is None:
+            key, include = self.config.search_includes(
+                pathPrefix=os.path.join(base, "local")
+            )
+        return key, include
+
     def register_project(
         self, project: Project, for_context=None, changed=False, save_project=True
     ):
@@ -806,12 +823,14 @@ class LocalConfig:
         """
         # update, if necessary, localRepositories and projects
         key, local = self.config.search_includes(key="localRepositories")
+        assert self.config.config
         if not key and "localRepositories" not in self.config.config:
             # localRepositories doesn't exist, see if we are including a file inside "local"
             pathPrefix = os.path.join(self.config.get_base_dir(), "local")
             key, local = self.config.search_includes(pathPrefix=pathPrefix)
         if not key:
             local = self.config.config
+        assert isinstance(local, dict)
 
         repo = project.project_repoview
         localRepositories = local.setdefault("localRepositories", {})
@@ -996,7 +1015,7 @@ class LocalEnv:
             self.homeConfigPath: Optional[str] = parent.homeConfigPath
             self.homeProject: Optional[Project] = parent.homeProject
             self.make_resolver: Optional[Callable] = parent.make_resolver
-            self.loader_cache: dict  = parent.loader_cache
+            self.loader_cache: dict = parent.loader_cache
         else:
             self._projects = {}
             self._manifests = {}
@@ -1230,7 +1249,11 @@ class LocalEnv:
             repos = self.project._get_git_repos()
         else:
             repos = []
-        if self.instance_repoview and self.instance_repoview.repo and self.instance_repoview.repo not in repos:
+        if (
+            self.instance_repoview
+            and self.instance_repoview.repo
+            and self.instance_repoview.repo not in repos
+        ):
             return repos + [self.instance_repoview.repo]
         else:
             return repos
@@ -1260,7 +1283,9 @@ class LocalEnv:
         message = "Can't find an Unfurl ensemble or project in the current directory (or any of the parent directories)"
         raise UnfurlError(message)
 
-    def find_project(self, testPath: str, stopPath: Optional[str] = None) -> Optional[Project]:
+    def find_project(
+        self, testPath: str, stopPath: Optional[str] = None
+    ) -> Optional[Project]:
         """
         Walk parents looking for unfurl.yaml
         """
@@ -1407,7 +1432,9 @@ class LocalEnv:
             if filePath is not None:
                 return repo, filePath, repo.revision, False
 
-        candidate: Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]] = (None, None, None, None)
+        candidate: Tuple[
+            Optional[GitRepo], Optional[str], Optional[str], Optional[bool]
+        ] = (None, None, None, None)
         bare = False
         project = self.project or self.homeProject
         while project:
