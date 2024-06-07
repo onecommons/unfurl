@@ -14,6 +14,10 @@ For example, given this configuration snippet:
 environments:
   defaults:
     cloudmaps:
+      repositories:
+        cloudmap:
+          url: file:../cloudmap
+          clone_root: ../repos
       hosts:
         staging:
             type: unfurl.cloud
@@ -116,7 +120,7 @@ class Namespace:
 @dataclass
 class RepositoryMetadata:
     """
-    Metadata about the repository that isn't stored in the git repository itsself but might be provided by the host
+    Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
     e.g. metadata that found on the repository's GitHub or GitLab project page.
     """
 
@@ -585,21 +589,14 @@ class _LocalGitRepos:
         return None
 
 
-class Directory(_LocalGitRepos):
+class CloudMapDB:
     """
-    Loads and saves a yaml file
+    Loads the cloudmap yaml file
     """
-
     DEFAULT_NAME = "cloudmap.yml"
 
-    def __init__(
-        self, path=".", local_repo_root: str = "", skip_analysis=False
-    ) -> None:
-        self.do_analysis = not skip_analysis
+    def __init__(self, path=".") -> None:
         self._load(path)
-        self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
-        super().__init__(local_repo_root)
-        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable])
 
     def _load(self, path: str):
         if os.path.isdir(path):
@@ -624,12 +621,42 @@ class Directory(_LocalGitRepos):
         assert self.config.path
         self._load(self.config.path)
 
+    def save(self):
+        # maintain order of repositories so git merge is effective
+        # we want to support mirrors
+        self.db["schema"] = EntitySchema.Schema
+        self.db["repositories"] = {
+            k: self.repositories[k].asdict() for k in sorted(self.repositories)
+        }
+        self.db.pop("artifacts", None)
+        if self.artifacts:
+            self.db["artifacts"] = {
+                a: self.artifacts[a] for a in sorted(self.artifacts)
+            }
+        self.config.save()
+
+class Directory(_LocalGitRepos):
+    """
+    Loads and saves a yaml file
+    """
+
+    DEFAULT_NAME = "cloudmap.yml"
+
+    def __init__(
+        self, path=".", local_repo_root: str = "", skip_analysis=False
+    ) -> None:
+        self.db = CloudMapDB(path)
+        self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
+        _LocalGitRepos.__init__(self, local_repo_root)
+        self.do_analysis = not skip_analysis
+        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable])
+
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
     ) -> Iterator[Tuple[git.Remote, GitRepo, Repository]]:
         """for each repo that matches host.host and host.namespace, yield matching remote and Repository"""
         for url, remotes in self.remotes.items():
-            repo_info = self.repositories.get(url)
+            repo_info = self.db.repositories.get(url)
             if repo_info and host.has_repository(repo_info):
                 remote = self._choose_remote(remotes, host.name)
                 working_dir = cast(str, remote.repo.working_tree_dir)
@@ -660,20 +687,6 @@ class Directory(_LocalGitRepos):
     def cleanup_local(self):
         if self.tmp_dir:
             self.tmp_dir.cleanup()
-
-    def save(self):
-        # maintain order of repositories so git merge is effective
-        # we want to support mirrors
-        self.db["schema"] = EntitySchema.Schema
-        self.db["repositories"] = {
-            k: self.repositories[k].asdict() for k in sorted(self.repositories)
-        }
-        self.db.pop("artifacts", None)
-        if self.artifacts:
-            self.db["artifacts"] = {
-                a: self.artifacts[a] for a in sorted(self.artifacts)
-            }
-        self.config.save()
 
     def clone_repo(self, repo_info: Repository, url: str) -> GitRepo:
         # XXX handle conflict when same path, different host
@@ -725,7 +738,7 @@ class Directory(_LocalGitRepos):
         repo_info.add_notables(notables)
         for n in notables:
             for a in n.artifacts:
-                self.artifacts.update(a)
+                self.db.artifacts.update(a)
         return notables
 
 
@@ -863,14 +876,14 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     repo.pull(remote.name)
                 repository = self.git_to_repository(remote, path)
                 repository.initial_revision = repo.get_initial_revision()
-                previous = directory.repositories.get(repository.key)
+                previous = directory.db.repositories.get(repository.key)
                 if previous:
                     # don't replace metadata from remote host
                     if not previous.initial_revision:
                         previous.initial_revision = repository.initial_revision
                     repository = previous
                 else:
-                    directory.repositories[repository.key] = repository
+                    directory.db.repositories[repository.key] = repository
                 directory.maybe_analyze(
                     repository, repo, previous.notable if previous else {}
                 )
@@ -987,7 +1000,7 @@ class GitlabManager(RepositoryHost):
 
     def _import_projects_from_host(self, projects, directory: Directory):
         # XXX delete removed projects
-        repositories = directory.repositories
+        repositories = directory.db.repositories
         for p in projects:
             if self.repo_filter:
                 git_url, scheme = self._git_url(p)
@@ -1047,7 +1060,7 @@ class GitlabManager(RepositoryHost):
         """
         # filter repositories to only ones that match the path
         repositories = [
-            r for r in directory.repositories.values() if self.has_repository(r)
+            r for r in directory.db.repositories.values() if self.has_repository(r)
         ]
 
         dest_path = self.path
@@ -1319,6 +1332,19 @@ class CloudMap:
         )
 
     @classmethod
+    def get_db(
+        cls,
+        local_env: "LocalEnv",
+        name: str = "cloudmap",
+    ) -> "CloudMapDB":
+        url, path, revision, _ = cls.get_config(local_env, name)
+        repo, _, _ = local_env.find_or_create_working_dir(url, revision)
+        if not repo:
+            raise UnfurlError(f"couldn't clone {url}")
+        filepath = str(Path(repo.working_dir) / (path or "cloudmap.yaml"))
+        return CloudMapDB(filepath)
+
+    @classmethod
     def from_name(
         cls,
         local_env: "LocalEnv",
@@ -1328,30 +1354,17 @@ class CloudMap:
         namespace: str,
         skip_analysis: bool,
     ) -> "CloudMap":
-        environment = local_env.get_context().get("cloudmaps", {})
-        # for now name is just the name of repository
-        repository = environment.get("repositories", {}).get(name)
-        if repository:
-            cloudmap_url = repository["url"]
-            localrepo_root = repository.get("clone_root", clone_root)
-        else:
-            if name == "cloudmap":
-                cloudmap_url = DEFAULT_CLOUDMAP_REPO
-            else:
-                # assume name is an url or local path
-                cloudmap_url = name
-            localrepo_root = clone_root
-        url, path, revision = split_git_url(cloudmap_url)
-        url = normalize_git_url(url)
+        url, path, revision, repository = cls.get_config(local_env, name)
+        local_repo_root = repository.get("clone_root", clone_root)
 
         # what if branch only exists locally?
         if not host_name:
-            branch = revision or "main"
+            branch = revision
             branch_exists = True
         else:
             branch = f"hosts/{host_name}"
             local_repo = local_env.find_git_repo(url, branch)
-            if local_repo and branch in local_repo.repo.branches:  # type: ignore
+            if local_repo and branch in local_repo.repo.branches:  # type: ignore  # Unsupported right operand type for in
                 branch_exists = True
             else:
                 try:
@@ -1373,7 +1386,24 @@ class CloudMap:
             )
         if not repo:
             raise UnfurlError(f"couldn't clone {url}")
-        return CloudMap(repo, branch, localrepo_root, path, skip_analysis)
+        return CloudMap(repo, branch, local_repo_root, path, skip_analysis)
+
+    @classmethod
+    def get_config(cls, local_env, name) -> Tuple[str, str, str, dict]:
+        environment = local_env.get_context().get("cloudmaps", {})
+        # for now name is just the name of repository
+        repository = environment.get("repositories", {}).get(name)
+        if repository:
+            cloudmap_url = repository["url"]
+        else:
+            if name == "cloudmap":
+                cloudmap_url = DEFAULT_CLOUDMAP_REPO
+            else:
+                # assume name is an url or local path
+                cloudmap_url = name
+            repository = {}
+        url, path, revision = split_git_url(cloudmap_url)
+        return normalize_git_url(url), path, revision or "main", repository
 
     @classmethod
     def get_host(
@@ -1441,7 +1471,7 @@ class CloudMap:
     def to_host(self, host: RepositoryHost, merge_host: bool, force=False) -> None:
         if self.branch != "main":
             self.repo.checkout("main")
-            self.directory.reload()  # map may have changed, reload the directory
+            self.directory.db.reload()  # map may have changed, reload the directory
             # make sure local repos matches the cloudmap
             mismatched = self.directory.find_mismatched_repo(host)
             if mismatched:
@@ -1455,7 +1485,7 @@ class CloudMap:
                 self.repo.repo.git.merge(
                     self.branch, m=f"merge changes from syncing {self.branch}"
                 )
-                self.directory.reload()  # map changed, reload the directory
+                self.directory.db.reload()  # map changed, reload the directory
 
             # for each repository merge the host's default branch (it was already fetched during from_host())
             # into the local repo's default branch
@@ -1472,10 +1502,10 @@ class CloudMap:
             self.repo.repo.git.branch(self.branch, f=True)
 
     def save(self, msg: str) -> bool:
-        self.directory.save()
-        if self.repo.is_dirty(True, self.directory.config.path):
-            assert self.directory.config.path
-            self.repo.commit_files([self.directory.config.path], msg)
+        self.directory.db.save()
+        if self.repo.is_dirty(True, self.directory.db.config.path):
+            assert self.directory.db.config.path
+            self.repo.commit_files([self.directory.db.config.path], msg)
             self.repo.repo.index.commit(msg)
             logger.debug(f"committed: {msg}")
             return True

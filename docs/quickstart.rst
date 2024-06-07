@@ -15,7 +15,7 @@ This will create an Unfurl project that, by default, is located at ``~/.unfurl_h
 
     unfurl init --create-environment aws-staging --skeleton aws
 
-The ``--skeleton`` option lets you specify an alternative to the default project skeleton. Unfurl currently includes two: ``gcp`` and ``aws``.
+The ``--skeleton`` option lets you specify an alternative to the default project skeleton. A list of the currently available skeletons is :unfurl_github:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
 
 .. important::
 
