@@ -175,7 +175,7 @@ class CliTest(unittest.TestCase):
         repoPath = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
         # fully specify the runtime so we can point to our fake empty unfurl package
         cmd = f"-vvv --runtime='venv:{venvSrc}:git+file://{repoPath}#egg=unfurl&subdirectory=tests/fixtures' runtime --init"
-        print("running", "unfurl " + cmd)
+        # print("running", "unfurl " + cmd)
         with runner.isolated_filesystem():
             result = runner.invoke(cli, cmd)
             assert not result.exception, "\n".join(
@@ -184,7 +184,6 @@ class CliTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result)
             self.assertIn("Created runtime", result.output)
             self.assertIn("Installing dependencies from Pipfile.lock", result.output)
-            # assert os.path.exists(".venv/src/unfurl")
             assert os.path.exists(".venv/bin/unfurl")
 
             result = runner.invoke(cli, ["init", "--mono", "test"])
