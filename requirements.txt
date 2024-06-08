@@ -1,5 +1,5 @@
 # pbr uses this for install_requires
-pipenv==2023.7.3 # MIT
+pipenv==2024.0.0 # MIT
 click>=8.0.1,<8.1.4 # BSD 3-clause
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml==0.17.21
