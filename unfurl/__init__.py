@@ -3,7 +3,7 @@
 import logging
 import os
 import sys
-from typing import Dict, Union, TYPE_CHECKING
+from typing import Dict, Optional, Union, TYPE_CHECKING
 
 import pbr.version
 
@@ -63,7 +63,7 @@ class DefaultNames:
     LocalConfigTemplate = ".unfurl-local-template.yaml"
     InputsTemplate = "inputs-template.yaml"
 
-    def __init__(self, **names: Dict[str, str]) -> None:
+    def __init__(self, **names: Optional[str]) -> None:
         self.__dict__.update({name: value for name, value in names.items() if value})
 
 DEFAULT_CLOUD_SERVER = "https://unfurl.cloud"
