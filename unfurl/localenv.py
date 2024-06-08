@@ -1305,13 +1305,13 @@ class LocalEnv:
         return context
 
     @staticmethod
-    def get_runtime(ensemble_path: str,  home_path: Optional[str]) -> Optional[str]:
+    def get_runtime(ensemble_path: Optional[str],  home_path: Optional[str]) -> Optional[str]:
         home_config_path = get_home_config_path(home_path)
         if home_config_path:
             venv_path = os.path.join(os.path.dirname(home_config_path), ".venv")
             if os.path.isdir(venv_path):
                 return "venv:" + venv_path
-        project_path = Project.find_path(ensemble_path, os.getenv("UNFURL_SEARCH_ROOT"))
+        project_path = Project.find_path(ensemble_path or ".", os.getenv("UNFURL_SEARCH_ROOT"))
         if project_path:
             venv_path = os.path.join(os.path.dirname(project_path), ".venv")
             if os.path.isdir(venv_path):

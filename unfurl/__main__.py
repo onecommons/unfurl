@@ -291,7 +291,7 @@ def run(ctx, instance="root", cmdline=None, **options):
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
-def _get_runtime(options: dict, ensemble_path: str) -> Optional[str]:
+def _get_runtime(options: dict, ensemble_path: Optional[str]) -> Optional[str]:
     runtime = options.get("runtime")
     if runtime:
         return runtime
@@ -299,7 +299,7 @@ def _get_runtime(options: dict, ensemble_path: str) -> Optional[str]:
         return LocalEnv.get_runtime(ensemble_path, options.get("home"))
 
 
-def _run(ensemble: str, options, workflow=None):
+def _run(ensemble: Optional[str], options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
@@ -532,7 +532,7 @@ def _stop_logging(job, options, verbose, tmplogfile, summary):
         click.echo("Done, full log written to " + log_path)
 
 
-def _run_local(ensemble: str, options):
+def _run_local(ensemble: Optional[str], options: dict):
     logger = logging.getLogger("unfurl")
     logger.verbose("Running command: %s", sys.argv[1:])  # type: ignore
     verbose = options.get("verbose", 0)
@@ -542,8 +542,9 @@ def _run_local(ensemble: str, options):
     summary = ""
     if job:
         declined = False
-        if not job.unexpectedAbort and not job.planOnly and proceed:
+        if not job.unexpectedAbort and not job.jobOptions.planOnly and proceed:
             if options.get("approve") or yesno("proceed with job?"):
+                assert rendered
                 job.run(rendered)
             else:
                 declined = True
@@ -626,7 +627,7 @@ deployFilterOptions = option_group(
 @commonJobFilterOptions
 @deployFilterOptions
 @jobControlOptions
-def deploy(ctx, ensemble=None, **options):
+def deploy(ctx, ensemble: Optional[str]=None, **options):
     """
     Deploy the given ensemble
     """

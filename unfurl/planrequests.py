@@ -896,13 +896,14 @@ def _reevaluate_not_required(
             new_not_required.append(request)
     return new_not_required
 
+RenderRequests = Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]
 
 def do_render_requests(
     job,
     requests: Sequence[PlanRequest],
     future_requests: List[PlanRequest] = [],
     check_target: str = "",
-) -> Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]:
+) -> RenderRequests:
     ready: List[PlanRequest] = []
     notReady: List[PlanRequest] = []
     errors: List[PlanRequest] = []

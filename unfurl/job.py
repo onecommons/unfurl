@@ -26,6 +26,7 @@ from typing import (
     TYPE_CHECKING,
     overload,
 )
+from typing_extensions import Literal
 from .support import (
     Status,
     Priority,
@@ -60,6 +61,7 @@ from .planrequests import (
     TaskRequestGroup,
     SetStateRequest,
     JobRequest,
+    RenderRequests,
     do_render_requests,
     get_render_requests,
     set_fulfilled,
@@ -645,7 +647,6 @@ def _dependency_check(
         reason = ""
     return missing, reason
 
-
 class Job(ConfigChange):
     """
     runs ConfigTasks and child Jobs
@@ -720,7 +721,7 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance
             )
 
-    def render(self) -> Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]:
+    def render(self) -> RenderRequests:
         if self.plan_requests is None:
             ready: Sequence[PlanRequest] = self.create_plan()
         else:
@@ -751,7 +752,7 @@ class Job(ConfigChange):
     def _run_requests(
         self,
         rendered_requests: Optional[
-            Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]
+            RenderRequests
         ] = None,
     ) -> ResourceRef:
         if rendered_requests:
@@ -866,7 +867,7 @@ class Job(ConfigChange):
         self._apply_workfolders()
 
     def run(
-        self, rendered: Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]
+        self, rendered: RenderRequests
     ) -> None:
         manifest = self.manifest
         startTime = perf_counter()
@@ -1439,6 +1440,20 @@ class Job(ConfigChange):
     ) -> Union[str, list]:
         return JobReporter.json_plan_summary(self, pretty, include_rendered)
 
+    @overload
+    def json_summary(self) -> Dict[str, int]:
+        ...
+
+    @overload
+    def json_summary(self, pretty: Literal[True]) -> str:
+        ...
+
+    @overload
+    def json_summary(
+        self, pretty: bool = False, external: bool = False, add_rendered: bool = False
+    ) -> Union[str, Dict[str, Any]]:
+        ...
+
     def json_summary(
         self, pretty: bool = False, external: bool = False, add_rendered: bool = False
     ) -> Union[str, Dict[str, Any]]:
@@ -1532,7 +1547,7 @@ def _render(job: Job):
     return (ready, notReady, errors), count
 
 
-def start_job(manifestPath=None, _opts=None):
+def start_job(manifestPath=None, _opts=None) -> Tuple[Optional[Job], Optional[RenderRequests], bool]:
     _opts = _opts or {}
     localEnv = LocalEnv(
         manifestPath,
@@ -1571,10 +1586,10 @@ def start_job(manifestPath=None, _opts=None):
     if errors:
         logger.error("Aborting job: there were errors during rendering: %s", errors)
         job.local_status = Status.error
-    return job, rendered, count and not errors
+    return job, rendered, bool(count and not errors)
 
 
-def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) -> "Job":
+def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) -> Optional["Job"]:
     """
     Loads the given Ensemble and creates and runs a job.
 
@@ -1590,6 +1605,7 @@ def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) ->
     job, rendered, proceed = start_job(manifestPath, _opts)
     if job:
         if not job.unexpectedAbort and not job.jobOptions.planOnly and proceed:
+            assert rendered
             job.run(rendered)
     return job
 

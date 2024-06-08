@@ -218,6 +218,7 @@ def run_job_cmd(
     result = run_cmd(runner, _args, print_result, env)
     assert _latestJobs
     job = _latestJobs[-1]
+    assert job
     summary = job.json_summary()
     return result, job, summary
 
