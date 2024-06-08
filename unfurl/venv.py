@@ -4,6 +4,7 @@ import os
 import os.path
 import sys
 import shutil
+from typing import Dict
 from . import __version__, is_version_unreleased
 
 _template_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
