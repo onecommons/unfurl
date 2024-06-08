@@ -51,17 +51,17 @@ def option_group(*options):
     "--home",
     envvar="UNFURL_HOME",
     type=click.Path(exists=False),
-    help="Path to .unfurl_home",
+    help="Path to .unfurl_home (Use '' to ignore default home)",
 )
-@click.option("--runtime", envvar="UNFURL_RUNTIME", help="use this runtime")
+@click.option("--runtime", envvar="UNFURL_RUNTIME", help="Use the given runtime")
 @click.option(
     "--no-runtime",
     envvar="UNFURL_NORUNTIME",
     default=False,
     is_flag=True,
-    help="ignore runtime settings",
+    help="Ignore runtime settings",
 )
-@click.option("-v", "--verbose", count=True, help="verbose mode (-vvv for more)")
+@click.option("-v", "--verbose", count=True, help="Verbose mode (-vv or -vvv for more)")
 @click.option(
     "-q",
     "--quiet",
@@ -898,6 +898,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     if init:
         error = initmod.init_engine(project_path, runtime_)
     else:  # update
+        assert venv_location and venv_location.startswith("venv:")
         venv_path = Path(venv_location[len("venv:") :])
         env = _venv(venv_path, None)
         import importlib.metadata
