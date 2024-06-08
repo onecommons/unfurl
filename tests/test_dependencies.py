@@ -115,17 +115,16 @@ spec:
 
 def test_digests(caplog):
     path = __file__ + "/../examples/digest-ensemble.yaml"
-    manifest = LocalEnv(path).get_manifest()
+    manifest = LocalEnv(path, "").get_manifest()
     runner = Runner(manifest)
     output = io.StringIO()  # so we don't save the file
     job = runner.run(JobOptions(startTime=1, out=output))  # deploy
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
     digestKeys = job.manifest.manifest.config["changes"][0]["digestKeys"]
-    # XXX this assertion fails when UNFURL_LOGGING=trace!
     assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
     digest = job.manifest.manifest.config["changes"][0]["digestValue"]
-    assert digest == "961216502983569ae51c5c8f96b106ccecca0d3e"
+    assert digest == "ab13f005c0955b767d99e1fb46af9d9a895792d6"
 
     filepath = FilePath(__file__ + "/../fixtures/helmrepo")
     digestContents = filepath.__digestable__(dict(manifest=manifest))

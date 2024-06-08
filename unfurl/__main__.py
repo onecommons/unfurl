@@ -291,13 +291,12 @@ def run(ctx, instance="root", cmdline=None, **options):
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
-def _get_runtime(options, ensemblePath):
+def _get_runtime(options: dict, ensemble_path: str) -> Optional[str]:
     runtime = options.get("runtime")
-    localEnv = None
-    if not runtime:
-        localEnv = LocalEnv(ensemblePath, options.get("home"), can_be_empty=True)
-        runtime = localEnv.get_runtime()
-    return runtime, localEnv
+    if runtime:
+        return runtime
+    else:
+        return LocalEnv.get_runtime(ensemble_path, options.get("home"))
 
 
 def _run(ensemble: str, options, workflow=None):
@@ -305,12 +304,26 @@ def _run(ensemble: str, options, workflow=None):
         options["workflow"] = workflow
 
     if not options.get("no_runtime"):
-        runtime, localEnv = _get_runtime(options, ensemble)
+        runtime = _get_runtime(options, ensemble)
         if runtime and runtime != ".":
-            if not localEnv:
-                localEnv = LocalEnv(ensemble, options.get("home"))
-            return _run_remote(runtime, options, localEnv)
+            return _run_remote(runtime, options, ensemble)
     return _run_local(ensemble, options)
+
+
+def _remote_docker_cmd(
+    runtime: str, cmd_line: List[str], local_env: LocalEnv, version_check: List[str]
+):
+    context = local_env.get_context()
+    envvar_filter = context.get("variables") or {}
+    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING", "UNFURL_MOCK_DEPLOY"]:
+        if name in os.environ:
+            envvar_filter[name] = os.environ[name]
+    if envvar_filter:
+        env = filter_env(local_env.map_value(envvar_filter, None), addOnly=True)
+    else:
+        env = None
+    cmd = DockerCmd(runtime, env or {}).build()
+    return env, cmd + version_check + cmd_line, False
 
 
 def _venv(runtime, env):
@@ -324,24 +337,12 @@ def _venv(runtime, env):
     return env
 
 
-def _remote_cmd(runtime_, cmd_line, local_env, version_check):
-    context = local_env.get_context()
-    kind, sep, rest = runtime_.partition(":")
-    envvar_filter = context.get("variables") or {}
-    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING", "UNFURL_MOCK_DEPLOY"]:
-        if name in os.environ:
-            envvar_filter[name] = os.environ[name]
-
-    if envvar_filter:
-        addOnly = kind == "docker"
-        env = filter_env(local_env.map_value(envvar_filter, None), addOnly=addOnly)
-    else:
-        env = None
-
+def _remote_cmd(runtime: str, cmd_line: List[str], version_check: List[str]):
+    kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return (
-            _venv(pipfileLocation, env),
+            _venv(pipfileLocation, None),
             [
                 "python",
                 "-m",
@@ -352,14 +353,11 @@ def _remote_cmd(runtime_, cmd_line, local_env, version_check):
             + cmd_line,
             False,
         )
-    elif kind == "docker":
-        cmd = DockerCmd(runtime_, env or {}).build()
-        return env, cmd + version_check + cmd_line, False
     else:
         # treat as shell command
-        cmd = shlex.split(runtime_)
+        cmd = shlex.split(runtime)
         return (
-            env,
+            None,
             cmd + ["--no-runtime"] + version_check + cmd_line,
             True,
         )
@@ -440,7 +438,7 @@ class DockerCmd:
         ]
 
 
-def _run_remote(runtime, options, localEnv):
+def _run_remote(runtime, options, ensemble):
     logger = logging.getLogger("unfurl")
     logger.info('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
@@ -453,7 +451,14 @@ def _run_remote(runtime, options, localEnv):
     else:
         version_check = ["--version-check", __version__(True)]
 
-    env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv, version_check)
+    kind, sep, rest = runtime.partition(":")
+    if kind == "docker":
+        localEnv = LocalEnv(ensemble, options.get("home"))
+        env, remote, shell = _remote_docker_cmd(
+            runtime, cmdLine, localEnv, version_check
+        )
+    else:
+        env, remote, shell = _remote_cmd(runtime, cmdLine, version_check)
     logger.debug("executing remote command: %s", remote)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
@@ -876,17 +881,8 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     project_path = os.path.abspath(project_folder)
     runtime_ = options.get("runtime") or "venv:"
     if not init:
-        try:
-            # XXX if --runtime is set venv_location likely is wrong
-            venv_location, local_env = _get_runtime(options, project_folder)
-        except:
-            # if the current path isn't a folder
-            if project_folder == ".":
-                venv_location, local_env = _get_runtime(
-                    options, get_home_config_path(options.get("home"))
-                )
-            else:
-                raise
+        # XXX if --runtime is set venv_location likely is wrong
+        venv_location = _get_runtime(options, project_folder)
         if venv_location:
             # venv_location will be "venv:project/path/.venv" or None
             project_path = os.path.dirname(venv_location[len("venv:") :])

@@ -378,7 +378,7 @@ def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name):
     return ensembleRepo
 
 
-def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, newHome):
+def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, runtime):
     if ensembleRepo:
         ensembleRepo.add_all(ensembleDir)
         if shared:
@@ -390,10 +390,7 @@ def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, newHo
     if kw.get("submodule"):
         repo.add_sub_module(ensembleDir)
 
-    if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
-        # if runtime was explicitly set and we didn't already create it in the home project
-        # then initialize the runtime here
-        runtime = kw.get("runtime")
+    if runtime:
         logger = logging.getLogger("unfurl")
         try:
             error_message = init_engine(projectdir, runtime)
@@ -499,6 +496,9 @@ def create_project(
             yaml = make_yaml(password_vault)
             commit_secrets(os.path.dirname(projectConfigPath), yaml, repo)
 
+        # if runtime was explicitly set and we didn't already create it in the home project
+        # then create the runtime in this project
+        create_runtime = not newHome and not kw.get("no_runtime") and kw.get("runtime")
         _commit_repos(
             projectdir,
             repo,
@@ -506,7 +506,7 @@ def create_project(
             shared,
             kw,
             ensembleDir,
-            newHome,
+            create_runtime,
         )
 
     return newHome, projectConfigPath, repo

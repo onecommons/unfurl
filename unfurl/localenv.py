@@ -1304,13 +1304,18 @@ class LocalEnv:
             return project.get_context(self.manifest_context_name, context)
         return context
 
-    def get_runtime(self) -> Optional[str]:
-        # XXX replace this with top-level section for runtime
-        project = self.project or self.homeProject
-        while project:
-            if project.venv:
-                return "venv:" + project.venv
-            project = project.parentProject
+    @staticmethod
+    def get_runtime(ensemble_path: str,  home_path: Optional[str]) -> Optional[str]:
+        home_config_path = get_home_config_path(home_path)
+        if home_config_path:
+            venv_path = os.path.join(os.path.dirname(home_config_path), ".venv")
+            if os.path.isdir(venv_path):
+                return "venv:" + venv_path
+        project_path = Project.find_path(ensemble_path, os.getenv("UNFURL_SEARCH_ROOT"))
+        if project_path:
+            venv_path = os.path.join(os.path.dirname(project_path), ".venv")
+            if os.path.isdir(venv_path):
+                return "venv:" + venv_path
         return None
 
     def get_local_instance(self, name: str, context: dict) -> Tuple[NodeInstance, dict]:
