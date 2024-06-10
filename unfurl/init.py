@@ -6,9 +6,6 @@ This module implements creating and cloning project and ensembles as well Unfurl
 import datetime
 import os
 import os.path
-import shutil
-import sys
-import json
 from typing import Any, Dict, Optional, cast
 import uuid
 import logging
@@ -28,9 +25,9 @@ from .repo import (
 from .util import UnfurlError, assert_not_none, substitute_env
 from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib
+from .venv import init_engine
 
 _skeleton_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "skeletons")
-_template_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
 
 
 def rename_for_backup(dir):
@@ -394,12 +391,18 @@ def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, newHo
         repo.add_sub_module(ensembleDir)
 
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
-        # if runtime was explicitly set and we aren't creating the home project
+        # if runtime was explicitly set and we didn't already create it in the home project
         # then initialize the runtime here
+        runtime = kw.get("runtime")
+        logger = logging.getLogger("unfurl")
         try:
-            init_engine(projectdir, kw.get("runtime"))
-        except:
-            pass  # don't stop even if this fails
+            error_message = init_engine(projectdir, runtime)
+            if error_message:
+                logger.error(
+                    "Unable to create Unfurl runtime %s: %s", runtime, error_message
+                )
+        except Exception:
+            logger.error("Unable to create Unfurl runtime %s", runtime, exc_info=True)
 
     repo.add_all(projectdir)
     repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
@@ -675,7 +678,9 @@ class EnsembleBuilder:
 
         # source is a path into the project relative to the current directory
         assert self.source_path
-        source_path = os.path.join(assert_not_none(self.source_project).projectRoot, self.source_path)
+        source_path = os.path.join(
+            assert_not_none(self.source_project).projectRoot, self.source_path
+        )
         self.templateVars = _get_ensemble_paths(
             source_path,
             self.source_project,
@@ -707,9 +712,7 @@ class EnsembleBuilder:
 
     def _get_inputs_template(self):
         project = assert_not_none(self.source_project)
-        local_template = os.path.join(
-            project.projectRoot, DefaultNames.InputsTemplate
-        )
+        local_template = os.path.join(project.projectRoot, DefaultNames.InputsTemplate)
         if os.path.isfile(local_template):
             with open(local_template) as s:
                 return s.read()
@@ -721,9 +724,7 @@ class EnsembleBuilder:
         specProject = assert_not_none(self.dest_project)
         source_project = assert_not_none(self.source_project)
         sourceDir = os.path.normpath(
-            os.path.join(
-                source_project.projectRoot, self.templateVars["sourceDir"]
-            )
+            os.path.join(source_project.projectRoot, self.templateVars["sourceDir"])
         )
         spec_repo_view, relPath, bare = specProject.find_path_in_repos(sourceDir)
         if not spec_repo_view or not spec_repo_view.repo:
@@ -759,7 +760,9 @@ class EnsembleBuilder:
         from unfurl import yamlmanifest
 
         if self.shared_repo:
-            destProject: Project = assert_not_none(find_project(self.shared_repo.working_dir, self.home_path))
+            destProject: Project = assert_not_none(
+                find_project(self.shared_repo.working_dir, self.home_path)
+            )
         else:
             destProject = assert_not_none(self.dest_project)
 
@@ -863,7 +866,7 @@ class EnsembleBuilder:
                 override_context=self.options.get("use_environment"),
             )
             cloudmap = CloudMap.get_db(local_env)
-            repo_key = self.input_source[len("cloudmap:"):]
+            repo_key = self.input_source[len("cloudmap:") :]
             repo_record = cloudmap.repositories.get(repo_key)
             if repo_record:
                 self.input_source = repo_record.git_url()
@@ -946,7 +949,8 @@ class EnsembleBuilder:
     def has_existing_ensemble(self, sourceProject):
         if self.source_project is not sourceProject and not self.shared_repo:
             if "localEnv" in self.templateVars and os.path.exists(
-                Path(assert_not_none(self.dest_project).projectRoot) / assert_not_none(self.dest_path)
+                Path(assert_not_none(self.dest_project).projectRoot)
+                / assert_not_none(self.dest_path)
             ):
                 # the ensemble is already part of the source project repository or a submodule
                 return True
@@ -986,7 +990,11 @@ class EnsembleBuilder:
         destDir = self.create_new_ensemble()
         if not isRemote and existingSourceProject is not self.source_project:
             # we need to clone the referenced local repos so the new project has access to them
-            clone_local_repos(self.manifest, existingSourceProject, assert_not_none(self.source_project))
+            clone_local_repos(
+                self.manifest,
+                existingSourceProject,
+                assert_not_none(self.source_project),
+            )
         return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
     def load_ensemble_template(self):
@@ -997,7 +1005,8 @@ class EnsembleBuilder:
         assert isinstance(self.templateVars["sourceDir"], str)
         sourceDir = os.path.normpath(
             os.path.join(
-                assert_not_none(self.source_project).projectRoot, self.templateVars["sourceDir"]
+                assert_not_none(self.source_project).projectRoot,
+                self.templateVars["sourceDir"],
             )
         )
         # assert ensemble_template_path in dest_project
@@ -1131,193 +1140,3 @@ def _create_local_config(clonedProject, logger, vars):
         )
         return True
     return False
-
-
-def _get_unfurl_requirement_url(spec):
-    """Expand the given string in an URL for installing the local Unfurl package.
-
-    If @ref is omitted the tag for the current release will be used,
-    if empty ("@") the latest revision will be used
-    If no path or url is specified https://github.com/onecommons/unfurl.git will be used.
-
-    For example:
-
-    @tag
-    ./path/to/local/repo
-    ./path/to/local/repo@tag
-    ./path/to/local/repo@
-    git+https://example.com/forked/unfurl.git
-    @
-
-    Args:
-        spec (str): can be a path to a git repo, git url or just a revision or tag.
-
-    Returns:
-      str: Description of returned object.
-
-    """
-    if not spec:
-        return spec
-    if "egg=unfurl" in spec:
-        # looks fully specified, just return it
-        return spec
-
-    url, sep, ref = spec.rpartition("@")
-    if sep:
-        if ref:
-            ref = "@" + ref
-    else:
-        ref = "@" + __version__()
-
-    if not url:
-        return "git+https://github.com/onecommons/unfurl.git" + ref + "#egg=unfurl"
-    if not url.startswith("git+"):
-        return "git+file://" + os.path.abspath(url) + ref + "#egg=unfurl"
-    else:
-        return url + ref + "#egg=unfurl"
-
-
-def init_engine(projectDir, runtime):
-    runtime = runtime or "venv:"
-    kind, sep, rest = runtime.partition(":")
-    if kind == "venv":
-        pipfileLocation, sep, unfurlLocation = rest.partition(":")
-        return create_venv(
-            projectDir, pipfileLocation, _get_unfurl_requirement_url(unfurlLocation)
-        )
-    # XXX else kind == 'docker':
-    return "unrecognized runtime uri"
-
-
-def _run_pip_env(do_install, pipenv_project, kw):
-    # create the virtualenv and install the dependencies specified in the Pipefiles
-    sys_exit = sys.exit
-    try:
-        retcode = 0
-
-        def noexit(code):
-            retcode = code
-
-        sys.exit = noexit  # type: ignore
-
-        do_install(pipenv_project, **kw)
-    finally:
-        sys.exit = sys_exit
-
-    return retcode
-
-
-# XXX provide an option for an unfurl installation can be shared across runtimes.
-def _add_unfurl_to_venv(projectdir):
-    """
-    Set the virtualenv inside `projectdir` to use the unfurl package currently being executed.
-    """
-    # this should only be used when the current unfurl is installed in editor mode
-    # otherwise it will be exposing all packages in the current python's site-packages
-    base = os.path.dirname(os.path.dirname(_template_path))
-    sitePackageDir = None
-    libDir = os.path.join(projectdir, os.path.join(".venv", "lib"))
-    for name in os.listdir(libDir):
-        sitePackageDir = os.path.join(libDir, name, "site-packages")
-        if os.path.isdir(sitePackageDir):
-            break
-    else:
-        return "Pipenv failed: can't find site-package folder"
-    _write_file(sitePackageDir, "unfurl.pth", base)
-    _write_file(sitePackageDir, "unfurl.egg-link", base)
-    return ""
-
-
-def pipfile_template_dir(pythonPath):
-    from pipenv.utils import python_version
-
-    versionStr = python_version(pythonPath)
-    assert versionStr, versionStr
-    version = versionStr.rpartition(".")[0]  # 3.8.1 => 3.8
-    # version = subprocess.run([pythonPath, "-V"]).stdout.decode()[
-    #     7:10
-    # ]  # e.g. Python 3.8.1 => 3.8
-    return os.path.join(_template_path, "python" + version)  # e.g. templates/python3.8
-
-
-def copy_pipfiles(pipfileLocation, projectDir):
-    # copy Pipfiles to project root
-    if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
-        for filename in ["Pipfile", "Pipfile.lock"]:
-            path = os.path.join(pipfileLocation, filename)
-            if os.path.isfile(path):
-                shutil.copy(path, projectDir)
-
-
-def create_venv(projectDir, pipfileLocation, unfurlLocation):
-    """Create a virtual python environment for the given project."""
-
-    os.environ["PIPENV_IGNORE_VIRTUALENVS"] = "1"
-    VIRTUAL_ENV = os.environ.get("VIRTUAL_ENV")
-    os.environ["PIPENV_VENV_IN_PROJECT"] = "1"
-    if "PIPENV_PYTHON" not in os.environ:
-        os.environ["PIPENV_PYTHON"] = sys.executable
-
-    if pipfileLocation:
-        pipfileLocation = os.path.abspath(pipfileLocation)
-
-    try:
-        cwd = os.getcwd()
-        os.chdir(projectDir)
-        # need to set env vars and change current dir before importing pipenv
-        from pipenv import environments
-
-        try:
-            from pipenv.routines.install import do_install
-
-            kw: Dict = dict(categories=[], extra_pip_args=[])
-        except ImportError:
-            from pipenv.core import do_install
-
-            kw = dict(extra_index_url=[])
-
-        from pipenv.project import Project as PipEnvProject
-
-        pythonPath = os.environ["PIPENV_PYTHON"]
-        assert pythonPath, pythonPath
-        if not pipfileLocation:
-            pipfileLocation = pipfile_template_dir(pythonPath)
-        if not os.path.isdir(pipfileLocation):
-            return f'Pipfile location is not a valid directory: "{pipfileLocation}"'
-        copy_pipfiles(pipfileLocation, projectDir)
-
-        kw["python"] = pythonPath
-        pipenv_project = PipEnvProject()
-        # need to run without args first so lock isn't overwritten
-        retcode = _run_pip_env(do_install, pipenv_project, kw)
-        if retcode:
-            return f"Pipenv (step 1) failed: {retcode}"
-
-        # we need to set these so pipenv doesn't try to recreate the virtual environment
-        environments.PIPENV_USE_SYSTEM = 1
-        environments.PIPENV_IGNORE_VIRTUALENVS = False
-        os.environ["VIRTUAL_ENV"] = os.path.join(projectDir, ".venv")
-        environments.PIPENV_VIRTUALENV = os.path.join(projectDir, ".venv")
-
-        # we need to set skip_lock or pipenv will not honor the existing lock
-        kw["skip_lock"] = True
-        if unfurlLocation:
-            kw["editable_packages"] = [unfurlLocation]
-        else:
-            if is_version_unreleased():
-                return _add_unfurl_to_venv(projectDir)
-            else:
-                kw["packages"] = [
-                    "unfurl==" + __version__()
-                ]  # use the same version as current
-        retcode = _run_pip_env(do_install, pipenv_project, kw)
-        if retcode:
-            return f"Pipenv (step 2) failed: {retcode}"
-
-        return ""
-    finally:
-        if VIRTUAL_ENV:
-            os.environ["VIRTUAL_ENV"] = VIRTUAL_ENV
-        else:
-            os.environ.pop("VIRTUAL_ENV", None)
-        os.chdir(cwd)
