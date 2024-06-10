@@ -7,8 +7,8 @@ from ..logs import is_sensitive, getLogger
 from ..repo import GitRepo
 
 from ..localenv import LocalEnv
-from .__main__ import app
-from . import __main__ as ufserver
+from .serve import app
+from . import serve
 from flask import request, Response, Request, jsonify, send_file
 from jinja2 import Environment, FileSystemLoader
 import requests
@@ -176,9 +176,9 @@ def get_repo(project_path) -> Optional[GitRepo]:
     if localrepo and (project_path == localrepo.project_path()):
         repo: Optional[GitRepo] = localrepo
     else:
-        repo = ufserver._get_project_repo(project_path, "", {})
+        repo = serve._get_project_repo(project_path, "", {})
         if not repo:
-            repo = ufserver._get_project_repo(os.path.basename(project_path), "", {})
+            repo = serve._get_project_repo(os.path.basename(project_path), "", {})
 
     return repo
 
@@ -289,6 +289,8 @@ def _yield_variables() -> Iterator[EnvVar]:
 
 
 def create_gui_routes():
+    app.config["UNFURL_GUI_MODE"] = True
+
     @app.route("/<user>/dashboard/-/variables", methods=["GET"])
     def get_variables(user):
         return {"variables": list(_yield_variables())}

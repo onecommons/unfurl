@@ -1458,9 +1458,9 @@ def serve(
     os.environ["UNFURL_CLONE_ROOT"] = clone_root
     if cloud_server:
         os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
-    from .server import serve as _serve
+    from .server import serve
 
-    _serve(
+    serve.serve(
         address,
         port,
         secret,
