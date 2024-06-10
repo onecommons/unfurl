@@ -215,7 +215,7 @@ def _set_variables(env_vars: List[EnvVar]):
         environment_scope = envvar["environment_scope"]
         env_name = "defaults" if environment_scope == "*" else environment_scope
         key = envvar["key"]
-        value = envvar.get("value")
+        value = envvar.get("secret_value", envvar.get("value"))
         if envvar["variable_type"] == "file":
             value = {"eval": dict(tempfile=value)}
         if envvar.get("_destroy"):
@@ -225,9 +225,9 @@ def _set_variables(env_vars: List[EnvVar]):
             secret_env = (
                 secret_environments.get(env_name) if secret_environments else None
             )
-            if secret_env and key in secret_env:
+            if secret_env and key in secret_env.get("variables", {}):
                 modified_secrets = True
-                del secret_env[key]
+                del secret_env["variables"][key]
         else:
             if envvar["masked"]:
                 env.pop(key, None)  # in case this flag changed
@@ -236,15 +236,15 @@ def _set_variables(env_vars: List[EnvVar]):
                         env_name, CommentedMap()
                     )
                     modified_secrets = True
-                    secret_env[key] = {"eval": dict(sensitive=value)}  # mark sensitive
+                    secret_env.setdefault("variables", {})[key] = {"eval": dict(sensitive=value)}  # mark sensitive
             else:
                 # in case this flag changed
                 secret_env = (
                     secret_environments.get(env_name) if secret_environments else None
                 )
-                if secret_env and key in secret_env:
+                if secret_env and key in secret_env.get("variables", {}):
                     modified_secrets = True
-                    del secret_env[key]
+                    del secret_env["variables"][key]
                 modified_config = True
                 env.setdefault(env_name, CommentedMap())[key] = value
     if modified_secrets:
