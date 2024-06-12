@@ -40,6 +40,7 @@ with app.app_context():
     """
     UNFURL_SERVE_PATH = ""  # os.getenv("UNFURL_SERVE_PATH", "")
     user = os.getenv("USER", "unfurl-user")
+    password = None
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 origin = None
@@ -68,7 +69,6 @@ if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
 def get_project_readme(repo):
     for filename in ["README", "README.md", "README.txt"]:
         path = os.path.join(repo.working_dir, filename)
-        inspect(path)
         if os.path.exists(path):
             with open(path, "r") as file:
                 return file.read()
@@ -171,14 +171,37 @@ def proxy_webpack(url):
     return Response(res.content, res.status_code, headers)
 
 
-def get_repo(project_path) -> Optional[GitRepo]:
+def get_repo(project_path, branch=None) -> Optional[GitRepo]:
     project_path = project_path.rstrip("/")
-    if localrepo and (project_path == localrepo.project_path()):
-        repo: Optional[GitRepo] = localrepo
-    else:
-        repo = serve._get_project_repo(project_path, "", {})
+    repo: Optional[GitRepo] = None
+
+    if not branch:
+        branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
+
+    def do_export():
+        req = Request({
+            'QUERY_STRING': f"?format=blueprint&auth_project={project_path}"
+        })
+        serve._export(
+            req,
+            requested_format="blueprint",
+            deployment_path="",
+            include_all=False
+        )
+
+    def search_repo_paths():
+        repo = serve._get_project_repo(project_path, branch, {})
         if not repo:
-            repo = serve._get_project_repo(os.path.basename(project_path), "", {})
+            repo = serve._get_project_repo(os.path.basename(project_path), branch, {})
+        return repo
+
+    if localrepo and (project_path == localrepo.project_path()):
+        repo = localrepo
+    else:
+        repo = search_repo_paths()
+        if not repo:
+            do_export()
+            repo = search_repo_paths()
 
     return repo
 
@@ -290,13 +313,17 @@ def _yield_variables() -> Iterator[EnvVar]:
 
 def create_gui_routes():
     app.config["UNFURL_GUI_MODE"] = True
-
-    @app.route("/<user>/dashboard/-/variables", methods=["GET"])
-    def get_variables(user):
+    @app.route("/<path:project_path>/-/variables", methods=["GET"])
+    def get_variables(project_path):
+        if get_repo(project_path) != localrepo:
+            return "Not found", 404
         return {"variables": list(_yield_variables())}
 
-    @app.route("/<user>/dashboard/-/variables", methods=["PATCH"])
-    def set_variables(user):
+    @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
+    def set_variables(project_path):
+        if get_repo(project_path) != localrepo:
+            return "Not found", 404
+
         body = request.json
         if isinstance(body, dict) and "variables_attributes" in body:
             return _set_variables(body["variables_attributes"])

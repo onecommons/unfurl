@@ -253,7 +253,7 @@ def set_current_ensemble_git_url():
 set_current_ensemble_git_url()
 
 
-def get_project_id(request):
+def get_project_id(request) -> str:
     project_id = request.args.get("auth_project")
     if project_id:
         return project_id
@@ -1190,6 +1190,23 @@ def export():
     return _export(request, requested_format, deployment_path, False)
 
 
+def get_default_branch(
+    project_id: str, branch: Optional[str] = "(MISSING)", args: Dict[str, Any] = {}
+) -> str:
+    package = get_package_from_url(get_project_url(project_id))
+    if package:
+        package.missing = branch == "(MISSING)"
+        set_version_from_remote_tags(package, args)
+        branch = package.revision_tag or DEFAULT_BRANCH
+    else:
+        logger.debug(
+            f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags."
+        )
+        branch = DEFAULT_BRANCH
+
+    return branch
+
+
 def _export(
     request: Request,
     requested_format: str,
@@ -1216,16 +1233,7 @@ def _export(
         else:
             extra = ""
     if not branch or branch == "(MISSING)":
-        package = get_package_from_url(get_project_url(project_id))
-        if package:
-            package.missing = branch == "(MISSING)"
-            set_version_from_remote_tags(package, args)
-            branch = package.revision_tag or DEFAULT_BRANCH
-        else:
-            logger.debug(
-                f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags."
-            )
-            branch = DEFAULT_BRANCH
+        branch = get_default_branch(project_id, branch, args)
     repo = _get_project_repo(project_id, branch, args)
     stale_pull_age = app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
     cache_entry = CacheEntry(
