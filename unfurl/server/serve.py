@@ -1189,8 +1189,9 @@ def export():
     deployment_path = request.args.get("deployment_path") or ""
     return _export(request, requested_format, deployment_path, False)
 
-
-def get_default_branch(project_id: str, branch: str = "(MISSING)", args: Dict[str, Any] = {}):
+def get_default_branch(
+    project_id: str, branch: Optional[str] = "(MISSING)", args: Dict[str, Any] = {}
+) -> str:
     package = get_package_from_url(get_project_url(project_id))
     if package:
         package.missing = branch == "(MISSING)"
