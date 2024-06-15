@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
+import unfurl # must be before tosca imports
+from tosca import OpenDataType
 from unfurl.merge import diff_dicts
 import sys
 from click.testing import CliRunner
@@ -796,6 +798,14 @@ def test_envvar_type():
         # yaml.dump(yaml_dict, sys.stdout)
         assert tosca_yaml == yaml_dict
 
+        generic_envvars = unfurl.datatypes.EnvironmentVariables(
+          DBASE="aaaa",
+          URL=True
+        )
+
+        assert generic_envvars.to_yaml() == {'DBASE': 'aaaa', 'URL': True}
+        assert OpenDataType(a=1, b="b").to_yaml() == {'a': 1, 'b': 'b'}
+        assert Namespace.MyDataType(name='foo').to_yaml() == {'name': 'foo'}
 
 test_relationship_yaml = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
