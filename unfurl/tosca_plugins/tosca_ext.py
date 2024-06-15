@@ -48,6 +48,9 @@ class datatypes(Namespace):
             "transform": {"eval": {"to_env": {"eval": "$value"}}},
         }
 
+        def __init__(self, _name: str="", **kw: Any) -> None:
+            super().__init__(_name)
+            self.__dict__.update(kw)
 
 class artifacts(Namespace):
     class HasConfigurator(tosca.artifacts.Implementation):

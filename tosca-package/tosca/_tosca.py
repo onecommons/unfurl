@@ -2625,7 +2625,7 @@ class ToscaType(_ToscaType):
                     continue
                 yield name, (field, value)
             # skip inference for methods and attributes starting with "_"
-            elif not field and name[0] != "_" and not is_data_field(value):
+            elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
                 if field.tosca_field_type != ToscaFieldType.property:
