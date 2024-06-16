@@ -914,6 +914,89 @@ def test_property_inheritance():
     assert parsed_yaml == _to_yaml(python_src, True)
 
 
+test_deploymentblueprint_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Node:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - another:
+        node: Node
+        occurrences:
+        - 0
+        - 1
+topology_template:
+  node_templates:
+    node:
+      type: Node
+      metadata:
+        module: service_template
+    node2:
+      type: Node
+      requirements:
+      - another: node
+      metadata:
+        module: service_template
+deployment_blueprints:
+  production:
+    cloud: unfurl.relationships.ConnectsTo.AWSAccount
+    node_templates:
+      node:
+        type: Node
+        requirements:
+        - another: node2
+        metadata:
+          module: service_template
+  dev:
+    cloud: unfurl.relationships.ConnectsTo.K8sCluster
+    node_templates:
+      node3:
+        type: Node
+        requirements:
+        - another: node2
+        metadata:
+          module: service_template
+      node:
+        type: Node
+        requirements:
+        - another: node3
+        metadata:
+          module: service_template
+"""
+
+test_deploymentblueprint_python = """
+import tosca
+from typing import Optional
+
+class Node(tosca.nodes.Root):
+    another: Optional["Node"] = None
+
+node = Node("node")
+node2 = Node(another=node)
+
+class production(tosca.DeploymentBlueprint):
+    _cloud = "unfurl.relationships.ConnectsTo.AWSAccount"
+
+    node = Node(another=node2)
+
+class dev(tosca.DeploymentBlueprint):
+    _cloud = "unfurl.relationships.ConnectsTo.K8sCluster"
+
+    node3 = Node(another=node2)
+    node = Node(another=node3)
+"""
+def test_deployment_blueprints():
+    python_src, parsed_yaml = _to_python(test_deploymentblueprint_yaml)
+    # print(python_src)
+    # pprint(parsed_yaml)
+    test_yaml = _to_yaml(python_src, True)
+    # yaml.dump(test_yaml, sys.stdout)
+    assert parsed_yaml == test_yaml
+    tosca_tpl2 = _to_yaml(test_deploymentblueprint_python, True)
+    # yaml.dump(tosca_tpl2, sys.stdout)
+    assert parsed_yaml == tosca_tpl2
+
+
 @pytest.mark.parametrize(
     "test_input,exp_import,exp_path",
     [

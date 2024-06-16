@@ -332,9 +332,11 @@ class YamlManifest(ReadOnlyManifest):
         )
         more_spec = self._load_context(self.context, localEnv, load_env_instances)
         deployment_blueprint = self.context.get("deployment_blueprint")
-        deployment_blueprints = (
-            manifest.get("spec", {}).get("deployment_blueprints") or {}
-        )
+        deployment_blueprints = spec.get("deployment_blueprints") or {}
+        if spec.get("service_template", {}).get("deployment_blueprints"):
+            dp = spec["service_template"].get("deployment_blueprints")
+            if dp:
+                deployment_blueprints.update(dp)
         if deployment_blueprints:
             if (
                 not deployment_blueprint
@@ -411,7 +413,9 @@ class YamlManifest(ReadOnlyManifest):
                 logger.error(msg)
             return False
         deployment_blueprint_tpl = deployment_blueprints[deployment_blueprint]
-        resource_templates = deployment_blueprint_tpl.get("resource_templates")
+        resource_templates = deployment_blueprint_tpl.get(
+            "resource_templates"
+        ) or deployment_blueprint_tpl.get("node_templates")
         resourceTemplates = deployment_blueprint_tpl.get("resourceTemplates")
         if resourceTemplates is not None:
             # resourceTemplates and ResourceTemplate keys exist when imported from json
@@ -987,7 +991,9 @@ class YamlManifest(ReadOnlyManifest):
 
     def commit(self, msg: str, add_all: bool = False, ensemble_only=False) -> int:
         committed = 0
-        save_secrets = not self.localEnv or not self.localEnv.overrides.get("skip_secret_files")
+        save_secrets = not self.localEnv or not self.localEnv.overrides.get(
+            "skip_secret_files"
+        )
         if not ensemble_only:
             for repository in self.repositories.values():
                 if repository.repo == self.repo:

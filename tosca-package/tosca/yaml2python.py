@@ -47,6 +47,7 @@ from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.interfaces import OperationDef, _create_operations
 from toscaparser.tosca_template import ToscaTemplate
+from toscaparser.topology_template import TopologyTemplate
 from toscaparser.elements.entity_type import EntityType, Namespace
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.artifacttype import ArtifactTypeDef
@@ -188,9 +189,12 @@ def section2typename(section: str) -> str:
     return string.capwords(section, "_").replace("_", "")[:-1]
 
 
+Scope = Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]]
+
+
 class Imports:
     def __init__(self, unfurl_prelude: bool):
-        self._imports: Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]] = {}
+        self._imports: Scope = {}
         self.prelude_prelude: str = "import unfurl" if unfurl_prelude else ""
         self._import_statements: Set[str] = set()
         self.declared: List[str] = []
@@ -222,10 +226,20 @@ class Imports:
         return self.declared
 
     def add_declaration(self, tosca_name: str, localname: str):
-        # new obj is being declared in the current module in the global scope
-        assert tosca_name not in self._imports, tosca_name
+        # new obj is being declared in the current module in the current scope
         self._imports[tosca_name] = (localname, None)
         self.declared.append(localname)
+
+    def enter_scope(self) -> Tuple[List[str], Scope]:
+        declared = self.declared
+        self.declared = []
+        imports = self._imports
+        self._imports = imports.copy()
+        return declared, imports
+
+    def exit_scope(self, declared: List[str], imports: Scope):
+        self._imports = imports
+        self.declared = declared
 
     def _add_imports(self, basename: str, namespace: Dict[str, Any]):
         for name, ref in namespace.items():
@@ -317,7 +331,6 @@ class Convert:
         package_name: str = "service_template",
     ):
         self.template = template
-        self.global_names: Dict[str, str] = {}
         # local namespace of tosca names
         # the same name can appear in different positions (the value of the dict)
         self.local_names: Dict[str, str] = {}
@@ -340,6 +353,46 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
+
+    def convert_topology(self, topology: TopologyTemplate, indent="") -> str:
+        src = ""
+        for node_template in topology.nodetemplates:
+            localname = self.imports.get_local_ref(node_template.name)
+            print("convert nt", node_template.name, localname)
+            if not localname or localname not in self.imports.declared:
+                template_name, template_src = self.node_template2obj(
+                    node_template, indent
+                )
+                src += self.flush_pending_defs(indent)
+                if template_src:
+                    src += template_src + "\n"
+        if topology.substitution_mappings and topology.substitution_mappings.node:
+            root_template = self.imports.get_local_ref(
+                topology.substitution_mappings.node
+            )
+            src += f"{indent}__root__ = {root_template}\n"
+        return src
+
+    def convert_blueprint(self, blueprint: str, tpl) -> str:
+        src = f"class {blueprint}(DeploymentBlueprint):\n"
+        indent = "   "
+        tpl = tpl.copy()  # we need to remove fields for TopologyTemplate()
+        for fieldname in _tosca.DeploymentBlueprint._fields:
+            key = fieldname[1:]
+            if key in tpl:
+                src += f"{indent}{fieldname} = {value2python_repr(tpl.pop(key))}\n"
+        src += "\n"
+        assert self.template.topology_template
+        topology = TopologyTemplate(
+            tpl,
+            self.template.topology_template.custom_defs,
+            self.template.parsed_params,
+            self.template,
+        )
+        declared, imports = self.imports.enter_scope()
+        src += self.convert_topology(topology, indent)
+        self.imports.exit_scope(declared, imports)
+        return src
 
     def find_repository(self, name) -> Tuple[str, str]:
         if name in ["self"]:
@@ -403,7 +456,9 @@ class Convert:
             module_name = ""
 
         # import should be .path.to.file
-        module_parts = module_name.split(".") + ["" if d == ".." else d for d in dirname.parts]
+        module_parts = module_name.split(".") + [
+            "" if d == ".." else d for d in dirname.parts
+        ]
         if filename == "__init__" and len(module_parts) > 1:
             # "from package import module" instead of "from package.module import __init__"
             filename = module_parts.pop()
@@ -459,7 +514,7 @@ class Convert:
                     baseclass_name = section2typename(section)
                     self.imports.from_tosca.add(baseclass_name)
                     type_src = self.toscatype2class(toscatype, baseclass_name, indent)
-                    src += self.flush_pending_defs()
+                    src += self.flush_pending_defs(indent)
                     src += type_src + "\n\n"
                 else:
                     logger.info("couldn't create type %s", name)
@@ -519,13 +574,12 @@ class Convert:
         # new obj is being declared in the current module in the global scope
         if not localname:
             localname, _ = self._get_name(tosca_name)
-        # handle conflicts theoretically has different namespaces between templates types
+        # handle conflicts because YAML can have different namespaces between templates types
         counter = 1
         basename = localname
-        while localname in self.global_names:
+        while localname in self.imports.declared:
             localname = basename + str(counter)
             counter += 1
-        self.global_names[localname] = tosca_name
         self.imports.add_declaration(tosca_name, localname)
         return localname
 
@@ -1048,6 +1102,7 @@ class Convert:
         types: List[str] = []
         relationship = req.get("relationship")
         default = ""
+        topology: Dict[str, Any] = self.topology
         if relationship:
             if isinstance(relationship, dict):
                 if len(relationship) > 1:
@@ -1057,10 +1112,8 @@ class Convert:
                         RelationshipTemplate(relationship, "", self.custom_defs),
                     )
                 relationship = relationship["type"]
-            elif relationship in self.topology.get("relationship_templates", {}):
-                reltpl = cast(
-                    dict, self.topology["relationship_templates"][relationship]
-                )
+            elif relationship in topology.get("relationship_templates", {}):
+                reltpl = cast(dict, topology["relationship_templates"][relationship])
                 default = self.template_reference(relationship, "relationship")
                 relationship = reltpl["type"]
             if relationship != "tosca.relationships.Root":
@@ -1070,10 +1123,10 @@ class Convert:
         if nodetype:
             # req['node'] can be a node_template instead of a type
             if (
-                self.topology.get("node_templates")
-                and nodetype in self.topology["node_templates"]
+                topology.get("node_templates")
+                and nodetype in topology["node_templates"]
             ):
-                entity_tpl = cast(dict, self.topology["node_templates"][nodetype])
+                entity_tpl = cast(dict, topology["node_templates"][nodetype])
                 match = self.template_reference(nodetype, "node")
                 if default:
                     default += f"[{match}]"
@@ -1298,9 +1351,9 @@ class Convert:
         src += ")"
         return src
 
-    def flush_pending_defs(self) -> str:
+    def flush_pending_defs(self, indent="") -> str:
         if self._pending_defs:
-            src = "\n".join(self._pending_defs) + "\n"
+            src = indent + f"\n{indent}".join(self._pending_defs) + "\n"
             self._pending_defs = []
             return src
         return ""
@@ -1783,18 +1836,12 @@ def convert_service_template(
                 src += class_src + "\n"
     topology = template.topology_template
     if topology:
-        for node_template in topology.nodetemplates:
-            localname = converter.imports.get_local_ref(node_template.name)
-            if not localname:
-                template_name, template_src = converter.node_template2obj(node_template)
-                src += converter.flush_pending_defs()
-                if template_src:
-                    src += template_src + "\n"
-        if topology.substitution_mappings and topology.substitution_mappings.node:
-            root_template = converter.imports.get_local_ref(
-                topology.substitution_mappings.node
-            )
-            src += f"__root__ = {root_template}\n"
+        src += converter.convert_topology(topology)
+    deployment_blueprints = template.tpl and template.tpl.get("deployment_blueprints")
+    if deployment_blueprints:
+        imports.from_tosca.add("DeploymentBlueprint")
+        for name, tpl in deployment_blueprints.items():
+            src += converter.convert_blueprint(name, tpl)
 
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
