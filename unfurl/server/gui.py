@@ -274,6 +274,8 @@ def _set_variables(env_vars: List[EnvVar]):
         project.localConfig.config.save_include(secret_config_key)
     if modified_config:
         project.localConfig.config.save()
+    if modified_secrets or modified_config:
+        globals()["localenv"] = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
     return {"variables": list(_yield_variables())}
 
 
