@@ -1577,18 +1577,52 @@ def Artifact(
 _make_field_doc(Artifact)
 
 _EvalDataExpr = Union["EvalData", str, None, Dict[str, Any], List[Any]]
+
+
+class _GetName:
+    def __init__(self, obj):
+        self.obj = obj
+
+    def __str__(self) -> str:
+        return self.obj._name
+
+
 class EvalData:
     "A wrapper around JSON/YAML data that may contain TOSCA functions or eval expressions and should be evaluated at runtime."
-    def __init__(self, expr: _EvalDataExpr):
+
+    def __init__(
+        self, expr: _EvalDataExpr, path: Optional[List[Union[str, _GetName]]] = None
+    ):
         if isinstance(expr, EvalData):
             expr = expr.expr
-        self.expr: _EvalDataExpr = expr
+        self._expr: _EvalDataExpr = expr
+        self._path = path
+        self._foreach = None
+        # NB: need to update FieldProjection.__setattr__ if adding an attribute here
+
+    @property
+    def expr(self) -> _EvalDataExpr:
+        if not self._path:
+            expr = self._expr
+        else:
+            expr = {"eval": "::".join([str(segment) for segment in self._path])}
+        if self._foreach is not None:
+            if isinstance(expr, dict):
+                expr["foreach"] = self._foreach
+            else:
+                raise ValueError(f"cannot set foreach on {expr}")
+        return expr
 
     def set_source(self):
-        if isinstance(self.expr, dict):
-            expr = self.expr.get("eval")
+        if self._path:
+            self._path.insert(0, "$SOURCE")
+        elif isinstance(self._expr, dict):
+            expr = self._expr.get("eval")
             if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
-                self.expr["eval"] = "$SOURCE::" + expr
+                self._expr["eval"] = "$SOURCE::" + expr
+
+    def set_foreach(self, foreach):
+        self._foreach = foreach
 
     def map(self, func: "EvalData") -> "EvalData":
         # return a copy of self with a  "foreach" clause added
@@ -1611,17 +1645,18 @@ class EvalData:
         raise ValueError(f"cannot map {self.expr} with {func.expr}")
 
     def __str__(self) -> str:
-        # represent this as a jina2 expression so we can embed _Refs in f-strings
-        if isinstance(self.expr, dict):
-            expr = self.expr.get("eval")
+        """Represent this as a jinja2 expression so we can embed expressions in f-strings"""
+        expr = self.expr
+        if isinstance(expr, dict):
+            expr = expr.get("eval")
             if isinstance(expr, str):
                 jinja = f"'{expr}' | eval"
             else:
                 jinja = f"{self.expr} | map_value"
             return "{{ " + jinja + " }}"
-        elif isinstance(self.expr, list):
-            return "{{ " + str(self.expr) + "| map_value }}"
-        return self.expr or ""  # type: ignore   # unreachable
+        elif isinstance(expr, list):
+            return "{{ " + str(expr) + "| map_value }}"
+        return expr or ""  # type: ignore   # unreachable
 
     def __repr__(self):
         return f"EvalData({self.expr})"
@@ -1634,13 +1669,16 @@ class EvalData:
         return hash(str(self.expr))
 
     def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, type(self.expr)):
-            return self.expr == __value
+        expr = self.expr
+        if isinstance(__value, type(expr)):
+            return expr == __value
         elif isinstance(__value, EvalData):
-            return self.expr == __value.expr
+            return expr == __value.expr
         return False
 
+
 _Ref = EvalData
+
 
 def Eval(value: Any) -> Any:
     "Use this function to specify that a value is or contains a TOSCA function or eval expressions. For example, for property default values."
@@ -1753,7 +1791,7 @@ class FieldProjection(EvalData):
         return self.field.tosca_name
 
     def __setattr__(self, name, val):
-        if name in ["expr", "field", "parent", "tosca_name"]:
+        if name in ["_expr", "_path", "_foreach", "field", "parent", "tosca_name"]:
             object.__setattr__(self, name, val)
             return
 
@@ -2021,9 +2059,11 @@ class _FieldDescriptor:
         else:  # attribute access on the class
             projection = FieldProjection(self.field, None)
             # XXX add validation key to eval to assert one result only
-            projection.expr = {
-                "eval": f"::[.type={obj_type.tosca_type_name()}]::{self.field.as_ref_expr()}"
-            }
+            projection._path = [
+                "",
+                f"[.type={obj_type.tosca_type_name()}]",
+                self.field.as_ref_expr(),
+            ]
             return projection
 
 
@@ -2103,7 +2143,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 fields = object.__getattribute__(self, "__dataclass_fields__")
                 field = fields.get(name)
                 if field and isinstance(field, _Tosca_Field):
-                    return EvalData(dict(eval=f"::{self._name}::{field.as_ref_expr()}"))
+                    return EvalData(None, ["", _GetName(self), field.as_ref_expr()])
             val = object.__getattribute__(self, name)
             if isinstance(val, _ToscaType):
                 val._set_parent(self, name)
@@ -2268,13 +2308,13 @@ def _search(
     else:
         key = req_name  # no field was provided, assume its just a regular property
     prefix = _get_expr_prefix(cls_or_obj)
-    expr = dict(eval=prefix + axis + "::" + key)
+    expr = prefix + [axis, key]
     if field:
         ref = FieldProjection(field)
-        ref.expr = expr
+        ref._path = expr
         return ref
     else:
-        return EvalData(expr)
+        return EvalData(None, expr)
 
 
 def find_configured_by(
@@ -2857,16 +2897,16 @@ def find_required_by(
                 )
     prefix = _get_expr_prefix(cls_or_obj)
     # XXX elif RelationshipType
-    expr = dict(eval=prefix + ".sources::" + req_name)
+    expr = prefix + [".sources", req_name]
     if not expected_type:
-        ref = EvalData(expr)
+        ref = EvalData(None, expr)
     else:
         dummy: _Tosca_Field = _Tosca_Field(
             ToscaFieldType.requirement, name="_required_by", owner=cls
         )
         dummy.type = expected_type
         ref = FieldProjection(dummy)
-        ref.expr = expr
+        ref._path = expr
     return cast(_TT, ref)
 
 
@@ -2887,11 +2927,16 @@ def _get_field_from_prop_ref(requirement_name) -> Tuple[Optional[_Tosca_Field], 
     return source_field, req_name
 
 
-def _get_expr_prefix(cls_or_obj) -> str:
-    if cls_or_obj and isinstance(cls_or_obj, ToscaType) and cls_or_obj._name:
-        return "::" + cls_or_obj._name + "::"
+def _get_expr_prefix(
+    cls_or_obj: Union[None, ToscaType, Type[ToscaType]]
+) -> List[Union[str, _GetName]]:
+    if cls_or_obj:
+        if cls_or_obj._name:
+            return ["", _GetName(cls_or_obj)]
+        elif isinstance(cls_or_obj, ToscaType):
+            return ["", _GetName(cls_or_obj)]
     # XXX elif isinstance(cls_or_obj, type):  return f"*[type={cls_or_obj._tosca_typename}]::"
-    return ""
+    return []
 
 
 def find_all_required_by(
@@ -2913,8 +2958,7 @@ def find_all_required_by(
         List[tosca.NodeType]:
     """
     ref = cast(EvalData, find_required_by(requirement_name, expected_type, cls_or_obj))
-    if isinstance(ref.expr, dict):  # XXX
-        ref.expr["foreach"] = "$true"
+    ref.set_foreach("$true")
     return cast(List[_TT], ref)
 
 
@@ -3224,7 +3268,7 @@ class _ToscaTypeProxy:
                 return _ArtifactProxy(name)
             else:
                 # this is only called when defining an operation on a type so reset query to be relative
-                attr.expr = {"eval": f".::{attr.field.as_ref_expr()}"}
+                attr._path = [".", attr.field.as_ref_expr()]
         return attr
 
     def find_artifact(self, name_or_tpl):
