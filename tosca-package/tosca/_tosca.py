@@ -216,6 +216,61 @@ class Namespace(types.SimpleNamespace):
         ignore = ("__doc__", "__module__", "__dict__", "__weakref__", "_tosca_name")
         return {k: v for k, v in cls.__dict__.items() if k not in ignore}
 
+    @classmethod
+    def set_name(cls, obj, name):
+        parent_name = getattr(cls, "_tosca_name", cls.__name__)
+        obj._name = parent_name + "." + name
+
+    @classmethod
+    def to_yaml(cls, converter: "PythonToYaml") -> None:
+        if __name__ != cls.__module__:  # must be subclass
+            converter._namespace2yaml(cls.get_defs())
+
+
+class ServiceTemplate(Namespace):
+    @classmethod
+    def set_name(cls, obj, name):
+        obj._name = name
+
+
+class DeploymentBlueprint(Namespace):
+    _fields = ("_cloud", "_title", "_description", "_visibility")
+
+    @classmethod
+    def set_name(cls, obj, name):
+        obj._name = name
+
+    @classmethod
+    def get_defs(cls) -> Dict[str, Any]:
+        ignore = (
+            "to_yaml",
+            "_fields",
+            "get_defs",
+            "__doc__",
+            "__module__",
+            "__dict__",
+            "__weakref__",
+            "_tosca_name",
+        )
+        return {k: v for k, v in cls.__dict__.items() if k not in ignore + cls._fields}
+
+    @classmethod
+    def to_yaml(cls, converter: "PythonToYaml") -> None:
+        name = cls.__dict__.get("_tosca_name", cls.__name__)
+        if name == "DeploymentBlueprint":  # must be subclass
+            return
+        blueprints = converter.sections.setdefault(
+            "deployment_blueprints", converter.yaml_cls()
+        )
+        blueprint = blueprints[name] = converter.yaml_cls()
+        for fieldname in cls._fields:
+            field = cls.__dict__.get(fieldname)
+            if field:
+                blueprint[fieldname[1:]] = field
+        converter.topology_templates.append(blueprint)
+        converter._namespace2yaml(cls.get_defs())
+        converter.topology_templates.pop()
+
 
 F = TypeVar("F", bound=Callable[..., Any], covariant=False)
 
@@ -2335,8 +2390,10 @@ class ToscaType(_ToscaType):
     def __set_name__(self, owner, name):
         # called when a template is declared as a default value or inside a Namespace (owner will be class)
         if not self._name:
-            parent_name = getattr(owner, "_tosca_name", owner.__name__)
-            self._name = parent_name + "." + name
+            if issubclass(owner, Namespace):
+                owner.set_name(self, name)
+            else:
+                self._name = name
 
     @classmethod
     def set_to_property_source(cls, requirement: Any, property: Any) -> None:
@@ -3182,7 +3239,9 @@ class WritePolicy(Enum):
 
     def deny_message(self, unchanged=False) -> str:
         if unchanged:
-            return f'overwrite policy is "{self.name}" but the contents have not changed'
+            return (
+                f'overwrite policy is "{self.name}" but the contents have not changed'
+            )
         if self == WritePolicy.auto:
             return 'overwrite policy is "auto" and the file was last modified by another process'
         if self == WritePolicy.never:
@@ -3236,8 +3295,16 @@ class WritePolicy(Enum):
     def has_contents_unchanged(self, new_src: Optional[str], old_src: str) -> bool:
         if new_src is None:
             return False
-        new_lines = [l.strip() for l in new_src.splitlines() if l.strip() and not l.startswith("#")]
-        old_lines = [l.strip() for l in old_src.splitlines() if l.strip() and not l.startswith("#")]
+        new_lines = [
+            l.strip()
+            for l in new_src.splitlines()
+            if l.strip() and not l.startswith("#")
+        ]
+        old_lines = [
+            l.strip()
+            for l in old_src.splitlines()
+            if l.strip() and not l.startswith("#")
+        ]
         if len(new_lines) == len(old_lines):
             return new_lines == old_lines
         return False

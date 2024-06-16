@@ -33,6 +33,7 @@ from ._tosca import (
     ValueType,
     _Tosca_Field,
     EvalData,
+    Namespace,
 )
 from .loader import restricted_exec, get_module_path
 
@@ -52,7 +53,11 @@ class PythonToYaml:
         self.imports: Set[Tuple[str, Path]] = set()
         self.repos: Dict[str, Path] = {}
         self.yaml_cls = yaml_cls
-        self.sections: Dict[str, Any] = yaml_cls(topology_template=yaml_cls())
+        self.topology_templates = [yaml_cls()]
+        self.sections: Dict[str, Any] = yaml_cls(
+            tosca_definitions_version="tosca_simple_unfurl_1_0_0",
+            topology_template=self.topology_templates[0],
+        )
         self.docstrings = docstrings or {}
         self.safe_mode = safe_mode
         if modules is None:
@@ -157,18 +162,29 @@ class PythonToYaml:
         if imports:
             self.sections.setdefault("imports", []).extend(imports)
 
-    def add_template(self, obj: ToscaType, name: str = "", module_name="") -> str:
-        section = self.sections["topology_template"].setdefault(
+    def add_template(
+        self,
+        obj: ToscaType,
+        name: str = "",
+        module_name="",
+    ) -> str:
+        name = obj._name or name
+        for topology_section in reversed(self.topology_templates):
+            section = topology_section.get(obj._template_section)
+            if section and name in section:
+                return name
+            if module_name:
+                # only do a shallow search if not adding because of a requirement reference
+                break
+        section = self.topology_templates[-1].setdefault(
             obj._template_section, self.yaml_cls()
         )
-        name = obj._name or name
-        if name not in section:
-            section[name] = obj  # placeholder to prevent circular references
-            section[name] = obj.to_template_yaml(self)
-            if module_name:
-                section[name].setdefault("metadata", {})["module"] = module_name
-                obj.register_template(module_name, name)
-            self.templates.append(obj)
+        section[name] = obj  # placeholder to prevent circular references
+        section[name] = obj.to_template_yaml(self)
+        if module_name:
+            section[name].setdefault("metadata", {})["module"] = module_name
+            obj.register_template(module_name, name)
+        self.templates.append(obj)
         return name
 
     def set_requirement_value(
@@ -264,11 +280,9 @@ class PythonToYaml:
         )  # exec() adds to builtins
         path = self.globals.get("__file__")
         description = self.globals.get("__doc__")
-        self.sections["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
         if description and description.strip():
             self.sections["description"] = description.strip()
-        topology_sections: Dict[str, Any] = self.sections["topology_template"]
-
+        topology_sections = self.topology_templates[-1]
         if not isinstance(namespace, dict):
             names = getattr(namespace, "__all__", None)
             if names is None:
@@ -279,8 +293,17 @@ class PythonToYaml:
         for name, obj in namespace.items():
             if isinstance(obj, ModuleType):
                 continue
-            if hasattr(obj, "get_defs"):  # class Namespace
-                self._namespace2yaml(obj.get_defs())
+            if (
+                not isinstance(obj, InstanceProxy)
+                and isinstance(obj, NodeType)
+                and not obj._name
+            ):
+                obj._name = name
+        for name, obj in namespace.items():
+            if isinstance(obj, ModuleType):
+                continue
+            if hasattr(obj, "get_defs") and issubclass(obj, Namespace):
+                obj.to_yaml(self)
                 continue
             module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):

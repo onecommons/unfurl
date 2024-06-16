@@ -1169,7 +1169,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 
 
 def _yaml_to_python(
-    project_or_ensemble_path, file, local_env, python_target_version, overwrite: str
+    project_or_ensemble_path: str, file: Optional[str], local_env: Optional[LocalEnv], python_target_version, overwrite: str
 ):
     from tosca import yaml2python, WritePolicy
     from .yamlloader import ImportResolver
@@ -1189,16 +1189,16 @@ def _yaml_to_python(
         except Exception:
             raise  # unexpected error
 
-    if local_env and manifest:
+    if local_env and manifest and local_env.manifestPath:
         assert manifest.tosca and manifest.tosca.template
         if not file:
-            file = Path(manifest.get_base_dir()) / (
+            file = str(Path(manifest.get_base_dir()) / (
                 re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py"
-            )
+            ))
         python_src = yaml2python.convert_service_template(
             manifest.tosca.template,
             python_compatible=python_target_version,
-            path=str(file),
+            path=file,
             write_policy=write_policy,
         )
     else:
