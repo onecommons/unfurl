@@ -7,6 +7,7 @@ ruamel.yaml==0.17.21
 ansible-core >= 2.11.12, <= 2.15.9 # gpl 3
 GitPython==3.1.41; python_version>='3.7' # BSD
 rich==12.4.4  # MIT
+rich-click>=1.8.0 # MIT
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
 -r tosca-parser/requirements.txt
 itsdangerous==2.0.1 # newer version broken with moto (using old flask)
