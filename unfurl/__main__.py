@@ -730,20 +730,42 @@ def plan(ctx, ensemble=None, **options):
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 @click.option(
+    "--overwrite",
+    type=click.Path(exists=False),
+    help="Create in the given directory even if it exists.",
+)
+@click.option(
     "--skeleton",
     type=click.Path(exists=False),
     help="Path to a directory of project skeleton templates.",
 )
 @click.option(
-    "--create-environment",
-    is_flag=True,
-    default=False,
-    help="Create (if missing) a environment with the same name and set this as the default repository for ensembles that use this environment.",
+    "--var",
+    nargs=2,
+    type=click.Tuple([str, str]),
+    multiple=True,
+    help="name/value pair to pass to skeleton (multiple times ok).",
 )
 @click.option(
     "--use-environment",
     default=None,
     help="Associate the given environment with this ensemble.",
+)
+@click.option(
+    "--use-deployment-blueprint",
+    help="Use this deployment blueprint.",
+)
+@click.option(
+    "--as-shared-environment",
+    is_flag=True,
+    default=False,
+    help="Create an environment with the same name and set this project as its shared repository.",
+)
+@click.option(
+    "--create-environment",  # old name of --as-shared-environment for backward compatibility
+    is_flag=True,
+    default=False,
+    hidden=True
 )
 @click.option(
     "--shared-repository",
@@ -752,26 +774,10 @@ def plan(ctx, ensemble=None, **options):
     help="Create the ensemble in an repository outside the project.",
 )
 @click.option(
-    "--overwrite",
-    type=click.Path(exists=False),
-    help="Create ensemble in the given directory even if it exists.",
-)
-@click.option(
     "--render",
     is_flag=True,
     default=False,
     help="Generate files only (don't commit them).",
-)
-@click.option(
-    "--use-deployment-blueprint",
-    help="Use this deployment blueprint.",
-)
-@click.option(
-    "--var",
-    nargs=2,
-    type=click.Tuple([str, str]),
-    multiple=True,
-    help="name/value pair to pass to skeleton (multiple times ok).",
 )
 def init(ctx, projectdir, ensemble_name=None, **options):
     """

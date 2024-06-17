@@ -428,7 +428,8 @@ def create_project(
     creating_home=False,
     **kw,
 ):
-    create_context = kw.get("create_environment")
+    # check both new and old name for option flag
+    create_context = kw.get("as_shared_environment") or kw.get("create_environment")
     use_context = kw.get("use_environment")
     skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
     if existing:
