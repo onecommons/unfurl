@@ -987,8 +987,8 @@ class YamlConfig:
                 self.path = os.path.abspath(path)
                 if os.path.isfile(self.path):
                     statinfo = os.stat(self.path)
-                    # st_mtime is unreliable (git seems to modify it even when it doesn't change the file)
-                    # so use file_size as a good-enough proxy to detect the file changing out from under us
+                    # st_mtime is unreliable so use file_size as a good-enough proxy 
+                    # to detect the file changing out from under us
                     self.file_size = statinfo.st_size
                     with open(self.path, "r") as f:
                         config = f.read()
