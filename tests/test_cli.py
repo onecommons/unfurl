@@ -134,7 +134,7 @@ class CliTest(unittest.TestCase):
     def test_help(self):
         runner = CliRunner()
         result = runner.invoke(cli, [])
-        assert result.output.startswith(
+        assert unstyle(result.output).strip().startswith(
             "Usage: cli [OPTIONS] COMMAND [ARGS]"
         ), result.output
         self.assertEqual(result.exit_code, 0)

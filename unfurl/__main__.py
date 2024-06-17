@@ -22,8 +22,17 @@ from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
 from typing_extensions import Protocol
 
-import click
-
+# import click
+import rich_click as click
+# see https://github.com/ewels/rich-click/blob/main/docs/documentation/configuration.md
+click.rich_click.STYLE_METAVAR = "dark_orange"
+click.rich_click.STYLE_OPTION_ENVVAR = "dim dark_orange"
+click.rich_click.STYLE_OPTION = "green"
+click.rich_click.STYLE_COMMAND = "bold green"
+if os.environ.get("PY_COLORS") == "0":
+    click.rich_click.COLOR_SYSTEM = None  # disable colors
+click.rich_click.OPTION_ENVVAR_FIRST=False
+click.rich_click.ENVVAR_STRING = "(${})"
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from . import init as initmod
 from . import logs, version_tuple
@@ -44,19 +53,23 @@ _args: List[str] = []  # for testing
 def option_group(*options):
     return lambda func: functools.reduce(lambda a, b: b(a), options, func)
 
+from rich_click import rich_config
+
 
 @click.group()
 @click.pass_context
 @click.option(
     "--home",
     envvar="UNFURL_HOME",
+    show_envvar=True,
     type=click.Path(exists=False),
     help="Path to .unfurl_home (Use '' to ignore default home)",
 )
-@click.option("--runtime", envvar="UNFURL_RUNTIME", help="Use the given runtime")
+@click.option("--runtime", envvar="UNFURL_RUNTIME", show_envvar=True, help="Use the given runtime")
 @click.option(
     "--no-runtime",
     envvar="UNFURL_NORUNTIME",
+    show_envvar=True,
     default=False,
     is_flag=True,
     help="Ignore runtime settings",
@@ -67,21 +80,23 @@ def option_group(*options):
     "--quiet",
     default=False,
     is_flag=True,
-    help="Only output errors to the stdout",
+    help="Only output critical errors to the stdout",
 )
 @click.option(
     "--logfile",
     default=None,
     envvar="UNFURL_LOGFILE",
+    show_envvar=True,
     help="Log messages to file (at DEBUG level)",
 )
 @click.option(
     "--tmp",
     envvar="UNFURL_TMPDIR",
+    show_envvar=True,
     type=click.Path(exists=True),
     help="Directory for saving temporary files",
 )
-@click.option("--loglevel", envvar="UNFURL_LOGGING", help="log level (overrides -v)")
+@click.option("--loglevel", envvar="UNFURL_LOGGING", show_envvar=True, help="Log level (overrides -v)")
 @click.option(
     "--version-check",
     envvar="UNFURL_VERSION_CHECK",
@@ -97,6 +112,7 @@ def option_group(*options):
     default=False,
     is_flag=True,
     envvar="UNFURL_SKIP_UPSTREAM_CHECK",
+    show_envvar=True,
     help="Skip pulling latest upstream changes from existing repositories.",
 )
 def cli(
@@ -110,6 +126,7 @@ def cli(
     home=None,
     **kw,
 ):
+    """A command line tool for deploying services and applications."""
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
@@ -127,7 +144,7 @@ def cli(
     logs.add_log_file(kw["logfile"], effective_log_level)
     logs.set_console_log_level(effective_log_level)
     logging.debug("initialized logging")
-
+  
     if version_check and version_tuple() < version_tuple(version_check):
         logging.error(
             "Current unfurl version %s older than expected version %s",
@@ -213,6 +230,7 @@ jobControlOptions = option_group(
         "-a",
         "--approve",
         envvar="UNFURL_APPROVE",
+        show_envvar=True,
         default=False,
         is_flag=True,
         help="Don't prompt for approval to apply changes.",
@@ -824,12 +842,12 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         os.path.abspath(projectdir), ensemble_name, **options
     )
     if homePath:
-        click.echo(f"unfurl home created at {homePath}")
-    click.echo(f"New Unfurl project created at {projectPath}")
+        click.echo(f"Unfurl home created at {homePath}")
+    click.echo(f"Unfurl project created at {projectPath}")
 
 
 # XXX add --upgrade option
-@cli.command(short_help="Print or manage the unfurl home project")
+@cli.command(short_help="Print or manage the Unfurl home project.")
 @click.pass_context
 @click.option(
     "--render",
@@ -1253,6 +1271,7 @@ def _yaml_to_python(
     type=click.Choice(["older", "never", "always", "auto"]),
     help="Overwrite existing files (Default: auto)",
     envvar="UNFURL_OVERWRITE_POLICY",
+    show_envvar=True,
 )
 @click.option(
     "--python-target",
@@ -1386,7 +1405,7 @@ def version(ctx, semver=False, remote=False, **options):
 @click.pass_context
 @click.argument("cmd", nargs=1, default="")
 def help(ctx, cmd=""):
-    """Get help on a command"""
+    """Get help on a command."""
     if not cmd:
         click.echo(cli.get_help(ctx.parent), color=ctx.color)
         return
@@ -1416,6 +1435,7 @@ def help(ctx, cmd=""):
 @click.option(
     "--secret",
     envvar="UNFURL_SERVE_SECRET",
+    show_envvar=True,
     help="Secret required to access the server",
 )
 @click.option(
@@ -1423,16 +1443,19 @@ def help(ctx, cmd=""):
     default="./repos",
     help="Where to clone repositories (default: ./repos)",
     envvar="UNFURL_CLONE_ROOT",
+    show_envvar=True,
     type=click.Path(exists=False),
 )
 @click.option(
     "--cloud-server",
     envvar="UNFURL_CLOUD_SERVER",
+    show_envvar=True,
     help="Unfurl Cloud server URL to connect to.",
 )
 @click.option(
     "--cors",
     envvar="UNFURL_SERVE_CORS",
+    show_envvar=True,
     help='enable CORS with origin (e.g. "*")',
 )
 @click.option(
@@ -1476,7 +1499,7 @@ def serve(
     )
 
 
-@cli.command(short_help="Manage a cloud map")
+@cli.command(short_help="Manage a cloud map.")
 @click.pass_context
 @click.argument("cloudmap", default="cloudmap")
 @click.option(
