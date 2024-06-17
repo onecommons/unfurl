@@ -358,7 +358,6 @@ class Convert:
         src = ""
         for node_template in topology.nodetemplates:
             localname = self.imports.get_local_ref(node_template.name)
-            print("convert nt", node_template.name, localname)
             if not localname or localname not in self.imports.declared:
                 template_name, template_src = self.node_template2obj(
                     node_template, indent
