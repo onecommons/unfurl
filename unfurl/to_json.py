@@ -499,7 +499,9 @@ def requirement_to_graphql(
     namespace_id = req.get("!namespace-node")
     if nodetype:
         # req['node'] can be a node_template name instead of a type
-        node_template = topology.topology_template.find_node_related_template(nodetype, namespace_id)
+        node_template = topology.topology_template.find_node_related_template(
+            nodetype, namespace_id
+        )
         if node_template:
             if include_matches:
                 reqobj["match"] = node_template.name
@@ -1269,9 +1271,7 @@ def get_deployment_blueprints(
 
     Returns json object with DeploymentTemplates:
     """
-    deployment_blueprints: Dict[str, dict] = (
-        manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
-    )
+    deployment_blueprints = manifest.get_deployment_blueprints()
     spec = manifest.tosca
     assert spec and spec.topology
     deployment_templates: Dict[str, DeploymentTemplate] = {}
@@ -1279,7 +1279,9 @@ def get_deployment_blueprints(
         slug = slugify(name)
         template = tpl.copy()
         local_resource_templates: ResourceTemplatesByName = {}
-        resource_templates = template.pop("resource_templates", None)
+        resource_templates = template.pop("resource_templates", None) or template.pop(
+            "node_templates", None
+        )
         if resource_templates:
             topology = spec.topology.copy()
             for node_name, node_tpl in resource_templates.items():

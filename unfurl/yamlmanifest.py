@@ -332,11 +332,7 @@ class YamlManifest(ReadOnlyManifest):
         )
         more_spec = self._load_context(self.context, localEnv, load_env_instances)
         deployment_blueprint = self.context.get("deployment_blueprint")
-        deployment_blueprints = spec.get("deployment_blueprints") or {}
-        if spec.get("service_template", {}).get("deployment_blueprints"):
-            dp = spec["service_template"].get("deployment_blueprints")
-            if dp:
-                deployment_blueprints.update(dp)
+        deployment_blueprints = self.get_deployment_blueprints()
         if deployment_blueprints:
             if (
                 not deployment_blueprint
@@ -401,6 +397,17 @@ class YamlManifest(ReadOnlyManifest):
         self._configure_root(rootResource)
         self._set_repository_links()
         self._ready(rootResource)
+
+    def get_deployment_blueprints(self) -> Dict[str, dict]:
+        spec = self.manifest.expanded.get("spec", {})
+        deployment_blueprints = spec.get("deployment_blueprints") or {}
+        if spec.get("service_template", {}).get("deployment_blueprints"):
+            st_dps = spec["service_template"].get("deployment_blueprints")
+            if st_dps:
+                # outer deployment_blueprints override the service_template one (UI sets the outer one)
+                st_dps.update(deployment_blueprints)
+                return st_dps
+        return deployment_blueprints
 
     def _add_deployment_blueprint_template(
         self, deployment_blueprints, deployment_blueprint, more_spec
