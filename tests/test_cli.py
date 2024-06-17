@@ -496,7 +496,7 @@ spec:
                     "--home",
                     "./unfurl_home",
                     "init",
-                    "--create-environment",
+                    "--as-shared-environment",
                     "production",
                 ],
             )

@@ -13,7 +13,7 @@ This will create an Unfurl project that, by default, is located at ``~/.unfurl_h
 
 .. code-block:: shell
 
-    unfurl init --create-environment aws-staging --skeleton aws
+    unfurl init --as-shared-environment aws-staging --skeleton aws
 
 The ``--skeleton`` option lets you specify an alternative to the default project skeleton. A list of the currently available skeletons is :unfurl_github:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
 
