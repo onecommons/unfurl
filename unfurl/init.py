@@ -8,7 +8,6 @@ import os
 import os.path
 from typing import Any, Dict, Optional, cast
 import uuid
-import logging
 from jinja2.loaders import FileSystemLoader
 from pathlib import Path
 
@@ -26,6 +25,8 @@ from .util import UnfurlError, assert_not_none, substitute_env
 from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib
 from .venv import init_engine
+from .logs import getLogger
+logger = getLogger("unfurl")
 
 _skeleton_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "skeletons")
 
@@ -114,6 +115,8 @@ def create_home(
     else:
         if exists:
             rename_for_backup(homedir)
+        else:
+            logger.info(f"Missing Unfurl home project at {homedir}, creating it now...")
 
     newHome, configPath, repo = create_project(
         homedir,
@@ -190,10 +193,9 @@ def _set_ensemble_vars(vars, externalProject, ensemblePath, context):
 
 
 def _warn_about_new_password(localProjectConfig):
-    logger = logging.getLogger("unfurl")
     logger.warning(
         "A password was generated and included in the local config file at %s -- "
-        "please keep this password safe, without it you will not be able to decrypt any encrypted files "
+        "please keep this password safe, you will need it to decrypt any encrypted files "
         "committed to the repository.",
         localProjectConfig,
     )
@@ -391,7 +393,6 @@ def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, runti
         repo.add_sub_module(ensembleDir)
 
     if runtime:
-        logger = logging.getLogger("unfurl")
         try:
             error_message = init_engine(projectdir, runtime)
             if error_message:
@@ -473,6 +474,7 @@ def create_project(
             projectdir, shared, submodule, names.EnsembleDirectory
         )
 
+    logger.info(f"Creating Unfurl project at {projectdir}...")
     projectConfigPath, ensembleDir, password_vault = render_project(
         projectdir,
         repo,
@@ -658,7 +660,7 @@ class EnsembleBuilder:
         self.dest_path: Optional[str] = None  # step 3 relative path in dest_project
 
         self.manifest = None  # final step
-        self.logger = logging.getLogger("unfurl")
+        self.logger = logger
 
     def create_project_from_ensemble(self, dest):
         # XXX create a new project from scratch for the ensemble
