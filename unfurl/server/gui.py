@@ -49,11 +49,16 @@ dashboard_template = env.get_template("dashboard.j2.html")
 
 # the overrides is a hackish way to load all env vars for all environments
 localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
-assert localenv.project and localenv.project.project_repoview and localenv.project.project_repoview.repo
+assert (
+    localenv.project
+    and localenv.project.project_repoview
+    and localenv.project.project_repoview.repo
+)
 localrepo = localenv.project.project_repoview.repo
 
 localrepo_is_dashboard = (
-    len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml"))) > 0
+    len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml")))
+    > 0
     # assume dashboard
     # and len(glob(os.path.join("ensemble-template.y*ml"))) == 0
 )
@@ -122,9 +127,11 @@ def serve_document(path):
     if not repo:
         return "Not found", 404
     format = "environments"
-    # assume dashboard
-    # if glob(os.path.join(repo.working_dir, "ensemble-template.y*ml")):
-    #     format = "blueprint"
+    # assume serving dashboard
+    if repo != localrepo and glob(
+        os.path.join(repo.working_dir, "ensemble-template.y*ml")
+    ):
+        format = "blueprint"
 
     project_path = repo.project_path()
     project_name = os.path.basename(project_path)
@@ -181,14 +188,11 @@ def get_repo(project_path, branch=None) -> Optional[GitRepo]:
         branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
 
     def do_export():
-        req = Request({
-            'QUERY_STRING': f"?format=blueprint&auth_project={project_path}"
-        })
+        req = Request(
+            {"QUERY_STRING": f"?format=blueprint&auth_project={project_path}"}
+        )
         serve._export(
-            req,
-            requested_format="blueprint",
-            deployment_path="",
-            include_all=False
+            req, requested_format="blueprint", deployment_path="", include_all=False
         )
 
     def search_repo_paths():
@@ -261,7 +265,9 @@ def _set_variables(env_vars: List[EnvVar]):
                         env_name, CommentedMap()
                     )
                     modified_secrets = True
-                    secret_env.setdefault("variables", {})[key] = {"eval": dict(sensitive=value)}  # mark sensitive
+                    secret_env.setdefault("variables", {})[key] = {
+                        "eval": dict(sensitive=value)
+                    }  # mark sensitive
             else:
                 # in case this flag changed
                 secret_env = (
@@ -277,7 +283,9 @@ def _set_variables(env_vars: List[EnvVar]):
     if modified_config:
         project.localConfig.config.save()
     if modified_secrets or modified_config:
-        globals()["localenv"] = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
+        globals()["localenv"] = LocalEnv(
+            UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"}
+        )
     return {"variables": list(_yield_variables())}
 
 
@@ -317,6 +325,7 @@ def _yield_variables() -> Iterator[EnvVar]:
 
 def create_gui_routes():
     app.config["UNFURL_GUI_MODE"] = True
+
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
         if get_repo(project_path) != localrepo:
@@ -343,7 +352,6 @@ def create_gui_routes():
         repo = get_repo(project_path)
         if not repo:
             return "Not found", 404
-
         return jsonify(
             # TODO
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
