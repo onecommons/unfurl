@@ -6,8 +6,8 @@ from ..logs import is_sensitive, getLogger
 
 from ..repo import GitRepo
 
-from ..localenv import LocalEnv
 from .serve import app
+from ..localenv import LocalEnv
 from . import serve
 from flask import request, Response, Request, jsonify, send_file
 from jinja2 import Environment, FileSystemLoader
@@ -38,7 +38,7 @@ with app.app_context():
     this, set up an application context with app.app_context().  See the
     documentation for more information.
     """
-    UNFURL_SERVE_PATH = ""  # os.getenv("UNFURL_SERVE_PATH", "")
+    UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
     user = os.getenv("USER", "unfurl-user")
     password = None
 
@@ -49,12 +49,13 @@ dashboard_template = env.get_template("dashboard.j2.html")
 
 # the overrides is a hackish way to load all env vars for all environments
 localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
-assert localenv.instance_repoview and localenv.instance_repoview.repo
-localrepo = localenv.instance_repoview.repo
+assert localenv.project and localenv.project.project_repoview and localenv.project.project_repoview.repo
+localrepo = localenv.project.project_repoview.repo
 
 localrepo_is_dashboard = (
     len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml"))) > 0
-    and len(glob(os.path.join("ensemble-template.y*ml"))) == 0
+    # assume dashboard
+    # and len(glob(os.path.join("ensemble-template.y*ml"))) == 0
 )
 
 home_project = localrepo.project_path() if localrepo_is_dashboard else None
@@ -121,8 +122,9 @@ def serve_document(path):
     if not repo:
         return "Not found", 404
     format = "environments"
-    if glob(os.path.join(repo.working_dir, "ensemble-template.y*ml")):
-        format = "blueprint"
+    # assume dashboard
+    # if glob(os.path.join(repo.working_dir, "ensemble-template.y*ml")):
+    #     format = "blueprint"
 
     project_path = repo.project_path()
     project_name = os.path.basename(project_path)
