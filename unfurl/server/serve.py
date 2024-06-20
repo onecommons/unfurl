@@ -928,7 +928,7 @@ class CacheEntry:
         validate: Optional[Callable] = None,
         cache_dependency: Optional[CacheItemDependency] = None,
     ) -> Tuple[Optional[Any], Any]:
-        if latest_commit is None and not self.stale_pull_age:
+        if latest_commit is None and not self.stale_pull_age or app.config.get("UNFURL_GUI_MODE"):
             # don't use the cache
             return self._do_work(work, latest_commit)[0:2]
 
@@ -2425,12 +2425,14 @@ def serve(
             f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
         )
 
+    logger.error("1 UNFURL_CURRENT_GIT_URL %s", app.config.get("UNFURL_CURRENT_GIT_URL"))
     if gui:
         from .gui import create_gui_routes
 
         create_gui_routes()
 
     enter_safe_mode()
+    logger.error("2 UNFURL_CURRENT_GIT_URL %s", app.config.get("UNFURL_CURRENT_GIT_URL"))
 
     # Start one WSGI server
     import uvicorn

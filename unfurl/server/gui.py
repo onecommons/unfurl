@@ -23,24 +23,13 @@ logger = getLogger("unfurl.gui")
 
 local_dir = os.path.dirname(os.path.abspath(__file__))
 
-with app.app_context():
-    UFGUI_DIR = os.getenv("UFGUI_DIR", local_dir)
-    WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")  # implied dev mode
-    DIST = os.path.join(UFGUI_DIR, "dist")
-    PUBLIC = os.path.join(UFGUI_DIR, "public")
-
-    # getting an error when trying to access this variable
-    """
-    Exiting with error: Working outside of application context.
-
-    This typically means that you attempted to use functionality that needed
-    to interface with the current application object in some way. To solve
-    this, set up an application context with app.app_context().  See the
-    documentation for more information.
-    """
-    UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-    user = os.getenv("USER", "unfurl-user")
-    password = None
+UFGUI_DIR = os.getenv("UFGUI_DIR", local_dir)
+WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")  # implied dev mode
+DIST = os.path.join(UFGUI_DIR, "dist")
+PUBLIC = os.path.join(UFGUI_DIR, "public")
+UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
+user = os.getenv("USER", "unfurl-user")
+password = None
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 origin = None
@@ -56,12 +45,7 @@ assert (
 )
 localrepo = localenv.project.project_repoview.repo
 
-localrepo_is_dashboard = (
-    len(glob(os.path.join(UNFURL_SERVE_PATH, "unfurl.y*ml")))
-    > 0
-    # assume dashboard
-    # and len(glob(os.path.join("ensemble-template.y*ml"))) == 0
-)
+localrepo_is_dashboard = bool(localenv.manifestPath)
 
 home_project = localrepo.project_path() if localrepo_is_dashboard else None
 
@@ -72,15 +56,16 @@ if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
     origin = f"{parsed.scheme}://{parsed.hostname}"
 
 
-def get_project_readme(repo):
+def get_project_readme(repo) -> str:
     for filename in ["README", "README.md", "README.txt"]:
         path = os.path.join(repo.working_dir, filename)
         if os.path.exists(path):
             with open(path, "r") as file:
                 return file.read()
+    return ""
 
 
-def get_head_contents(f):
+def get_head_contents(f) -> str:
     with open(f, "r") as file:
         contents = file.read()
         match = re.search(r"<head.*?>(.*?)</head>", contents, re.DOTALL)
@@ -128,9 +113,7 @@ def serve_document(path):
         return "Not found", 404
     format = "environments"
     # assume serving dashboard
-    if repo.repo != localrepo.repo and glob(
-        os.path.join(repo.working_dir, "ensemble-template.y*ml")
-    ):
+    if repo.repo != localrepo.repo or not localrepo_is_dashboard:
         format = "blueprint"
 
     project_path = repo.project_path()
@@ -185,7 +168,8 @@ def get_repo(project_path, branch=None) -> Optional[GitRepo]:
     repo: Optional[GitRepo] = None
 
     if not branch:
-        branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
+        branch = "main"
+        # branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
 
     def do_export():
         req = Request(
@@ -227,6 +211,7 @@ class EnvVar(TypedDict, total=False):
 
 
 def _set_variables(env_vars: List[EnvVar]):
+    global localenv
     project = localenv.project or localenv.homeProject
     assert project
     secret_config_key, secret_config = project.localConfig.find_secret_include()
@@ -283,9 +268,7 @@ def _set_variables(env_vars: List[EnvVar]):
     if modified_config:
         project.localConfig.config.save()
     if modified_secrets or modified_config:
-        globals()["localenv"] = LocalEnv(
-            UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"}
-        )
+        localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
     return {"variables": list(_yield_variables())}
 
 
@@ -356,6 +339,11 @@ def create_gui_routes():
             # TODO
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
+
+    @app.route("/api/v4/projects/")
+    def empty_project():
+        logger.warning("FIX ME /api/v4/projects/")
+        return "Not found", 404
 
     @app.route("/api/v4/projects/<path:project_path>")
     def project(project_path):
