@@ -128,7 +128,7 @@ def serve_document(path):
         return "Not found", 404
     format = "environments"
     # assume serving dashboard
-    if repo != localrepo and glob(
+    if repo.repo != localrepo.repo and glob(
         os.path.join(repo.working_dir, "ensemble-template.y*ml")
     ):
         format = "blueprint"
