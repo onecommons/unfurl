@@ -113,8 +113,8 @@ def serve_document(path, localenv):
         user = ""
         origin = None
 
-    server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)[0]
-    repo = _get_repo(server_fragment, localenv)
+    server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
+    repo = _get_repo(server_fragment[-1].lstrip('/'), localenv)
 
     if not repo:
         return "Not found", 404
@@ -178,16 +178,16 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
         return localenv.project and localenv.project.project_repoview.repo
 
     local_projects = app.config["UNFURL_LOCAL_PROJECTS"]
-    project_path += "/"
+    if project_path[-1] != "/":
+        project_path += "/"
     if project_path in local_projects:
         working_dir = local_projects[project_path]
         return GitRepo(git.Repo(working_dir))
 
     if project_path.startswith("local:"):
         # it's not a cloud server project
-        logger.error(f"!!!!!!!Can't find project {project_path} {list(local_projects)}")
+        logger.error(f"Can't find project {project_path} in {list(local_projects)}")
         return None
-    logger.error(f"wassdfdsf, {project_path}, dir")
 
     project_path = project_path.rstrip("/")
     repo: Optional[GitRepo] = None
