@@ -183,7 +183,8 @@ if os.environ.get("CACHE_CLEAR_ON_START"):
 DEFAULT_BRANCH = "main"
 
 
-def _set_local_projects(repo_views, local_projects, clone_root):
+def _set_local_projects(repo_views, local_projects, clone_root, gui):
+    # XXX all repos in local mode!
     server_url = app.config["UNFURL_CLOUD_SERVER"]
     server_host = urlparse(server_url).hostname
     for repo_view in repo_views:
@@ -201,28 +202,40 @@ def _set_local_projects(repo_views, local_projects, clone_root):
                 project_id,
             )
             local_projects[project_id] = repo_view.repo.working_dir
+        elif gui:
+            local_projects["local:" + repo_view.repo.working_dir.lstrip("/")] = repo_view.repo.working_dir
 
 
-def set_local_projects(local_env, clone_root):
+def set_local_projects(local_env, clone_root, gui):
     clone_root = os.path.abspath(clone_root)
     local_projects: Dict[str, str] = {}
     if local_env.project:
         _set_local_projects(
-            local_env.project.workingDirs.values(), local_projects, clone_root
+            local_env.project.workingDirs.values(), local_projects, clone_root, gui
         )
     if local_env.homeProject:
         _set_local_projects(
-            local_env.homeProject.workingDirs.values(), local_projects, clone_root
+            local_env.homeProject.workingDirs.values(), local_projects, clone_root, gui
         )
     app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
 
 
-def set_current_ensemble_git_url():
+def set_current_ensemble_git_url(gui: bool = False):
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
     if not project_or_ensemble_path:
         return None
     try:
-        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True, readonly=True)
+        # the overrides is a hackish way to load all env vars for all environments
+        if gui:
+            overrides={"ENVIRONMENT": "*"}
+        else:
+            overrides=None
+        local_env = LocalEnv(
+            project_or_ensemble_path,
+            overrides=overrides,
+            can_be_empty=True,
+            readonly=not gui,
+        )
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
@@ -238,19 +251,27 @@ def set_current_ensemble_git_url():
         )
         server_url = app.config["UNFURL_CLOUD_SERVER"]
         server_host = urlparse(server_url).hostname
-        if not server_host:
-            return None
-        remote = local_env.project.project_repoview.repo.find_remote(host=server_host)
-        if remote:
-            remote_url = remote.url
+        if not gui and not server_host:
+            return None  # no remote is ok in local mode
+        if server_host:
+            remote = local_env.project.project_repoview.repo.find_remote(
+                host=server_host
+            )
+            if remote:
+                remote_url = remote.url
+            else:
+                remote_url = local_env.project.project_repoview.url
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
         else:
-            remote_url = local_env.project.project_repoview.url
-        app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(
+                local_env.project.project_repoview.repo.url
+            )
         return local_env
     return None
 
 
-set_current_ensemble_git_url()
+# XXX temp!!
+# set_current_ensemble_git_url()
 
 
 def get_project_id(request) -> str:
@@ -928,7 +949,11 @@ class CacheEntry:
         validate: Optional[Callable] = None,
         cache_dependency: Optional[CacheItemDependency] = None,
     ) -> Tuple[Optional[Any], Any]:
-        if latest_commit is None and not self.stale_pull_age or app.config.get("UNFURL_GUI_MODE"):
+        if (
+            latest_commit is None
+            and not self.stale_pull_age
+            or app.config.get("UNFURL_GUI_MODE")
+        ):
             # don't use the cache
             return self._do_work(work, latest_commit)[0:2]
 
@@ -1073,6 +1098,7 @@ def get_canonical_url(project_id: str) -> str:
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
+    # XXX add local mode, hack project_id to be any url
     base_url = current_app.config["UNFURL_CLOUD_SERVER"]
     assert base_url
     if username:
@@ -1189,6 +1215,7 @@ def export():
     deployment_path = request.args.get("deployment_path") or ""
     return _export(request, requested_format, deployment_path, False)
 
+
 def get_default_branch(
     project_id: str, branch: Optional[str] = "(MISSING)", args: Dict[str, Any] = {}
 ) -> str:
@@ -1222,6 +1249,7 @@ def _export(
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
+    # XXX wrong if local!
     args["root_url"] = get_canonical_url(project_id)
     args["include_all"] = include_all
     if include_all:
@@ -2134,6 +2162,7 @@ def _patch_ensemble(
 
     username = body.get("username")
     password = body.get("private_token", body.get("password"))
+    # XXX push_url isn't used... is this needed?? and doesn't make sense in local mode
     push_url = existing_repo.url if existing_repo else app.config["UNFURL_CLOUD_SERVER"]
     if push_url and not password and push_url.startswith("http"):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
@@ -2220,7 +2249,7 @@ def _patch_ensemble(
         committed = manifest.commit(commit_msg, True, True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
-            if manifest.repo:
+            if manifest.repo:  # XXX don't push when local!
                 try:
                     if password:
                         url = add_user_to_url(manifest.repo.url, username, password)
@@ -2308,7 +2337,7 @@ def _commit_and_push(
     else:
         url = None
     try:
-        repo.push(url)
+        repo.push(url)  # XXX don't push when local
         logger.info("pushed")
     except Exception as err:
         # discard the last commit that we couldn't push
@@ -2409,9 +2438,9 @@ def serve(
                 )
                 return
         app.config["UNFURL_CLOUD_SERVER"] = cloud_server
-    local_env = set_current_ensemble_git_url()
+    local_env = set_current_ensemble_git_url(gui)
     if local_env:
-        set_local_projects(local_env, clone_root)
+        set_local_projects(local_env, clone_root, gui)
 
     current_project_id = get_current_project_id()
     if current_project_id:
@@ -2425,14 +2454,16 @@ def serve(
             f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
         )
 
-    logger.error("1 UNFURL_CURRENT_GIT_URL %s", app.config.get("UNFURL_CURRENT_GIT_URL"))
-    if gui:
+    if gui and local_env:
         from .gui import create_gui_routes
 
-        create_gui_routes()
+        create_gui_routes(local_env)
 
     enter_safe_mode()
-    logger.error("2 UNFURL_CURRENT_GIT_URL %s", app.config.get("UNFURL_CURRENT_GIT_URL"))
+    if gui:
+      logger.info(
+          "Serving ui for project at %s", app.config.get("UNFURL_CURRENT_GIT_URL")
+      )
 
     # Start one WSGI server
     import uvicorn

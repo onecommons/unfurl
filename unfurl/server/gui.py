@@ -1,3 +1,15 @@
+"""
+  UI for local Unfurl project
+
+  "project_path" is used by serve for export and patch
+
+  Returns:
+      _type_: _description_
+
+  Yields:
+      _type_: _description_
+"""
+
 import os
 from typing import Any, Iterator, List, Literal, Optional, Union
 from typing_extensions import TypedDict, Required
@@ -28,35 +40,13 @@ WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")  # implied dev mode
 DIST = os.path.join(UFGUI_DIR, "dist")
 PUBLIC = os.path.join(UFGUI_DIR, "public")
 UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-user = os.getenv("USER", "unfurl-user")
-password = None
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
-origin = None
 blueprint_template = env.get_template("project.j2.html")
 dashboard_template = env.get_template("dashboard.j2.html")
 
-# the overrides is a hackish way to load all env vars for all environments
-localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
-assert (
-    localenv.project
-    and localenv.project.project_repoview
-    and localenv.project.project_repoview.repo
-)
-localrepo = localenv.project.project_repoview.repo
 
-localrepo_is_dashboard = bool(localenv.manifestPath)
-
-home_project = localrepo.project_path() if localrepo_is_dashboard else None
-
-if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
-    parsed = urlparse(localrepo.remote.url)
-    [user, password, *rest] = re.split(r"[@:]", parsed.netloc)
-
-    origin = f"{parsed.scheme}://{parsed.hostname}"
-
-
-def get_project_readme(repo) -> str:
+def get_project_readme(repo: GitRepo) -> str:
     for filename in ["README", "README.md", "README.txt"]:
         path = os.path.join(repo.working_dir, filename)
         if os.path.exists(path):
@@ -105,9 +95,26 @@ else:
     )
 
 
-def serve_document(path):
+def serve_document(path, localenv):
+    localrepo = localenv.project.project_repoview.repo
+
+    localrepo_is_dashboard = bool(localenv.manifestPath)
+
+    home_project = (
+        "local:" + localrepo.project_path() if localrepo_is_dashboard else None
+    )
+
+    if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
+        parsed = urlparse(localrepo.remote.url)
+        [user, *rest] = re.split(r"[@:]", parsed.netloc)
+
+        origin = f"{parsed.scheme}://{parsed.hostname}"
+    else:
+        user = ""
+        origin = None
+
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)[0]
-    repo = get_repo(server_fragment)
+    repo = _get_repo(server_fragment, localenv)
 
     if not repo:
         return "Not found", 404
@@ -116,7 +123,7 @@ def serve_document(path):
     if repo.repo != localrepo.repo or not localrepo_is_dashboard:
         format = "blueprint"
 
-    project_path = repo.project_path()
+    project_path = "local:" + repo.project_path()
     project_name = os.path.basename(project_path)
 
     if format == "blueprint":
@@ -163,14 +170,33 @@ def proxy_webpack(url):
     return Response(res.content, res.status_code, headers)
 
 
-def get_repo(project_path, branch=None) -> Optional[GitRepo]:
+import git
+
+
+def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:
+    if not project_path or project_path == "local:":
+        return localenv.project and localenv.project.project_repoview.repo
+
+    local_projects = app.config["UNFURL_LOCAL_PROJECTS"]
+    project_path += "/"
+    if project_path in local_projects:
+        working_dir = local_projects[project_path]
+        return GitRepo(git.Repo(working_dir))
+
+    if project_path.startswith("local:"):
+        # it's not a cloud server project
+        logger.error(f"!!!!!!!Can't find project {project_path} {list(local_projects)}")
+        return None
+    logger.error(f"wassdfdsf, {project_path}, dir")
+
     project_path = project_path.rstrip("/")
     repo: Optional[GitRepo] = None
 
     if not branch:
-        branch = "main"
-        # branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
+        # branch = "main"
+        branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
 
+    # XXX no need to do export!
     def do_export():
         req = Request(
             {"QUERY_STRING": f"?format=blueprint&auth_project={project_path}"}
@@ -185,6 +211,7 @@ def get_repo(project_path, branch=None) -> Optional[GitRepo]:
             repo = serve._get_project_repo(os.path.basename(project_path), branch, {})
         return repo
 
+    localrepo = localenv.project and localenv.project.project_repoview.repo
     if localrepo and (project_path == localrepo.project_path()):
         repo = localrepo
     else:
@@ -210,8 +237,7 @@ class EnvVar(TypedDict, total=False):
     protected: Literal[False]
 
 
-def _set_variables(env_vars: List[EnvVar]):
-    global localenv
+def _set_variables(localenv, env_vars: List[EnvVar]):
     project = localenv.project or localenv.homeProject
     assert project
     secret_config_key, secret_config = project.localConfig.find_secret_include()
@@ -268,11 +294,12 @@ def _set_variables(env_vars: List[EnvVar]):
     if modified_config:
         project.localConfig.config.save()
     if modified_secrets or modified_config:
+        # reload
         localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
-    return {"variables": list(_yield_variables())}
+    return localenv
 
 
-def _yield_variables() -> Iterator[EnvVar]:
+def _yield_variables(localenv) -> Iterator[EnvVar]:
     project = localenv.project or localenv.homeProject
     assert project
     for env_name, context in project.contexts.items():
@@ -306,29 +333,43 @@ def _yield_variables() -> Iterator[EnvVar]:
             )
 
 
-def create_gui_routes():
+def create_gui_routes(localenv: LocalEnv):
     app.config["UNFURL_GUI_MODE"] = True
+    localrepo = (
+        localenv.project
+        and localenv.project.project_repoview
+        and localenv.project.project_repoview.repo
+    )
+    assert localrepo
+
+    def get_repo(project_path, branch=None):
+        return _get_repo(project_path, localenv, branch)
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
-        if get_repo(project_path) != localrepo:
+        repo = get_repo(project_path)
+        if not repo or repo.repo != localrepo.repo:
             return "Not found", 404
-        return {"variables": list(_yield_variables())}
+        return {"variables": list(_yield_variables(localenv))}
 
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
     def set_variables(project_path):
-        if get_repo(project_path) != localrepo:
+        nonlocal localenv
+        repo = get_repo(project_path)
+        if not repo or repo.repo != localrepo.repo:
             return "Not found", 404
 
         body = request.json
         if isinstance(body, dict) and "variables_attributes" in body:
-            return _set_variables(body["variables_attributes"])
+            localenv = _set_variables(localenv, body["variables_attributes"])
+            return {"variables": list(_yield_variables(localenv))}
         else:
             return "Bad Request", 400
 
+    # XXX remove
     @app.route("/api/v4/unfurl_access_token")
     def unfurl_access_token():
-        return {"token": password}
+        return {"token": ""}
 
     @app.route("/api/v4/projects/<path:project_path>/repository/branches")
     def branches(project_path):
@@ -340,17 +381,15 @@ def create_gui_routes():
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
 
+    # XXX delete
     @app.route("/api/v4/projects/")
     def empty_project():
-        logger.warning("FIX ME /api/v4/projects/")
         return "Not found", 404
 
+    # XXX delete
     @app.route("/api/v4/projects/<path:project_path>")
     def project(project_path):
-        repo = get_repo(project_path)
-        if not repo:
-            return {}
-        return {"name": os.path.basename(repo.project_path())}
+        return {"name": os.path.basename(project_path)}
 
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
     def local_file(project_path, branch, file):
@@ -366,7 +405,7 @@ def create_gui_routes():
     @app.route("/<path:path>")
     def serve_webpack(path):
         if "accept" in request.headers and "text/html" in request.headers["accept"]:
-            return serve_document(path)
+            return serve_document(path, localenv)
 
         if WEBPACK_ORIGIN:
             url = f"{WEBPACK_ORIGIN}/{path}"
