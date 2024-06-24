@@ -69,7 +69,7 @@ from ..repo import (
     sanitize_url,
 )
 from ..util import UnfurlError, get_package_digest, is_relative_to, unique_name
-from ..logs import getLogger, add_log_file
+from ..logs import Levels, get_console_log_level, getLogger, add_log_file
 from ..yamlmanifest import YamlManifest
 from .. import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
 from .. import to_json
@@ -2468,12 +2468,15 @@ def serve(
     # Start one WSGI server
     import uvicorn
 
+    log_level = get_console_log_level()  # getEffectiveLevel() doesn't work
+    if log_level == Levels.VERBOSE:  # (custom level)
+        log_level = Levels.DEBUG
     uvicorn.run(
         app,
         host=host,
         port=port,
         interface="wsgi",
-        log_level=logger.getEffectiveLevel(),
+        log_level= log_level.name.lower(),
     )
 
     # app.run(host=host, port=port)
