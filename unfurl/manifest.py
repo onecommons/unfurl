@@ -147,6 +147,8 @@ class Manifest(AttributeManager):
         env_package_spec = context.get("variables", {}).get(
             "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
         )
+        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
+            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 self.package_specs.append(PackageSpec(key, value, None))
