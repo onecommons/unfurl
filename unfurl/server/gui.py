@@ -16,7 +16,7 @@ from typing_extensions import TypedDict, Required
 
 from ..logs import is_sensitive, getLogger
 
-from ..repo import GitRepo
+from ..repo import Repo, GitRepo
 
 from .serve import app
 from ..localenv import LocalEnv
@@ -110,6 +110,7 @@ def serve_document(path, localenv):
 
         origin = f"{parsed.scheme}://{parsed.hostname}"
     else:
+        parsed = None
         user = ""
         origin = None
 
@@ -123,7 +124,13 @@ def serve_document(path, localenv):
     if repo.repo != localrepo.repo or not localrepo_is_dashboard:
         format = "blueprint"
 
-    project_path = "local:" + repo.project_path()
+    server_url = app.config["UNFURL_CLOUD_SERVER"]
+    server_host = urlparse(server_url).hostname
+    cloud_remote = repo.find_remote(host=server_host)
+    if cloud_remote:
+        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
+    else:
+        project_path = "local:" + repo.project_path()
     project_name = os.path.basename(project_path)
 
     if format == "blueprint":
