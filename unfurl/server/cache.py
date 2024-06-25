@@ -11,11 +11,14 @@ from typing import (
     cast,
     Callable,
 )
-from typing_extensions import Literal
-from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlparse
 import os
 
+from ..cloudmap import Repository, RepositoryDict
 from ..logs import getLogger
+from ..graphql import ImportDef, ResourceTypesByName
+
+from toscaparser.elements.entity_type import Namespace
 
 from flask import current_app
 from .serve import (
@@ -44,7 +47,9 @@ from ..packages import is_semver
 logger = getLogger("unfurl.server")
 
 
-def load_yaml(project_id, branch, file_name, root_entry=None, latest_commit=None):
+def load_yaml(
+    project_id, branch, file_name, root_entry=None, latest_commit=None
+) -> Tuple[Optional[Any], Any]:
     from toscaparser.utils.yamlparser import load_yaml
 
     def _work(
@@ -67,6 +72,52 @@ def load_yaml(project_id, branch, file_name, root_entry=None, latest_commit=None
     # XXX create package from url, branch and latest_commit to decide if a cache_dep is need
     dep = cache_entry.make_cache_dep(cache_entry.stale_pull_age, None)
     return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
+
+
+def get_cloudmap_types(project_id: str, root_cache_entry: CacheEntry):
+    err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
+    if doc is None:
+        return err, {}
+    repositories_dict = cast(Dict[str, dict], doc.get("repositories") or {})
+    types: Dict[str, dict] = {}
+    for r_dict in repositories_dict.values():
+        r = Repository(**r_dict)
+        if not r.notable:
+            continue
+        for file_path, notable in r.notable.items():
+            if notable.get("artifact_type") == "artifact.tosca.ServiceTemplate":
+                typeinfo = notable.get("type")
+                if typeinfo:
+                    name = typeinfo["name"]
+                    if "_sourceinfo" not in typeinfo:
+                        typeinfo["_sourceinfo"] = ImportDef(
+                            file=file_path, url=r.git_url()
+                        )
+                    if "@" not in name:
+                        schema = cast(str, notable.get("schema", r.git_url()))
+                        local_types = ResourceTypesByName(schema, Namespace({}, ""))
+                        typeinfo["name"] = name = local_types.expand_typename(name)
+                        # make sure "extends" are fully qualified
+                        extends = typeinfo.get("extends")
+                        if extends:
+                            typeinfo["extends"] = [
+                                local_types.expand_typename(extend)
+                                for extend in extends
+                            ]
+                    typeinfo["_sourceinfo"]["incomplete"] = True
+                    if not typeinfo.get("description") and notable.get("description"):
+                        typeinfo["description"] = notable["description"]
+                    # XXX hack, always set for root type:
+                    typeinfo["implementations"] = ["connect", "create"]
+                    typeinfo["directives"] = ["substitute"]
+                    if r.metadata.avatar_url:
+                        typeinfo["icon"] = r.metadata.avatar_url
+                    dependencies = notable.get("dependencies")
+                    if dependencies:
+                        typeinfo.setdefault("metadata", {})["components"] = dependencies
+                    types[name] = typeinfo
+
+    return err, types
 
 
 def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commit=None):

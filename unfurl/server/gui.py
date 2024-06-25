@@ -182,7 +182,7 @@ import git
 
 def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:
     if not project_path or project_path == "local:":
-        return localenv.project and localenv.project.project_repoview.repo
+        return localenv.project.project_repoview.repo if localenv.project else None
 
     local_projects = app.config["UNFURL_LOCAL_PROJECTS"]
     if project_path[-1] != "/":
@@ -200,7 +200,6 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
     repo: Optional[GitRepo] = None
 
     if not branch:
-        # branch = "main"
         branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
 
     # XXX no need to do export!
@@ -341,7 +340,7 @@ def _yield_variables(localenv) -> Iterator[EnvVar]:
 
 
 def create_gui_routes(localenv: LocalEnv):
-    app.config["UNFURL_GUI_MODE"] = True
+    app.config["UNFURL_GUI_MODE"] = localenv
     localrepo = (
         localenv.project
         and localenv.project.project_repoview
@@ -351,6 +350,10 @@ def create_gui_routes(localenv: LocalEnv):
 
     def get_repo(project_path, branch=None):
         return _get_repo(project_path, localenv, branch)
+
+    @app.route("/-/environments/<environment>", methods=["GET"])
+    def get_environment(environment):
+        return dict(name=environment)
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):

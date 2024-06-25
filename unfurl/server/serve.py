@@ -53,7 +53,7 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from ..graphql import ImportDef, ResourceTypesByName, get_local_type
+from ..graphql import ImportDef, get_local_type
 from ..manifest import relabel_dict
 from ..packages import Package, get_package_from_url
 
@@ -74,7 +74,6 @@ from ..yamlmanifest import YamlManifest
 from .. import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
 from .. import to_json
 from .. import init
-from ..cloudmap import Repository, RepositoryDict
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
 
@@ -184,7 +183,6 @@ DEFAULT_BRANCH = "main"
 
 
 def _set_local_projects(repo_views, local_projects, clone_root, gui):
-    # XXX all repos in local mode!
     server_url = app.config["UNFURL_CLOUD_SERVER"]
     server_host = urlparse(server_url).hostname
     for repo_view in repo_views:
@@ -270,8 +268,8 @@ def set_current_ensemble_git_url(gui: bool = False):
     return None
 
 
-# XXX temp!!
-# set_current_ensemble_git_url()
+# XXX we shouldn't call this twice when invoked from the cli
+set_current_ensemble_git_url()
 
 
 def get_project_id(request) -> str:
@@ -317,6 +315,9 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
     local_dir = _get_local_project_dir(project_id)
     if local_dir:
         return local_dir
+    local_env = app.config.get("UNFURL_GUI_MODE")
+    if local_env:
+        return local_env.project._create_path_for_git_repo(get_project_url(project_id))
     base = "public"
     if args:
         if (
@@ -333,8 +334,10 @@ def _get_project_repo(
     project_id: str, branch: str, args: Optional[dict]
 ) -> Optional[GitRepo]:
     path = _get_project_repo_dir(project_id, branch, args)
-    if os.path.isdir(os.path.join(path, ".git")):
+    git_path = os.path.join(path, ".git")
+    if os.path.isdir(git_path):
         if os.path.isfile(path + ".lock"):
+            logger.warning("can't get repo: %s found", path + ".lock")
             return None  # in the middle of cloning this repo
         repo = GitRepo(git.Repo(path))
         if args:
@@ -345,6 +348,8 @@ def _get_project_repo(
             if username and password:
                 repo.set_url_credentials(username, password, True)
         return repo
+    else:
+        logger.warning("git repo not found: %s", git_path)
     return None
 
 
@@ -557,7 +562,7 @@ class CacheEntry:
     def checked_repo(self) -> GitRepo:
         if not self.repo:
             self._set_project_repo()
-        assert self.repo
+        assert self.repo, self.project_id
         return self.repo
 
     def pull(self, cache: Cache, stale_ok_age: int = 0, shallow_since=None) -> GitRepo:
@@ -620,7 +625,7 @@ class CacheEntry:
             if not self.repo:
                 self._set_project_repo()
             repo = self.repo
-            if repo:
+            if repo and repo.remote:
                 logger.info(f"pulling repo for {repo_key}")
                 try:
                     action = pull(repo, branch, shallow_since)
@@ -1098,8 +1103,8 @@ def get_canonical_url(project_id: str) -> str:
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
-    # XXX add local mode, hack project_id to be any url
-    base_url = current_app.config["UNFURL_CLOUD_SERVER"]
+    assert not project_id.startswith("local:"), project_id
+    base_url = cast(str, current_app.config["UNFURL_CLOUD_SERVER"])
     assert base_url
     if username:
         url_parts = urlsplit(base_url)
@@ -1217,16 +1222,17 @@ def export():
 
 
 def get_default_branch(
-    project_id: str, branch: Optional[str] = "(MISSING)", args: Dict[str, Any] = {}
+    project_id: str, branch: Optional[str] = "(MISSING)", args: Optional[Dict[str, Any]] = None
 ) -> str:
-    package = get_package_from_url(get_project_url(project_id))
+    project_url = get_project_url(project_id)
+    package = get_package_from_url(project_url)
     if package:
         package.missing = branch == "(MISSING)"
         set_version_from_remote_tags(package, args)
         branch = package.revision_tag or DEFAULT_BRANCH
     else:
         logger.debug(
-            f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags."
+            f"{project_url} is not a package url, skipping retrieving remote version tags."
         )
         branch = DEFAULT_BRANCH
 
@@ -1238,9 +1244,11 @@ def _export(
     requested_format: str,
     deployment_path: str,
     include_all: bool,
-    post_work=None,
+    post_work: Optional[Callable[[CacheEntry, Any], None]]=None,
 ):
     latest_commit = request.args.get("latest_commit")
+    if latest_commit == "undefined":
+        latest_commit = None
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
@@ -1249,8 +1257,12 @@ def _export(
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
-    # XXX wrong if local!
-    args["root_url"] = get_canonical_url(project_id)
+    if project_id and not project_id.startswith("local:"):
+        args["root_url"] = get_canonical_url(project_id)
+        if not branch or branch == "(MISSING)":
+            branch = get_default_branch(project_id, branch, args)
+    elif not branch:
+        branch = ""
     args["include_all"] = include_all
     if include_all:
         extra = "+types"
@@ -1259,8 +1271,6 @@ def _export(
             extra = "+" + args["environment"]
         else:
             extra = ""
-    if not branch or branch == "(MISSING)":
-        branch = get_default_branch(project_id, branch, args)
     repo = _get_project_repo(project_id, branch, args)
     stale_pull_age = app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
     cache_entry = CacheEntry(
@@ -1350,54 +1360,6 @@ def _export(
             return err
 
 
-def _get_cloudmap_types(project_id: str, root_cache_entry: CacheEntry):
-    from .cache import load_yaml
-
-    err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
-    if doc is None:
-        return err, {}
-    repositories_dict = cast(Dict[str, dict], doc.get("repositories") or {})
-    types: Dict[str, dict] = {}
-    for r_dict in repositories_dict.values():
-        r = Repository(**r_dict)
-        if not r.notable:
-            continue
-        for file_path, notable in r.notable.items():
-            if notable.get("artifact_type") == "artifact.tosca.ServiceTemplate":
-                typeinfo = notable.get("type")
-                if typeinfo:
-                    name = typeinfo["name"]
-                    if "_sourceinfo" not in typeinfo:
-                        typeinfo["_sourceinfo"] = ImportDef(
-                            file=file_path, url=r.git_url()
-                        )
-                    if "@" not in name:
-                        schema = cast(str, notable.get("schema", r.git_url()))
-                        local_types = ResourceTypesByName(schema, Namespace({}, ""))
-                        typeinfo["name"] = name = local_types.expand_typename(name)
-                        # make sure "extends" are fully qualified
-                        extends = typeinfo.get("extends")
-                        if extends:
-                            typeinfo["extends"] = [
-                                local_types.expand_typename(extend)
-                                for extend in extends
-                            ]
-                    typeinfo["_sourceinfo"]["incomplete"] = True
-                    if not typeinfo.get("description") and notable.get("description"):
-                        typeinfo["description"] = notable["description"]
-                    # XXX hack, always set for root type:
-                    typeinfo["implementations"] = ["connect", "create"]
-                    typeinfo["directives"] = ["substitute"]
-                    if r.metadata.avatar_url:
-                        typeinfo["icon"] = r.metadata.avatar_url
-                    dependencies = notable.get("dependencies")
-                    if dependencies:
-                        typeinfo.setdefault("metadata", {})["components"] = dependencies
-                    types[name] = typeinfo
-
-    return err, types
-
-
 @app.route("/types")
 def get_types():
     # request.args.getlist("implementation_requirements")
@@ -1407,9 +1369,10 @@ def get_types():
     filename = request.args.get("file", "dummy-ensemble.yaml")
     cloudmap_project_id = request.args.get("cloudmap")
     if cloudmap_project_id:  # e.g. "onecommons/cloudmap"
+        from .cache import get_cloudmap_types
 
-        def _add_types(cache_entry, db):
-            err, types = _get_cloudmap_types(cloudmap_project_id, cache_entry)
+        def _add_types(cache_entry: CacheEntry, db: Any):
+            err, types = get_cloudmap_types(cloudmap_project_id, cache_entry)
             if err:
                 return err
             db["ResourceType"].update(types)
@@ -2249,7 +2212,7 @@ def _patch_ensemble(
         committed = manifest.commit(commit_msg, True, True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
-            if manifest.repo:  # XXX don't push when local!
+            if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):
                 try:
                     if password:
                         url = add_user_to_url(manifest.repo.url, username, password)
@@ -2332,12 +2295,14 @@ def _commit_and_push(
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
+    if not app.config.get("UNFURL_GUI_MODE"):
+        return None  # don't push
     if password:
         url = add_user_to_url(repo.url, username, password)
     else:
         url = None
     try:
-        repo.push(url)  # XXX don't push when local
+        repo.push(url)
         logger.info("pushed")
     except Exception as err:
         # discard the last commit that we couldn't push
@@ -2367,7 +2332,7 @@ def _fetch_working_dir(
             clone_location = repo.working_dir if repo else None
         if not clone_location:
             return clone_location
-    # XXX: deployment_path must be in the project repo, split repos are not supported
+    # XXX local: deployment_path must be in the project repo, split repos are not supported
     # we want the caching and staging infrastructure to only know about git, not unfurl projects
     # so we can't reference a file path outside of the git repository
     return clone_location
