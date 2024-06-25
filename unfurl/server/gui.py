@@ -115,7 +115,7 @@ def serve_document(path, localenv):
         origin = None
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
-    repo = _get_repo(server_fragment[-1].lstrip('/'), localenv)
+    repo = _get_repo(server_fragment[0].lstrip('/'), localenv)
 
     if not repo:
         return "Not found", 404
@@ -350,10 +350,6 @@ def create_gui_routes(localenv: LocalEnv):
 
     def get_repo(project_path, branch=None):
         return _get_repo(project_path, localenv, branch)
-
-    @app.route("/-/environments/<environment>", methods=["GET"])
-    def get_environment(environment):
-        return dict(name=environment)
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
