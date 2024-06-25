@@ -317,7 +317,7 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
         return local_dir
     local_env = app.config.get("UNFURL_GUI_MODE")
     if local_env:
-        return local_env.project._create_path_for_git_repo(get_project_url(project_id))
+        return local_env.project._create_path_for_git_repo(get_project_url(project_id)).rstrip('/')
     base = "public"
     if args:
         if (
@@ -327,7 +327,7 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
         ):
             base = "private"
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
-    return os.path.join(clone_root, base, project_id, branch)
+    return os.path.join(clone_root, base, project_id, branch).rstrip('/')
 
 
 def _get_project_repo(
@@ -960,7 +960,7 @@ class CacheEntry:
         if (
             latest_commit is None
             and not self.stale_pull_age
-            or app.config.get("UNFURL_GUI_MODE")
+#            or app.config.get("UNFURL_GUI_MODE")
         ):
             # don't use the cache
             return self._do_work(work, latest_commit)[0:2]
@@ -1102,7 +1102,7 @@ def version():
 
 
 def get_canonical_url(project_id: str) -> str:
-    return urljoin(DEFAULT_CLOUD_SERVER, project_id + ".git")
+    return urljoin(DEFAULT_CLOUD_SERVER, project_id.rstrip("/") + ".git")
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
@@ -1116,7 +1116,7 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
         else:
             netloc = f"{username}@{url_parts.netloc}"
         base_url = urlunsplit(url_parts._replace(netloc=netloc))
-    return urljoin(base_url, project_id + ".git")
+    return urljoin(base_url, project_id.rstrip("/") + ".git")
 
 
 def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[GitRepo]:
@@ -1585,11 +1585,11 @@ def _do_export(
     latest_commit: Optional[str],
     args: dict,
 ) -> Tuple[Optional[Any], Optional[Any]]:
-    assert cache_entry.branch
+    # assert cache_entry.branch
     parent_localenv = args.get("parent_localenv")
     if not parent_localenv:
         err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
-            cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
+            cache, project_id, cache_entry.branch or "", deployment_path, latest_commit, args
         )
         if err:
             return err, None
