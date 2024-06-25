@@ -101,7 +101,7 @@ def serve_document(path, localenv):
     localrepo_is_dashboard = bool(localenv.manifestPath)
 
     home_project = (
-        "local:" + localrepo.project_path() if localrepo_is_dashboard else None
+        get_project_path(localrepo) if localrepo_is_dashboard else None
     )
 
     if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
@@ -124,13 +124,7 @@ def serve_document(path, localenv):
     if repo.repo != localrepo.repo or not localrepo_is_dashboard:
         format = "blueprint"
 
-    server_url = app.config["UNFURL_CLOUD_SERVER"]
-    server_host = urlparse(server_url).hostname
-    cloud_remote = repo.find_remote(host=server_host)
-    if cloud_remote:
-        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
-    else:
-        project_path = "local:" + repo.project_path()
+    project_path = get_project_path(repo)
     project_name = os.path.basename(project_path)
 
     if format == "blueprint":
@@ -149,6 +143,16 @@ def serve_document(path, localenv):
         home_project=home_project,
         working_dir_project=home_project if localrepo_is_dashboard else project_path,
     )
+
+def get_project_path(repo):
+    server_url = app.config["UNFURL_CLOUD_SERVER"]
+    server_host = urlparse(server_url).hostname
+    cloud_remote = repo.find_remote(host=server_host)
+    if cloud_remote:
+        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
+    else:
+        project_path = "local:" + repo.project_path()
+    return project_path
 
 
 def proxy_webpack(url):
