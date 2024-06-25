@@ -625,19 +625,22 @@ class CacheEntry:
             if not self.repo:
                 self._set_project_repo()
             repo = self.repo
-            if repo and repo.remote:
-                logger.info(f"pulling repo for {repo_key}")
-                try:
-                    action = pull(repo, branch, shallow_since)
-                except Exception:
-                    logger.info(
-                        f"pull failed for {repo_key}, clearing project", exc_info=True
-                    )
-                    _clear_project(self.project_id)
-                    if not local_developer_mode():
-                        repo = None  # we don't delete the repo in local developer mode
-                    else:
-                        action = "detached"
+            if repo:
+                if repo.remote:
+                    logger.info(f"pulling repo for {repo_key}")
+                    try:
+                        action = pull(repo, branch, shallow_since)
+                    except Exception:
+                        logger.info(
+                            f"pull failed for {repo_key}, clearing project", exc_info=True
+                        )
+                        _clear_project(self.project_id)
+                        if not local_developer_mode():
+                            repo = None  # we don't delete the repo in local developer mode
+                        else:
+                            action = "detached"
+                else:
+                    action = "detached"
             if not repo:
                 if self.do_clone:
                     logger.info(f"cloning repo for {repo_key}")
