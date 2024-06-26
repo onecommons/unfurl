@@ -20,6 +20,7 @@ from ..repo import Repo, GitRepo
 
 from .serve import app
 from ..localenv import LocalEnv
+from .gui_variables import set_variables, yield_variables
 from . import serve
 from flask import request, Response, Request, jsonify, send_file
 from jinja2 import Environment, FileSystemLoader
@@ -29,7 +30,6 @@ from glob import glob
 from rich import inspect
 from urllib.parse import urlparse
 from ruamel.yaml.comments import CommentedMap
-
 
 logger = getLogger("unfurl.gui")
 
@@ -100,14 +100,11 @@ def serve_document(path, localenv):
 
     localrepo_is_dashboard = bool(localenv.manifestPath)
 
-    home_project = (
-        get_project_path(localrepo) if localrepo_is_dashboard else None
-    )
+    home_project = get_project_path(localrepo) if localrepo_is_dashboard else None
 
     if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
         parsed = urlparse(localrepo.remote.url)
-        [user, *rest] = re.split(r"[@:]", parsed.netloc)
-
+        [user, _, *_] = re.split(r"[@:]", parsed.netloc)
         origin = f"{parsed.scheme}://{parsed.hostname}"
     else:
         parsed = None
@@ -115,7 +112,7 @@ def serve_document(path, localenv):
         origin = None
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
-    repo = _get_repo(server_fragment[0].lstrip('/'), localenv)
+    repo = _get_repo(server_fragment[0].lstrip("/"), localenv)
 
     if not repo:
         return "Not found", 404
@@ -143,6 +140,7 @@ def serve_document(path, localenv):
         home_project=home_project,
         working_dir_project=home_project if localrepo_is_dashboard else project_path,
     )
+
 
 def get_project_path(repo):
     server_url = app.config["UNFURL_CLOUD_SERVER"]
@@ -233,116 +231,6 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
     return repo
 
 
-class EnvVar(TypedDict, total=False):
-    # see https://docs.gitlab.com/ee/api/project_level_variables.html
-    id: Union[int, str]  # ID or URL-encoded path of the project
-    key: Required[str]
-    masked: Required[bool]
-    environment_scope: Required[str]
-    value: Any
-    secret_value: Any  # ??? not sent by api
-    _destroy: bool
-    variable_type: Required[Union[Literal["env_var"], Literal["file"]]]
-    raw: Literal[False]  # if true value isn't expanded
-    protected: Literal[False]
-
-
-def _set_variables(localenv, env_vars: List[EnvVar]):
-    project = localenv.project or localenv.homeProject
-    assert project
-    secret_config_key, secret_config = project.localConfig.find_secret_include()
-    secret_environments = (
-        secret_config.setdefault("environments", CommentedMap())
-        if secret_config
-        else None
-    )
-    config: dict = project.localConfig.config.config
-    assert config
-    env = config.setdefault("environments", CommentedMap())
-    modified_secrets = False
-    modified_config = False
-    for envvar in env_vars:
-        environment_scope = envvar["environment_scope"]
-        env_name = "defaults" if environment_scope == "*" else environment_scope
-        key = envvar["key"]
-        value = envvar.get("secret_value", envvar.get("value"))
-        if envvar["variable_type"] == "file":
-            value = {"eval": dict(tempfile=value)}
-        if envvar.get("_destroy"):
-            if env_name in env and key in env[env_name]:
-                modified_config = True
-                del env[env_name][key]
-            secret_env = (
-                secret_environments.get(env_name) if secret_environments else None
-            )
-            if secret_env and key in secret_env.get("variables", {}):
-                modified_secrets = True
-                del secret_env["variables"][key]
-        else:
-            if envvar["masked"]:
-                env.pop(key, None)  # in case this flag changed
-                if secret_environments is not None:
-                    secret_env = secret_environments.setdefault(
-                        env_name, CommentedMap()
-                    )
-                    modified_secrets = True
-                    secret_env.setdefault("variables", {})[key] = {
-                        "eval": dict(sensitive=value)
-                    }  # mark sensitive
-            else:
-                # in case this flag changed
-                secret_env = (
-                    secret_environments.get(env_name) if secret_environments else None
-                )
-                if secret_env and key in secret_env.get("variables", {}):
-                    modified_secrets = True
-                    del secret_env["variables"][key]
-                modified_config = True
-                env.setdefault(env_name, CommentedMap())[key] = value
-    if modified_secrets:
-        project.localConfig.config.save_include(secret_config_key)
-    if modified_config:
-        project.localConfig.config.save()
-    if modified_secrets or modified_config:
-        # reload
-        localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
-    return localenv
-
-
-def _yield_variables(localenv) -> Iterator[EnvVar]:
-    project = localenv.project or localenv.homeProject
-    assert project
-    for env_name, context in project.contexts.items():
-        env_vars = context and context.get("variables")
-        if not env_vars:
-            continue
-        if env_name == "defaults":
-            scope = "*"
-        else:
-            scope = env_name
-        for name, value in env_vars.items():
-            masked = is_sensitive(value)
-            variable_type: Union[Literal["env_var"], Literal["file"]] = "env_var"
-            if isinstance(value, dict) and "eval" in value:
-                eval_ref = value["eval"]
-                if "sensitive" in eval_ref:
-                    masked = True
-                    value = eval_ref["sensitive"]
-                if "tempfile" in eval_ref:
-                    variable_type = "file"
-                    value = eval_ref["tempfile"]
-            yield EnvVar(
-                id=scope + ":" + name,
-                key=name,
-                masked=masked,
-                variable_type=variable_type,
-                value=value,
-                environment_scope=scope,
-                protected=False,
-                raw=False,
-            )
-
-
 def create_gui_routes(localenv: LocalEnv):
     app.config["UNFURL_GUI_MODE"] = localenv
     localrepo = (
@@ -360,10 +248,10 @@ def create_gui_routes(localenv: LocalEnv):
         repo = get_repo(project_path)
         if not repo or repo.repo != localrepo.repo:
             return "Not found", 404
-        return {"variables": list(_yield_variables(localenv))}
+        return {"variables": list(yield_variables(localenv))}
 
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
-    def set_variables(project_path):
+    def patch_variables(project_path):
         nonlocal localenv
         repo = get_repo(project_path)
         if not repo or repo.repo != localrepo.repo:
@@ -371,8 +259,8 @@ def create_gui_routes(localenv: LocalEnv):
 
         body = request.json
         if isinstance(body, dict) and "variables_attributes" in body:
-            localenv = _set_variables(localenv, body["variables_attributes"])
-            return {"variables": list(_yield_variables(localenv))}
+            localenv = set_variables(localenv, body["variables_attributes"])
+            return {"variables": list(yield_variables(localenv))}
         else:
             return "Bad Request", 400
 

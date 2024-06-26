@@ -202,9 +202,9 @@ def _set_local_projects(repo_views, local_projects, clone_root, gui):
             )
             local_projects[project_id] = repo_view.repo.working_dir
         elif gui:
-            local_projects["local:" + repo_view.repo.working_dir.lstrip("/")] = (
-                repo_view.repo.working_dir
-            )
+            local_projects[
+                "local:" + repo_view.repo.working_dir.lstrip("/")
+            ] = repo_view.repo.working_dir
 
 
 def set_local_projects(local_env, clone_root, gui):
@@ -247,9 +247,9 @@ def set_current_ensemble_git_url(gui: bool = False):
         and local_env.project.project_repoview
         and local_env.project.project_repoview.repo
     ):
-        app.config["UNFURL_CURRENT_WORKING_DIR"] = (
-            local_env.project.project_repoview.repo.working_dir
-        )
+        app.config[
+            "UNFURL_CURRENT_WORKING_DIR"
+        ] = local_env.project.project_repoview.repo.working_dir
         server_url = app.config["UNFURL_CLOUD_SERVER"]
         server_host = urlparse(server_url).hostname
         if not gui and not server_host:
@@ -1377,9 +1377,9 @@ def _export(
                     max_age = stale_pull_age
                 serve_stale = app.config["CACHE_CONTROL_SERVE_STALE"]
                 if serve_stale:
-                    response.headers["Cache-Control"] = (
-                        f"max-age={max_age}, stale-while-revalidate={serve_stale}"
-                    )
+                    response.headers[
+                        "Cache-Control"
+                    ] = f"max-age={max_age}, stale-while-revalidate={serve_stale}"
             return response
         else:
             if isinstance(err, FatalToscaImportError):
@@ -2039,7 +2039,11 @@ def _patch_environment(body: dict, project_id: str):
     assert repo
     username = cast(str, body.get("username"))
     password = cast(str, body.get("private_token", body.get("password")))
-    if not password and repo.url.startswith("http"):
+    if (
+        not password
+        and repo.url.startswith("http")
+        and not app.config.get("UNFURL_GUI_MODE")
+    ):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
     was_dirty = repo.is_dirty()
     starting_revision = (
@@ -2170,7 +2174,12 @@ def _patch_ensemble(
     password = body.get("private_token", body.get("password"))
     # XXX push_url isn't used... is this needed?? and doesn't make sense in local mode
     push_url = existing_repo.url if existing_repo else app.config["UNFURL_CLOUD_SERVER"]
-    if push_url and not password and push_url.startswith("http"):
+    if (
+        push_url
+        and not password
+        and push_url.startswith("http")
+        and not app.config.get("UNFURL_GUI_MODE")
+    ):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     latest_commit = body.get("latest_commit") or ""
