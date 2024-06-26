@@ -318,11 +318,14 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
     local_dir = _get_local_project_dir(project_id)
     if local_dir:
         return local_dir
-    local_env = app.config.get("UNFURL_GUI_MODE")
+    local_env = cast(Optional[LocalEnv], app.config.get("UNFURL_GUI_MODE"))
     if local_env:
-        return local_env.project._create_path_for_git_repo(
+        assert local_env.project
+        local_dir = local_env.project._create_path_for_git_repo(
             get_project_url(project_id)
         ).rstrip("/")
+        cast(dict, app.config.get("UNFURL_LOCAL_PROJECTS"))[project_id] = local_dir
+        return local_dir
     base = "public"
     if args:
         if (
