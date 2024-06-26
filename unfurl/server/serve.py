@@ -950,7 +950,12 @@ class CacheEntry:
             return False
 
         if local_developer_mode():
-            if self.checked_repo.is_dirty(False, self.file_path):
+            if not self.repo:
+                self._set_project_repo()
+            if self.repo:
+                if self.repo.is_dirty(False, self.file_path):
+                    return False
+            else:
                 return False
 
         logger.debug("checking deps %s on %s", list(self._deps), self.cache_key())
