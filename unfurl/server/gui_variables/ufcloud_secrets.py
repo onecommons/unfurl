@@ -20,11 +20,6 @@ def _get_context(localenv):
     [_, token, *_] = re.split(r"[@:]", url.netloc)
     origin = f"{url.scheme}://{url.hostname}"
 
-    from rich import inspect
-
-    inspect(token)
-    inspect(origin)
-
     gl = gitlab.Gitlab(origin, private_token=token)
     gl.enable_debug()
     project = gl.projects.get(url.path[1:])
@@ -57,8 +52,11 @@ def yield_variables(localenv) -> Iterator[EnvVar]:
     _, project = _get_context(localenv)
 
     for variable in project.variables.list():
-        # the iteration here makes my language server happy for some reason
-        v = EnvVar(**{key: value for key, value in variable.attributes.items()})
-        v["secret_value"] = v.get("value")
-        v["id"] = (v["environment_scope"] + ":" + str(v["key"]),)
-        yield v
+        yield EnvVar(**{
+            **variable.attributes,
+            "secret_value": variable.attributes["value"],
+            "key": variable.attributes["key"],
+            "masked": variable.attributes["masked"],
+            "environment_scope": variable.attributes["key"] + ':' + variable.attributes["environment_scope"],
+            "variable_type": variable.attributes["variable_type"],
+        })
