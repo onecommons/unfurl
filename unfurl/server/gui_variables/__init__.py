@@ -1,7 +1,10 @@
+import re
+from functools import lru_cache
+from typing import Iterator, List
+
 from .envvar import EnvVar
 from ...localenv import LocalEnv
-from functools import lru_cache
-from typing import Any, Iterator, List, Literal, Optional, Union
+from ..serve import app
 
 from . import local_secrets
 from . import ufcloud_secrets
@@ -9,10 +12,16 @@ from . import ufcloud_secrets
 
 @lru_cache
 def _get_secrets_manager(localenv):
-    localrepo = localenv.project.project_repoview.repo
-    localrepo_is_dashboard = bool(localenv.manifestPath)
+    url, _ = localenv.project.localConfig.config.search_includes(
+        pathPrefix=app.config["UNFURL_CLOUD_SERVER"]
+    )
 
-    if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
+    gitlab_api_match = re.search(
+        r"/api/v4/projects/(?P<project_id>(\w|%2F|[/\-_])+)/variables\?[^&]*&private_token=(?P<private_token>[^&]+)",
+        str(url),
+    )
+
+    if gitlab_api_match:
         return ufcloud_secrets
     else:
         return local_secrets

@@ -1,5 +1,5 @@
 import os
-from typing import Any, Iterator, List, Literal, Optional, Union
+from typing import Iterator, List, Literal, Union
 
 from ...logs import is_sensitive, getLogger
 
@@ -15,6 +15,8 @@ logger = getLogger("unfurl.gui")
 
 
 def set_variables(localenv, env_vars: List[EnvVar]) -> LocalEnv:
+    # reload immediately in case of user edits
+    localenv = LocalEnv(UNFURL_SERVE_PATH, overrides={"ENVIRONMENT": "*"})
     project = localenv.project or localenv.homeProject
     assert project
     secret_config_key, secret_config = project.localConfig.find_secret_include()
