@@ -24,6 +24,7 @@ from typing_extensions import Protocol
 
 # import click
 import rich_click as click
+
 # see https://github.com/ewels/rich-click/blob/main/docs/documentation/configuration.md
 click.rich_click.STYLE_METAVAR = "dark_orange"
 click.rich_click.STYLE_OPTION_ENVVAR = "dim dark_orange"
@@ -31,7 +32,7 @@ click.rich_click.STYLE_OPTION = "green"
 click.rich_click.STYLE_COMMAND = "bold green"
 if os.environ.get("PY_COLORS") == "0":
     click.rich_click.COLOR_SYSTEM = None  # disable colors
-click.rich_click.OPTION_ENVVAR_FIRST=False
+click.rich_click.OPTION_ENVVAR_FIRST = False
 click.rich_click.ENVVAR_STRING = "(${})"
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from . import init as initmod
@@ -53,6 +54,7 @@ _args: List[str] = []  # for testing
 def option_group(*options):
     return lambda func: functools.reduce(lambda a, b: b(a), options, func)
 
+
 from rich_click import rich_config
 
 
@@ -65,7 +67,9 @@ from rich_click import rich_config
     type=click.Path(exists=False),
     help="Path to .unfurl_home (Use '' to ignore default home)",
 )
-@click.option("--runtime", envvar="UNFURL_RUNTIME", show_envvar=True, help="Use the given runtime")
+@click.option(
+    "--runtime", envvar="UNFURL_RUNTIME", show_envvar=True, help="Use the given runtime"
+)
 @click.option(
     "--no-runtime",
     envvar="UNFURL_NORUNTIME",
@@ -74,7 +78,13 @@ from rich_click import rich_config
     is_flag=True,
     help="Ignore runtime settings",
 )
-@click.option("-v", "--verbose", count=True, help="Verbose mode (-vv or -vvv for more)")
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    metavar="",
+    help="Verbose mode (-vv or -vvv for more)",
+)
 @click.option(
     "-q",
     "--quiet",
@@ -96,7 +106,12 @@ from rich_click import rich_config
     type=click.Path(exists=True),
     help="Directory for saving temporary files",
 )
-@click.option("--loglevel", envvar="UNFURL_LOGGING", show_envvar=True, help="Log level (overrides -v)")
+@click.option(
+    "--loglevel",
+    envvar="UNFURL_LOGGING",
+    show_envvar=True,
+    help="One of trace debug verbose warning info error critical (overrides -v)",
+)
 @click.option(
     "--version-check",
     envvar="UNFURL_VERSION_CHECK",
@@ -144,7 +159,7 @@ def cli(
     logs.add_log_file(kw["logfile"], effective_log_level)
     logs.set_console_log_level(effective_log_level)
     logging.debug("initialized logging")
-  
+
     if version_check and version_tuple() < version_tuple(version_check):
         logging.error(
             "Current unfurl version %s older than expected version %s",
@@ -645,7 +660,7 @@ deployFilterOptions = option_group(
 @commonJobFilterOptions
 @deployFilterOptions
 @jobControlOptions
-def deploy(ctx, ensemble: Optional[str]=None, **options):
+def deploy(ctx, ensemble: Optional[str] = None, **options):
     """
     Deploy the given ensemble
     """
@@ -755,6 +770,7 @@ def plan(ctx, ensemble=None, **options):
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
+    metavar="NAME or PATH",
     help="Path to a directory of project skeleton templates.",
 )
 @click.option(
@@ -783,7 +799,7 @@ def plan(ctx, ensemble=None, **options):
     "--create-environment",  # old name of --as-shared-environment for backward compatibility
     is_flag=True,
     default=False,
-    hidden=True
+    hidden=True,
 )
 @click.option(
     "--shared-repository",
@@ -803,25 +819,27 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     If [ensemble_name] is omitted, use a default name.
     """
     options.update(ctx.obj)
-    if not projectdir:
-        # if adding a project to an existing repository use '.unfurl' as the default name
-        if options.get("existing"):
-            projectdir = DefaultNames.ProjectDirectory
-        else:  # otherwise use the current directory
-            projectdir = "."
-
-    projectPath = Project.find_path(projectdir)
+    projectPath = Project.find_path(projectdir or ".")
     if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
+        if not projectdir:
+            projectdir = "."
         projectPath = os.path.dirname(projectPath)  # strip out unfurl.yaml
         # if projectPath is deeper than projectDir (happens if it is .unfurl) set projectDir to that
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
         # this will clone the default ensemble if it exists or use ensemble-template
         options["want_init"] = True
-        message = initmod.clone(projectPath, projectdir, ensemble_name, **options)
+        message = initmod.clone(projectPath, projectdir, ensemble_name or "", **options)
         click.echo(message)
         return
+
+    if not projectdir:
+        # if creating a new project in an existing repository use '.unfurl' as the default name
+        if options.get("existing"):
+            projectdir = DefaultNames.ProjectDirectory
+        else:  # otherwise use the current directory
+            projectdir = "."
     if os.path.exists(projectdir):
         if not os.path.isdir(projectdir):
             raise click.ClickException(
@@ -975,6 +993,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
+    metavar="NAME or PATH",
     help="Path to a directory of project skeleton templates.",
 )
 @click.option(
@@ -1193,7 +1212,11 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 
 
 def _yaml_to_python(
-    project_or_ensemble_path: str, file: Optional[str], local_env: Optional[LocalEnv], python_target_version, overwrite: str
+    project_or_ensemble_path: str,
+    file: Optional[str],
+    local_env: Optional[LocalEnv],
+    python_target_version,
+    overwrite: str,
 ):
     from tosca import yaml2python, WritePolicy
     from .yamlloader import ImportResolver
@@ -1216,9 +1239,10 @@ def _yaml_to_python(
     if local_env and manifest and local_env.manifestPath:
         assert manifest.tosca and manifest.tosca.template
         if not file:
-            file = str(Path(manifest.get_base_dir()) / (
-                re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py"
-            ))
+            file = str(
+                Path(manifest.get_base_dir())
+                / (re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py")
+            )
         python_src = yaml2python.convert_service_template(
             manifest.tosca.template,
             python_compatible=python_target_version,
@@ -1459,10 +1483,7 @@ def help(ctx, cmd=""):
     help='enable CORS with origin (e.g. "*")',
 )
 @click.option(
-    "--gui",
-    envvar="UNFURL_SERVE_GUI",
-    is_flag=True,
-    help='Serve the Unfurl GUI app'
+    "--gui", envvar="UNFURL_SERVE_GUI", is_flag=True, help="Serve the Unfurl GUI app"
 )
 def serve(
     ctx,
