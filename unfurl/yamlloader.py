@@ -5,7 +5,6 @@ from functools import partial
 import io
 import os.path
 from pathlib import Path
-import re
 import sys
 import codecs
 import json
@@ -40,8 +39,7 @@ from .lock import Lock
 
 from .util import (
     UnfurlBadDocumentError,
-    filter_env,
-    is_relative_to,
+    UnfurlSchemaError,
     to_bytes,
     to_text,
     sensitive_str,
@@ -70,7 +68,6 @@ from .repo import (
     memoized_remote_tags,
 )
 from .packages import (
-    Package,
     PackageSpec,
     UnfurlPackageUpdateNeeded,
     extract_package,
@@ -341,7 +338,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def find_implementation(self, op: OperationDef) -> Optional[Dict[str, Any]]:
         from .planrequests import _get_config_spec_args_from_implementation
-        from . import configurators  # need to import configurators to get short names
+        from . import configurators  # need to import configurators to get short names  # noqa: F401
 
         inputs = op.inputs if op.inputs is not None else {}
         if not op._source and self.manifest:
@@ -503,7 +500,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         self.manifest.package_specs, canonical, namespace_id
                     )
 
-            explicit_namespace = match_namespace(self.GLOBAL_NAMESPACE_PACKAGES, namespace_id)
+            explicit_namespace = match_namespace(
+                self.GLOBAL_NAMESPACE_PACKAGES, namespace_id
+            )
             if explicit_namespace:
                 namespace_id = explicit_namespace
                 source_info["namespace_uri"] = explicit_namespace
@@ -628,17 +627,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         # if repository is nested in another choose the most nested
         for repo_view in self.manifest.repositories.values():
             try:
-              candidate = str(Path(base).relative_to(repo_view.working_dir))
-              if not nearest or len(candidate) < len(nearest):
-                  nearest = candidate
+                candidate = str(Path(base).relative_to(repo_view.working_dir))
+                if not nearest or len(candidate) < len(nearest):
+                    nearest = candidate
             except ValueError:
                 continue
         if nearest:
-            return base[:-len(nearest)-1]
+            return base[: -len(nearest) - 1]
         try:
             repo = git.Repo(base, search_parent_directories=True)
             return repo.working_dir
-        except:
+        except Exception:
             return base
 
     def resolve_url(
@@ -985,9 +984,10 @@ class YamlConfig:
             self.file_size = None
             if path:
                 self.path = os.path.abspath(path)
+                err_msg = f"Unable to load yaml config at {self.path}"
                 if os.path.isfile(self.path):
                     statinfo = os.stat(self.path)
-                    # st_mtime is unreliable so use file_size as a good-enough proxy 
+                    # st_mtime is unreliable so use file_size as a good-enough proxy
                     # to detect the file changing out from under us
                     self.file_size = statinfo.st_size
                     with open(self.path, "r") as f:
@@ -995,6 +995,7 @@ class YamlConfig:
                 # otherwise use default config
             else:
                 self.path = None
+                err_msg = "Unable to parse yaml config"
 
             if isinstance(config, str):
                 self.config = load_yaml(self.yaml, config, self.path, self.readonly)
@@ -1004,7 +1005,7 @@ class YamlConfig:
                 self.config = config
             if not isinstance(self.config, dict):
                 raise UnfurlBadDocumentError(
-                    f'invalid YAML document with contents: "{self.config}"'
+                    f'{err_msg}: invalid YAML document with contents: "{self.config}"'
                 )
 
             # schema should include defaults but can't validate because it doesn't understand includes
@@ -1022,17 +1023,15 @@ class YamlConfig:
             errors = schema and self.validate(self.expanded)
             if errors and validate:
                 (message, schemaErrors) = errors
-                raise UnfurlBadDocumentError(
-                    "JSON Schema validation failed: " + message, errors
+                raise UnfurlSchemaError(
+                    err_msg + ": JSON Schema validation failed: " + message, errors, self.config
                 )
             else:
                 self.valid = not not errors
+        except UnfurlBadDocumentError:
+            raise
         except Exception:
-            if self.path:
-                msg = f"Unable to load yaml config at {self.path}"
-            else:
-                msg = "Unable to parse yaml config"
-            raise UnfurlBadDocumentError(msg, saveStack=True)
+            raise UnfurlBadDocumentError(err_msg, saveStack=True)
 
     def _expand(self) -> Tuple[Mapping, Mapping]:
         find_anchor(self.config, None)  # create _anchorCache

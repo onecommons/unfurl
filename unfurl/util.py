@@ -13,7 +13,6 @@ from typing import (
     MutableMapping,
     Optional,
     Sequence,
-    Set,
     Tuple,
     Type,
     TypeVar,
@@ -24,7 +23,6 @@ from typing import (
     overload,
 )
 from typing_extensions import SupportsIndex
-import git
 import traceback
 import itertools
 import tempfile
@@ -40,15 +38,15 @@ from jsonschema import Draft7Validator, validators, RefResolver
 import jsonschema.exceptions
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.vault import VaultEditor
-from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed
-from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var
+from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed  # noqa: F401
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var  # noqa: F401
 import warnings
 import codecs
 import io
 from contextlib import contextmanager
 from click.termui import unstyle
 
-from shutil import which
+from shutil import which  # noqa: F401
 import importlib
 import importlib.util
 from .logs import LogExtraLevels, sensitive, is_sensitive
@@ -93,7 +91,7 @@ def get_package_digest(commit_only=False) -> str:
     try:
         pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]  # type: ignore  # Ignored because of the try/except
         _package_digest = json.loads(pbr.read_text())["git_version"]
-    except:
+    except Exception:
         _package_digest = ""
     return cast(str, _package_digest)
 
@@ -135,10 +133,16 @@ class UnfurlBadDocumentError(UnfurlError):
         self,
         message: object,
         errors: Optional[Tuple[str, List[object]]] = None,
+        doc: Optional[dict] = None,
         saveStack: bool = False,
     ) -> None:
         super().__init__(message, saveStack=saveStack)
         self.errors = cast(Tuple[str, List[object]], errors or [])
+        self.doc = doc
+
+
+class UnfurlSchemaError(UnfurlBadDocumentError):
+    pass
 
 
 class UnfurlTaskError(UnfurlError):
@@ -229,33 +233,28 @@ def to_yaml_text(
 
 
 _T = TypeVar("_T")
+
+
 def assert_not_none(val: Optional[_T]) -> _T:
     if val is None:
-        raise TypeError(f"Value can't be None")
+        raise TypeError("Value can't be None")
     return val
 
-@overload
-def assert_form(
-    src: Any, *, test: bool = True
-) -> Mapping:
-    ...
 
 @overload
-def assert_form(
-    src: Any, types: Type[_T], test: bool = True
-) -> _T:
-    ...
+def assert_form(src: Any, *, test: bool = True) -> Mapping: ...
+
+
+@overload
+def assert_form(src: Any, types: Type[_T], test: bool = True) -> _T: ...
+
 
 # abstract classes can't be Type[_T], fallback to this hack
 @overload
-def assert_form(
-    src: Any, types: Any, test: bool = True
-) -> MutableSequence:
-    ...
+def assert_form(src: Any, types: Any, test: bool = True) -> MutableSequence: ...
 
-def assert_form(
-    src: Any, types = Mapping, test: bool = True
-):
+
+def assert_form(src: Any, types=Mapping, test: bool = True):
     if not isinstance(src, types) or not test:
         raise TypeError(f"Wrong shape: {src} isn't a {types}")
     return src
@@ -309,9 +308,7 @@ def check_class_registry(kind: str) -> bool:
     return kind in _ClassRegistry or kind in _shortNameRegistry
 
 
-def lookup_class(
-    kind: str
-) -> object:
+def lookup_class(kind: str) -> object:
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
     elif kind in _shortNameRegistry:

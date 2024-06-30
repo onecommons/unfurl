@@ -6,6 +6,7 @@ Applies a Unfurl ensemble
 
 For each configuration, run it if required, then record the result
 """
+
 import functools
 import getpass
 import json
@@ -22,7 +23,15 @@ from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
 from typing_extensions import Protocol
 
-# import click
+from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
+from . import init as initmod
+from . import logs, version_tuple
+from .job import start_job, Job
+from .localenv import LocalEnv, Project
+from .logs import Levels
+from .support import Status
+from .util import UnfurlBadDocumentError, filter_env, get_package_digest
+
 import rich_click as click
 
 # see https://github.com/ewels/rich-click/blob/main/docs/documentation/configuration.md
@@ -34,14 +43,6 @@ if os.environ.get("PY_COLORS") == "0":
     click.rich_click.COLOR_SYSTEM = None  # disable colors
 click.rich_click.OPTION_ENVVAR_FIRST = False
 click.rich_click.ENVVAR_STRING = "(${})"
-from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
-from . import init as initmod
-from . import logs, version_tuple
-from .job import start_job, Job
-from .localenv import LocalEnv, Project
-from .logs import Levels
-from .support import Status
-from .util import UnfurlBadDocumentError, filter_env, get_base_dir, get_package_digest
 
 if TYPE_CHECKING:
     from repo import RepoView
@@ -53,9 +54,6 @@ _args: List[str] = []  # for testing
 
 def option_group(*options):
     return lambda func: functools.reduce(lambda a, b: b(a), options, func)
-
-
-from rich_click import rich_config
 
 
 @click.group()
@@ -1219,8 +1217,6 @@ def _yaml_to_python(
     overwrite: str,
 ):
     from tosca import yaml2python, WritePolicy
-    from .yamlloader import ImportResolver
-    from .manifest import Manifest
 
     if python_target_version:
         python_target_version = int(python_target_version.split(".")[-1])
@@ -1243,7 +1239,7 @@ def _yaml_to_python(
                 Path(manifest.get_base_dir())
                 / (re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py")
             )
-        python_src = yaml2python.convert_service_template(
+        yaml2python.convert_service_template(
             manifest.tosca.template,
             python_compatible=python_target_version,
             path=file,
@@ -1254,11 +1250,13 @@ def _yaml_to_python(
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
         # XXX:
+        # from .yamlloader import ImportResolver
+        # from .manifest import Manifest
         # dummy_manifest = Manifest(None)
         # dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
         # import_resolver=ImportResolver(dummy_manifest)
         import_resolver = None
-        python_src = yaml2python.yaml_to_python(
+        yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
             import_resolver=import_resolver,
@@ -1390,10 +1388,33 @@ def status(ctx, ensemble, **options):
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=False))
 def validate(ctx, ensemble, **options):
-    """Validate the given ensemble."""
+    """Validate the given Unfurl project, ensemble, or TOSCA file."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"), override_context="")
-    localEnv.get_manifest()
+    try:
+        localEnv = LocalEnv(
+            ensemble, options.get("home"), override_context="", can_be_empty=True
+        )
+        if localEnv.manifestPath:
+            localEnv.get_manifest()
+    except UnfurlBadDocumentError as e:
+        if not ensemble:
+            raise
+        if ensemble.endswith(".py"):
+            from tosca.python2yaml import python_src_to_yaml_obj
+
+            with open(ensemble) as f:
+                python_src_to_yaml_obj(f.read(), {})
+        elif e.doc and "tosca_definitions_version" in e.doc:
+            from .manifest import Manifest
+            from .spec import ToscaSpec
+
+            if localEnv.project:
+                m = Manifest(ensemble, localEnv=localEnv)
+                m._set_spec(dict(service_template=e.doc))
+            else:
+                ToscaSpec(e.doc, path=ensemble)
+        else:
+            raise
 
 
 @cli.command()
