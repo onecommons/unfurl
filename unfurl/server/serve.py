@@ -2489,9 +2489,8 @@ def serve(
         )
 
     if gui and local_env:
-        from .gui import create_gui_routes
-
-        create_gui_routes(local_env)
+        from . import gui as unfurl_gui
+        unfurl_gui.create_routes(local_env)
 
     enter_safe_mode()
     if gui:

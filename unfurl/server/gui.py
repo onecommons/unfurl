@@ -21,8 +21,9 @@ from ..repo import Repo, GitRepo
 from .serve import app
 from ..localenv import LocalEnv
 from .gui_variables import set_variables, yield_variables
+from . import gui_assets
 from . import serve
-from flask import request, Response, Request, jsonify, send_file
+from flask import request, Response, Request, jsonify, send_file, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
 import re
@@ -36,10 +37,16 @@ logger = getLogger("unfurl.gui")
 local_dir = os.path.dirname(os.path.abspath(__file__))
 
 UFGUI_DIR = os.getenv("UFGUI_DIR", local_dir)
-WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")  # implied dev mode
-DIST = os.path.join(UFGUI_DIR, "dist")
+WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")
+DIST = os.path.join(UFGUI_DIR, gui_assets.DIST)
 PUBLIC = os.path.join(UFGUI_DIR, "public")
 UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
+IMPLIED_DEVELOPMENT_MODE = 'UFGUI_DIR' in os.environ or 'WEBPACK_ORIGIN' in os.environ
+
+if IMPLIED_DEVELOPMENT_MODE:
+    logger.debug("Development mode detected, not downloading compiled assets.")
+else:
+    gui_assets.fetch()
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 blueprint_template = env.get_template("project.j2.html")
@@ -231,7 +238,7 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
     return repo
 
 
-def create_gui_routes(localenv: LocalEnv):
+def create_routes(localenv: LocalEnv):
     app.config["UNFURL_GUI_MODE"] = localenv
     localrepo = (
         localenv.project
@@ -320,4 +327,7 @@ def create_gui_routes(localenv: LocalEnv):
         if WEBPACK_ORIGIN:
             return proxy_webpack(url)
         else:
-            return send_file(os.path.join(DIST, path))
+            response = make_response(send_file(os.path.join(DIST, path)))
+            if not IMPLIED_DEVELOPMENT_MODE:
+                response.headers["Cache-Control"] = "public, max-age=31536000" # 1 year
+            return response
