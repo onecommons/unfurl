@@ -82,7 +82,7 @@ def get_api_client(module=None, **kwargs):
                     if AUTH_PROXY_HEADERS_SPEC[key].get('type') == 'bool':
                         env_value = env_value.lower() not in ['0', 'false', 'no']
                     proxy_headers[key] = env_value
-            if proxy_headers is not {}:
+            if proxy_headers != {}:
                 auth[true_name] = proxy_headers
         else:
             env_value = os.getenv('K8S_AUTH_{0}'.format(arg_name.upper()), None) or os.getenv('K8S_AUTH_{0}'.format(true_name.upper()), None)
