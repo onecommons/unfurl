@@ -10,6 +10,7 @@ Output a normalized json representation of a TOSCA service template for machine 
 - Capability properties are represented as complex properties on the node type (and node template).
 - Requirements has a "resourceType" which can be either a node type or a capability type.
 """
+
 import re
 import os
 import os.path
@@ -518,9 +519,7 @@ def requirement_to_graphql(
                             reqobj["match"] = relspec.target.name
                             nodetype = relspec.target.type
                         else:
-                            target_types = (
-                                relspec.toscaEntityTemplate.type_definition.valid_target_types
-                            )
+                            target_types = relspec.toscaEntityTemplate.type_definition.valid_target_types
                             if target_types:
                                 nodetype = target_types[0]
                     else:
@@ -1687,6 +1686,7 @@ def to_environments(
     environment_filter=None,
     *,
     file: Optional[str] = None,
+    include_default: bool = False,
 ) -> GraphqlDB:
     """
     Map the environments in the project's unfurl.yaml to a json collection of Graphql objects.
@@ -1706,12 +1706,25 @@ def to_environments(
     all_connection_types: GraphqlObjectsByName = {}
     assert localEnv.project
     localEnv.overrides["load_env_instances"] = True
-    deployment_paths = get_deploymentpaths(localEnv.project)
-    env_deployments = {}
-    for ensemble_info in deployment_paths.values():
-        if not environment_filter or environment_filter == ensemble_info["environment"]:
-            env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
-    assert localEnv.project
+    deployment_paths = GraphqlDB.get_deployment_paths(
+        localEnv.project, include_default=include_default
+    )["DeploymentPath"]
+    if include_default:
+        # synthesize ensemble_info (and make sure defaults is an environment)
+        if localEnv.manifestPath:
+            path, obj = GraphqlDB.get_deployment_path(
+                localEnv.project, dict(file=localEnv.manifestPath)
+            )
+            if path not in deployment_paths:
+                deployment_paths[path] = obj
+        default_manifest = localEnv.project.search_for_manifest(True)
+        if default_manifest and default_manifest != localEnv.manifestPath:
+            path, obj = GraphqlDB.get_deployment_path(
+                localEnv.project, dict(file=default_manifest)
+            )
+            if path not in deployment_paths:
+                deployment_paths[path] = obj
+
     defaults = localEnv.project.contexts.get("defaults")
     default_imported_instances = None
     default_manifest_path = localEnv.manifestPath
@@ -1776,4 +1789,5 @@ def to_deployments(
 
 
 def get_deploymentpaths(project: Project) -> Dict[str, DeploymentPath]:
+    # NB: called by onecommons/ci/trigger_downstream_deployments.py
     return GraphqlDB.get_deployment_paths(project)["DeploymentPath"]

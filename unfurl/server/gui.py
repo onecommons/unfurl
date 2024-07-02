@@ -27,10 +27,8 @@ from flask import request, Response, Request, jsonify, send_file, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
 import re
-from glob import glob
-from rich import inspect
 from urllib.parse import urlparse
-from ruamel.yaml.comments import CommentedMap
+import git
 
 logger = getLogger("unfurl.gui")
 
@@ -184,9 +182,6 @@ def proxy_webpack(url):
     ]
 
     return Response(res.content, res.status_code, headers)
-
-
-import git
 
 
 def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:

@@ -144,6 +144,7 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       projectIcon: String
     }
 """
+
 import datetime
 import re
 from typing import (
@@ -506,7 +507,9 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
 
     @staticmethod
     def get_deployment_paths(
-        project: "Project", existing: Optional[str] = None
+        project: "Project",
+        existing: Optional[str] = None,
+        include_default: bool = False,
     ) -> "DeploymentPaths":
         """
         Deployments identified by their file path.
@@ -514,25 +517,33 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
         db = cast(DeploymentPaths, GraphqlDB.load_db(existing))
         deployment_paths = db.setdefault("DeploymentPath", {})
         for ensemble_info in project.localConfig.ensembles:
-            if "environment" in ensemble_info and "project" not in ensemble_info:
+            if (
+                include_default or "environment" in ensemble_info
+            ) and "project" not in ensemble_info:
                 # exclude external ensembles
-                path = os.path.dirname(ensemble_info["file"])
-                if os.path.isabs(path):
-                    path = project.get_relative_path(path)
-                obj = DeploymentPath(
-                    __typename="DeploymentPath",
-                    name=path,
-                    project_id=ensemble_info.get("project_id"),
-                    pipelines=ensemble_info.get("pipelines", []),
-                    environment=ensemble_info["environment"],
-                    incremental_deploy=ensemble_info.get("incremental_deploy", False),
-                )
+                path, obj = GraphqlDB.get_deployment_path(project, ensemble_info)
                 if path in deployment_paths:
                     # merge duplicate entries
                     deployment_paths[path].update(obj)  # type: ignore # python 3.7 needs this
                 else:
                     deployment_paths[path] = obj
         return db
+
+    @staticmethod
+    def get_deployment_path(project, ensemble_info):
+        path = os.path.dirname(ensemble_info["file"])
+        if os.path.isabs(path):
+            path = project.get_relative_path(path)
+        obj = DeploymentPath(
+            __typename="DeploymentPath",
+            name=path,
+            project_id=ensemble_info.get("project_id"),
+            pipelines=ensemble_info.get("pipelines", []),
+            environment=ensemble_info.get("environment", "defaults"),
+            incremental_deploy=ensemble_info.get("incremental_deploy", False),
+        )
+
+        return path, obj
 
     def add_graphql_deployment(
         self,
@@ -925,7 +936,10 @@ def to_graphql_resource(
             status = instance.status
     except:
         status = Status.error
-        logger.error(f"Error getting live status for resource {instance.nested_name}", exc_info=True)
+        logger.error(
+            f"Error getting live status for resource {instance.nested_name}",
+            exc_info=True,
+        )
 
     pending = not status or status == Status.pending
     if not template:

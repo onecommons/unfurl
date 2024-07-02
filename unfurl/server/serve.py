@@ -1,10 +1,10 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates 
+API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates
 and a patch api for updating them.
 
-The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access. 
+The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access.
 """
 
 # Security assumptions:
@@ -147,7 +147,10 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend.ignore_errors = True
     redis = getattr(backend, "_read_client", None)
     if redis:
-        keys = [k.decode()[len(backend.key_prefix) :] for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
+        prefix = backend.key_prefix  # type: ignore
+        keys = [
+            k.decode()[len(prefix) :] for k in redis.keys(prefix + starts_with + "*")
+        ]
     else:
         simple = getattr(backend, "_cache", None)
         if simple is not None:
@@ -202,9 +205,9 @@ def _set_local_projects(repo_views, local_projects, clone_root, gui):
             )
             local_projects[project_id] = repo_view.repo.working_dir
         elif gui:
-            local_projects[
-                "local:" + repo_view.repo.working_dir.lstrip("/")
-            ] = repo_view.repo.working_dir
+            local_projects["local:" + repo_view.repo.working_dir.lstrip("/")] = (
+                repo_view.repo.working_dir
+            )
 
 
 def set_local_projects(local_env, clone_root, gui):
@@ -247,9 +250,9 @@ def set_current_ensemble_git_url(gui: bool = False):
         and local_env.project.project_repoview
         and local_env.project.project_repoview.repo
     ):
-        app.config[
-            "UNFURL_CURRENT_WORKING_DIR"
-        ] = local_env.project.project_repoview.repo.working_dir
+        app.config["UNFURL_CURRENT_WORKING_DIR"] = (
+            local_env.project.project_repoview.repo.working_dir
+        )
         server_url = app.config["UNFURL_CLOUD_SERVER"]
         server_host = urlparse(server_url).hostname
         if not gui and not server_host:
@@ -350,8 +353,9 @@ def _get_project_repo(
         repo = GitRepo(git.Repo(path))
         if args:
             # make sure we are using the latest credentials:
-            username, password = args.get("username"), args.get(
-                "private_token", args.get("password")
+            username, password = (
+                args.get("username"),
+                args.get("private_token", args.get("password")),
             )
             if username and password:
                 repo.set_url_credentials(username, password, True)
@@ -366,8 +370,9 @@ def _clone_repo(
 ) -> GitRepo:
     repo_path = _get_project_repo_dir(project_id, branch, args)
     os.makedirs(os.path.dirname(repo_path), exist_ok=True)
-    username, password = args.get("username"), args.get(
-        "private_token", args.get("password")
+    username, password = (
+        args.get("username"),
+        args.get("private_token", args.get("password")),
     )
     git_url = get_project_url(project_id, username, password)
     clone_lock_path = repo_path + ".lock"
@@ -980,8 +985,7 @@ class CacheEntry:
     ) -> Tuple[Optional[Any], Any]:
         try:
             if (
-                latest_commit is None
-                and not self.stale_pull_age
+                latest_commit is None and not self.stale_pull_age
                 #            or app.config.get("UNFURL_GUI_MODE")
             ):
                 # don't use the cache
@@ -1380,9 +1384,9 @@ def _export(
                     max_age = stale_pull_age
                 serve_stale = app.config["CACHE_CONTROL_SERVE_STALE"]
                 if serve_stale:
-                    response.headers[
-                        "Cache-Control"
-                    ] = f"max-age={max_age}, stale-while-revalidate={serve_stale}"
+                    response.headers["Cache-Control"] = (
+                        f"max-age={max_age}, stale-while-revalidate={serve_stale}"
+                    )
             return response
         else:
             if isinstance(err, FatalToscaImportError):
@@ -1671,7 +1675,10 @@ def _do_export(
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
     if requested_format == "environments":
         json_summary = to_json.to_environments(
-            local_env, args.get("root_url"), args.get("environment")
+            local_env,
+            args.get("root_url"),
+            args.get("environment"),
+            include_default=bool(app.config.get("UNFURL_GUI_MODE")),
         )
     elif requested_format == "blueprint":
         json_summary = to_json.to_blueprint(
@@ -2490,6 +2497,7 @@ def serve(
 
     if gui and local_env:
         from . import gui as unfurl_gui
+
         unfurl_gui.create_routes(local_env)
 
     enter_safe_mode()
