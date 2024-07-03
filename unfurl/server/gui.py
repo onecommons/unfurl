@@ -1,18 +1,20 @@
 """
-  UI for local Unfurl project
+UI for local Unfurl project
 
-  "project_path" is used by serve for export and patch
+"project_path" is used by serve for export and patch
 
-  Returns:
-      _type_: _description_
+Returns:
+    _type_: _description_
 
-  Yields:
-      _type_: _description_
+Yields:
+    _type_: _description_
 """
 
 import os
 from typing import Any, Iterator, List, Literal, Optional, Union
 from typing_extensions import TypedDict, Required
+
+from ..to_json import get_project_path
 
 from ..logs import is_sensitive, getLogger
 
@@ -36,10 +38,10 @@ local_dir = os.path.dirname(os.path.abspath(__file__))
 
 UFGUI_DIR = os.getenv("UFGUI_DIR", local_dir)
 WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")
-DIST = os.path.join(UFGUI_DIR, gui_assets.DIST)
+DIST = os.path.join(UFGUI_DIR, "dist")
 PUBLIC = os.path.join(UFGUI_DIR, "public")
 UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-IMPLIED_DEVELOPMENT_MODE = 'UFGUI_DIR' in os.environ or 'WEBPACK_ORIGIN' in os.environ
+IMPLIED_DEVELOPMENT_MODE = "UFGUI_DIR" in os.environ or "WEBPACK_ORIGIN" in os.environ
 
 if IMPLIED_DEVELOPMENT_MODE:
     logger.debug("Development mode detected, not downloading compiled assets.")
@@ -100,12 +102,14 @@ else:
     )
 
 
-def serve_document(path, localenv):
+def serve_document(path, localenv: LocalEnv):
+    assert localenv.project
     localrepo = localenv.project.project_repoview.repo
+    assert localrepo
 
     localrepo_is_dashboard = bool(localenv.manifestPath)
 
-    home_project = get_project_path(localrepo) if localrepo_is_dashboard else None
+    home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
     if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
         parsed = urlparse(localrepo.remote.url)
@@ -120,19 +124,27 @@ def serve_document(path, localenv):
     repo = _get_repo(server_fragment[0].lstrip("/"), localenv)
 
     if not repo:
-        return "Not found", 404
+        return "Not found", 404   # XXX show real 404 page
     format = "environments"
-    # assume serving dashboard
-    if repo.repo != localrepo.repo or not localrepo_is_dashboard:
+    # assume serving dashboard unless an /-/overview url
+    if (
+        "-/overview" in path
+        or repo.repo != localrepo.repo
+        or not localrepo_is_dashboard
+    ):
         format = "blueprint"
 
-    project_path = get_project_path(repo)
+    project_path = _get_project_path(repo)
     project_name = os.path.basename(project_path)
 
     if format == "blueprint":
         template = blueprint_template
     else:
         template = dashboard_template
+
+    deployment_path = localenv.project.search_for_manifest(True) or ""
+    if deployment_path:
+        deployment_path = localenv.project.get_relative_path(deployment_path)
 
     return template.render(
         name=project_name,
@@ -141,21 +153,15 @@ def serve_document(path, localenv):
         origin=origin,
         head=(project_head if format == "blueprint" else dashboard_head),
         project_path=project_path,
+        deployment_path=deployment_path,
         namespace=os.path.dirname(project_path),
         home_project=home_project,
         working_dir_project=home_project if localrepo_is_dashboard else project_path,
     )
 
 
-def get_project_path(repo):
-    server_url = app.config["UNFURL_CLOUD_SERVER"]
-    server_host = urlparse(server_url).hostname
-    cloud_remote = repo.find_remote(host=server_host)
-    if cloud_remote:
-        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
-    else:
-        project_path = "local:" + repo.project_path()
-    return project_path
+def _get_project_path(repo: GitRepo):
+    return get_project_path(repo, urlparse(app.config["UNFURL_CLOUD_SERVER"]).hostname)
 
 
 def proxy_webpack(url):
@@ -324,5 +330,5 @@ def create_routes(localenv: LocalEnv):
         else:
             response = make_response(send_file(os.path.join(DIST, path)))
             if not IMPLIED_DEVELOPMENT_MODE:
-                response.headers["Cache-Control"] = "public, max-age=31536000" # 1 year
+                response.headers["Cache-Control"] = "public, max-age=31536000"  # 1 year
             return response

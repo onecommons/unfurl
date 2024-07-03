@@ -85,10 +85,10 @@ class Project:
         self.overrides = overrides or {}
         if os.path.exists(path):
             self.localConfig = LocalConfig(
-                path, yaml_include_hook=self.load_yaml_include, readonly=readonly
+                path, yaml_include_hook=self.load_yaml_include, readonly=bool(readonly)
             )
         else:
-            self.localConfig = LocalConfig(readonly=readonly)
+            self.localConfig = LocalConfig(readonly=bool(readonly))
         self._set_repos()
         # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
         # especially since we localenv might not have found the ensemble yet

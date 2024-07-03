@@ -812,7 +812,7 @@ class Manifest(AttributeManager):
         inProject = False
         if self.localEnv and self.localEnv.project:
             if self.localEnv.project is self.localEnv.homeProject:
-                inProject = self.localEnv.project.projectRoot in self.path  # type: ignore
+                inProject = bool(self.path and self.localEnv.project.projectRoot in self.path)
             else:
                 inProject = True
         if inProject and "project" not in repositories:
@@ -822,7 +822,6 @@ class Manifest(AttributeManager):
         if "spec" not in repositories:
             # if not found assume it points the project root or self if not in a project
             if inProject:
-                assert self.localEnv and self.localEnv.project
                 repositories["spec"] = self.localEnv.project.project_repoview  # type: ignore
             else:
                 repositories["spec"] = repositories["self"]

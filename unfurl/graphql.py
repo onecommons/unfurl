@@ -595,7 +595,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
                 # old version of lock section YAML, set missing to True
                 version = "(MISSING)"
             if version:
-                packages[_project_path(repo_dict["url"])] = dict(version=version)
+                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = dict(version=version)
         if packages:
             deployment["packages"] = packages
 
@@ -603,11 +603,11 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
         return deployment
 
 
-def _project_path(url):
-    pp = urlparse(url).path.lstrip("/")
-    if pp.endswith(".git"):
-        return pp[:-4]
-    return pp
+def project_id_from_urlresult(urlparse_result) -> str:
+    project_id = urlparse_result.path.strip("/")
+    if project_id.endswith(".git"):
+        project_id = project_id[:-4]
+    return project_id
 
 
 def js_timestamp(ts: datetime.datetime) -> str:

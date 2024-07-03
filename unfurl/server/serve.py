@@ -30,6 +30,7 @@ import time
 import traceback
 from typing import (
     Dict,
+    Iterable,
     List,
     NamedTuple,
     Optional,
@@ -54,7 +55,7 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from ..graphql import ImportDef, get_local_type
+from ..graphql import ImportDef, get_local_type, project_id_from_urlresult
 from ..manifest import relabel_dict
 from ..packages import Package, get_package_from_url
 
@@ -186,10 +187,14 @@ if os.environ.get("CACHE_CLEAR_ON_START"):
 DEFAULT_BRANCH = "main"
 
 
-def _set_local_projects(repo_views, local_projects, clone_root, gui):
+def _set_local_projects(
+    repo_views: Iterable[RepoView], local_projects: Dict[str, str], clone_root, gui
+):
     server_url = app.config["UNFURL_CLOUD_SERVER"]
     server_host = urlparse(server_url).hostname
     for repo_view in repo_views:
+        if not repo_view.repo:
+            continue
         remote = repo_view.repo.find_remote(host=server_host)
         if remote:
             parts = urlparse(remote.url)
@@ -205,12 +210,24 @@ def _set_local_projects(repo_views, local_projects, clone_root, gui):
             )
             local_projects[project_id] = repo_view.repo.working_dir
         elif gui:
-            local_projects["local:" + repo_view.repo.working_dir.lstrip("/")] = (
+            # only include non unfurl cloud repos when in gui mode
+            local_projects[to_json.get_local_project_path(repo_view.repo)] = (
                 repo_view.repo.working_dir
             )
 
 
-def set_local_projects(local_env, clone_root, gui):
+def get_project_path(repo: GitRepo):
+    server_url = app.config["UNFURL_CLOUD_SERVER"]
+    server_host = urlparse(server_url).hostname
+    cloud_remote = repo.find_remote(host=server_host)
+    if cloud_remote:
+        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
+    else:
+        project_path = "local:" + repo.working_dir.lstrip("/")
+    return project_path
+
+
+def set_local_projects(local_env: LocalEnv, clone_root: str, gui: bool):
     clone_root = os.path.abspath(clone_root)
     local_projects: Dict[str, str] = {}
     if local_env.project:
@@ -283,13 +300,6 @@ def get_project_id(request) -> str:
     if project_id:
         return project_id
     return ""
-
-
-def project_id_from_urlresult(urlparse_result) -> str:
-    project_id = urlparse_result.path.strip("/")
-    if project_id.endswith(".git"):
-        project_id = project_id[:-4]
-    return project_id
 
 
 def get_current_project_id() -> str:
@@ -1673,12 +1683,13 @@ def _do_export(
         from .cache import ServerCacheResolver
 
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
+    gui = bool(app.config.get("UNFURL_GUI_MODE"))
     if requested_format == "environments":
         json_summary = to_json.to_environments(
             local_env,
             args.get("root_url"),
             args.get("environment"),
-            include_default=bool(app.config.get("UNFURL_GUI_MODE")),
+            include_default=gui,
         )
     elif requested_format == "blueprint":
         json_summary = to_json.to_blueprint(
@@ -1688,7 +1699,12 @@ def _do_export(
             nested=args.get("include_all", False),
         )
     elif requested_format == "deployment":
-        json_summary = to_json.to_deployment(local_env, args.get("root_url"))
+        server_host = (
+            urlparse(app.config["UNFURL_CLOUD_SERVER"]).hostname if gui else None
+        )
+        json_summary = to_json.to_deployment(
+            local_env, args.get("root_url"), server_host=server_host
+        )
     else:
         assert False, requested_format
     return None, json_summary

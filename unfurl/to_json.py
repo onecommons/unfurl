@@ -47,8 +47,7 @@ from toscaparser.elements.datatype import DataType
 from toscaparser.activities import ConditionClause
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
-from .plan import _get_templates_from_topology
-from .repo import sanitize_url
+from .repo import sanitize_url, Repo, GitRepo
 from .yamlmanifest import YamlManifest
 from .logs import getLogger
 from .spec import (
@@ -60,9 +59,6 @@ from .spec import (
 )
 from .util import UnfurlError, assert_not_none
 from .localenv import LocalEnv, Project
-
-logger = getLogger("unfurl")
-
 
 from .graphql import (
     ApplicationBlueprint,
@@ -87,9 +83,11 @@ from .graphql import (
     get_import_def,
     is_property_user_visible,
     is_server_only_expression,
-    _project_path,
     js_timestamp,
 )
+
+logger = getLogger("unfurl")
+
 
 TypeDescendants = Dict[str, List[str]]
 
@@ -1321,7 +1319,7 @@ def get_deployment_blueprints(
 
 
 def get_blueprint_from_topology(
-    manifest: YamlManifest, db: GraphqlDB
+    manifest: YamlManifest, db: GraphqlDB, server_host: Optional[str] = None
 ) -> Tuple[ApplicationBlueprint, DeploymentTemplate]:
     spec = manifest.tosca
     assert spec
@@ -1345,6 +1343,11 @@ def get_blueprint_from_topology(
             else "untitled"
         )
         slug = slugify(title)
+        spec_repo = manifest.repositories["spec"]
+        if spec_repo.repo and server_host:
+            projectPath = get_project_path(spec_repo.repo, server_host)
+        else:  # otherwise assume its a cloud server project
+            projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
         dt = DeploymentTemplate(
             __typename="DeploymentTemplate",
             title=title,
@@ -1355,7 +1358,7 @@ def get_blueprint_from_topology(
             resourceTemplates=sorted(db["ResourceTemplate"]),
             ResourceTemplate={},
             source=deployment_blueprint_name,
-            projectPath=_project_path(manifest.repositories["spec"].url),
+            projectPath=projectPath,
         )
         template.update(dt)  # type: ignore
         templates[slug] = template
@@ -1370,6 +1373,23 @@ def get_blueprint_from_topology(
     if last_commit_time:
         template["commitTime"] = js_timestamp(last_commit_time)
     return blueprint, template
+
+
+def get_project_path(repo: GitRepo, server_host: str):
+    if server_host:
+        # only use the project path if remote matches the cloud server
+        cloud_remote = repo.find_remote(host=server_host)
+    if cloud_remote:
+        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
+    else:
+        # no remote (or remote is not for the cloud server), return local project path
+        project_path = get_local_project_path(repo)
+    return project_path
+
+
+def get_local_project_path(repo: GitRepo):
+    # XXX use different scheme if repo has a remote?
+    return "local:" + repo.working_dir
 
 
 def _add_repositories(db: dict, tpl: dict):
@@ -1512,12 +1532,12 @@ def to_blueprint(
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
 def to_deployment(
-    localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None
+    localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None, server_host: Optional[str] = None
 ) -> GraphqlDB:
     start_time = perf_counter()
     logger.debug("Exporting deployment %s", localEnv.manifestPath)
     db, manifest, env, env_types = _to_graphql(localEnv, root_url)
-    blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
+    blueprint, dtemplate = get_blueprint_from_topology(manifest, db, server_host)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     db.add_graphql_deployment(manifest, dtemplate, nodetemplate_to_json)
