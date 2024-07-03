@@ -1866,7 +1866,6 @@ def _patch_deployment_blueprint(
             "description",
             "primary",
             "source",
-            "projectPath",
             "branch",
         ]
         for key, prop in patch.items():

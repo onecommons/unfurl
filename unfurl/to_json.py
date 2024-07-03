@@ -1325,6 +1325,13 @@ def get_blueprint_from_topology(
     assert spec
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db)
+    spec_repo = manifest.repositories["spec"]
+    if spec_repo.repo and server_host:
+        projectPath = get_project_path(spec_repo.repo, server_host)
+    else:  # otherwise assume its a cloud server project
+        projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
+    blueprint["projectPath"] = projectPath
+
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
     deployment_blueprint_name = manifest.context.get("deployment_blueprint")
@@ -1343,11 +1350,6 @@ def get_blueprint_from_topology(
             else "untitled"
         )
         slug = slugify(title)
-        spec_repo = manifest.repositories["spec"]
-        if spec_repo.repo and server_host:
-            projectPath = get_project_path(spec_repo.repo, server_host)
-        else:  # otherwise assume its a cloud server project
-            projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
         dt = DeploymentTemplate(
             __typename="DeploymentTemplate",
             title=title,
@@ -1358,7 +1360,6 @@ def get_blueprint_from_topology(
             resourceTemplates=sorted(db["ResourceTemplate"]),
             ResourceTemplate={},
             source=deployment_blueprint_name,
-            projectPath=projectPath,
         )
         template.update(dt)  # type: ignore
         templates[slug] = template

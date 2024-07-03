@@ -225,6 +225,7 @@ class ApplicationBlueprint(GraphqlObject, total=False):
     sourceCodeUrl: Optional[str]
     image: Optional[str]
     projectIcon: Optional[str]
+    projectPath: NotRequired[Optional[str]]
 
 
 class DeploymentTemplate(GraphqlObject, total=False):
@@ -235,7 +236,6 @@ class DeploymentTemplate(GraphqlObject, total=False):
     cloud: TypeName
     environmentVariableNames: List[str]
     source: NotRequired[Optional[str]]
-    projectPath: str
     branch: NotRequired[Optional[str]]
     commitTime: str
     ResourceTemplate: "ResourceTemplatesByName"
