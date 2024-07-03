@@ -1521,7 +1521,7 @@ def _clear_project(project_id):
 
 
 def _make_readonly_localenv(
-    clone_root: str, deployment_path: str, parent_localenv=None
+    clone_root: str, deployment_path: str, parent_localenv=None, requested_format: Optional[str]=None
 ):
     try:
         # we don't want to decrypt secrets because the export is cached and shared
@@ -1532,6 +1532,8 @@ def _make_readonly_localenv(
             apply_url_credentials=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
+        if requested_format:
+            overrides["format"] = requested_format
         clone_location = os.path.join(clone_root, deployment_path)
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
         if app.config.get("UNFURL_CURRENT_WORKING_DIR") != clone_root:
@@ -1662,7 +1664,7 @@ def _do_export(
         parent_localenv.instance_repoview,
     )
     err, local_env = _make_readonly_localenv(
-        repo.repo.working_dir, deployment_path, parent_localenv
+        repo.repo.working_dir, deployment_path, parent_localenv, requested_format
     )
     if err:
         return (

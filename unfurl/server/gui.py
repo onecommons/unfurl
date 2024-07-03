@@ -142,10 +142,6 @@ def serve_document(path, localenv: LocalEnv):
     else:
         template = dashboard_template
 
-    deployment_path = localenv.project.search_for_manifest(True) or ""
-    if deployment_path:
-        deployment_path = localenv.project.get_relative_path(deployment_path)
-
     return template.render(
         name=project_name,
         readme=get_project_readme(repo),
@@ -153,7 +149,6 @@ def serve_document(path, localenv: LocalEnv):
         origin=origin,
         head=(project_head if format == "blueprint" else dashboard_head),
         project_path=project_path,
-        deployment_path=deployment_path,
         namespace=os.path.dirname(project_path),
         home_project=home_project,
         working_dir_project=home_project if localrepo_is_dashboard else project_path,

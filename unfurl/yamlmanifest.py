@@ -1,8 +1,9 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-"""Loads and saves a ensemble manifest.
-"""
+"""Loads and saves a ensemble manifest."""
+
 import io
+import json
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
 import sys
 from collections.abc import MutableSequence, Mapping
@@ -10,6 +11,12 @@ import numbers
 import os
 import os.path
 import itertools
+
+try:
+    # added in python 3.9
+    from functools import cache  # type: ignore
+except ImportError:
+    from functools import lru_cache as cache
 
 from . import DefaultNames
 from .util import UnfurlError, get_base_dir, to_yaml_text, filter_env
@@ -184,6 +191,16 @@ def save_task(task: "ConfigTask", skip_result=False):
     return output
 
 
+@cache
+def get_manifest_schema(format: str) -> dict:
+    path = os.path.join(_basepath, "manifest-schema.json")
+    with open(path) as fp:
+        schema = json.load(fp)
+    if format == "blueprint":
+        schema["required"].remove("kind")
+    return schema
+
+
 class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
@@ -203,11 +220,14 @@ class ReadOnlyManifest(Manifest):
         self._importedManifests: Dict[int, Optional["YamlManifest"]] = {}
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
+        schema = get_manifest_schema(
+          localEnv and localEnv.overrides.get("format") or ""
+        )
         self.manifest = YamlConfig(
             manifest,
             self.path,
             validate,
-            os.path.join(_basepath, "manifest-schema.json"),
+            schema,
             self.load_yaml_include,
             vault,
             readonly,
@@ -826,7 +846,8 @@ class YamlManifest(ReadOnlyManifest):
                 filter(
                     None,
                     map(
-                        lambda r: self.save_resource(r, discovered), resource.instances  # type: ignore
+                        lambda r: self.save_resource(r, discovered),  # type: ignore
+                        resource.instances,
                     ),
                 )
             )
