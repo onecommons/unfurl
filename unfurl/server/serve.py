@@ -326,6 +326,7 @@ def _get_local_project_dir(project_id) -> str:
 
 
 def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) -> str:
+    # NB: in gui mode, reserves a working_dir in UNFURL_LOCAL_PROJECTS if the project_id is missing
     if not project_id:
         return app.config.get("UNFURL_CURRENT_WORKING_DIR", ".")
     local_dir = _get_local_project_dir(project_id)
@@ -1148,7 +1149,7 @@ def get_canonical_url(project_id: str) -> str:
     return urljoin(DEFAULT_CLOUD_SERVER, project_id.rstrip("/") + ".git")
 
 
-def get_project_url(project_id: str, username=None, password=None) -> str:
+def get_project_url(project_id: str, username=None, password=None, branch=None) -> str:
     assert not project_id.startswith("local:"), project_id
     base_url = cast(str, current_app.config["UNFURL_CLOUD_SERVER"])
     assert base_url
@@ -1159,7 +1160,10 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
         else:
             netloc = f"{username}@{url_parts.netloc}"
         base_url = urlunsplit(url_parts._replace(netloc=netloc))
-    return urljoin(base_url, project_id.rstrip("/") + ".git")
+    url = urljoin(base_url, project_id.rstrip("/") + ".git")
+    if branch and branch != "(MISSING)":
+        url += "#" + branch
+    return url
 
 
 def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[GitRepo]:
@@ -2514,7 +2518,6 @@ def serve(
 
     if gui and local_env:
         from . import gui as unfurl_gui
-
         unfurl_gui.create_routes(local_env)
 
     enter_safe_mode()

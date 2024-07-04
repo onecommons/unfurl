@@ -2,30 +2,22 @@
 UI for local Unfurl project
 
 "project_path" is used by serve for export and patch
-
-Returns:
-    _type_: _description_
-
-Yields:
-    _type_: _description_
 """
 
 import os
 from typing import Any, Iterator, List, Literal, Optional, Union
-from typing_extensions import TypedDict, Required
 
 from ..to_json import get_project_path
 
-from ..logs import is_sensitive, getLogger
+from ..logs import getLogger
 
-from ..repo import Repo, GitRepo
+from ..repo import GitRepo
 
-from .serve import app
+from .serve import app, get_project_url
 from ..localenv import LocalEnv
 from .gui_variables import set_variables, yield_variables
 from . import gui_assets
-from . import serve
-from flask import request, Response, Request, jsonify, send_file, make_response
+from flask import request, Response, jsonify, send_file, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
 import re
@@ -124,7 +116,7 @@ def serve_document(path, localenv: LocalEnv):
     repo = _get_repo(server_fragment[0].lstrip("/"), localenv)
 
     if not repo:
-        return "Not found", 404   # XXX show real 404 page
+        return "Not found", 404  # XXX show real 404 page
     format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
@@ -203,35 +195,22 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
 
     project_path = project_path.rstrip("/")
     repo: Optional[GitRepo] = None
-
-    if not branch:
-        branch = serve.get_default_branch(project_path, branch, {"format": "blueprint"})
-
-    # XXX no need to do export!
-    def do_export():
-        req = Request(
-            {"QUERY_STRING": f"?format=blueprint&auth_project={project_path}"}
-        )
-        serve._export(
-            req, requested_format="blueprint", deployment_path="", include_all=False
-        )
-
-    def search_repo_paths():
-        repo = serve._get_project_repo(project_path, branch, {})
-        if not repo:
-            repo = serve._get_project_repo(os.path.basename(project_path), branch, {})
-        return repo
-
     localrepo = localenv.project and localenv.project.project_repoview.repo
     if localrepo and (project_path == localrepo.project_path()):
-        repo = localrepo
-    else:
-        repo = search_repo_paths()
-        if not repo:
-            do_export()
-            repo = search_repo_paths()
+        return repo
 
-    return repo
+    # not found, so clone repo using import loader machinery
+    # (to apply package rules and deduce branch from lock section or remote tags)
+    if project_path.startswith("remote:"):
+        url = project_path[len("remote:") :]
+    else:
+        url = get_project_url(project_path, branch=branch)
+    # XXX this will always use the default deployment
+    # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
+    repo_view = localenv.get_manifest().find_or_clone_from_url(url)
+    if not repo_view or not repo_view.repo:
+        logger.warning("could not find or clone %s", url)
+    return repo_view and repo_view.repo or None
 
 
 def create_routes(localenv: LocalEnv):
@@ -294,7 +273,7 @@ def create_routes(localenv: LocalEnv):
 
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
     def local_file(project_path, branch, file):
-        repo = get_repo(project_path)
+        repo = get_repo(project_path, branch)
         if repo:
             full_path = os.path.join(repo.working_dir, file)
             if os.path.exists(full_path):

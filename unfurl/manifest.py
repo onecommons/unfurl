@@ -928,6 +928,23 @@ class Manifest(AttributeManager):
             return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
+    def find_or_clone_from_url(self, url) -> Optional[RepoView]:
+        if self.localEnv and self.localEnv.project:
+            base = self.localEnv.project.projectRoot
+        else:
+            base = self.get_base_dir()
+        loader = toscaparser.imports.ImportsLoader(
+            None, base, repositories={}, resolver=self
+        )
+        resolver = self.get_import_resolver()
+        url, ctx = resolver.resolve_url(loader, url, "", None)
+        if ctx:
+            (is_file, repo_view, base, file_name) = ctx
+            if repo_view:
+                # this will clone the repo if needed
+                resolver._resolve_repo_to_path(repo_view, base, "")
+                return repo_view
+        return None
 
 # unused
 # class SnapShotManifest(Manifest):
