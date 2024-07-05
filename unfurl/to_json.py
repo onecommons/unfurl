@@ -1326,9 +1326,17 @@ def get_blueprint_from_topology(
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db)
     spec_repo = manifest.repositories["spec"]
-    if spec_repo.repo and server_host:
-        projectPath = get_project_path(spec_repo.repo, server_host)
-    else:  # otherwise assume its a cloud server project
+    projectPath = None
+    if server_host:
+        repo = spec_repo.repo
+        if not repo and manifest.localEnv:
+            repo = manifest.localEnv.find_git_repo(spec_repo.url)
+        if repo:
+            projectPath = get_project_path(repo, server_host)
+        # else:  # XXX the repositories hasn't been cloned yet, so when we support remote:
+        #     if server_host != urlparse(normalize_git_url(remote.url)).hostname:
+        #         projectPath = "remote:" + remote.url
+    if not projectPath:  # otherwise assume its a cloud server project
         projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
     blueprint["projectPath"] = projectPath
 
