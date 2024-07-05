@@ -16,7 +16,8 @@ from ..repo import GitRepo
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
 from .gui_variables import set_variables, yield_variables
-from . import gui_assets
+
+# from . import gui_assets
 from flask import request, Response, jsonify, send_file, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
@@ -28,8 +29,12 @@ logger = getLogger("unfurl.gui")
 
 local_dir = os.path.dirname(os.path.abspath(__file__))
 
-UFGUI_DIR = os.getenv("UFGUI_DIR", local_dir)
-WEBPACK_ORIGIN = os.getenv("WEBPACK_ORIGIN")
+UFGUI_DIR = os.getenv(
+    "UFGUI_DIR", local_dir
+)  # (development only) should be set to the unfurl_gui directory
+WEBPACK_ORIGIN = os.getenv(
+    "WEBPACK_ORIGIN"
+)  # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
 DIST = os.path.join(UFGUI_DIR, "dist")
 PUBLIC = os.path.join(UFGUI_DIR, "public")
 UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
@@ -38,7 +43,10 @@ IMPLIED_DEVELOPMENT_MODE = "UFGUI_DIR" in os.environ or "WEBPACK_ORIGIN" in os.e
 if IMPLIED_DEVELOPMENT_MODE:
     logger.debug("Development mode detected, not downloading compiled assets.")
 else:
-    gui_assets.fetch()
+    logger.error(
+        "Running GUI mode without WEBPACK_ORIGIN and/or UFGUI_DIR is not yet supported."
+    )
+    # gui_assets.fetch()
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 blueprint_template = env.get_template("project.j2.html")
@@ -260,16 +268,6 @@ def create_routes(localenv: LocalEnv):
             # TODO
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
-
-    # XXX delete
-    @app.route("/api/v4/projects/")
-    def empty_project():
-        return "Not found", 404
-
-    # XXX delete
-    @app.route("/api/v4/projects/<path:project_path>")
-    def project(project_path):
-        return {"name": os.path.basename(project_path)}
 
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
     def local_file(project_path, branch, file):
