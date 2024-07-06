@@ -227,7 +227,7 @@ readonlyJobControlOptions = option_group(
         "--dirty",
         type=click.Choice(["abort", "ok", "auto"]),
         default="auto",
-        help="Action if there are uncommitted changes before run. (Default: auto)",
+        help="When there are uncommitted changes before run. (Default: auto)",
     ),
     click.option("-m", "--message", help="commit message to use"),
     click.option(
@@ -640,7 +640,7 @@ deployFilterOptions = option_group(
         "--prune",
         default=False,
         is_flag=True,
-        help="destroy instances that are no longer used",
+        help="Destroy instances that are no longer used",
     ),
     destroyUnmanagedOption,
     click.option(
@@ -1391,14 +1391,15 @@ def validate(ctx, ensemble, **options):
     """Validate the given Unfurl project, ensemble, or TOSCA file."""
     options.update(ctx.obj)
     try:
+        overrides = dict(ENVIRONMENT = "")   # same as override_context
+        if "template" in ensemble:
+            overrides["format"] = "blueprint"
         localEnv = LocalEnv(
-            ensemble, options.get("home"), override_context="", can_be_empty=True
+            ensemble, options.get("home"), overrides=overrides, can_be_empty=True
         )
         if localEnv.manifestPath:
             localEnv.get_manifest()
     except UnfurlBadDocumentError as e:
-        if not ensemble:
-            raise
         if ensemble.endswith(".py"):
             from tosca.python2yaml import python_src_to_yaml_obj
 
