@@ -101,6 +101,8 @@ else:
         f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
     )
 
+def notfound_response(projectPath):
+    return f"{projectPath} Not found", 404  # XXX show real 404 page
 
 def serve_document(path, localenv: LocalEnv):
     assert localenv.project
@@ -121,10 +123,11 @@ def serve_document(path, localenv: LocalEnv):
         origin = None
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
-    repo = _get_repo(server_fragment[0].lstrip("/"), localenv)
+    projectPath = server_fragment[0].lstrip("/")
+    repo = _get_repo(projectPath, localenv)
 
     if not repo:
-        return "Not found", 404  # XXX show real 404 page
+        return notfound_response(projectPath)
     format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
@@ -202,10 +205,10 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
         return None
 
     project_path = project_path.rstrip("/")
-    repo: Optional[GitRepo] = None
-    localrepo = localenv.project and localenv.project.project_repoview.repo
+    assert localenv.project
+    localrepo = localenv.project.project_repoview.repo
     if localrepo and (project_path == localrepo.project_path()):
-        return repo
+        return localrepo
 
     # not found, so clone repo using import loader machinery
     # (to apply package rules and deduce branch from lock section or remote tags)
@@ -237,7 +240,7 @@ def create_routes(localenv: LocalEnv):
     def get_variables(project_path):
         repo = get_repo(project_path)
         if not repo or repo.repo != localrepo.repo:
-            return "Not found", 404
+            return notfound_response(project_path)
         return {"variables": list(yield_variables(localenv))}
 
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
@@ -245,7 +248,7 @@ def create_routes(localenv: LocalEnv):
         nonlocal localenv
         repo = get_repo(project_path)
         if not repo or repo.repo != localrepo.repo:
-            return "Not found", 404
+            return notfound_response(project_path)
 
         body = request.json
         if isinstance(body, dict) and "variables_attributes" in body:
@@ -263,7 +266,7 @@ def create_routes(localenv: LocalEnv):
     def branches(project_path):
         repo = get_repo(project_path)
         if not repo:
-            return "Not found", 404
+            return notfound_response(project_path)
         return jsonify(
             # TODO
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
@@ -276,8 +279,7 @@ def create_routes(localenv: LocalEnv):
             full_path = os.path.join(repo.working_dir, file)
             if os.path.exists(full_path):
                 return send_file(full_path)
-
-        return "Not found", 404
+        return notfound_response(project_path)
 
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
@@ -295,7 +297,7 @@ def create_routes(localenv: LocalEnv):
             url += "?" + qs
 
         if request.headers["sec-fetch-dest"] == "iframe":
-            return "Not found", 404
+            return "Bad Request", 400
 
         if WEBPACK_ORIGIN:
             return proxy_webpack(url)
