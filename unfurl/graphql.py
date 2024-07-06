@@ -22,7 +22,6 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       cloud: ResourceType
       environmentVariableNames: [String!]
       source: String
-      projectPath: String!
       branch: String
       commitTime: String
     }
@@ -137,6 +136,8 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       primary: ResourceType!
       primaryDeploymentBlueprint: String
       deploymentTemplates: [DeploymentTemplate!]
+      projectPath: String
+      blueprintPath: String
 
       livePreview: String
       sourceCodeUrl: String
@@ -226,6 +227,7 @@ class ApplicationBlueprint(GraphqlObject, total=False):
     image: Optional[str]
     projectIcon: Optional[str]
     projectPath: NotRequired[Optional[str]]
+    blueprintPath: NotRequired[Optional[str]]
 
 
 class DeploymentTemplate(GraphqlObject, total=False):

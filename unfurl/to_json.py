@@ -1339,6 +1339,12 @@ def get_blueprint_from_topology(
     if not projectPath:  # otherwise assume its a cloud server project
         projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
     blueprint["projectPath"] = projectPath
+    if not manifest.manifest.search_includes("ensemble-template.yaml"):
+        # the ensemble doesn't include the standard ensemble-template.yaml so treat the deployment itself as the blueprint
+        if manifest.path and manifest.localEnv and manifest.localEnv.project:
+            blueprint["blueprintPath"] = manifest.localEnv.project.get_relative_path(
+                manifest.path
+            )
 
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
@@ -1541,7 +1547,11 @@ def to_blueprint(
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
 def to_deployment(
-    localEnv: LocalEnv, root_url: Optional[str] = None, *, file: Optional[str] = None, server_host: Optional[str] = None
+    localEnv: LocalEnv,
+    root_url: Optional[str] = None,
+    *,
+    file: Optional[str] = None,
+    server_host: Optional[str] = None,
 ) -> GraphqlDB:
     start_time = perf_counter()
     logger.debug("Exporting deployment %s", localEnv.manifestPath)
