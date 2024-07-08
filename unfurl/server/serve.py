@@ -1525,7 +1525,10 @@ def _clear_project(project_id):
 
 
 def _make_readonly_localenv(
-    clone_root: str, deployment_path: str, parent_localenv=None, requested_format: Optional[str]=None
+    clone_root: str,
+    deployment_path: str,
+    parent_localenv=None,
+    requested_format: Optional[str] = None,
 ):
     try:
         # we don't want to decrypt secrets because the export is cached and shared
@@ -2250,31 +2253,44 @@ def _patch_ensemble(
     )
     parent_localenv.make_resolver = make_resolver
     if create:
-        blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
-        logger.info(
-            "creating deployment at %s for %s",
-            clone_location,
-            sanitize_url(blueprint_url, True),
-        )
-        # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so clone uses the local repository if available
-        msg = init.clone(
-            blueprint_url,
-            clone_location,
-            existing=True,
-            mono=True,
-            skeleton="dashboard",
-            use_environment=environment,
-            use_deployment_blueprint=deployment_blueprint,
-            home=current_working_dir,
-            parent_localenv=parent_localenv,
-        )
+        # if current_working_dir is set, use it as the home project so clone uses the local repository if available
+        blueprint_url = body.get("blueprint_url")
+        mono = parent_localenv.instance_repoview is parent_localenv.project.project_repoview
+        skeleton = None if app.config.get("UNFURL_GUI_MODE") else "dashboard"
+        if blueprint_url:
+            logger.info(
+                "creating deployment at %s for %s",
+                clone_location,
+                sanitize_url(blueprint_url, True),
+            )
+            msg = init.clone(
+                blueprint_url,
+                clone_location,
+                existing=True,
+                mono=mono,
+                skeleton=skeleton,
+                use_environment=environment,
+                use_deployment_blueprint=deployment_blueprint,
+                home=current_working_dir,
+                parent_localenv=parent_localenv,
+            )
+        else:
+            logger.info("creating new deployment at %s", clone_location)
+            # this will clone the default ensemble if it exists or use ensemble-template
+            msg = init.clone(
+                parent_localenv.project.projectRoot,
+                parent_localenv.project.projectRoot,
+                deployment_path,
+                want_init=True,
+                existing=True,
+                mono=mono,
+                skeleton=skeleton,
+                use_environment=environment,
+                use_deployment_blueprint=deployment_blueprint,
+                home=current_working_dir,
+                parent_localenv=parent_localenv,
+            )
         logger.info(msg)
-    # elif clone:
-    #     logger.info("creating deployment at %s for %s", clone_location, sanitize_url(blueprint_url, True))
-    #     msg = init.clone(clone_location, clone_location, existing=True, mono=True, skeleton="dashboard",
-    #                      use_environment=environment, use_deployment_blueprint=deployment_blueprint)
-    #     logger.info(msg)
-
     cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
     # set apply_url_credentials=True so that we reuse the credentials when cloning other repositories on this server
@@ -2518,6 +2534,7 @@ def serve(
 
     if gui and local_env:
         from . import gui as unfurl_gui
+
         unfurl_gui.create_routes(local_env)
 
     enter_safe_mode()
