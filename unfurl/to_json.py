@@ -1321,6 +1321,7 @@ def get_deployment_blueprints(
 def get_blueprint_from_topology(
     manifest: YamlManifest, db: GraphqlDB, server_host: Optional[str] = None
 ) -> Tuple[ApplicationBlueprint, DeploymentTemplate]:
+    # called by deployment export for the current deployment
     spec = manifest.tosca
     assert spec
     # XXX cloud = spec.topology.primary_provider
@@ -1339,12 +1340,14 @@ def get_blueprint_from_topology(
     if not projectPath:  # otherwise assume its a cloud server project
         projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
     blueprint["projectPath"] = projectPath
-    if not manifest.manifest.search_includes("ensemble-template.yaml"):
+    if manifest.manifest.search_includes("ensemble-template.yaml") != (None, None):
         # the ensemble doesn't include the standard ensemble-template.yaml so treat the deployment itself as the blueprint
         if manifest.path and manifest.localEnv and manifest.localEnv.project:
             blueprint["blueprintPath"] = manifest.localEnv.project.get_relative_path(
                 manifest.path
             )
+    else:
+        blueprint["blueprintPath"] = "ensemble-template.yaml"
 
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
@@ -1373,7 +1376,7 @@ def get_blueprint_from_topology(
             # names of ResourceTemplates
             resourceTemplates=sorted(db["ResourceTemplate"]),
             ResourceTemplate={},
-            source=deployment_blueprint_name,
+            source=deployment_blueprint_name or "__generated",
         )
         template.update(dt)  # type: ignore
         templates[slug] = template
