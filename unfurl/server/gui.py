@@ -15,6 +15,7 @@ from ..repo import GitRepo
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
+from ..util import UnfurlError
 from .gui_variables import set_variables, yield_variables
 
 # from . import gui_assets
@@ -101,8 +102,12 @@ else:
         f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
     )
 
+
 def notfound_response(projectPath):
-    return f"{projectPath} Not found", 404  # XXX show real 404 page
+    # 404 page is not currently a template, but could become one
+    location = PUBLIC if WEBPACK_ORIGIN else DIST
+    return send_file(os.path.join(location, "404.html"))
+
 
 def serve_document(path, localenv: LocalEnv):
     assert localenv.project
@@ -218,7 +223,11 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
         url = get_project_url(project_path, branch=branch)
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
-    repo_view = localenv.get_manifest().find_or_clone_from_url(url)
+    try:
+        repo_view = localenv.get_manifest().find_or_clone_from_url(url)
+    except UnfurlError:  # we probably want to treat clone errors as not found
+        repo_view = None
+
     if not repo_view or not repo_view.repo:
         logger.warning("could not find or clone %s", url)
     return repo_view and repo_view.repo or None
@@ -256,11 +265,6 @@ def create_routes(localenv: LocalEnv):
             return {"variables": list(yield_variables(localenv))}
         else:
             return "Bad Request", 400
-
-    # XXX remove
-    @app.route("/api/v4/unfurl_access_token")
-    def unfurl_access_token():
-        return {"token": ""}
 
     @app.route("/api/v4/projects/<path:project_path>/repository/branches")
     def branches(project_path):
