@@ -1340,14 +1340,7 @@ def get_blueprint_from_topology(
     if not projectPath:  # otherwise assume its a cloud server project
         projectPath = Repo.get_path_for_git_repo(spec_repo.url, False)
     blueprint["projectPath"] = projectPath
-    if manifest.manifest.search_includes("ensemble-template.yaml") != (None, None):
-        # the ensemble doesn't include the standard ensemble-template.yaml so treat the deployment itself as the blueprint
-        if manifest.path and manifest.localEnv and manifest.localEnv.project:
-            blueprint["blueprintPath"] = manifest.localEnv.project.get_relative_path(
-                manifest.path
-            )
-    else:
-        blueprint["blueprintPath"] = "ensemble-template.yaml"
+    blueprint["blueprintPath"] = get_blueprint_path(manifest)
 
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
@@ -1361,25 +1354,11 @@ def get_blueprint_from_topology(
     # the deployment template created for this deployment will have a "source" key
     # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
     if "source" not in template:
-        title = (
-            os.path.basename(os.path.dirname(manifest.path))
-            if manifest.path
-            else "untitled"
-        )
-        slug = slugify(title)
-        dt = DeploymentTemplate(
-            __typename="DeploymentTemplate",
-            title=title,
-            name=slug,
-            slug=slug,
-            description=spec.template.description or "",
-            # names of ResourceTemplates
-            resourceTemplates=sorted(db["ResourceTemplate"]),
-            ResourceTemplate={},
-            source=deployment_blueprint_name or "__generated",
-        )
+        dt = generate_deployment_template(manifest, db, deployment_blueprint_name)
         template.update(dt)  # type: ignore
-        templates[slug] = template
+        templates[dt["name"]] = template
+        if not blueprint.get("primaryDeploymentBlueprint"):
+            blueprint["primaryDeploymentBlueprint"] = dt["name"]
 
     blueprint["deploymentTemplates"] = list(templates)
     template["blueprint"] = blueprint["name"]
@@ -1391,6 +1370,39 @@ def get_blueprint_from_topology(
     if last_commit_time:
         template["commitTime"] = js_timestamp(last_commit_time)
     return blueprint, template
+
+
+def get_blueprint_path(manifest):
+    if manifest.manifest.search_includes("ensemble-template.yaml") != (None, None):
+        # the ensemble doesn't include the standard ensemble-template.yaml so treat the deployment itself as the blueprint
+        if manifest.path and manifest.localEnv and manifest.localEnv.project:
+            return manifest.localEnv.project.get_relative_path(manifest.path)
+    return "ensemble-template.yaml"
+
+
+def generate_deployment_template(
+    manifest, db, deployment_blueprint_name=None
+) -> DeploymentTemplate:
+    spec = manifest.tosca
+    title = (
+        os.path.basename(os.path.dirname(manifest.path))
+        if manifest.path
+        else "untitled"
+    )
+    slug = slugify(title)
+    dt = DeploymentTemplate(
+        __typename="DeploymentTemplate",
+        title=title,
+        name=slug,
+        slug=slug,
+        description=spec.template.description or "",
+        # names of ResourceTemplates
+        resourceTemplates=sorted(db["ResourceTemplate"]),
+        ResourceTemplate={},
+        source=deployment_blueprint_name or "__generated",
+    )
+
+    return dt
 
 
 def get_project_path(repo: GitRepo, server_host: str):
@@ -1539,9 +1551,15 @@ def to_blueprint(
     blueprint, root_name = to_graphql_blueprint(
         assert_not_none(manifest.tosca), db, nested
     )
+    blueprint["blueprintPath"] = get_blueprint_path(manifest)
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
     )
+    if not deployment_blueprints:
+        dt = generate_deployment_template(manifest, db)
+        deployment_blueprints[dt["name"]] = dt
+        if not blueprint.get("primaryDeploymentBlueprint"):
+            blueprint["primaryDeploymentBlueprint"] = dt["name"]
     db["DeploymentTemplate"] = deployment_blueprints
     blueprint["deploymentTemplates"] = list(deployment_blueprints)
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
