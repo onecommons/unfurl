@@ -1560,6 +1560,13 @@ def to_blueprint(
         deployment_blueprints[dt["name"]] = dt
         if not blueprint.get("primaryDeploymentBlueprint"):
             blueprint["primaryDeploymentBlueprint"] = dt["name"]
+        dt["blueprint"] = blueprint["name"]
+        dt["primary"] = root_name
+        if manifest.tosca:
+            dt["environmentVariableNames"] = list(
+                _generate_env_names(manifest.tosca, root_name, db.get_types())
+            )
+
     db["DeploymentTemplate"] = deployment_blueprints
     blueprint["deploymentTemplates"] = list(deployment_blueprints)
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
