@@ -8,7 +8,7 @@ import sys
 import unfurl
 from click.testing import CliRunner
 from click.termui import unstyle
-from unfurl.__main__ import _args, cli
+from unfurl.__main__ import _args, cli, info_cli
 from unfurl.configurator import Configurator
 from unfurl.configurators.shell import clean_output
 from unfurl.localenv import LocalEnv, Project
@@ -135,13 +135,16 @@ class CliTest(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(cli, [])
         assert unstyle(result.output).strip().startswith(
-            "Usage: cli [OPTIONS] COMMAND [ARGS]"
+            "Usage: unfurl [OPTIONS] COMMAND [ARGS]"
         ), result.output
         self.assertEqual(result.exit_code, 0)
 
     def test_version(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["version"])
+        assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
         self.assertEqual(result.exit_code, 0, result)
         version = unfurl.__version__(True)
         self.assertIn(version, result.output.strip())

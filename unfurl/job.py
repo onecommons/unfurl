@@ -115,10 +115,6 @@ class ConfigChange(OperationalInstance, ChangeRecord):
 class JobOptions:
     """
     Options available to select which tasks are run, e.g. read-only
-
-    does the config apply to the operation?
-    is it out of date?
-    is it in a ok state?
     """
 
     global_defaults = dict(

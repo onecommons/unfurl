@@ -7,6 +7,7 @@ Repositories can optionally be organized into projects that have a local configu
 
 By convention, the "home" project defines a localhost instance and adds it to its context.
 """
+
 import os
 import os.path
 from pathlib import Path
@@ -752,14 +753,14 @@ class LocalConfig:
 
         if "default" in attributes:
             if not "default" in attributes.get(".interfaces", {}):
-                attributes.setdefault(".interfaces", {})[
-                    "default"
-                ] = "unfurl.support.DelegateAttributes"
+                attributes.setdefault(".interfaces", {})["default"] = (
+                    "unfurl.support.DelegateAttributes"
+                )
         if "inheritFrom" in attributes:
             if not "inherit" in attributes.get(".interfaces", {}):
-                attributes.setdefault(".interfaces", {})[
-                    "inherit"
-                ] = "unfurl.support.DelegateAttributes"
+                attributes.setdefault(".interfaces", {})["inherit"] = (
+                    "unfurl.support.DelegateAttributes"
+                )
         instance = NodeInstance(localName, attributes)
         instance._baseDir = self.config.get_base_dir()
         return instance
@@ -1305,13 +1306,17 @@ class LocalEnv:
         return context
 
     @staticmethod
-    def get_runtime(ensemble_path: Optional[str],  home_path: Optional[str]) -> Optional[str]:
+    def get_runtime(
+        ensemble_path: Optional[str], home_path: Optional[str]
+    ) -> Optional[str]:
         home_config_path = get_home_config_path(home_path)
         if home_config_path:
             venv_path = os.path.join(os.path.dirname(home_config_path), ".venv")
             if os.path.isdir(venv_path):
                 return "venv:" + venv_path
-        project_path = Project.find_path(ensemble_path or ".", os.getenv("UNFURL_SEARCH_ROOT"))
+        project_path = Project.find_path(
+            ensemble_path or ".", os.getenv("UNFURL_SEARCH_ROOT")
+        )
         if project_path:
             venv_path = os.path.join(os.path.dirname(project_path), ".venv")
             if os.path.isdir(venv_path):

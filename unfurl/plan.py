@@ -1008,7 +1008,7 @@ class RunNowPlan(Plan):
         for resource in resources:
             if configSpec:
                 req = filter_task_request(
-                    self.jobOptions, TaskRequest(configSpec, resource, "run")
+                    self.jobOptions, TaskRequest(configSpec, resource, Reason.run)
                 )
                 if req:
                     yield req
