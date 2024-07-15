@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from functools import partial
 from typing import (
     Any,
     Callable,
@@ -10,6 +11,7 @@ from typing import (
     Optional,
     TYPE_CHECKING,
     Set,
+    Tuple,
     Union,
     cast,
 )
@@ -215,9 +217,7 @@ class Plan:
             assert nested_root, f"{nested_root_name} should already have been created"
             name = template.substitution.substitution_node.name
             inner = nested_root.find_instance(name)
-            assert (
-                inner
-            ), f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            assert inner, f"{name} in {nested_root_name} should have already been created before {instance.name}"
             assert inner is not instance
             instance.imported = (
                 ":" + template.substitution.substitution_node.nested_name
@@ -457,43 +457,64 @@ class Plan:
                             yield req
 
     def generate_delete_configurations(
-        self, include: Callable
+        self, include_test: Callable[[EntityInstance], Optional[str]]
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
-        for resource in get_operational_dependents(self.root):
-            # reverse to teardown leaf nodes first
-            skip = None
-            if resource.shadow or resource.template.abstract:
-                skip = "read-only instance"
-            elif not resource.created and not self.jobOptions.destroyunmanaged:
-                skip = "instance wasn't created by this ensemble"
-            elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
-                resource.created
-            ):
-                skip = "creation and deletion is managed by another instance"
-            elif "protected" in resource.template.directives:
-                skip = 'instance with "protected" directive'
-            elif resource.protected:
-                skip = "protected instance"
-            elif "virtual" in resource.template.directives:
-                skip = 'instance with "virtual" directive'
-            elif resource.local_status in [Status.absent, Status.pending]:
-                skip = "instance doesn't exist"
+        seen: Set[int] = set()
+        test = partial(self.should_delete, include_test)
+        for child, reason in select_dependents(self.root, test, seen):
+            if reason != "cancelled" and id(child) not in seen:
+                seen.add(id(child))
+                yield from self._generate_delete_configurations(child, reason)
 
-            if skip:
-                logger.verbose("skip instance %s for removal: %s", resource.name, skip)
-                continue
+    def should_delete(
+        self,
+        include: Callable[[EntityInstance], Optional[str]],
+        resource: EntityInstance,
+    ) -> Optional[str]:
+        # If the resource
+        """
+        If the resource should be deleted, return the reason.
+        Otherwise, return None or "cancelled" if its dependencies' deletions should be cancelled.
+        """
+        skip = None
+        if resource is self.root:
+            return None
+        if resource.shadow or resource.template.abstract:
+            skip = "read-only instance"
+        elif not resource.created and not self.jobOptions.destroyunmanaged:
+            skip = "instance wasn't created by this ensemble"
+        elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
+            resource.created
+        ):
+            skip = f"creation and deletion is managed by another instance {resource.created}"
+        elif "protected" in resource.template.directives:
+            skip = 'instance with "protected" directive'
+        elif resource.protected:
+            skip = "protected instance"
+        elif "virtual" in resource.template.directives:
+            skip = 'instance with "virtual" directive'
+        elif resource.local_status in [Status.absent, Status.pending]:
+            skip = "instance doesn't exist"
 
-            reason = include(resource)
-            if reason:
-                # if the resource doesn't instantiate itself just mark it as absent because otherwise will be in error
-                # (because it will remain with status ok while its dependendents are absent)
-                if resource.template.aggregate_only():
-                    resource._localStatus = Status.absent
+        reason = include(resource)  # returns a Reason to include
+        if not reason:
+            skip = "didn't meet removal criteria"
+        if skip:
+            logger.verbose("skip instance '%s' for removal: '%s'", resource.name, skip)
+            if not self.jobOptions.force and resource.operational and resource.required:
+                return "cancelled"
+            else:
+                return None
+        return reason
 
-                logger.debug("%s instance %s", reason, resource.name)
-                if isinstance(resource, NodeInstance):
-                    workflow = "undeploy" if reason == Reason.prune else self.workflow
-                    yield from self._generate_configurations(resource, reason, workflow)
+    def _generate_delete_configurations(self, resource: EntityInstance, reason: str):
+        # if the resource doesn't instantiate itself just mark it as absent because otherwise will be in error
+        # (because it will remain with status ok while its dependents are absent)
+        if resource.template.aggregate_only():
+            resource._localStatus = Status.absent
+        if isinstance(resource, NodeInstance):
+            workflow = "undeploy" if reason == Reason.prune else self.workflow
+            yield from self._generate_configurations(resource, reason, workflow)
 
     def _get_default_generator(
         self,
@@ -713,7 +734,7 @@ class Plan:
         if opts.prune:
             # XXX warn or error if prune used with a filter option
             test = lambda resource: (
-                Reason.prune if id(resource) not in visited else False
+                Reason.prune if id(resource) not in visited else None
             )
             yield from self.generate_delete_configurations(test)
 
@@ -750,14 +771,14 @@ class DeployPlan(Plan):
                 return Reason.missing
 
         # if the specification changed:
-        oldTemplate = instance.template
+        old_template = instance.template
         if jobOptions.change_detection != "skip" or jobOptions.upgrade:
-            if template != oldTemplate:
-                # XXX currently oldTemplate is the same as version as template
+            # XXX currently old_template is the same as template (we don't load the instance's version)
+            if template != old_template:
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return Reason.update
-                elif jobOptions.upgrade:  # type: ignore
+                elif jobOptions.upgrade:
                     return Reason.upgrade
 
         reason = self.check_for_repair(instance)
@@ -767,7 +788,7 @@ class DeployPlan(Plan):
                 instance.local_status = Status.unknown
                 return Reason.check
             if jobOptions.change_detection != "skip" and instance.last_change:
-                # XXX distinguish between "spec" and "evaluate" change_detection
+                # XXX distinguish between "spec" and "evaluate" change_detection after template comparisons
                 return Reason.reconfigure
         return reason
 
@@ -888,7 +909,7 @@ class UndeployPlan(Plan):
         """
         yield from self.generate_delete_configurations(self.include_for_deletion)
 
-    def include_for_deletion(self, instance):
+    def include_for_deletion(self, instance) -> Optional[str]:
         if self.filterTemplate and instance.template != self.filterTemplate:
             return None
 
@@ -1123,7 +1144,7 @@ def get_ancestor_templates(
 
 
 def get_operational_dependents(
-    resource: EntityInstance, seen=None
+    resource: EntityInstance, seen: Set[int]
 ) -> Iterator[EntityInstance]:
     if seen is None:
         seen = set()
@@ -1136,47 +1157,28 @@ def get_operational_dependents(
             yield dep
 
 
-# XXX!:
-# def buildDependencyGraph():
-#     """
-#   We need to find each executed configuration that is affected by a configuration change
-#   and re-execute them
-#
-#   dependencies map to inbound edges
-#   lastConfigChange filters ConfigTasks
-#   ConfigTasks.configurationResource dependencies are inbound
-#   keys in ConfigTasks.changes map to a outbound edges to resources
-#
-#   Need to distinguish between runtime dependencies and configuration dependencies?
-#   """
-#
-#
-# def buildConfigChangedExecutionPlan():
-#     """
-#   graph = buildDependencyGraph()
-#
-#   We follow the edges if a resource's attributes or dependencies have changed
-#   First we validate that we can execute the plan by validating configurationResource in the graph
-#   If it validates, add to plan
-#
-#   After executing a task, only follow the dependent outputs that changed no need to follow those dependencies
-#   """
-#
-#
-# def validateNode(resource, expectedTemplateOrType):
-#     """
-#   First make sure the resource conforms to the expected template (type, properties, attributes, capabilities, requirements, etc.)
-#   Then for each dependency that corresponds to a required relationship, call validateNode() on those resources with the declared type or template for the relationship
-#   """
-#
-#
-# def buildUpdateExecutionPlan():
-#     """
-#   Only apply updates that don't change the currently applied spec,
-#   Starting with the start resource compare deployed artifacts and software nodes associate with it with current template
-#   and if diffence is no more than a minor version bump,
-#   retreive the old version of the topology that is associated with the appropriate configuredBy
-#   and with it try to find and queue a configurator that can apply those changes.
-#
-#   For each resource dependency, call buildUpdateExecutionPlan().
-#   """
+def select_dependents(
+    resource: EntityInstance, include_test, seen: Set[int]
+) -> Iterator[Tuple[EntityInstance, str]]:
+    # yields resource, include_reason
+    cancelled = []
+    root_include_reason = include_test(resource)
+    for dep in resource.get_operational_dependents():
+        assert isinstance(dep, EntityInstance)
+        for child, include_reason in select_dependents(dep, include_test, seen):
+            if include_reason != "cancelled":
+                yield child, include_reason
+            else:
+                cancelled.append(child)
+    if cancelled:
+        # this resource has a dependent we don't want to delete, so cancel deleting the resource
+        if root_include_reason and root_include_reason != "cancelled":
+            logger.verbose(
+                "skip instance '%s' for removal: required instances depend on it: %s",
+                resource.name,
+                [c.nested_name for c in cancelled],
+            )
+        yield resource, "cancelled"
+    elif root_include_reason:
+        yield resource, root_include_reason
+    # otherwise don't yield this resource
