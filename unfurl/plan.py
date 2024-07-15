@@ -479,22 +479,25 @@ class Plan:
         skip = None
         if resource is self.root:
             return None
+        virtual = False
         if resource.shadow or resource.template.abstract:
             skip = "read-only instance"
-        elif resource.template.aggregate_only():
+        elif "protected" in resource.template.directives:
+            skip = 'instance with "protected" directive'
+        elif resource.protected:
+            skip = "protected instance"
+        elif (
+            resource.template.aggregate_only()
+            or "virtual" in resource.template.directives
+        ):
             skip = "virtual instance"
+            virtual = True
         elif not resource.created and not self.jobOptions.destroyunmanaged:
             skip = "instance wasn't created by this ensemble"
         elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
             resource.created
         ):
             skip = f"creation and deletion is managed by another instance {resource.created}"
-        elif "protected" in resource.template.directives:
-            skip = 'instance with "protected" directive'
-        elif resource.protected:
-            skip = "protected instance"
-        elif "virtual" in resource.template.directives:
-            skip = 'instance with "virtual" directive'
         elif resource.local_status in [Status.absent, Status.pending]:
             skip = "instance doesn't exist"
 
@@ -502,8 +505,19 @@ class Plan:
         if not reason:
             skip = "didn't meet removal criteria"
         if skip:
-            logger.verbose("skip instance '%s' for removal: '%s' (%s)", resource.name, skip, resource.status)
-            if not self.jobOptions.force and resource.operational and resource.required and not resource.template.aggregate_only():
+            cancelling = (
+                not virtual  # instance doesn't need to be preserved
+                and not self.jobOptions.force
+                and resource.operational
+                and resource.required
+            )
+            logger.verbose(
+                "skip instance '%s' for removal: '%s' %s",
+                resource.name,
+                skip,
+                "(cancelling)" if cancelling else "",
+            )
+            if cancelling:
                 return "cancelled"
             else:
                 return None
