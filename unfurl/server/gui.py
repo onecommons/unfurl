@@ -6,6 +6,9 @@ UI for local Unfurl project
 
 import os
 from typing import Any, Iterator, List, Literal, Optional, Union
+import shutil
+import tarfile
+import urllib.request
 
 from ..to_json import get_project_path
 
@@ -18,7 +21,6 @@ from ..localenv import LocalEnv
 from ..util import UnfurlError
 from .gui_variables import set_variables, yield_variables
 
-from . import gui_assets
 from flask import request, Response, jsonify, send_file, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
@@ -28,18 +30,24 @@ import git
 
 logger = getLogger("unfurl.gui")
 
+TAG = "v0.1.0.alpha.1"
+RELEASE = os.getenv(
+    "UNFURL_GUI_DIST",
+    f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz",
+)
+
 local_dir = os.path.dirname(os.path.abspath(__file__))
 
-UFGUI_DIR = os.getenv(
-    "UNFURL_GUI_DIR", local_dir
-)  # (development only) should be set to the unfurl_gui directory
-WEBPACK_ORIGIN = os.getenv(
-    "UNFURL_GUI_WEBPACK_ORIGIN"
-)  # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
+# (development only) should be set to the unfurl_gui directory
+UFGUI_DIR = os.getenv("UNFURL_GUI_DIR", local_dir)
+# (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
+WEBPACK_ORIGIN = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN")
 DIST = os.path.join(UFGUI_DIR, "dist")
 PUBLIC = os.path.join(UFGUI_DIR, "public")
 UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-IMPLIED_DEVELOPMENT_MODE = "UNFURL_GUI_DIR" in os.environ or "UNFURL_GUI_WEBPACK_ORIGIN" in os.environ
+IMPLIED_DEVELOPMENT_MODE = (
+    "UNFURL_GUI_DIR" in os.environ or "UNFURL_GUI_WEBPACK_ORIGIN" in os.environ
+)
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 blueprint_template = env.get_template("project.j2.html")
@@ -66,7 +74,7 @@ def get_head_contents(f) -> str:
 
 
 def get_project_head():
-    if WEBPACK_ORIGIN: 
+    if WEBPACK_ORIGIN:
         project_head = f"""
         <head>
           {get_head_contents(os.path.join(PUBLIC, "index.html"))}
@@ -84,7 +92,7 @@ def get_project_head():
 
 
 def get_dashboard_head():
-    if WEBPACK_ORIGIN: 
+    if WEBPACK_ORIGIN:
         dashboard_head = f"""
         <head>
           {get_head_contents(os.path.join(PUBLIC, "index.html"))}
@@ -232,6 +240,41 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
     return repo_view and repo_view.repo or None
 
 
+def fetch(download_dir):
+    TAG_FILE = os.path.join(download_dir, "unfurl_gui", "current_tag.txt")
+    dist_dir = os.path.join(download_dir, "unfurl_gui", "dist")
+
+    logger.debug(f"Checking assets for '{TAG}'")
+    if os.path.exists(TAG_FILE):
+        with open(TAG_FILE, "r") as f:
+            current_tag = f.read().strip()
+        if current_tag == TAG and os.path.exists(dist_dir):
+            logger.debug(f"'{TAG}' is up-to-date")
+            return
+        else:
+            logger.debug(f"'{current_tag}' does not match the needed tag '{TAG}'")
+
+    if os.path.exists(dist_dir):
+        shutil.rmtree(dist_dir)
+        logger.debug("Removed existing dist directory")
+
+    logger.debug(f"Downloading {RELEASE}")
+    os.makedirs(dist_dir, exist_ok=True)
+    tar_path = os.path.join(dist_dir, "unfurl-gui-dist.tar.gz")
+    urllib.request.urlretrieve(RELEASE, tar_path)
+
+    with tarfile.open(tar_path, "r:gz") as tar:
+        logger.debug(f"Extracting {RELEASE} to {dist_dir}")
+        tar.extractall(path=os.path.dirname(dist_dir))
+
+    os.remove(tar_path)
+    logger.debug("Removed tarball file")
+
+    with open(TAG_FILE, "w") as f:
+        f.write(TAG)
+    logger.debug(f"Updated tag file to '{TAG}'")
+
+
 def create_routes(localenv: LocalEnv):
     app.config["UNFURL_GUI_MODE"] = localenv
     localrepo = (
@@ -244,15 +287,14 @@ def create_routes(localenv: LocalEnv):
     if IMPLIED_DEVELOPMENT_MODE:
         logger.debug("Development mode detected, not downloading compiled assets.")
     else:
-        logger.error(
-            "Running GUI mode without WEBPACK_ORIGIN and/or UFGUI_DIR is not yet supported."
-        )
-        download_dir = os.path.join((localenv.homeProject or localenv.project).projectRoot, ".cache")
-        gui_assets.fetch(download_dir)
+        home_project = localenv.homeProject or localenv.project
+        assert home_project
+        download_dir = os.path.join(home_project.projectRoot, ".cache")
         global DIST
-        DIST = os.path.join(download_dir, 'unfurl_gui', 'dist')
+        DIST = os.path.join(download_dir, "unfurl_gui", "dist")
         global PUBLIC
-        PUBLIC = os.path.join(download_dir, 'unfurl_gui', "public")
+        PUBLIC = os.path.join(download_dir, "unfurl_gui", "public")
+        fetch(download_dir)
 
     def get_repo(project_path, branch=None):
         return _get_repo(project_path, localenv, branch)
