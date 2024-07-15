@@ -3,6 +3,7 @@
 """
 Internal classes supporting the runtime.
 """
+
 import base64
 import collections
 from collections.abc import MutableSequence, Mapping
@@ -219,12 +220,16 @@ set_eval_func(
     "portspec", lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
+
 def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
     import ansible.utils.collection_loader._collection_finder
     import ansible.template
     import ansible.plugins.loader
-    AnsibleCollectionConfig = ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
+
+    AnsibleCollectionConfig = (
+        ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
+    )
     AnsibleCollectionConfig._collection_finder = None
     if hasattr(ansible.plugins.loader, "init_plugin_loader"):
         collection_path_var = os.getenv("ANSIBLE_COLLECTIONS_PATH")
@@ -235,14 +240,18 @@ def reload_collections(ctx=None):
         ansible.plugins.loader.init_plugin_loader(collection_path)
     else:
         ansible.plugins.loader._configure_collection_loader()
-    for pkg in ['ansible_collections', 'ansible_collections.ansible']:
+    for pkg in ["ansible_collections", "ansible_collections.ansible"]:
         AnsibleCollectionConfig._collection_finder._reload_hack(pkg)  # type: ignore
     if hasattr(ansible.template, "_get_collection_metadata"):
         # jinja2 templates won't get the updated collection finder without this:
-        ansible.template._get_collection_metadata = ansible.utils.collection_loader._collection_finder._get_collection_metadata
+        ansible.template._get_collection_metadata = (
+            ansible.utils.collection_loader._collection_finder._get_collection_metadata
+        )
     logger.trace("reloaded ansible collections finder")
 
+
 reload_collections()
+
 
 class Templar(ansible.template.Templar):
     def template(self, variable, **kw):
@@ -384,7 +393,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined)
 
 def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Result]:
     if not isinstance(value, str):
-        msg = f"Error rendering template: source must be a string, not {type(value)}"
+        msg = f"Error rendering template: source must be a string, not {type(value)}"  # type: ignore[unreachable]
         if ctx.strict:
             raise UnfurlError(msg)
         else:
@@ -637,7 +646,7 @@ def lookup_func(arg, ctx):
             name = key
             args = value
         else:
-            kwargs[key] = value
+            kwargs[key] = value  # type: ignore[unreachable]
 
     if not isinstance(args, MutableSequence):
         args = [args]
@@ -1131,7 +1140,13 @@ def _get_container_image_from_repository(
     )
 
 
-def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], artifact_name: str, location=None, remove=None):
+def get_artifact(
+    ctx: RefContext,
+    entity: Union[None, str, "EntityInstance"],
+    artifact_name: str,
+    location=None,
+    remove=None,
+) -> Optional[ExternalValue]:
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
@@ -1148,7 +1163,7 @@ def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], ar
             artifact_name
         )  # XXX this assumes its a container image
     if isinstance(entity, ArtifactInstance):
-        return entity.template.as_value()
+        return cast(ArtifactSpec, entity.template).as_value()
     if isinstance(entity, str):
         instances = _get_instances_from_keyname(ctx, entity)
     elif isinstance(entity, NodeInstance):
@@ -1176,7 +1191,9 @@ def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], ar
     #     # if location == 'LOCAL_FILE':
 
 
-set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True)  # type: ignore
+set_eval_func(
+    "get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True
+)  # type: ignore
 
 
 def get_import(arg: RefContext, ctx):

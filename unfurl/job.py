@@ -1184,6 +1184,7 @@ class Job(ConfigChange):
             if not workflow:
                 if (
                     resource.parent
+                    and resource.parent.created
                     and self.is_change_id(resource.parent.created)
                     and self.get_job_id(resource.parent.created) == self.changeId
                 ):

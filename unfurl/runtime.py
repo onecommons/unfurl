@@ -15,6 +15,7 @@ from typing import (
     Iterable,
     Iterator,
     List,
+    Literal,
     Optional,
     Union,
     TYPE_CHECKING,
@@ -90,7 +91,7 @@ class Operational(ChangeAware):
             return True
         if self.state is None:
             # self.state is sometimes None even though it shouldn't be
-            return False  # type: ignore
+            return False  # type: ignore[unreachable]
         if state == NodeState.error or self.state == NodeState.error:
             return self.state == state
         if state < NodeState.stopping:
@@ -114,12 +115,15 @@ class Operational(ChangeAware):
 
     def get_operational_dependencies(self) -> Iterable["Operational"]:
         """
-        Return an iterator of `Operational` object that this instance depends on to be operational.
+        Return an iterator of `Operational` objects that this instance directly depends on to be operational.
         """
-        return ()  # type: ignore  # mypy doesn't like empty tuples
+        return ()
 
-    def get_operational_dependents(self) -> List["Operational"]:  # type: ignore
-        return ()  # type: ignore  # mypy doesn't like empty tuples
+    def get_operational_dependents(self) -> Iterable["Operational"]:
+        """
+        Return an iterator of `Operational` objects that directly depend on this instance to be operational.
+        """
+        return ()
 
     @property
     def manual_override_status(self) -> Optional[Status]:
@@ -393,7 +397,7 @@ class _ChildResources(Mapping):
 
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
-    created: Optional[Union[bool, str]] = None
+    created: Optional[Union[Literal[False], str]] = None
     protected: Optional[bool] = None
     imports: Optional[Imports] = None
     imported: Optional[str] = None
@@ -415,7 +419,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         OperationalInstance.__init__(self, status)
         self.name = name
         self._attributes = attributes or {}
-        self.parent = parent  # type: ignore
+        self.parent = parent
         if parent and self.parentRelation:
             p = getattr(parent, self.parentRelation)
             p.append(self)
@@ -799,8 +803,8 @@ class RelationshipInstance(EntityInstance):
     @property
     def target(self) -> Optional["NodeInstance"]:
         # parent is a capability, return it's parent (a Node)
-        if self.parent:
-            return self.parent.parent
+        if self.parent and self.parent.parent:
+            return cast(NodeInstance, self.parent.parent)
         else:
             return None
 
@@ -817,7 +821,7 @@ class RelationshipInstance(EntityInstance):
 
     @property
     def capability(self) -> Optional[CapabilityInstance]:
-        return self.parent
+        return cast(Optional[CapabilityInstance], self.parent)
 
     @property
     def key(self) -> InstanceKey:

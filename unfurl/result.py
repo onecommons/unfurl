@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from collections.abc import Mapping, MutableSequence, MutableMapping
+from collections.abc import Mapping, MutableSequence
+from typing_extensions import MutableMapping
 from abc import ABC, abstractmethod, ABCMeta
 import datetime
 import io
@@ -27,6 +28,7 @@ from toscaparser.properties import Property
 if TYPE_CHECKING:
     from .spec import EntitySpec
     from .support import Templar
+    from .runtime import EntityInstance
 
 from .merge import diff_dicts
 from .util import (
@@ -98,7 +100,7 @@ def serialize_value(value, **kw):
 
 
 class ResourceRef(ABC):
-    parent = None  # must be defined by subclass
+    parent: Optional["EntityInstance"] = None  # must be defined by subclass
     template: Optional["EntitySpec"] = None
     name = ""
 
@@ -176,7 +178,7 @@ class AnyRef(ResourceRef):
         if name == ".":
             return self
         elif name == "..":
-            return self.parent
+            return cast(AnyRef, self.parent)
         return AnyRef(name, self)
 
     def _resolve(self, key):
@@ -227,7 +229,7 @@ class ChangeRecord:
         elif isinstance(startTime, datetime.datetime):
             self.startTime = startTime
         else:
-            try:
+            try:  # type: ignore[unreachable]
                 startTime = int(startTime)  # helper for deterministic testing
                 self.startTime = self.EpochStartTime.replace(hour=startTime)
             except ValueError:
@@ -940,7 +942,7 @@ class Results(ABC, metaclass=ProxyableType):
         return "Results(%r)" % self._attributes
 
 
-class ResultsMap(Results, MutableMapping):
+class ResultsMap(Results, MutableMapping[str, Any]):
     def __iter__(self):
         return iter(self._attributes)
 
