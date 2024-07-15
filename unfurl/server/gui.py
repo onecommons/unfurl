@@ -18,7 +18,7 @@ from ..localenv import LocalEnv
 from ..util import UnfurlError
 from .gui_variables import set_variables, yield_variables
 
-# from . import gui_assets
+from . import gui_assets
 from flask import request, Response, jsonify, send_file, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
@@ -31,23 +31,15 @@ logger = getLogger("unfurl.gui")
 local_dir = os.path.dirname(os.path.abspath(__file__))
 
 UFGUI_DIR = os.getenv(
-    "UFGUI_DIR", local_dir
+    "UNFURL_GUI_DIR", local_dir
 )  # (development only) should be set to the unfurl_gui directory
 WEBPACK_ORIGIN = os.getenv(
-    "WEBPACK_ORIGIN"
+    "UNFURL_GUI_WEBPACK_ORIGIN"
 )  # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
 DIST = os.path.join(UFGUI_DIR, "dist")
 PUBLIC = os.path.join(UFGUI_DIR, "public")
 UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-IMPLIED_DEVELOPMENT_MODE = "UFGUI_DIR" in os.environ or "WEBPACK_ORIGIN" in os.environ
-
-if IMPLIED_DEVELOPMENT_MODE:
-    logger.debug("Development mode detected, not downloading compiled assets.")
-else:
-    logger.error(
-        "Running GUI mode without WEBPACK_ORIGIN and/or UFGUI_DIR is not yet supported."
-    )
-    # gui_assets.fetch()
+IMPLIED_DEVELOPMENT_MODE = "UNFURL_GUI_DIR" in os.environ or "UNFURL_GUI_WEBPACK_ORIGIN" in os.environ
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 blueprint_template = env.get_template("project.j2.html")
@@ -73,34 +65,41 @@ def get_head_contents(f) -> str:
             return ""
 
 
-if WEBPACK_ORIGIN:
-    project_head = f"""
-    <head>
-      {get_head_contents(os.path.join(PUBLIC, "index.html"))}
+def get_project_head():
+    if WEBPACK_ORIGIN: 
+        project_head = f"""
+        <head>
+          {get_head_contents(os.path.join(PUBLIC, "index.html"))}
 
-      <script defer src="/js/chunk-vendors.js"></script>
-      <script defer src="/js/chunk-common.js"></script>
-      <script defer src="/js/project.js"></script>
-    </head>
-    """
+          <script defer src="/js/chunk-vendors.js"></script>
+          <script defer src="/js/chunk-common.js"></script>
+          <script defer src="/js/project.js"></script>
+        </head>
+        """
+    else:
+        project_head = (
+            f"<head>{get_head_contents(os.path.join(DIST, 'project.html'))}</head>"
+        )
+    return project_head
 
-    dashboard_head = f"""
-    <head>
-      {get_head_contents(os.path.join(PUBLIC, "index.html"))}
 
-      <script defer src="/js/chunk-vendors.js"></script>
-      <script defer src="/js/chunk-common.js"></script>
-      <script defer src="/js/dashboard.js"></script>
-    </head>
+def get_dashboard_head():
+    if WEBPACK_ORIGIN: 
+        dashboard_head = f"""
+        <head>
+          {get_head_contents(os.path.join(PUBLIC, "index.html"))}
 
-    """
-else:
-    project_head = (
-        f"<head>{get_head_contents(os.path.join(DIST, 'project.html'))}</head>"
-    )
-    dashboard_head = (
-        f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
-    )
+          <script defer src="/js/chunk-vendors.js"></script>
+          <script defer src="/js/chunk-common.js"></script>
+          <script defer src="/js/dashboard.js"></script>
+        </head>
+
+        """
+    else:
+        dashboard_head = (
+            f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
+        )
+    return dashboard_head
 
 
 def notfound_response(projectPath):
@@ -155,7 +154,7 @@ def serve_document(path, localenv: LocalEnv):
         readme=get_project_readme(repo),
         user=user,
         origin=origin,
-        head=(project_head if format == "blueprint" else dashboard_head),
+        head=(get_project_head() if format == "blueprint" else get_dashboard_head()),
         project_path=project_path,
         namespace=os.path.dirname(project_path),
         home_project=home_project,
@@ -242,6 +241,19 @@ def create_routes(localenv: LocalEnv):
     )
     assert localrepo
 
+    if IMPLIED_DEVELOPMENT_MODE:
+        logger.debug("Development mode detected, not downloading compiled assets.")
+    else:
+        logger.error(
+            "Running GUI mode without WEBPACK_ORIGIN and/or UFGUI_DIR is not yet supported."
+        )
+        download_dir = os.path.join((localenv.homeProject or localenv.project).projectRoot, ".cache")
+        gui_assets.fetch(download_dir)
+        global DIST
+        DIST = os.path.join(download_dir, 'unfurl_gui', 'dist')
+        global PUBLIC
+        PUBLIC = os.path.join(download_dir, 'unfurl_gui', "public")
+
     def get_repo(project_path, branch=None):
         return _get_repo(project_path, localenv, branch)
 
@@ -273,7 +285,7 @@ def create_routes(localenv: LocalEnv):
             return notfound_response(project_path)
         return jsonify(
             # TODO
-            [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
+            [{"name": "HEAD", "commit": {"id": repo.revision}}]
         )
 
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")

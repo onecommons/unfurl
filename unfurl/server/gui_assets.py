@@ -2,19 +2,20 @@ import os
 import shutil
 import tarfile
 import urllib.request
-from appdirs import user_cache_dir
+# from appdirs import user_cache_dir
 from ..logs import getLogger
 
-logger = getLogger("unfurl.gui.assets_download")
-
+logger = getLogger("unfurl.gui")
 TAG = "v0.1.0.alpha.1"
-RELEASE = f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz"
-TAG_FILE = os.path.join(user_cache_dir(), 'unfurl_gui', 'current_tag.txt')
-DIST = os.path.join(user_cache_dir(), 'unfurl_gui', 'dist')
+RELEASE = os.getenv("UNFURL_GUI_DIST", f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz")
 
-def fetch():
+
+def fetch(download_dir):
+    TAG_FILE = os.path.join(download_dir, 'unfurl_gui', 'current_tag.txt')
+    DIST = os.path.join(download_dir, 'unfurl_gui', 'dist')
+
     logger.debug(f"Checking assets for '{TAG}'")
-    if 'UFGUI_DIR' in os.environ or 'WEBPACK_ORIGIN' in os.environ:
+    if 'UNFURL_GUI_DIR' in os.environ or 'UNFURL_GUI_WEBPACK_ORIGIN' in os.environ:
         return
 
     if os.path.exists(TAG_FILE):
