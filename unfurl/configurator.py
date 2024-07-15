@@ -332,41 +332,53 @@ class Configurator(metaclass=AutoRegisterClass):
         Returns:
             bool: True if configuration's digest has changed, False if it is the same.
         """
-        _parameters = getattr(changeset, "digestKeys", "")
-        newKeys = {k for k in task.inputs.keys() if k not in self.exclude_from_digest}
+        _parameters: str = getattr(changeset, "digestKeys", "")
+        current_inputs = {
+            k for k in task.inputs.keys() if k not in self.exclude_from_digest
+        }
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
-            if newKeys:
+            if current_inputs:
                 task.logger.verbose(
                     "digest keys for %s was previously empty, now found %s",
                     task.target.name,
-                    newKeys,
+                    current_inputs,
                 )
                 return True
             else:
                 return False
         else:
-            keys = _parameters.split(",")
-        oldInputs = {key for key in keys if "::" not in key}
-        # XXX this check is incomplete because this isn't considering new inputs because we don't know if they will be resolved or not
-        # we could fix this by having digest keys include unresolved inputs
-        if oldInputs - newKeys:
+            old_keys = _parameters.split(",")
+        old_inputs = {key for key in old_keys if "::" not in key}
+        if old_inputs - current_inputs:
+            # an old input was removed
             task.logger.verbose(
                 "digest keys changed for %s: old %s, new %s",
                 task.target.name,
-                oldInputs,
-                newKeys,
+                old_inputs,
+                current_inputs,
             )
-            return True  # an old input was removed
-
+            return True
         # only resolve the inputs and dependencies that were resolved before
+        # inputs should be lazily resolved by the task, so we need to avoid resolving them all now
+        # (we also won't know if there are new dependencies until the task runs)
         results: List[Result] = []
-        for key in keys:
+        for key in old_keys:
             if "::" in key:
                 results.extend(Ref(key).resolve(task.inputs.context, wantList="result"))
             else:
                 results.append(task.inputs._getresult(key))
-
+        new_inputs = current_inputs - old_inputs
+        if new_inputs and new_inputs.intersection(task.inputs.get_resolved()):
+            # a new input was added and accessed while resolving old inputs and dependencies
+            # XXX this check is incomplete if another new input is accessed while the task runs
+            task.logger.verbose(
+                "digest keys changed for %s: old %s, new %s",
+                task.target.name,
+                old_inputs,
+                current_inputs,
+            )
+            return True
         newDigest = get_digest(results, manifest=task._manifest)
         # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest
@@ -479,9 +491,9 @@ class TaskView:
         self.dry_run: Optional[bool] = None
         self.verbose = 0  # set by ConfigView
         # private:
-        self._errors: List[UnfurlTaskError] = (
-            []
-        )  # UnfurlTaskError objects appends themselves to this list
+        self._errors: List[
+            UnfurlTaskError
+        ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._manifest = manifest
         self.messages: List[Any] = []
