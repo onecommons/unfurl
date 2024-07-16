@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
-import unfurl # must be before tosca imports
+import unfurl  # must be before tosca imports
 from tosca import OpenDataType
 from unfurl.merge import diff_dicts
 import sys
@@ -389,12 +389,24 @@ topology_template:
             type: linux
             distribution: rhel
             version: "6.5"
+      interfaces:
+        Standard:
+          operations:
+            configure: echo "abbreviated configuration"
 """
 
 example_helloworld_python = '''
 """Template for deploying a single server with predefined properties."""
 import tosca
 from tosca import *  # imports GB, MB scalars, tosca_version
+from typing import Any
+
+@operation(name="configure")
+def db_server_configure(**kw: Any) -> Any:
+    return unfurl.configurators.shell.ShellConfigurator(
+        command='echo "abbreviated configuration"',
+    )
+
 __root__ = tosca.nodes.Compute(
     "db_server",
     host=tosca.capabilities.Compute(
@@ -409,12 +421,19 @@ __root__ = tosca.nodes.Compute(
         version=tosca_version("6.5"),
     ),
 )
+__root__.configure = db_server_configure
 '''
 
 
 def test_example_helloworld():
     src, src_tpl = _to_python(example_helloworld_yaml)
     tosca_tpl = _to_yaml(src, True)
+    src_tpl["topology_template"]["node_templates"]["db_server"]["interfaces"][
+        "Standard"
+    ] = {
+        "type": "tosca.interfaces.node.lifecycle.Standard",
+        "operations": {"configure": {"implementation": "safe_mode"}},
+    }
     assert src_tpl == tosca_tpl
     tosca_tpl2 = _to_yaml(example_helloworld_python, True)
     assert src_tpl == tosca_tpl2
@@ -798,14 +817,12 @@ def test_envvar_type():
         # yaml.dump(yaml_dict, sys.stdout)
         assert tosca_yaml == yaml_dict
 
-        generic_envvars = unfurl.datatypes.EnvironmentVariables(
-          DBASE="aaaa",
-          URL=True
-        )
+        generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
-        assert generic_envvars.to_yaml() == {'DBASE': 'aaaa', 'URL': True}
-        assert OpenDataType(a=1, b="b").to_yaml() == {'a': 1, 'b': 'b'}
-        assert Namespace.MyDataType(name='foo').to_yaml() == {'name': 'foo'}
+        assert generic_envvars.to_yaml() == {"DBASE": "aaaa", "URL": True}
+        assert OpenDataType(a=1, b="b").to_yaml() == {"a": 1, "b": "b"}
+        assert Namespace.MyDataType(name="foo").to_yaml() == {"name": "foo"}
+
 
 test_relationship_yaml = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
@@ -985,6 +1002,8 @@ class dev(tosca.DeploymentBlueprint):
     node3 = Node(another=node2)
     node = Node(another=node3)
 """
+
+
 def test_deployment_blueprints():
     python_src, parsed_yaml = _to_python(test_deploymentblueprint_yaml)
     # print(python_src)

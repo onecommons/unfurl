@@ -10,6 +10,7 @@ Usage:
 
 unfurl export --format python ensemble-template.yaml
 """
+
 from dataclasses import MISSING
 import importlib
 import logging
@@ -47,7 +48,7 @@ from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.interfaces import OperationDef, _create_operations
 from toscaparser.tosca_template import ToscaTemplate
-from toscaparser.topology_template import TopologyTemplate
+from toscaparser.topology_template import TopologyTemplate, find_type
 from toscaparser.elements.entity_type import EntityType, Namespace
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.artifacttype import ArtifactTypeDef
@@ -132,7 +133,9 @@ def has_function(obj: object, seen=None) -> bool:
 
 def value2python_repr(value, quote=False) -> str:
     if sys.version_info.minor > 7:
-        pprinted = pprint.pformat(value, compact=True, indent=value_indent, sort_dicts=False)  # type: ignore  # for py3.7 mypy
+        pprinted = pprint.pformat(
+            value, compact=True, indent=value_indent, sort_dicts=False
+        )  # type: ignore  # for py3.7 mypy
     else:
         pprinted = pprint.pformat(value, compact=True, indent=value_indent)
     if not quote:
@@ -353,6 +356,7 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
+        self.concise = False
 
     def convert_topology(self, topology: TopologyTemplate, indent="") -> str:
         src = ""
@@ -942,10 +946,12 @@ class Convert:
         if baseclass_name == "InterfaceType":
             # inputs and operations are defined directly on the body of the type
             for op in _create_operations({toscaname: toscatype.defs}, toscatype, None):
-                src += self.operation2func(op, indent, []) + "\n"
+                _, op_src = self.operation2func(op, indent, [])
+                src += op_src + "\n"
         else:
             # 3.7.5.2 operation definitions.
-            src += self._add_operations(toscatype, indent)
+            _, ops_src = self._add_operations(indent, toscatype, None)
+            src += ops_src
 
         target_types = toscatype.get_value("valid_target_types")
         if target_types:
@@ -963,22 +969,37 @@ class Convert:
         else:
             return class_decl + f"{indent}pass"
 
-    def _add_operations(self, nodetype: StatefulEntityType, indent: str) -> str:
+    def _add_operations(
+        self,
+        indent: str,
+        nodetype: Optional[StatefulEntityType],
+        template: Optional[EntityTemplate],
+    ) -> Tuple[List[str], str]:
         src = ""
+        names = []
         default_ops = []
-        for iname, interface in nodetype.interfaces.items():
-            if "operations" in interface:
-                ops = interface["operations"]
-            else:
-                ops = interface
-            for oname, op in ops.items():
-                if not op:
-                    default_ops.append((iname, oname))
+        if nodetype:
+            for iname, interface in nodetype.interfaces.items():
+                if "operations" in interface:
+                    ops = interface["operations"]
+                else:
+                    ops = interface
+                for oname, op in ops.items():
+                    if not op:
+                        default_ops.append((iname, oname))
+        else:
+            assert template
+            # get an empty type without any operations defined
+            nodetype = find_type("tosca.nodes.Root", template.custom_def)
+            assert nodetype
 
+        entity_tpl = template.entity_tpl if template else None
         defaulted = False
         declared_ops = []
         declared_default_ops = []
-        declared_interfaces: Optional[Dict] = nodetype.get_value("interfaces")
+        declared_interfaces: Optional[Dict] = nodetype.get_value(
+            "interfaces", entity_tpl
+        )
         declared_requirements = []
         declared_default = False
         if declared_interfaces:
@@ -997,22 +1018,30 @@ class Convert:
                         declared_ops.append((iname, oname))
                     else:
                         declared_default_ops.append((iname, oname))
-        if declared_requirements:
+        if not template and declared_requirements:
             # include inherited interface_requirements
-            src += f"{indent}_interface_requirements = {value2python_repr(nodetype.get_interface_requirements())}\n"
+            src += f"{indent}_interface_requirements = {value2python_repr(nodetype.get_interface_requirements(entity_tpl))}\n"
 
-        for op in EntityTemplate._create_interfaces(nodetype, None):
+        for op in EntityTemplate._create_interfaces(nodetype, template):
             if op.interfacetype != "Mock":
                 op_id = (op.interfacename, op.name)
                 if op_id in declared_ops and op_id not in default_ops:
-                    src += self.operation2func(op, indent, default_ops) + "\n"
+                    name, op_src = self.operation2func(
+                        op, indent, default_ops, template and template.name
+                    )
+                    names.append(name)
+                    src += op_src + "\n"
                 elif op.name == "default" and not defaulted and default_ops:
                     # only add default operation if it was declared on this class
                     # or this class declared operations that used the default (so needs to override the decorator's apply_to)
                     if declared_default_ops or declared_default:
                         defaulted = True  # only generate once
-                        src += self.operation2func(op, indent, default_ops) + "\n"
-        return src
+                        name, op_src = self.operation2func(
+                            op, indent, default_ops, template and template.name
+                        )
+                        names.append(name)
+                        src += op_src + "\n"
+        return names, src
 
     def add_properties_decl(
         self, nodetype: StatefulEntityType, fieldname: str, indent: str
@@ -1236,17 +1265,28 @@ class Convert:
     # XXX if default operation defined with empty operations, don't call operation2func, add decorator instead
     # XXX track python imports
     def operation2func(
-        self, op: OperationDef, indent: str, default_ops: List[Tuple[str, str]]
-    ) -> str:
+        self,
+        op: OperationDef,
+        indent: str,
+        default_ops: List[Tuple[str, str]],
+        template_name: Any = "",
+    ) -> Tuple[str, str]:
         # iDef.entry_state: add to decorator
         # note: defaults and base class inputs and implementations already merged in
         # artifact property reference or configurator class
         configurator_decl, kw = self.get_configurator_decl(op)
-        name, toscaname = self._set_name(op.name, "operation")
+        op_name, toscaname = self._set_name(op.name, "operation")
+        if template_name:
+            template_name, _ = self._get_name(template_name)
+            func_name = f"{template_name}_{op_name}"
+        else:
+            func_name = op_name
         src = ""
         decorator = []
         if toscaname:
             decorator.append(f'name="{toscaname}"')
+        elif template_name:
+            decorator.append(f'name="{op.name}"')
         if op.name == "default":
             apply_to = ", ".join([f'"{op[0]}.{op[1]}"' for op in default_ops])
             decorator.append(f"apply_to=[{apply_to}]")
@@ -1270,8 +1310,10 @@ class Convert:
 
         # XXX add arguments declared on the interface definition
         # XXX declare configurator/artifact as the return value
-        args = "self, **kw: Any"
-        src += f"{indent}def {name}({args}) -> Any:\n"
+        type_anno = ": Any" if not self.concise else ""
+        args = f"{'' if template_name else 'self, '}**kw{type_anno}"
+        type_anno = " -> Any" if not self.concise else ""
+        src += f"{indent}def {func_name}({args}){type_anno}:\n"
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
@@ -1279,7 +1321,7 @@ class Convert:
             # XXX implement not_implemented, treat this as not_implemented
             if not desc:
                 src += f"{indent}pass\n"
-            return src
+            return op_name, src
         src += f"{indent}return {configurator_decl}("
         # all on one line for now
         inputs = kw["inputs"]
@@ -1291,7 +1333,7 @@ class Convert:
             src += f"{indent})\n"
         else:
             src += ")\n"
-        return src
+        return op_name, src
 
     def _get_prop_init_list(
         self, props, prop_defs, cls: Optional[Type[_tosca.ToscaType]], indent=""
@@ -1480,14 +1522,16 @@ class Convert:
         if capabilities:
             # only get explicitly declared capability properties
             capabilitydefs = node_template.type_definition.get_capabilities_def()
-            for name, capability in capabilities.items():
+            for cap_name, capability in capabilities.items():
                 cap_props = capability.get("properties")
-                field = cls.get_field_from_tosca_name(name, ToscaFieldType.capability)
+                field = cls.get_field_from_tosca_name(
+                    cap_name, ToscaFieldType.capability
+                )
                 if field:
                     field_name = field.name
                 else:
-                    field_name, tosca_name = self._set_name(name, "capability")
-                src += f"{field_name}={self._get_capability(capabilitydefs[name], cap_props, indent)},\n"
+                    field_name, tosca_name = self._set_name(cap_name, "capability")
+                src += f"{field_name}={self._get_capability(capabilitydefs[cap_name], cap_props, indent)},\n"
 
         template_reqs = []  # requirements not declared by the type
         requirements: Dict[_tosca._Tosca_Field, List[str]] = {}
@@ -1529,14 +1573,26 @@ class Convert:
             src += f"{indent}{name}._description = " + add_description(
                 node_template.entity_tpl, indent
             )
-        # use setattr to avoid mypy complaints about attribute not defined
+        # add these as attribute statements
+        # (use setattr to avoid mypy complaints about attribute not defined)
         for artifact_name, artifact_src in artifacts:
-            src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
+            if self.concise:
+                src += f"{indent}{name}.{artifact_name} = {artifact_src})\n"
+            else:
+                src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
         for req_name, req_assignment in template_reqs:
-            src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
-        # add these as attribute statements:
-        # XXX operations: declare than assign
-        # f"{indent}{name}.{opname} = {opname}
+            if self.concise:
+                src += f"{indent}{name}.{req_name} = {req_assignment})\n"
+            else:
+                src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
+        names, ops_src = self._add_operations(indent, None, node_template)
+        if names:
+            self._pending_defs.append(ops_src)
+            for op_name in names:
+                if self.concise:
+                    src += f"{indent}{name}.{op_name} = {name}_{op_name}\n"
+                else:
+                    src += f"{indent}setattr({name}, '{op_name}', {name}_{op_name})\n"
         return name, src
 
     def _get_req_assignment(self, req):
