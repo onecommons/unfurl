@@ -356,7 +356,7 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
-        self.concise = False
+        self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
 
     def convert_topology(self, topology: TopologyTemplate, indent="") -> str:
         src = ""
@@ -1284,7 +1284,7 @@ class Convert:
         # note: defaults and base class inputs and implementations already merged in
         # artifact property reference or configurator class
         configurator_decl, kw = self.get_configurator_decl(op)
-        op_name, toscaname = self._set_name(op.name, "operation")
+        op_name, toscaname = self._set_name(cast(str, op.name), "operation")
         if template_name:
             template_name, _ = self._get_name(template_name)
             func_name = f"{template_name}_{op_name}"
