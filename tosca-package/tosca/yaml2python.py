@@ -369,6 +369,15 @@ class Convert:
                 src += self.flush_pending_defs(indent)
                 if template_src:
                     src += template_src + "\n"
+        for rel_name, rel_template in topology.relationship_templates.items():
+            localname = self.imports.get_local_ref(rel_name)
+            if not localname or localname not in self.imports.declared:
+                template_name, template_src = self.relationship_template2obj(
+                    rel_template, indent
+                )
+                src += self.flush_pending_defs(indent)
+                if template_src:
+                    src += template_src + "\n"
         if topology.substitution_mappings and topology.substitution_mappings.node:
             root_template = self.imports.get_local_ref(
                 topology.substitution_mappings.node
@@ -1500,6 +1509,7 @@ class Convert:
             if val:
                 src += f"{field}={value2python_repr(val)},\n"
         src += ")"  # close ctor
+        src += self.add_template_description(artifact, indent, name)
         return name, src
 
     def relationship_template2obj(
@@ -1509,6 +1519,8 @@ class Convert:
         if not cls:
             return "", ""
         src += ")"  # close ctor
+        src += self.add_template_description(template, indent, name)
+        src += self.add_template_interfaces(template, indent, name)
         return name, src
 
     def node_template2obj(
@@ -1568,11 +1580,7 @@ class Convert:
                     artifacts.append((artifact_name, artifact_src))
         src += ")\n"  # close ctor
 
-        description = node_template.entity_tpl.get("description")
-        if description and description.strip():
-            src += f"{indent}{name}._description = " + add_description(
-                node_template.entity_tpl, indent
-            )
+        src += self.add_template_description(node_template, indent, name)
         # add these as attribute statements
         # (use setattr to avoid mypy complaints about attribute not defined)
         for artifact_name, artifact_src in artifacts:
@@ -1585,6 +1593,20 @@ class Convert:
                 src += f"{indent}{name}.{req_name} = {req_assignment})\n"
             else:
                 src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
+        src += self.add_template_interfaces(node_template, indent, name)
+        return name, src
+
+    def add_template_description(self, template, indent, name) -> str:
+        src = ""
+        description = template.entity_tpl.get("description")
+        if description and description.strip():
+            src += f"{indent}{name}._description = " + add_description(
+                template.entity_tpl, indent
+            )
+        return src
+
+    def add_template_interfaces(self, node_template, indent, name) -> str:
+        src = ""
         names, ops_src = self._add_operations(indent, None, node_template)
         if names:
             self._pending_defs.append(ops_src)
@@ -1593,7 +1615,7 @@ class Convert:
                     src += f"{indent}{name}.{op_name} = {name}_{op_name}\n"
                 else:
                     src += f"{indent}setattr({name}, '{op_name}', {name}_{op_name})\n"
-        return name, src
+        return src
 
     def _get_req_assignment(self, req):
         node = None
