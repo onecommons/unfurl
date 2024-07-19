@@ -17,10 +17,10 @@ from typing import (
     Mapping,
 )
 from typing_extensions import Literal
+from .result import Results
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
     PlanRequest,
-    TaskRequest,
     TaskRequestGroup,
     JobRequest,
 )
@@ -410,7 +410,7 @@ class JobReporter:
                 if isinstance(output, Mapping):
                     # sort dict so that the longest values are last if a string otherwise preserve key order
                     output = {
-                        k: v
+                        k: v.map_all() if isinstance(v, Results) else v
                         for i, (k, v) in sorted(
                             enumerate(output.items()),
                             key=lambda x: (

@@ -672,6 +672,11 @@ class Results(ABC, metaclass=ProxyableType):
         except (KeyError, IndexError):
             return default
 
+    def map_all(self):
+        from .eval import map_value
+
+        return map_value(self, self.context)
+
     @property
     def change_count(self) -> int:
         # change_count is at least shared across _map_values()
