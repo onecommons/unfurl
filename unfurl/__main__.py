@@ -188,7 +188,7 @@ globalOptions = option_group(
 
 
 # the help message is only visible in docs
-@click.group("Deploy Commands", help="See `Job options`")
+@click.group("Deploy Commands", help="See `Jobs and Workflows`.")
 @globalOptions
 @click.pass_context
 def deploy_cli(

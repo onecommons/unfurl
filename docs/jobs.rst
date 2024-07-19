@@ -6,9 +6,9 @@ The core behavior of Unfurl is to run a :std:ref:`Job` that executes a `workflow
 There are two fundamental workflows ("normative workflows" in TOSCA terminology):
 `deploy`, which installs the topology, and `undeploy`, which uninstalls it.
 
-There are also :ref:`check` and  :std:ref:`discover` workflows which update the status of
-instances the based on their current live state.
-Users can also define custom workflows but they do not affect the change history of the topology.
+There are also :ref:`check` and  :std:ref:`discover` workflows which update the status of instances the based on their current live state.
+
+Each of these workflows can be triggered with the equivalently named  :cli:`commands<unfurl-deploy-commands>`.
 
 Job Lifecycle
 ==============
