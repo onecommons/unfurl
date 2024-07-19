@@ -127,7 +127,7 @@ class JobOptions:
         dryrun=False,
         planOnly=False,
         readonly=False,  # only run configurations that won't alter the system
-        requiredOnly=False,  # XXX not implemented
+        # requiredOnly=False,  # XXX not implemented
         commit=False,
         dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
@@ -172,7 +172,7 @@ class JobOptions:
         repair="error",  # or 'degraded' or "none", run configurations that are not operational and/or degraded
         upgrade=False,  # run configurations with major version changes or whose spec has changed
         force=False,  # (re)run operation regardless of instance's status or state
-        verify=False,  # XXX3 discover first and set status if it differs from expected state
+        # verify=False,  # XXX3 discover first and set status if it differs from expected state
         check=False,  # if new instances exist before deploying
         prune=False,
         destroyunmanaged=False,
@@ -191,6 +191,10 @@ class JobOptions:
             options["update"] = False
         if "skip_save" not in kw and os.getenv("UNFURL_SKIP_SAVE"):
             kw["skip_save"] = os.getenv("UNFURL_SKIP_SAVE")
+        if isinstance(kw.get("instance"), tuple):
+            instances = kw.pop("instance")
+            if instances:
+                kw["instances"] = list(instances)
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw

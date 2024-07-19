@@ -18,7 +18,7 @@ from unfurl.yamlmanifest import YamlManifest
 from .utils import run_cmd, print_config
 
 
-manifest = """
+manifest_yaml = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 environment:
@@ -30,11 +30,23 @@ spec:
   instances:
     no_op:
       template:
-        type: tosca.nodes.Root
+        type: NoOp
       readyState:
         local: pending
 
   service_template:
+    interface_types:
+      MyOps:
+        operations:
+          test_op:
+    node_types:
+      NoOp:
+        interfaces:
+          MyOps:
+            type: MyOps
+            operations:
+              test_op: echo "test_op ran on {{ '.name' | eval }}"
+
     topology_template:
       node_templates:
         test:
@@ -296,7 +308,7 @@ spec:
             ), result.exception
 
             with open("manifest2.yaml", "w") as f:
-                f.write(manifest)
+                f.write(manifest_yaml)
             run_cmd = ["run", "--ensemble", "manifest2.yaml"]
             result = runner.invoke(cli, run_cmd + ["--", "echo", "ok"])
             # print("result.output1!", result.output)
@@ -315,6 +327,15 @@ spec:
             output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
             assert r"'stdout': 'ok'" in output, output
 
+            result = runner.invoke(
+                cli, run_cmd + ["--operation", "MyOps.test_op"]
+            )
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+            assert "test_op ran on no_op" in unstyle(result.output)
+
     def test_localConfig(self):
         # test loading the default manifest declared in the local config
         # test locals and secrets:
@@ -330,7 +351,7 @@ spec:
             os.mkdir(repoDir)
             os.chdir(repoDir)
             with open("default-manifest.yaml", "w") as f:
-                f.write(manifest)
+                f.write(manifest_yaml)
 
             # make sure the test environment set UNFURL_HOME:
             testHomePath = os.environ.get("UNFURL_HOME")

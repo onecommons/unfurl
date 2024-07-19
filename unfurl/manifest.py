@@ -550,7 +550,7 @@ class Manifest(AttributeManager):
             for k, v in status.get("attributes", {}).items()
             if v != sensitive_str.redacted_str
         }
-        instance = ctor(name, attributes, parent, template, operational)
+        instance  = cast(EntityInstance, ctor(name, attributes, parent, template, operational))
         if "created" in status:
             instance.created = status["created"]
         if "protected" in status:

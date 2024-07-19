@@ -187,7 +187,8 @@ globalOptions = option_group(
 )
 
 
-@click.group("Deploy Commands")
+# the help message is only visible in docs
+@click.group("Deploy Commands", help="See `Job options`")
 @globalOptions
 @click.pass_context
 def deploy_cli(
@@ -350,9 +351,14 @@ jobControlOptions = option_group(
     ),
     rich_group=job_control_group_label,
 )
-commonFilterOptions = option_group(
-    click.option("--template", help="TOSCA template to target"),
-    click.option("--instance", help="instance name to target"),
+allButRunJobOptions = option_group(
+    click.option("--template", help="TOSCA template to target."),
+    click.option(
+        "--force",
+        default=False,
+        is_flag=True,
+        help="(Re)run operation regardless of instance's status or state",
+    ),
     rich_group=job_filter_group_label,
 )
 commonOutputOptions = option_group(
@@ -364,18 +370,13 @@ commonOutputOptions = option_group(
         default="text",
         help="How to print summary of job run",
     ),
-    rich_group="Output Options",
 )
-commonJobOptions = option_group(
-    commonFilterOptions,
+allJobOptions = option_group(
     commonOutputOptions,
-    click.option("--starttime", help="Set the start time of the job."),
     click.option(
-        "--force",
-        default=False,
-        is_flag=True,
-        help="(Re)run operation regardless of instance's status or state",
+        "--instance", multiple=True, help="Instance name to target (multiple times ok)."
     ),
+    click.option("--starttime", help="Set the start time of the job."),
     click.option(
         "--use-environment",
         default=None,
@@ -388,7 +389,14 @@ commonJobOptions = option_group(
         multiple=True,
         help="name/value pair to pass to job (multiple times ok).",
     ),
+    rich_group="Generic Job Options",
 )
+commonJobOptions = option_group(
+    allJobOptions,
+    allButRunJobOptions,
+    rich_group="Generic Job Options",
+)
+
 destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
     default=False,
@@ -408,15 +416,16 @@ destroyUnmanagedOption = click.option(
 # @click.option(
 #     "--replace", default=False, is_flag=True, help="replace the previous command"
 # )
+@click.option("--save", default=False, is_flag=True, help="Save in job history.")
 @jobControlOptions
-@commonJobOptions
-@click.option("--host", help="host to run the command on")
-@click.option("--operation", help="TOSCA operation to run")
-@click.option("--module", help="ansible module to run (default: command)")
+@allJobOptions
+@click.option("--host", help="Name of instance to run the command on.")
+@click.option("--operation", help="TOSCA operation to run.")
+@click.option("--module", help="Ansible module to run. (default: command)")
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
-def run(ctx, instance="root", cmdline=None, **options):
+def run(ctx, instance="root", save=False, cmdline=None, **options):
     """
-    Run an ad-hoc command in the context of the given ensemble.
+    Run a TOSCA operation or an ad-hoc shell command in the context of the given ensemble.
     Use "--" to separate the given command line, for example:
 
     > unfurl run -- echo 'hello!'
@@ -428,6 +437,7 @@ def run(ctx, instance="root", cmdline=None, **options):
     options.update(ctx.obj)
     options["instance"] = instance
     options["cmdline"] = cmdline
+    options["skip_save"] = not save
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 

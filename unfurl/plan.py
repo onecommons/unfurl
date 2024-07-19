@@ -479,6 +479,7 @@ class Plan:
         skip = None
         if resource is self.root:
             return None
+        # NB: the order of these tests is important!
         virtual = False
         if resource.shadow or resource.template.abstract:
             skip = "read-only instance"
@@ -873,25 +874,28 @@ class DeployPlan(Plan):
             if self.is_instance_read_only(instance):
                 return  # we're done
 
-        if reason == Reason.reconfigure:
-            # XXX generate configurations: may need to stop, start, etc.
-            if "discover" in instance.template.directives:
-                op = "Install.discover"
-                startState = None
-            else:
-                op = "Standard.configure"
-                startState = NodeState.configuring
-            req = create_task_request(
-                self.jobOptions,
-                op,
-                instance,
-                reason,
-                startState=startState,
-            )
-            if req:
-                yield req
+        if reason in (Reason.reconfigure, Reason.update, Reason.upgrade):
+            yield from self._generate_reconfigure(instance, reason)
         else:
             yield from self._generate_configurations(instance, reason)
+
+    def _generate_reconfigure(self, instance, reason):
+        # XXX generate configurations: may need to stop, start, etc.
+        if "discover" in instance.template.directives:
+            op = "Install.discover"
+            startState = None
+        else:
+            op = "Standard.configure"
+            startState = NodeState.configuring
+        req = create_task_request(
+            self.jobOptions,
+            op,
+            instance,
+            reason,
+            startState=startState,
+        )
+        if req:
+            yield req
 
     def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
         interface = taskrequest.configSpec.interface
@@ -999,10 +1003,11 @@ class RunNowPlan(Plan):
             className = "unfurl.configurators.ansible.AnsibleConfigurator"
             module = args.get("module") or "command"
             module_args = " ".join(args["cmdline"])
+            # creates a playbook with a single ansible task:
             params = dict(playbook=[{module: module_args}])
         else:
             className = "unfurl.configurators.shell.ShellConfigurator"
-            params = dict(command=args["cmdline"])
+            params = dict(command=list(args["cmdline"]))
 
         if inputs:
             params.update(inputs)
@@ -1017,31 +1022,43 @@ class RunNowPlan(Plan):
         )
 
     def execute_plan(self) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
-        instanceFilter = self.jobOptions.instance
-        if instanceFilter:
-            resource = self.root.find_resource(instanceFilter)
-            if not resource:
-                # see if there's a template with the same name and create the resource
-                template = self.tosca.get_template(instanceFilter)
-                if template:
-                    assert isinstance(template, NodeSpec)
-                    resource = self.create_resource(template)
-                else:
-                    raise UnfurlError(f"specified instance not found: {instanceFilter}")
-            resources = [resource]
-        else:
-            resources = [self.root]
+        instances = self.jobOptions.instances
+        if instances:
+            resources = []
+            for instance_name in instances:
+                assert isinstance(instance_name, str)
+                resource = self.root.find_resource(instance_name)
+                if not resource:
+                    # see if there's a template with the same name and create the resource
+                    template = self.tosca.get_template(instance_name)
+                    if template:
+                        assert isinstance(template, NodeSpec)
+                        resource = self.create_resource(template)
+                    else:
+                        raise UnfurlError(
+                            f"specified instance not found: {instance_name}"
+                        )
+                resources.append(resource)
 
         # userConfig has the job options explicitly set by the user
         operation = cast(Optional[str], self.jobOptions.userConfig.get("operation"))
         operation_host = self.jobOptions.userConfig.get("host")
         if not operation:
             configSpec = self._create_configurator(self.jobOptions.userConfig, "run")
+            if not instances:
+                resources = [self.root]
         else:
             configSpec = None
             interface, sep, action = operation.rpartition(".")
             if not interface and find_standard_interface(operation):  # shortcut
                 operation = find_standard_interface(operation) + "." + operation
+            if not instances:
+                resources = [
+                    r
+                    for t in self._get_templates()
+                    for r in self.find_resources_from_template(t)
+                ]
+
         for resource in resources:
             if configSpec:
                 req = filter_task_request(
