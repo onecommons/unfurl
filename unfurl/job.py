@@ -192,10 +192,14 @@ class JobOptions:
             options["update"] = False
         if "skip_save" not in kw and os.getenv("UNFURL_SKIP_SAVE"):
             kw["skip_save"] = os.getenv("UNFURL_SKIP_SAVE")
-        if isinstance(kw.get("instance"), tuple):
-            instances = kw.pop("instance")
-            if instances:
-                kw["instances"] = list(instances)
+        instance = kw.get("instance")
+        if instance:
+            if isinstance(instance, tuple):
+                instances = kw.pop("instance")
+                if instances:
+                    kw["instances"] = list(instances)
+            elif "instances" not in kw:
+                kw["instances"] = [instance]
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
