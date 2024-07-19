@@ -504,6 +504,9 @@
                   },
                   "required": {
                     "type": "boolean"
+                  },
+                  "writeOnly": {
+                    "type": "boolean"
                   }
                 }
               }

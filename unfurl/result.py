@@ -522,7 +522,11 @@ class _Sentinel:
 
 _Missing = _Sentinel("_Missing")
 _RecursionGuard = _Sentinel("_RecursionGuard")
-MAX_CHANGE_COUNT = 0xFFFFFFFFFFFF
+# concrete value read first
+MAX_CHANGE_COUNT = 0xFFFFFFFFFFFE
+# concrete value set before read
+MAX_CHANGE_COUNT_SET = 0xFFFFFFFFFFFF
+# anything < MAX_CHANGE_COUNT is computed
 
 
 class ResultsItem(Result):
@@ -560,9 +564,15 @@ class ResultsItem(Result):
         return self.last_computed < MAX_CHANGE_COUNT
 
     def update_value(self, newvalue):
-        # replace with a concrete value
-        self.last_computed = MAX_CHANGE_COUNT
+        # replace computed with a concrete value
+        # (and don't change MAX_CHANGE_COUNT)
+        if self.last_computed < MAX_CHANGE_COUNT:
+            self.last_computed = MAX_CHANGE_COUNT_SET
         self.resolved = newvalue
+
+    def get_before_set(self) -> bool:
+        # (false if computed or MAX_CHANGE_COUNT_SET)
+        return self.last_computed == MAX_CHANGE_COUNT
 
     def has_diff(self):
         "Was the item modified?"
@@ -764,6 +774,8 @@ class Results(ABC, metaclass=ProxyableType):
                         # need to re-evaluate
                         result = self.resolve(key, val.original, validate)
                         val.set_resolved(result, self.change_count)
+                    elif val.last_computed == MAX_CHANGE_COUNT_SET:
+                        val.last_computed = MAX_CHANGE_COUNT
                 else:
                     assert not isinstance(val, Result), val
                     result = self.resolve(key, val, validate)
@@ -786,7 +798,7 @@ class Results(ABC, metaclass=ProxyableType):
 
         assert not isinstance(value, Result), value
         if key not in self._attributes:
-            self._attributes[key] = ResultsItem(value, _Missing)
+            self._attributes[key] = ResultsItem(value, _Missing, MAX_CHANGE_COUNT_SET)
         else:
             old_val = self._attributes[key]
             if isinstance(old_val, ResultsItem):
@@ -802,7 +814,9 @@ class Results(ABC, metaclass=ProxyableType):
                     # but don't bother with that, the caller can compare the resolved item if they care
                     if self.validate:
                         self._validate(key, value)
-                    self._attributes[key] = ResultsItem(value, old_val)
+                    self._attributes[key] = ResultsItem(
+                        value, old_val, MAX_CHANGE_COUNT_SET
+                    )
 
         # remove from deleted if it's there
         self._deleted.pop(key, None)

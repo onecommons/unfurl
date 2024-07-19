@@ -74,16 +74,20 @@ def save_dependency(dep):
         saved["required"] = dep.required
     if dep.wantList:
         saved["wantList"] = dep.wantList
+    if dep.write_only:
+        saved["writeOnly"] = dep.write_only
     return saved
 
 
-def save_resource_changes(changes):
+def save_resource_changes(changes: ResourceChanges):
     d = CommentedMap()
     for k, v in changes.items():
-        # k is the resource key
+        # k is the resource's key, add its changed attributes
         d[k] = serialize_value(v[ResourceChanges.attributesIndex] or {})
-        if v[ResourceChanges.statusIndex] is not None:
-            d[k][".status"] = v[ResourceChanges.statusIndex].name
+        # add special keys to changes:
+        status = cast(Optional[Status], v[ResourceChanges.statusIndex])
+        if status is not None:
+            d[k][".status"] = status.name
         if v[ResourceChanges.addedIndex]:
             d[k][".added"] = serialize_value(v[ResourceChanges.addedIndex])
     return d

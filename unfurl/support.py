@@ -29,6 +29,7 @@ from typing import (
     Optional,
     Any,
     NewType,
+    OrderedDict,
 )
 from typing_extensions import Protocol, NoReturn, TypedDict, Unpack
 from enum import Enum
@@ -81,6 +82,7 @@ from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsaf
 from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
+from toscaparser.nodetemplate import NodeTemplate
 
 from .tosca_plugins.functions import (
     urljoin,
@@ -764,7 +766,7 @@ def set_context_vars(vars, resource: "EntityInstance"):
                 outputs=root._attributes["outputs"],
             )
         )
-    app_template = root.template.topology.substitution_node  # type: ignore
+    app_template = root.template.topology.substitution_node
     if app_template:
         app = root.find_instance(app_template.name)
         if app:
@@ -772,7 +774,7 @@ def set_context_vars(vars, resource: "EntityInstance"):
         for name, req in app_template.requirements.items():
             if req.relationship and req.relationship.target:
                 target = root.get_root_instance(
-                    req.relationship.target.toscaEntityTemplate  # type: ignore
+                    cast(NodeTemplate, req.relationship.target.toscaEntityTemplate)
                 ).find_instance(req.relationship.target.name)
                 if target:
                     ROOT[name] = target.attributes
@@ -1040,9 +1042,10 @@ class ContainerImage(ExternalValue):
             name = artifact_name
 
         tag = None
+        digest: Optional[str]
         name, sep, digest = name.partition("@")
         if not sep:
-            digest = None  # type: ignore
+            digest = None
             name, sep, qualifier = artifact_name.partition(":")
             if sep:
                 tag = qualifier
@@ -1243,10 +1246,7 @@ class _Import:
         self.local_instance = local_instance
 
 
-if TYPE_CHECKING:  # for python 3.7
-    ImportsBase = collections.OrderedDict[str, _Import]
-else:
-    ImportsBase = collections.OrderedDict
+ImportsBase = OrderedDict[str, _Import]
 
 
 class Imports(ImportsBase):
@@ -1402,41 +1402,52 @@ class DelegateAttributes:
                 return result
 
 
-AttributeChanges = NewType(
-    "AttributeChanges", Dict["InstanceKey", MutableMapping[str, Any]]
-)
+AttributeChange = MutableMapping[str, Any]
+AttributesChanges = NewType("AttributesChanges", Dict["InstanceKey", AttributeChange])
+
+ResourceChange = List[
+    Union[
+        Optional[Status], Optional[MutableMapping[str, Any]], Optional[AttributeChange]
+    ]
+]
+
+StatusMap = Dict["InstanceKey", List[Optional[Status]]]
 
 
-class ResourceChanges(collections.OrderedDict):
+class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
     """
     Records changes made by configurations.
-    Serialized as the "modifications" properties
+    Serialized as the "changes" property on change records.
 
     changes:
       resource1:
         attribute1: newvalue
         attribute2: %delete # if deleted
-        .added: # set if resource was added
+        # special keys:
+        .added: # resource spec if this resource was added by the task
         .status: # set when status changes, including when removed (Status.absent)
+        .accessed: list of accessed attributes
     """
 
     statusIndex = 0
     addedIndex = 1
     attributesIndex = 2
 
-    def get_attribute_changes(self, key: "InstanceKey"):
+    def get_attribute_changes(self, key: "InstanceKey") -> Optional[AttributeChange]:
         record = self.get(key)
         if record:
-            return record[self.attributesIndex]
-        return {}
+            return cast(Optional[AttributeChange], record[self.attributesIndex])
+        return None
 
     def get_changes_as_expr(self) -> Iterator[str]:
         for key, record in self.items():
-            attribute_changes = record[self.attributesIndex]
+            attribute_changes = cast(
+                Optional[AttributeChange], record[self.attributesIndex]
+            )
             if attribute_changes:
                 yield from (key + "::" + attr for attr in attribute_changes)
 
-    def sync(self, resource: "EntityInstance", changeId=None):
+    def sync(self, resource: "EntityInstance", changeId=None) -> None:
         """Update self to only include changes that are still live"""
         for k, v in list(self.items()):
             current = cast(
@@ -1456,17 +1467,18 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 del self[k]
 
-    def add_changes(self, changes: AttributeChanges):
+    def add_changes(self, changes: AttributesChanges) -> None:
         for name, change in changes.items():
             old = self.get(name)
             if old:
-                old[self.attributesIndex] = merge_dicts(
-                    old[self.attributesIndex], change
+                old_change = cast(AttributesChanges, old[self.attributesIndex])
+                old[self.attributesIndex] = cast(
+                    AttributeChange, merge_dicts(old_change, change)
                 )
             else:
                 self[name] = [None, None, change]
 
-    def add_statuses(self, changes):
+    def add_statuses(self, changes: StatusMap) -> None:
         for name, change in changes.items():
             assert not isinstance(change[1], str)
             old = self.get(name)
@@ -1475,12 +1487,12 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 self[name] = [change[1], None, {}]
 
-    def add_resources(self, resources):
+    def add_resources(self, resources: List[MutableMapping[str, Any]]) -> None:
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
     def update_changes(
-        self, changes: AttributeChanges, statuses, resource, changeId=None
+        self, changes: AttributesChanges, statuses, resource, changeId=None
     ):
         self.add_changes(changes)
         self.add_statuses(statuses)
@@ -1514,11 +1526,12 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendants()))
 
 
+AttributeInfo = Tuple[bool, Union[ResultsItem, Any], bool]  # live, value, accessed
 LiveDependencies = NewType(
     "LiveDependencies",
     Dict[
         "InstanceKey",
-        Tuple["EntityInstance", Dict[str, Tuple[bool, Union[ResultsItem, Any]]]],
+        Tuple["EntityInstance", Dict[str, AttributeInfo]],
     ],
 )
 
@@ -1544,7 +1557,7 @@ class AttributeManager:
     # XXX2 tests for the above behavior
     def __init__(self, yaml=None, task=None):
         self.attributes: Dict[str, Tuple[EntityInstance, ResultsMap]] = {}
-        self.statuses = {}
+        self.statuses: StatusMap = {}
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
         self._context_vars = None
@@ -1560,13 +1573,14 @@ class AttributeManager:
         state["tracker"] = _Tracker()
         return state
 
-    def get_status(self, resource):
+    def get_status(self, resource: "EntityInstance") -> List[Optional[Status]]:
         if resource.key not in self.statuses:
-            return resource._localStatus, resource._localStatus
+            return [resource._localStatus, resource._localStatus]
         return self.statuses[resource.key]
 
-    def set_status(self, resource, newvalue):
-        assert newvalue is None or isinstance(newvalue, Status)
+    def set_status(
+        self, resource: "EntityInstance", newvalue: Optional[Status]
+    ) -> None:
         if resource.key not in self.statuses:
             self.statuses[resource.key] = [resource._localStatus, newvalue]
         else:
@@ -1599,7 +1613,7 @@ class AttributeManager:
 
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
-                properties = resource.template.properties  # type: ignore
+                properties = resource.template.properties
                 _attributes = ChainMap(
                     resource._attributes,
                     properties,
@@ -1649,18 +1663,20 @@ class AttributeManager:
             or key not in specd  # not declared as a property
             or key in instance._attributes  # previously modified
         )
-        return changed, live
+        return changed, live, value.get_before_set()
 
     def find_live_dependencies(self) -> Dict["InstanceKey", List["Dependency"]]:
         from .configurator import Dependency
 
         dependencies: Dict[InstanceKey, List["Dependency"]] = {}
         for resource, attributes in self.attributes.values():
-            overrides, specd = attributes._attributes.split()
-            # items in overrides of type ResultsItem have been accessed during this transaction
+            overrides, specd = cast(ChainMap, attributes._attributes).split()
+            # items in overrides with type ResultsItem imply they have been accessed during this transaction
             for key, value in overrides.items():
                 if isinstance(value, ResultsItem):
-                    changed, isLive = self._check_attribute(specd, key, value, resource)
+                    changed, isLive, accessed = self._check_attribute(
+                        specd, key, value, resource
+                    )
                     if isLive:
                         dep = Dependency(
                             resource.key + "::" + key, value, target=resource
@@ -1668,8 +1684,8 @@ class AttributeManager:
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
 
-    def commit_changes(self) -> Tuple[AttributeChanges, LiveDependencies]:
-        changes: AttributeChanges = cast(AttributeChanges, {})
+    def commit_changes(self) -> Tuple[AttributesChanges, LiveDependencies]:
+        changes: AttributesChanges = cast(AttributesChanges, {})
         liveDependencies = cast(LiveDependencies, {})
         for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
@@ -1686,11 +1702,17 @@ class AttributeManager:
                     # hasn't been accessed so keep it as is
                     _attributes[key] = value
                 else:
-                    changed, isLive = self._check_attribute(specd, key, value, resource)
+                    changed, isLive, accessed = self._check_attribute(
+                        specd, key, value, resource
+                    )
                     savedValue = self._save_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
-                    live[key] = (isLive, savedValue if is_sensitive else value)
+                    live[key] = (
+                        isLive,
+                        savedValue if is_sensitive else value,
+                        accessed,
+                    )
                     if not isLive:
                         resource._properties[key] = savedValue
                         assert not changed  # changed implies isLive

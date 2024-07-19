@@ -361,6 +361,7 @@ class Manifest(AttributeManager):
                     val.get("name"),
                     val.get("required"),
                     val.get("wantList", False),
+                    val.get("writeOnly"),
                 )
             )
 

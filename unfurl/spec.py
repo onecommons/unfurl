@@ -739,7 +739,7 @@ class EntitySpec(ResourceRef):
         # XXX user should be able to declare default attribute values on templates
         self.propertyDefs: Dict[str, Property] = toscaNodeTemplate.get_properties()
         self.attributeDefs: Dict[str, Property] = {}
-        self.properties = CommentedMap(
+        self.properties: CommentedMap = CommentedMap(
             [(prop.name, prop.value) for prop in self.propertyDefs.values()]
         )
         if toscaNodeTemplate.type_definition:

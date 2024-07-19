@@ -936,6 +936,7 @@ class TaskView:
         required: bool = True,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
+        write_only: Optional[bool] = None
     ) -> "Dependency":
         getter = getattr(expr, "as_ref", None)
         if getter:
@@ -943,7 +944,7 @@ class TaskView:
             expr = Ref(getter()).source
 
         dependency = Dependency(
-            expr, expected, schema, name, required, wantList, target
+            expr, expected, schema, name, required, wantList, target, write_only
         )
         for i, dep in enumerate(self.dependencies):
             assert isinstance(dep, Dependency)
@@ -1282,6 +1283,7 @@ class Dependency(Operational):
         required: bool = False,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
+        write_only: Optional[bool] = None
     ) -> None:
         """
         if schema is not None, validate the result using schema
@@ -1304,6 +1306,7 @@ class Dependency(Operational):
             self.name = f"{dict(expr)}"
         self.wantList = wantList
         self.target = target
+        self.write_only = write_only
 
     def __repr__(self) -> str:
         return f"Dependency('{self.name}')"
