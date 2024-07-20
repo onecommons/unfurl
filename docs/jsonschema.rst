@@ -47,6 +47,19 @@ JSON Schema:
 
 .. jsonschema:: unfurl-schema.json
 
+
+cloudmap.yaml
+~~~~~~~~~~~
+
+Example:
+
+See https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml
+
+JSON Schema:
+
+.. jsonschema:: cloudmap-schema.json
+
+
 Sections
 ---------
 

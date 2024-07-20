@@ -1537,6 +1537,10 @@ def validate(ctx, ensemble, **options):
                 m._set_spec(dict(service_template=e.doc))
             else:
                 ToscaSpec(e.doc, path=ensemble)
+        elif e.doc and e.doc.get("kind") == "CloudMap":
+            from .cloudmap import CloudMapDB
+
+            CloudMapDB(ensemble)
         else:
             raise
 

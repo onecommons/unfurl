@@ -41,7 +41,7 @@ unfurl cloudmap --sync production --namespace onecommons/blueprints
 ```
 
 These commands commit any changes to cloudmap.yaml to its local clone of the cloudmap git repository.
-It will also create branches for each repository to host record their last known state and the 
+It will also create branches for each repository to host record their last known state and the
 "main" branch serves as the "source of truth" for the cloud map.
 
 Currently you need manually push updates to cloudmap to the upstream cloudmap repository, for example:
@@ -51,7 +51,6 @@ Currently you need manually push updates to cloudmap to the upstream cloudmap re
 
 import collections
 from dataclasses import dataclass, field, asdict
-from io import StringIO
 from operator import attrgetter
 from pathlib import Path
 import tempfile
@@ -102,6 +101,8 @@ from . import DefaultNames
 logger = getLogger("unfurl")
 
 DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
+
+_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 # Data classes
@@ -371,11 +372,11 @@ class UnfurlNotable(Notable):
             self.fragment = spec.fragment
             metadata = cast(dict, spec.template.tpl).get("metadata") or {}
             self.metadata.update(
-                dict(
+                filter_dict(dict(
                     name=metadata.get("template_name"),
                     version=metadata.get("template_version"),
                     description=spec.template.description,
-                )
+                ))
             )
             node = self._get_root_node(spec)
             schema_repo = manifest.repositories.get("types")
@@ -593,20 +594,21 @@ class CloudMapDB:
     """
     Loads the cloudmap yaml file
     """
+
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(self, path=".") -> None:
         self._load(path)
 
-    def _load(self, path: str):
+    def _load(self, path: str, contents=None):
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
         default_db = dict(apiVersion="unfurl/v1alpha1", kind="CloudMap")
         self.config = YamlConfig(
-            default_db,
+            contents or default_db,
             path,
             # validate,
-            # os.path.join(_basepath, "cloudmap-schema.json"),
+            schema=os.path.join(_basepath, "cloudmap-schema.json"),
         )
         db = self.config.config
         assert isinstance(db, dict)
@@ -624,7 +626,6 @@ class CloudMapDB:
     def save(self):
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
-        self.db["schema"] = EntitySchema.Schema
         self.db["repositories"] = {
             k: self.repositories[k].asdict() for k in sorted(self.repositories)
         }
@@ -634,6 +635,7 @@ class CloudMapDB:
                 a: self.artifacts[a] for a in sorted(self.artifacts)
             }
         self.config.save()
+
 
 class Directory(_LocalGitRepos):
     """
