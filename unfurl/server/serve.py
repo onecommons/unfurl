@@ -246,9 +246,13 @@ def set_current_ensemble_git_url(gui: bool = False):
     if not project_or_ensemble_path:
         return None
     try:
-        # the overrides is a hackish way to load all env vars for all environments
+        # the ENVIRONMENT=* in overrides is a hackish way to load all env vars for all environments
         if gui:
-            overrides = {"ENVIRONMENT": "*"}
+            overrides = dict(
+                ENVIRONMENT="*",
+                UNFURL_SKIP_UPSTREAM_CHECK=False,
+                apply_url_credentials=True,
+            )
         else:
             overrides = None
         local_env = LocalEnv(
@@ -2255,7 +2259,10 @@ def _patch_ensemble(
     if create:
         # if current_working_dir is set, use it as the home project so clone uses the local repository if available
         blueprint_url = body.get("blueprint_url")
-        mono = parent_localenv.instance_repoview is parent_localenv.project.project_repoview
+        mono = (
+            parent_localenv.instance_repoview
+            is parent_localenv.project.project_repoview
+        )
         skeleton = None if app.config.get("UNFURL_GUI_MODE") else "dashboard"
         if blueprint_url:
             logger.info(
