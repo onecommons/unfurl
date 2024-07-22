@@ -131,7 +131,7 @@ def has_function(obj: object, seen=None) -> bool:
     return False
 
 
-def value2python_repr(value, quote=False) -> str:
+def value2python_repr(value, quote=False, imports: Optional["Imports"] = None) -> str:
     if sys.version_info.minor > 7:
         pprinted = pprint.pformat(
             value, compact=True, indent=value_indent, sort_dicts=False
@@ -140,6 +140,8 @@ def value2python_repr(value, quote=False) -> str:
         pprinted = pprint.pformat(value, compact=True, indent=value_indent)
     if not quote:
         if has_function(value):
+            if imports:
+                imports.add_tosca_from("Eval")
             return f"Eval({pprinted})"
     return pprinted
 
@@ -201,25 +203,7 @@ class Imports:
         self.prelude_prelude: str = "import unfurl" if unfurl_prelude else ""
         self._import_statements: Set[str] = set()
         self.declared: List[str] = []
-        self.from_tosca: Set[str] = set(
-            [
-                "Artifact",
-                "Attribute",
-                "Capability",
-                "Eval",
-                "Property",
-                "MISSING",
-                "DEFAULT",
-                "CONSTRAINED",
-                "Requirement",
-                "ToscaInputs",
-                "ToscaOutputs",
-                "Computed",
-                "operation",
-                "AttributeOptions",
-                "PropertyOptions",
-            ]
-        )
+        self.from_tosca: Set[str] = set()
 
     def add_tosca_from(self, name):
         self.from_tosca.add(name)
@@ -283,16 +267,21 @@ class Imports:
             pass
 
     def prelude(self) -> str:
+        if self.from_tosca:
+            from_tosca_stmt = (
+                f'from tosca import ({", ".join(sorted(self.from_tosca))})\n'
+            )
+        else:
+            from_tosca_stmt = ""
         return (
             textwrap.dedent(
                 f"""
         {self.prelude_prelude}
         from typing import List, Dict, Any, Tuple, Union, Sequence
-        from typing_extensions import Annotated
-        from tosca import ({", ".join(sorted(self.from_tosca))})
         import tosca
         """
             )
+            + from_tosca_stmt
             + "\n".join([f"import {name}" for name in self._import_statements])
             + "\n"
         )
@@ -356,7 +345,10 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
-        self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
+        self.concise = True # os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
+
+    def value2python_repr(self, value, quote=False) -> str:
+        return value2python_repr(value, quote, self.imports)
 
     def convert_topology(self, topology: TopologyTemplate, indent="") -> str:
         src = ""
@@ -392,7 +384,7 @@ class Convert:
         for fieldname in _tosca.DeploymentBlueprint._fields:
             key = fieldname[1:]
             if key in tpl:
-                src += f"{indent}{fieldname} = {value2python_repr(tpl.pop(key))}\n"
+                src += f"{indent}{fieldname} = {self.value2python_repr(tpl.pop(key))}\n"
         src += "\n"
         assert self.template.topology_template
         topology = TopologyTemplate(
@@ -663,7 +655,7 @@ class Convert:
         if value is None:
             return "None", False
         if has_function(value):
-            return value2python_repr(value), False
+            return self.value2python_repr(value), False
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
         if entry_schema:
             entry_schema = Schema(None, entry_schema)
@@ -703,9 +695,9 @@ class Convert:
                 # simple value type
                 if datatype in ["timestamp", "version"]:  # use wrapper type
                     self.imports.add_tosca_from(typename)
-                    return f"{typename}({value2python_repr(value)})", False
+                    return f"{typename}({self.value2python_repr(value)})", False
                 else:
-                    return value2python_repr(value), False
+                    return self.value2python_repr(value), False
             else:
                 # its a tosca datatype
                 typename, cls = self.imports.get_type_ref(datatype)
@@ -720,7 +712,7 @@ class Convert:
                     cls = None
                 if dt.value_type:
                     # its a simple value type
-                    return f"{typename}({value2python_repr(value)})", False
+                    return f"{typename}({self.value2python_repr(value)})", False
                 if not isinstance(value, dict):
                     logger.error(
                         "expected a dict value for %s, got: %s", datatype, value
@@ -769,9 +761,12 @@ class Convert:
             typename += f"[{item_type_name}]"
 
         if schema.constraints:
-            typename = (
-                f"Annotated[{typename}, {self.to_constraints(schema.constraints)}]"
-            )
+            if self.python_compatible >= 9:
+                annotated_module = "typing"
+            else:
+                annotated_module = "typing_extensions"
+            self.imports.add_import(annotated_module)
+            typename = f"{annotated_module}.Annotated[{typename}, {self.to_constraints(schema.constraints)}]"
         return typename
 
     def _prop_decl(
@@ -793,9 +788,13 @@ class Convert:
             typename = self._make_union(typename, "None")
 
         if prop.schema.title:
-            fieldparams.append(f"title={value2python_repr(prop.schema.title, True)}")
+            fieldparams.append(
+                f"title={self.value2python_repr(prop.schema.title, True)}"
+            )
         if prop.schema.status:
-            fieldparams.append(f"status={value2python_repr(prop.schema.status, True)}")
+            fieldparams.append(
+                f"status={self.value2python_repr(prop.schema.status, True)}"
+            )
         if prop.schema.metadata:
             fieldparams.append(f"metadata={metadata_repr(prop.schema.metadata)}")
         if both:
@@ -815,8 +814,10 @@ class Convert:
             fielddecl = ""
 
         if fieldtype == "attributes":
+            self.imports.add_tosca_from("Attribute")
             fielddecl = f"= Attribute({', '.join(fieldparams)})"
         elif fieldparams:
+            self.imports.add_tosca_from("Property")
             fielddecl = f"= Property({', '.join(fieldparams)})"
         return name, typename, fielddecl  # type: ignore
 
@@ -971,7 +972,7 @@ class Convert:
         for key in ["file_ext", "mime_type", "constraints", "default_for"]:
             value = toscatype.get_value(key)
             if value:
-                src += f"{indent}_{key} = {value2python_repr(value, True)}\n"
+                src += f"{indent}_{key} = {self.value2python_repr(value, True)}\n"
 
         if src.strip():
             return class_decl + src
@@ -1029,7 +1030,7 @@ class Convert:
                         declared_default_ops.append((iname, oname))
         if not template and declared_requirements:
             # include inherited interface_requirements
-            src += f"{indent}_interface_requirements = {value2python_repr(nodetype.get_interface_requirements(entity_tpl))}\n"
+            src += f"{indent}_interface_requirements = {self.value2python_repr(nodetype.get_interface_requirements(entity_tpl))}\n"
 
         for op in EntityTemplate._create_interfaces(nodetype, template):
             if op.interfacetype != "Mock":
@@ -1120,12 +1121,13 @@ class Convert:
         valid_source_types = tpl.get("valid_source_types")
         if valid_source_types:
             fieldparams.append(
-                f"valid_source_types={value2python_repr(valid_source_types, True)}"
+                f"valid_source_types={self.value2python_repr(valid_source_types, True)}"
             )
         metadata = tpl.get("metadata")
         if metadata:
             fieldparams.append(f"metadata={metadata_repr(metadata)}")
         if fieldparams:
+            self.imports.add_tosca_from("Capability")
             fielddecl = f"= Capability({', '.join(fieldparams)})\n"
         else:
             fielddecl = ""
@@ -1210,7 +1212,9 @@ class Convert:
             fieldparams.append(f'name="{toscaname}"')
         node_filter = req.get("node_filter")
         if node_filter:
-            fieldparams.append(f"node_filter={value2python_repr(node_filter, True)}")
+            fieldparams.append(
+                f"node_filter={self.value2python_repr(node_filter, True)}"
+            )
         metadata = req.get("metadata")
         if metadata:
             metadata.pop("before_patch", None)
@@ -1218,6 +1222,7 @@ class Convert:
         if fieldparams or explicit:
             if default:
                 fieldparams.insert(0, "default=" + default)
+            self.imports.add_tosca_from("Requirement")
             fielddecl = f"= Requirement({', '.join(fieldparams)})"
         elif default:
             fielddecl = "= " + default
@@ -1252,7 +1257,7 @@ class Convert:
                     # add direct reference to allow static type checking
                     cmd = f"self.{artifact}.execute("
             if not cmd and artifact:
-                cmd = f"self.find_artifact({value2python_repr(artifact)})"
+                cmd = f"self.find_artifact({self.value2python_repr(artifact)})"
         else:
             cmd = kw["className"]
             module, sep, klass = cmd.rpartition(".")
@@ -1313,8 +1318,9 @@ class Convert:
                 if (
                     imp_key != "dependencies" or imp_val
                 ):  # dependencies is always a list, skip if empty
-                    decorator.append(f"{imp_key}={value2python_repr(imp_val)}")
+                    decorator.append(f"{imp_key}={self.value2python_repr(imp_val)}")
         if decorator:  # add decorator
+            self.imports.add_tosca_from("operation")
             src += f"{indent}@operation({', '.join(decorator)})\n"
 
         # XXX add arguments declared on the interface definition
@@ -1338,7 +1344,7 @@ class Convert:
             src += "\n"
             for name, value in inputs.items():
                 # use encode_identifier to handle input names that aren't valid python identifiers
-                src += f"{indent}{indent}{encode_identifier(name)} = {value2python_repr(value)},"
+                src += f"{indent}{indent}{encode_identifier(name)} = {self.value2python_repr(value)},"
             src += f"{indent})\n"
         else:
             src += ")\n"
@@ -1359,7 +1365,7 @@ class Convert:
                     schema = prop.schema
                 prop_repr = self._get_prop_value_repr(schema, val)
             else:
-                prop_repr = value2python_repr(val)
+                prop_repr = self.value2python_repr(val)
             if cls:
                 field = cls.get_field_from_tosca_name(key, ToscaFieldType.property)
                 if field:
@@ -1503,11 +1509,11 @@ class Convert:
         cls, name, src = self.template2obj(artifact, indent, False)
         if not cls:
             return "", ""
-        src += "file=" + value2python_repr(artifact.file) + ", "  # type: ignore
+        src += "file=" + self.value2python_repr(artifact.file) + ", "  # type: ignore
         for field in _tosca.ArtifactType._builtin_fields[1:]:
             val = getattr(artifact, field)
             if val:
-                src += f"{field}={value2python_repr(val)},\n"
+                src += f"{field}={self.value2python_repr(val)},\n"
         src += ")"  # close ctor
         src += self.add_template_description(artifact, indent, name)
         return name, src
@@ -1585,12 +1591,12 @@ class Convert:
         # (use setattr to avoid mypy complaints about attribute not defined)
         for artifact_name, artifact_src in artifacts:
             if self.concise:
-                src += f"{indent}{name}.{artifact_name} = {artifact_src})\n"
+                src += f"{indent}{name}.{artifact_name} = {artifact_src}\n"
             else:
                 src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
         for req_name, req_assignment in template_reqs:
             if self.concise:
-                src += f"{indent}{name}.{req_name} = {req_assignment})\n"
+                src += f"{indent}{name}.{req_name} = {req_assignment}\n"
             else:
                 src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
         src += self.add_template_interfaces(node_template, indent, name)
