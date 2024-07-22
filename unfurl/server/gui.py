@@ -4,6 +4,7 @@ UI for local Unfurl project
 "project_path" is used by serve for export and patch
 """
 
+import glob
 import os
 from typing import Any, Iterator, List, Literal, Optional, Union
 import shutil
@@ -55,11 +56,9 @@ dashboard_template = env.get_template("dashboard.j2.html")
 
 
 def get_project_readme(repo: GitRepo) -> str:
-    for filename in ["README", "README.md", "README.txt"]:
-        path = os.path.join(repo.working_dir, filename)
-        if os.path.exists(path):
-            with open(path, "r") as file:
-                return file.read()
+    for path in glob.glob(os.path.join(repo.working_dir, "[Rr][Ee][Aa][Dd][Mm][Ee].*")):
+        with open(path, "r") as file:
+            return file.read()
     return ""
 
 
@@ -249,7 +248,7 @@ def fetch(download_dir):
         with open(TAG_FILE, "r") as f:
             current_tag = f.read().strip()
         if current_tag == TAG and os.path.exists(dist_dir):
-            logger.debug(f"'{TAG}' is up-to-date")
+            logger.info(f"Using unfurl_gui release {TAG}")
             return
         else:
             logger.debug(f"'{current_tag}' does not match the needed tag '{TAG}'")
