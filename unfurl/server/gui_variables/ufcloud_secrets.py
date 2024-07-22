@@ -64,7 +64,7 @@ def set_variables(localenv, env_vars: List[EnvVar]) -> LocalEnv:
 def yield_variables(localenv) -> Iterator[EnvVar]:
     _, project = _get_context(localenv)
 
-    for variable in project.variables.list():
+    for variable in project.variables.list(get_all=True):
         yield EnvVar(
             **{
                 **variable.attributes,
