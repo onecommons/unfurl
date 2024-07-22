@@ -49,7 +49,7 @@ JSON Schema:
 
 
 cloudmap.yaml
-~~~~~~~~~~~
+~~~~~~~~~~~~~
 
 Example:
 
