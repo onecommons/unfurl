@@ -477,7 +477,7 @@ def clean_output(value: str) -> str:
 
 
 @contextmanager
-def change_cwd(new_path: str, log: LogExtraLevels = None) -> Iterator:
+def change_cwd(new_path: Optional[str] = None, log: Optional[LogExtraLevels] = None) -> Iterator:
     """Temporarily change current working directory"""
     old_path = os.getcwd()
     if new_path:
@@ -651,7 +651,7 @@ def is_relative_to(p, *other) -> bool:
         return False
 
 
-def substitute_env(contents, env=None, preserve_missing=False):
+def substitute_env(contents, env:Optional[Mapping]=None, preserve_missing=False):
     r"""
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
     Use \${NAME} to ignore
