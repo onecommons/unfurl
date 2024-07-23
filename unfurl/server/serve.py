@@ -2303,11 +2303,12 @@ def _patch_ensemble(
     # set apply_url_credentials=True so that we reuse the credentials when cloning other repositories on this server
     overrides = dict(
         ENVIRONMENT=environment,
-        UNFURL_CLOUD_VARS_URL=cloud_vars_url,
         apply_url_credentials=True,
         # we need to decrypt/encrypt yaml but we can skip secret files (expensive)
         skip_secret_files=True,
     )
+    if cloud_vars_url:
+        overrides["UNFURL_CLOUD_VARS_URL"] = cloud_vars_url
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
     local_env.make_resolver = make_resolver
