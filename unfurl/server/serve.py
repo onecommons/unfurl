@@ -250,7 +250,7 @@ def set_current_ensemble_git_url(gui: bool = False):
         if gui:
             overrides = dict(
                 ENVIRONMENT="*",
-                UNFURL_SKIP_UPSTREAM_CHECK=False,
+                UNFURL_SKIP_UPSTREAM_CHECK=True,
                 apply_url_credentials=True,
             )
         else:
@@ -670,9 +670,8 @@ class CacheEntry:
                         )
                         _clear_project(self.project_id)
                         if not local_developer_mode():
-                            repo = (
-                                None  # we don't delete the repo in local developer mode
-                            )
+                            # we don't delete the repo in local developer mode
+                            repo = None
                         else:
                             action = "detached"
                 else:
@@ -1308,6 +1307,8 @@ def _export(
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
+    if branch == "HEAD":
+        branch = ""
     args: Dict[str, Any] = dict(request.args)
     if request.headers.get("X-Git-Credentials"):
         args["username"], args["password"] = (
@@ -1539,7 +1540,7 @@ def _make_readonly_localenv(
         overrides: Dict[str, Any] = dict(
             UNFURL_SKIP_VAULT_DECRYPT=True,
             # XXX enable skipping when deps support private repositories
-            UNFURL_SKIP_UPSTREAM_CHECK=False,
+            UNFURL_SKIP_UPSTREAM_CHECK=bool(app.config.get("UNFURL_GUI_MODE")),
             apply_url_credentials=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
@@ -2256,6 +2257,7 @@ def _patch_ensemble(
         None, dict(username=username, password=password)
     )
     parent_localenv.make_resolver = make_resolver
+    gui_mode = app.config.get("UNFURL_GUI_MODE")
     if create:
         # if current_working_dir is set, use it as the home project so clone uses the local repository if available
         blueprint_url = body.get("blueprint_url")
@@ -2263,7 +2265,7 @@ def _patch_ensemble(
             parent_localenv.instance_repoview
             is parent_localenv.project.project_repoview
         )
-        skeleton = None if app.config.get("UNFURL_GUI_MODE") else "dashboard"
+        skeleton = None if gui_mode else "dashboard"
         if blueprint_url:
             logger.info(
                 "creating deployment at %s for %s",
@@ -2309,6 +2311,8 @@ def _patch_ensemble(
     )
     if cloud_vars_url:
         overrides["UNFURL_CLOUD_VARS_URL"] = cloud_vars_url
+    if gui_mode:
+        overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
     local_env.make_resolver = make_resolver
