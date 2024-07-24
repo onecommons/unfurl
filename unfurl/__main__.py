@@ -1510,12 +1510,17 @@ def status(ctx, ensemble, **options):
 @info_cli.command()
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=False))
+@click.option(
+    "--use-environment",
+    default="",
+    help="Use this environment.",
+)
 def validate(ctx, ensemble, **options):
     """Validate the given Unfurl project, ensemble, or TOSCA file."""
     options.update(ctx.obj)
     try:
-        overrides = dict(ENVIRONMENT="")  # same as override_context
-        if "template" in ensemble:
+        overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
+        if "template" in ensemble:  # hack!
             overrides["format"] = "blueprint"
         localEnv = LocalEnv(
             ensemble, options.get("home"), overrides=overrides, can_be_empty=True
