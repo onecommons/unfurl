@@ -822,9 +822,11 @@ class EnsembleBuilder:
             )
         else:
             destProject.register_ensemble(manifest_path, context=self.environment)
-        assert_not_none(destProject.project_repoview.repo).commit_files(
-            [assert_not_none(destProject.localConfig.config.path)], "Add ensemble"
-        )
+        if not self.options.get("render"):
+            msg = f"Add ensemble at {destProject.get_relative_path(manifest_path)}"
+            assert_not_none(destProject.project_repoview.repo).commit_files(
+                [assert_not_none(destProject.localConfig.config.path)], msg
+            )
         self.manifest = manifest
         return destDir
 

@@ -700,7 +700,9 @@ class CacheEntry:
             if self.file_path:  # if no file_path, just get the latest commit
                 paths.append(self.file_path)
         # note: self.file_path can be a directory
-        commits = list(repo.repo.iter_commits(self.branch, paths, max_count=1))
+        commits = list(
+            repo.repo.iter_commits(self.branch or "HEAD", paths, max_count=1)
+        )
         if commits:
             self.commitinfo = commits[0]
             new_commit = self.commitinfo.hexsha
@@ -1036,7 +1038,8 @@ class CacheEntry:
                         # if we have a local copy of the repo
                         # make sure we pulled latest_commit before doing the work
                         if not latest_commit:
-                            self.repo = self.pull(cache, self.stale_pull_age)
+                            if not app.config.get("UNFURL_GUI_MODE"):  # pull if stale
+                                self.repo = self.pull(cache, self.stale_pull_age)
                         else:
                             pulled, self.repo = self._pull_if_missing_commit(
                                 latest_commit, commit_date
@@ -2277,6 +2280,7 @@ def _patch_ensemble(
                 clone_location,
                 existing=True,
                 mono=mono,
+                render=was_dirty,  # don't commit if dirty
                 skeleton=skeleton,
                 use_environment=environment,
                 use_deployment_blueprint=deployment_blueprint,
@@ -2293,6 +2297,7 @@ def _patch_ensemble(
                 want_init=True,
                 existing=True,
                 mono=mono,
+                render=was_dirty,  # don't commit if dirty
                 skeleton=skeleton,
                 use_environment=environment,
                 use_deployment_blueprint=deployment_blueprint,
