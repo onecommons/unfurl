@@ -326,7 +326,7 @@ def create_routes(localenv: LocalEnv):
             return notfound_response(project_path)
         return jsonify(
             # TODO
-            [{"name": "HEAD", "commit": {"id": repo.revision}}]
+            [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
 
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
