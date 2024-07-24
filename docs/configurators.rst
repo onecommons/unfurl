@@ -10,19 +10,39 @@ If you set an external command line directly as the ``implementation``, Unfurl w
 If ``operation_host`` is local it will use the `Shell` configurator, if it is remote,
 it will use the ``Ansible`` configurator and generate a playbook that invokes it on the remote machine:
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure: echo "abbreviated configuration"
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure: echo "abbreviated configuration"
+
+  .. code-block:: python
+
+    @operation(name="configure")
+    def test_remote_configure(**kw):
+      return unfurl.configurators.shell.ShellConfigurator(
+        command='echo "abbreviated configuration"',
+      )
+
+
+    test_remote = tosca.nodes.Root(
+        "test_remote",
+    )
+    test_remote.configure = test_remote_configure
+
+
+    __all__ = ["test_remote"]
+
 
 Available configurators include:
 
@@ -40,30 +60,57 @@ The Ansible configurator executes the given playbook. You can access the same Un
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure:
-                  implementation: Ansible
-                  inputs:
-                    playbook:
-                      # quote this yaml so its templates are not evaluated before we pass it to Ansible
-                      q:
-                        - set_fact:
-                            fact1: "{{ '.name' | eval }}"
-                        - name: Hello
-                          command: echo "{{ fact1 }}"
-                  outputs:
-                    fact1:
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation: Ansible
+                    inputs:
+                      playbook:
+                        # quote this yaml so its templates are not evaluated before we pass it to Ansible
+                        q:
+                          - set_fact:
+                              fact1: "{{ '.name' | eval }}"
+                          - name: Hello
+                            command: echo "{{ fact1 }}"
+                    outputs:
+                      fact1:
+
+  .. code-block:: python
+
+    @operation(name="configure", outputs={"fact1": None})
+    def test_remote_configure(**kw):
+        return unfurl.configurators.ansible.AnsibleConfigurator(
+            playbook=Eval(
+                {
+                    "q": [
+                        {"set_fact": {"fact1": "{{ '.name' | eval }}"}},
+                        {"name": "Hello", "command": 'echo "{{ fact1 }}"'},
+                    ]
+                }
+            ),
+        )
+
+
+    test_remote = tosca.nodes.Root(
+        "test_remote",
+    )
+    test_remote.configure = test_remote_configure
+
+
+    __all__ = ["test_remote"]
+
 
 Inputs
 ------
@@ -137,24 +184,44 @@ Example
 
 In this example, ``operation_host`` is set to a remote instance so the command is executed remotely using Ansible.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure:
-                  implementation:
-                    primary: Cmd
-                    operation_host: staging.example.com
-                  inputs:
-                    cmd: echo "test"
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation:
+                      primary: Cmd
+                      operation_host: staging.example.com
+                    inputs:
+                      cmd: echo "test"
+
+  .. code-block:: python
+
+    @operation(name="configure", operation_host="staging.example.com")
+    def test_remote_configure(**kw):
+        return unfurl.configurators.CmdConfigurator(
+            cmd='echo "test"',
+        )
+
+
+    test_remote = tosca.nodes.Root(
+        "test_remote",
+    )
+    test_remote.configure = test_remote_configure
+
+
+    __all__ = ["test_remote"]
+
 
 Delegate
 ========
@@ -182,28 +249,51 @@ Inline shell script example
 
 This example executes an inline shell script and uses the ``cwd`` and ``shell`` input options.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        topology_template:
-          node_templates:
-            shellscript-example:
-              type: tosca:Root
-              interfaces:
-                Standard:
-                  configure:
-                    implementation: |
-                      if ! [ -x "$(command -v testvars)" ]; then
-                        source testvars.sh
-                      fi
-                    inputs:
-                        cwd: '{{ "project" | get_dir }}'
-                        keeplines: true
-                        # our script requires bash
-                        shell: '{{ "bash" | which }}'
+  .. code-block:: YAML
+
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          topology_template:
+            node_templates:
+              shellscript-example:
+                type: tosca:Root
+                interfaces:
+                  Standard:
+                    configure:
+                      implementation: |
+                        if ! [ -x "$(command -v testvars)" ]; then
+                          source testvars.sh
+                        fi
+                      inputs:
+                          cwd: '{{ "project" | get_dir }}'
+                          keeplines: true
+                          # our script requires bash
+                          shell: '{{ "bash" | which }}'
+
+  .. code-block:: python
+
+    @operation(name="configure")
+    def shellscript_example_configure(**kw):
+        return unfurl.configurators.shell.ShellConfigurator(
+            command='if ! [ -x "$(command -v testvars)" ]; then\n  source testvars.sh\nfi\n',
+            cwd=Eval('{{ "project" | get_dir }}'),
+            keeplines=True,
+            shell=Eval('{{ "bash" | which }}'),
+        )
+
+
+    shellscript_example = tosca.nodes.Root(
+        "shellscript-example",
+    )
+    shellscript_example.configure = shellscript_example_configure
+
+
+    __all__ = ["shellscript_example"]
+
 
 Example with artifact
 ---------------------
@@ -211,32 +301,100 @@ Example with artifact
 Declaring an artifact of a type that is associated with the shell configurator
 ensures Unfurl will install the artifact if necessary, before it runs the command.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: tosca_plugins/artifacts.yaml
-        topology_template:
-          node_templates:
-            terraform-example:
-              type: tosca:Root
-              artifacts:
-                ripgrep:
-                  type: artifact.AsdfTool
-                  file: ripgrep
-                  properties:
-                    version: 13.0.0
-              interfaces:
-                Standard:
-                  configure:
-                    implementation: ripgrep
-                    inputs:
-                      cmd: rg search
+  .. code-block:: YAML
 
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          imports:
+          - repository: unfurl
+            file: tosca_plugins/artifacts.yaml
+          topology_template:
+            node_templates:
+              terraform-example:
+                type: tosca:Root
+                artifacts:
+                  ripgrep:
+                    type: artifact.AsdfTool
+                    file: ripgrep
+                    properties:
+                      version: 13.0.0
+                interfaces:
+                  Standard:
+                    configure:
+                      implementation: ripgrep
+                      inputs:
+                        cmd: rg search
+
+  .. code-block:: python
+
+    @operation(name="configure")
+    def terraform_example_configure(**kw):
+        return unfurl.configurators.shell.ShellConfigurator(
+            command=["ripgrep"],
+            cmd="rg search",
+        )
+
+
+    terraform_example = tosca.nodes.Root(
+        "terraform-example",
+    )
+    terraform_example.ripgrep = artifact_AsdfTool(
+        "ripgrep",
+        version="13.0.0",
+        file="ripgrep",
+    )
+    terraform_example.configure = terraform_example_configure
+
+    configurator_artifacts = unfurl.nodes.LocalRepository(
+        "configurator-artifacts",
+        _directives=["default"],
+    )
+    configurator_artifacts.terraform = artifact_AsdfTool(
+        "terraform",
+        version="1.1.4",
+        file="terraform",
+    )
+    configurator_artifacts.gcloud = artifact_AsdfTool(
+        "gcloud",
+        version="398.0.0",
+        file="gcloud",
+    )
+    configurator_artifacts.kompose = artifact_AsdfTool(
+        "kompose",
+        version="1.26.1",
+        file="kompose",
+    )
+    configurator_artifacts.google_auth = artifact_PythonPackage(
+        "google-auth",
+        file="google-auth",
+    )
+    configurator_artifacts.octodns = artifact_PythonPackage(
+        "octodns",
+        version="==0.9.14",
+        file="octodns",
+    )
+    configurator_artifacts.kubernetes_core = artifact_AnsibleCollection(
+        "kubernetes.core",
+        version="2.4.0",
+        file="kubernetes.core",
+    )
+    configurator_artifacts.community_docker = artifact_AnsibleCollection(
+        "community.docker",
+        version="1.10.2",
+        file="community.docker",
+    )
+    configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
+        "ansible.utils",
+        version="2.10.3",
+        file="ansible.utils",
+    )
+
+
+    __all__ = ["terraform_example", "configurator_artifacts"]
 
 
 Inputs
@@ -304,34 +462,90 @@ You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node te
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: tosca_plugins/artifacts.yaml
-        topology_template:
-          node_templates:
+  .. code-block:: YAML
 
-            terraform-example:
-              type: unfurl.nodes.Installer.Terraform
-              interfaces:
-                defaults:
-                  inputs:
-                    tfvars:
-                      tag: test
-                    main: |
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          imports:
+          - repository: unfurl
+            file: tosca_plugins/artifacts.yaml
+          topology_template:
+            node_templates:
 
-                      variable "tag" {
-                        type        = string
-                      }
+              terraform-example:
+                type: unfurl.nodes.Installer.Terraform
+                interfaces:
+                  defaults:
+                    inputs:
+                      tfvars:
+                        tag: test
+                      main: |
 
-                      output "name" {
-                        value = var.tag
-                      }
+                        variable "tag" {
+                          type        = string
+                        }
+
+                        output "name" {
+                          value = var.tag
+                        }
+
+  .. code-block:: python
+
+    terraform_example = unfurl_nodes_Installer_Terraform(
+        "terraform-example",
+    )
+
+    configurator_artifacts = unfurl.nodes.LocalRepository(
+        "configurator-artifacts",
+        _directives=["default"],
+    )
+    configurator_artifacts.terraform = artifact_AsdfTool(
+        "terraform",
+        version="1.1.4",
+        file="terraform",
+    )
+    configurator_artifacts.gcloud = artifact_AsdfTool(
+        "gcloud",
+        version="398.0.0",
+        file="gcloud",
+    )
+    configurator_artifacts.kompose = artifact_AsdfTool(
+        "kompose",
+        version="1.26.1",
+        file="kompose",
+    )
+    configurator_artifacts.google_auth = artifact_PythonPackage(
+        "google-auth",
+        file="google-auth",
+    )
+    configurator_artifacts.octodns = artifact_PythonPackage(
+        "octodns",
+        version="==0.9.14",
+        file="octodns",
+    )
+    configurator_artifacts.kubernetes_core = artifact_AnsibleCollection(
+        "kubernetes.core",
+        version="2.4.0",
+        file="kubernetes.core",
+    )
+    configurator_artifacts.community_docker = artifact_AnsibleCollection(
+        "community.docker",
+        version="1.10.2",
+        file="community.docker",
+    )
+    configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
+        "ansible.utils",
+        version="2.10.3",
+        file="ansible.utils",
+    )
+
+
+    __all__ = ["terraform_example", "configurator_artifacts"]
+
 
 Inputs
 ------
@@ -474,24 +688,93 @@ Inputs
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  node_templates:
-    hello-world-container:
-      type: unfurl.nodes.Container.Application.Docker
-      requirements:
-        - host: compute
-      artifacts:
-        image:
-          type: tosca.artifacts.Deployment.Image.Container.Docker
-          file: busybox
-      interfaces:
-        Standard:
-          inputs:
-            configuration:
-              command: ["echo", "hello world"]
-              detach:  no
-              output_logs: yes
+  .. code-block:: YAML
+    
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        imports:
+        - repository: unfurl
+          file: configurators/templates/docker.yaml
+        topology_template:
+          node_templates:
+            hello-world-container:
+              type: unfurl.nodes.Container.Application.Docker
+              requirements:
+                - host: compute
+              artifacts:
+                image:
+                  type: tosca.artifacts.Deployment.Image.Container.Docker
+                  file: busybox
+              interfaces:
+                Standard:
+                  inputs:
+                    configuration:
+                      command: ["echo", "hello world"]
+                      detach: no
+                      output_logs: yes
+
+  .. code-block:: python
+
+    hello_world_container = unfurl_nodes_Container_Application_Docker(
+    "hello-world-container",
+    image=tosca.artifacts.DeploymentImageContainerDocker(
+        "image",
+        file="busybox",
+      ),
+    )
+    hello_world_container.host = tosca.find_node("compute")
+
+    configurator_artifacts = unfurl.nodes.LocalRepository(
+        "configurator-artifacts",
+        _directives=["default"],
+    )
+    configurator_artifacts.terraform = artifact_AsdfTool(
+        "terraform",
+        version="1.1.4",
+        file="terraform",
+    )
+    configurator_artifacts.gcloud = artifact_AsdfTool(
+        "gcloud",
+        version="398.0.0",
+        file="gcloud",
+    )
+    configurator_artifacts.kompose = artifact_AsdfTool(
+        "kompose",
+        version="1.26.1",
+        file="kompose",
+    )
+    configurator_artifacts.google_auth = artifact_PythonPackage(
+        "google-auth",
+        file="google-auth",
+    )
+    configurator_artifacts.octodns = artifact_PythonPackage(
+        "octodns",
+        version="==0.9.14",
+        file="octodns",
+    )
+    configurator_artifacts.kubernetes_core = artifact_AnsibleCollection(
+        "kubernetes.core",
+        version="2.4.0",
+        file="kubernetes.core",
+    )
+    configurator_artifacts.community_docker = artifact_AnsibleCollection(
+        "community.docker",
+        version="1.10.2",
+        file="community.docker",
+    )
+    configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
+        "ansible.utils",
+        version="2.10.3",
+        file="ansible.utils",
+    )
+
+
+    __all__ = ["hello_world_container", "configurator_artifacts"]
+
 
 DNS
 ====
@@ -534,32 +817,59 @@ Properties
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  node_templates:
-    example_com_zone:
-      type: unfurl.nodes.DNSZone
-      properties:
-        name: example.com.
-        provider:
-          # Amazon Route53 (Note: this provider requires that the zone already exists.)
-          class: octodns.provider.route53.Route53Provider
+  .. code-block:: YAML
 
-    test_app:
-      type: tosca.nodes.WebServer
-      requirements:
-        - host: compute
-        - dns:
-            node: example_com_zone
-            relationship:
-               type:   unfurl.relationships.DNSRecords
-               properties:
-                 records:
-                  www:
-                    type: A
-                    value:
-                      # get the ip address of the Compute instance that this is hosted on
-                      eval: .source::.requirements::[.name=host]::.target::public_address
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        imports:
+        - repository: unfurl
+          file: configurators/templates/dns.yaml
+        topology_template:
+          node_templates:
+            example_com_zone:
+              type: unfurl.nodes.DNSZone
+              properties:
+                name: example.com.
+                provider:
+                  # Amazon Route53 (Note: this provider requires that the zone already exists.)
+                  class: octodns.provider.route53.Route53Provider
+
+            test_app:
+              type: tosca.nodes.WebServer
+              requirements:
+                - host: compute
+                - dns:
+                    node: example_com_zone
+                    relationship:
+                      type: unfurl.relationships.DNSRecords
+                      properties:
+                        records:
+                          www:
+                            type: A
+                            value:
+                              # get the ip address of the Compute instance that this is hosted on
+                              eval: .source::.requirements::[.name=host]::.target::public_address
+
+  .. code-block:: python
+
+    example_com_zone = unfurl_nodes_DNSZone(
+      "example_com_zone",
+      name="example.com.",
+      provider={"class": "octodns.provider.route53.Route53Provider"},
+    )
+
+    test_app = tosca.nodes.WebServer(
+        "test_app",
+        host=[tosca.find_node("compute")],
+    )
+    test_app.dns = example_com_zone
+
+
+    __all__ = ["example_com_zone", "test_app"]
 
 
 .. _helm:
@@ -679,66 +989,3 @@ Properties
 
 Attributes
 ~~~~~~~~~~
-
-  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.  Data values will be marked as sensitive.
-  :name: (string) The Kubernetes name of the resource.
-
-unfurl.nodes.K8sRawResource
----------------------------
-
-A Kubernetes resource that isn't part of a namespace.
-
-Requirements
-~~~~~~~~~~~~
-
-  :host: A node template of type ``unfurl.nodes.K8sCluster``
-
-Properties
-~~~~~~~~~~
-
-  :definition: (map or string) The YAML definition for the Kubernetes resource.
-
-Attributes
-~~~~~~~~~~
-
-  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
-  :name: (string) The Kubernetes name of the resource.
-
-.. _sup:
-
-Supervisor
-==========
-
-`Supervisor <http://supervisord.org>`_ is a light-weight process manager that is useful when you want to run local development instances of server applications.
-
-Required TOSCA import: ``configurators/templates/supervisor.yaml`` (in the ``unfurl`` repository)
-
-unfurl.nodes.Supervisor
------------------------
-
-TOSCA type that represents an instance of Supervisor process manager. Derived from ``tosca.nodes.SoftwareComponent``.
-
-properties
-~~~~~~~~~~
-
- :homeDir: (string) The location the Supervisor configuration directory (default: ``{get_dir: local}``)
- :confFile: (string) Name of the confiration file to create (default: ``supervisord.conf``)
- :conf: (string) The `supervisord configuration <http://supervisord.org/configuration.html>`_. A default one will be generated if omitted.
-
-unfurl.nodes.ProcessController.Supervisor
------------------------------------------
-
-TOSCA type that represents a process ("program" in supervisord terminology) that is managed by a Supervisor instance. Derived from ``unfurl.nodes.ProcessController``.
-
-.. _sup_requirements:
-
-requirements
-~~~~~~~~~~~~
-
-  :host: A node template of type ``unfurl.nodes.Supervisor``.
-
-properties
-~~~~~~~~~~
-
-  :name: (string) The name of this program.
-  :program: (map) A map of `settings <http://supervisord.org/configuration.html#program-x-section-values>`_ for this program.
