@@ -73,6 +73,10 @@ Other
   .. autoclass:: ToscaInputs
   .. autoclass:: ToscaOutputs
 
+.. autoclass:: TopologyInputs
+
+.. autoclass:: TopologyOutputs
+
 .. autofunction:: set_evaluation_mode
 
 .. autofunction:: safe_mode

@@ -311,12 +311,12 @@ class PythonToYaml:
                     self._import_module(current_module, path, module_name)
                     continue
                 # this is a class not an instance
+                section = obj._type_section  # type: ignore
                 if id(obj) in seen:
                     # name is a alias referenced, treat as subtype in TOSCA
                     as_yaml = self.add_alias(name, obj)
                 else:
                     seen.add(id(obj))
-                    section = obj._type_section  # type: ignore
                     obj._globals = self.globals  # type: ignore
                     _docstrings = self.docstrings.get(name)
                     if isinstance(_docstrings, dict):

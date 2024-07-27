@@ -109,6 +109,8 @@ __all__ = [
     "TiB",
     "Tibps",
     "Time",
+    "TopologyInputs",
+    "TopologyOutputs",
     "ToscaParserDataType",
     "ToscaType",
     "ToscaInputs",

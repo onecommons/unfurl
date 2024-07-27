@@ -1056,9 +1056,9 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             and self.default is not CONSTRAINED
             and self.default is not REQUIRED
         ):
-            return self.default.to_template_yaml(converter)  # type: ignore
+            return self.default.to_template_yaml(converter)
         elif self.default_factory and self.default_factory is not dataclasses.MISSING:
-            return self.default_factory().to_template_yaml(converter)  # type: ignore
+            return self.default_factory().to_template_yaml(converter)
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
@@ -1131,8 +1131,9 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             prop_def.setdefault("constraints", []).extend(
                 c.to_yaml() for c in self.constraints
             )
+        default_field = self.owner._default_key if self.owner else "default"
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
-            prop_def["default"] = to_tosca_value(self.default_factory())
+            prop_def[default_field] = to_tosca_value(self.default_factory())
         elif (
             self.default is not dataclasses.MISSING
             and self.default is not REQUIRED
@@ -1140,7 +1141,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         ):
             if self.default is not None or not optional:
                 # only set the default to null when if property is required
-                prop_def["default"] = to_tosca_value(self.default)
+                prop_def[default_field] = to_tosca_value(self.default)
         if self.title:
             prop_def["title"] = self.title
         if self.status:
@@ -1719,6 +1720,7 @@ def find_relationship(name: str) -> Any:
 
 class FieldProjection(EvalData):
     "A reference to a tosca field or projection off a tosca field"
+
     # created by _DataclassTypeProxy, invoked via _class_init
 
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
@@ -2185,6 +2187,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     _docstrings: Optional[Dict[str, str]] = dataclasses.field(
         default=None, init=False, repr=False
     )
+    _default_key: ClassVar[str] = "default"
 
     @classmethod
     def _resolve_class(cls, _type):
@@ -2234,16 +2237,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             if obj is None:
                 raise AttributeError(f"can't find {name} in {qname}")
         return obj
-
-    @classmethod
-    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
-        for c in cls.__bases__:
-            # only include classes of the same tosca type as this class
-            # and exclude the base class defined in this module
-            if issubclass(c, ToscaType):
-                if c._type_section == (section or cls._type_section) and c.__module__ != __name__:  # type: ignore
-                    yield c
-
 
 class ToscaInputs(_ToscaType):
     @classmethod
@@ -2392,6 +2385,7 @@ def find_hosted_on(
 
 class ToscaType(_ToscaType):
     "Base class for TOSCA type definitions."
+
     # NB: _name needs to come first for python < 3.10
     _name: str = field(default="", kw_only=False)
     _type_name: ClassVar[str] = ""
@@ -2426,6 +2420,18 @@ class ToscaType(_ToscaType):
         self._all_templates.setdefault(self._template_section, {})[
             (current_module, self._name or name)
         ] = self
+
+    @classmethod
+    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
+        for c in cls.__bases__:
+            # only include classes of the same tosca type as this class
+            # and exclude the base class defined in this module
+            if issubclass(c, ToscaType):
+                if (
+                    c._type_section == (section or cls._type_section)
+                    and c.__module__ != __name__
+                ):
+                    yield c
 
     def __set_name__(self, owner, name):
         # called when a template is declared as a default value or inside a Namespace (owner will be class)
@@ -2770,7 +2776,9 @@ class ToscaType(_ToscaType):
                         default_value = field.default
                     if value._local_name:
                         compare = dataclasses.replace(
-                            value, _local_name=None, _node=None  # type: ignore
+                            value,
+                            _local_name=None,
+                            _node=None,  # type: ignore
                         )
                     else:
                         compare = value
@@ -2808,6 +2816,33 @@ class ToscaType(_ToscaType):
         path = os.path.join(os.path.dirname(current_mod.__file__), module_path)
         loaded = load_module(path)
         return getattr(loaded, class_name)
+
+
+class _TopologyParameter(ToscaType):
+    _type_section: ClassVar[str] = "topology_template"
+
+    @classmethod
+    def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
+        dict_cls = converter and converter.yaml_cls or yaml_cls
+        body: Dict[str, Any] = dict_cls()
+        for field in cls.explicit_tosca_fields:
+            assert field.name, field
+            item = field.to_yaml(converter)
+            body.update(item)
+        return {cls._type_name: body}
+
+
+class TopologyInputs(_TopologyParameter):
+    "Base class for defining topology template inputs."
+
+    _type_name: ClassVar[str] = "inputs"
+
+
+class TopologyOutputs(_TopologyParameter):
+    "Base class for defining topology template outputs."
+
+    _type_name: ClassVar[str] = "outputs"
+    _default_key: ClassVar[str] = "value"
 
 
 _TT = TypeVar("_TT", bound="NodeType")
@@ -2928,7 +2963,7 @@ def _get_field_from_prop_ref(requirement_name) -> Tuple[Optional[_Tosca_Field], 
 
 
 def _get_expr_prefix(
-    cls_or_obj: Union[None, ToscaType, Type[ToscaType]]
+    cls_or_obj: Union[None, ToscaType, Type[ToscaType]],
 ) -> List[Union[str, _GetName]]:
     if cls_or_obj:
         if cls_or_obj._name:
@@ -2964,6 +2999,7 @@ def find_all_required_by(
 
 class NodeType(ToscaType):
     "NodeType"
+
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
 
