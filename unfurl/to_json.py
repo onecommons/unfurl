@@ -1462,17 +1462,17 @@ def _to_graphql(
     _add_repositories(db, tpl)
     assert spec.template.topology_template
     if root_url:
-        url: Optional[str] = root_url
+        url = root_url or ""
     else:
         url = manifest.get_package_url()
-    types = ResourceTypesByName(url or "", spec.template.topology_template.custom_defs)
+    types = ResourceTypesByName(url, spec.template.topology_template.custom_defs)
     to_graphql_nodetypes(spec, include_all, types)
     db["ResourceType"] = types  # type: ignore
     db["ResourceTemplate"] = {}
     environment_instances = {}
     # the ensemble will have merged in its environment's templates and types
     connection_types = ResourceTypesByName(
-        url or "", spec.template.topology_template.custom_defs
+        url, spec.template.topology_template.custom_defs
     )
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate

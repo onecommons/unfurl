@@ -1445,10 +1445,10 @@ class LocalEnv:
         candidate: Tuple[
             Optional[GitRepo], Optional[str], Optional[str], Optional[bool]
         ] = (None, None, None, None)
-        bare = False
+        bare: Optional[bool] = False
         project = self.project or self.homeProject
         while project:
-            repoview, filePath, bare = project.find_path_in_repos(  # type: ignore
+            repoview, filePath, bare = project.find_path_in_repos(
                 path, importLoader
             )
             if repoview:
