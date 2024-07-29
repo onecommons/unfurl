@@ -989,3 +989,66 @@ Properties
 
 Attributes
 ~~~~~~~~~~
+
+  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.  Data values will be marked as sensitive.
+  :name: (string) The Kubernetes name of the resource.
+
+unfurl.nodes.K8sRawResource
+---------------------------
+
+A Kubernetes resource that isn't part of a namespace.
+
+Requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.K8sCluster``
+
+Properties
+~~~~~~~~~~
+
+  :definition: (map or string) The YAML definition for the Kubernetes resource.
+
+Attributes
+~~~~~~~~~~
+
+  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
+  :name: (string) The Kubernetes name of the resource.
+
+.. _sup:
+
+Supervisor
+==========
+
+`Supervisor <http://supervisord.org>`_ is a light-weight process manager that is useful when you want to run local development instances of server applications.
+
+Required TOSCA import: ``configurators/templates/supervisor.yaml`` (in the ``unfurl`` repository)
+
+unfurl.nodes.Supervisor
+-----------------------
+
+TOSCA type that represents an instance of Supervisor process manager. Derived from ``tosca.nodes.SoftwareComponent``.
+
+properties
+~~~~~~~~~~
+
+ :homeDir: (string) The location the Supervisor configuration directory (default: ``{get_dir: local}``)
+ :confFile: (string) Name of the confiration file to create (default: ``supervisord.conf``)
+ :conf: (string) The `supervisord configuration <http://supervisord.org/configuration.html>`_. A default one will be generated if omitted.
+
+unfurl.nodes.ProcessController.Supervisor
+-----------------------------------------
+
+TOSCA type that represents a process ("program" in supervisord terminology) that is managed by a Supervisor instance. Derived from ``unfurl.nodes.ProcessController``.
+
+.. _sup_requirements:
+
+requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.Supervisor``.
+
+properties
+~~~~~~~~~~
+
+  :name: (string) The name of this program.
+  :program: (map) A map of `settings <http://supervisord.org/configuration.html#program-x-section-values>`_ for this program.
