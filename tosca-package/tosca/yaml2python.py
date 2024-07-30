@@ -204,6 +204,7 @@ class Imports:
         self._import_statements: Set[str] = set()
         self.declared: List[str] = []
         self.from_tosca: Set[str] = set()
+        self._globals: Dict[str, Any] = {}
 
     def add_tosca_from(self, name):
         self.from_tosca.add(name)
@@ -244,6 +245,8 @@ class Imports:
                 current = self._imports.get(tosca_name)
                 if not current or current[1] is not ref:
                     self._imports[tosca_name] = (qname, ref)
+                    if not basename:
+                        self._globals[name] = ref
                 # otherwise skip aliases
 
     def _set_builtin_imports(self):
@@ -298,6 +301,7 @@ class Imports:
     ) -> Tuple[str, Optional[Type[_tosca.ToscaType]]]:
         qname, ref = self._imports.get(tosca_type_name, ("", None))
         if ref:
+            ref._globals = self._globals
             parts = qname.split(".")
             # qname in namespace, import it
             if len(parts) > 1 and parts[0] not in ["tosca", "unfurl"]:  # in prelude
@@ -345,7 +349,7 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
-        self.concise = True # os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
+        self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
 
     def value2python_repr(self, value, quote=False) -> str:
         return value2python_repr(value, quote, self.imports)

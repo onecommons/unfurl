@@ -338,7 +338,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def find_implementation(self, op: OperationDef) -> Optional[Dict[str, Any]]:
         from .planrequests import _get_config_spec_args_from_implementation
-        from . import configurators  # need to import configurators to get short names  # noqa: F401
+        from . import (
+            configurators,
+        )  # need to import configurators to get short names  # noqa: F401
 
         inputs = op.inputs if op.inputs is not None else {}
         if not op._source and self.manifest:
@@ -705,7 +707,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 lock_dict = Lock.find_package(locked, self.manifest, package)
             else:
                 lock_dict = None
-            if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
+            if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK") or (
+                self.manifest.localEnv
+                and self.manifest.localEnv.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
+            ):
                 remote_tags_check = None
             else:
                 remote_tags_check = self.get_remote_tags
@@ -1024,7 +1029,9 @@ class YamlConfig:
             if errors and validate:
                 (message, schemaErrors) = errors
                 raise UnfurlSchemaError(
-                    err_msg + ": JSON Schema validation failed: " + message, errors, self.config
+                    err_msg + ": JSON Schema validation failed: " + message,
+                    errors,
+                    self.config,
                 )
             else:
                 self.valid = not not errors

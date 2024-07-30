@@ -982,7 +982,7 @@ def nodetemplate_to_json(
     visibility = template_visibility(node_spec, discovered)
     if visibility != "inherit":
         json["visibility"] = visibility
-        logger.debug(f"setting visibility {visibility} on template {nodetemplate.name}")
+        logger.trace(f"setting visibility {visibility} on template {nodetemplate.name}")
 
     if not isinstance(nodetemplate.type_definition, NodeType):
         return json

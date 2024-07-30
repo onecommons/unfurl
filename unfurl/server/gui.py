@@ -326,7 +326,7 @@ def create_routes(localenv: LocalEnv):
             return notfound_response(project_path)
         return jsonify(
             # TODO
-            [{"name": "HEAD", "commit": {"id": repo.revision}}]
+            [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
 
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
@@ -340,26 +340,27 @@ def create_routes(localenv: LocalEnv):
 
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
-    def serve_webpack(path):
+    def serve_path(path):
         if "accept" in request.headers and "text/html" in request.headers["accept"]:
             return serve_document(path, localenv)
 
-        if WEBPACK_ORIGIN:
-            url = f"{WEBPACK_ORIGIN}/{path}"
-        else:
-            url = path
-
-        qs = request.query_string.decode("utf-8")
-        if qs != "":
-            url += "?" + qs
-
-        if request.headers["sec-fetch-dest"] == "iframe":
+        if request.headers.get("sec-fetch-dest") == "iframe":
             return "Bad Request", 400
 
         if WEBPACK_ORIGIN:
+            url = f"{WEBPACK_ORIGIN}/{path}"
+            qs = request.query_string.decode("utf-8")
+            if qs != "":
+                url += "?" + qs
             return proxy_webpack(url)
         else:
-            response = make_response(send_file(os.path.join(DIST, path)))
-            if not IMPLIED_DEVELOPMENT_MODE:
-                response.headers["Cache-Control"] = "public, max-age=31536000"  # 1 year
-            return response
+            assert path and path[0] != "/"
+            local_path = os.path.join(DIST, path)
+            if os.path.isfile(local_path):
+                response = make_response(send_file(local_path))
+                if not IMPLIED_DEVELOPMENT_MODE:
+                    response.headers["Cache-Control"] = (
+                        "public, max-age=31536000"  # 1 year
+                    )
+                return response
+            return serve_document(path, localenv)
