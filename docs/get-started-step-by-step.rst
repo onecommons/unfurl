@@ -296,3 +296,5 @@ If you want to publish local git repositories on a git hosting service like gith
 
 3. Commit any needed changes in the repositories.
 4. Running ``unfurl git push`` will push all the repositories in the project.
+
+.. _How it works: https://unfurl.run/howitworks.html

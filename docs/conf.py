@@ -11,7 +11,7 @@ VERSION = unfurl.__version__()
 # -- Project information -----------------------------------------------------
 
 project = "Unfurl"
-copyright = "2023, OneCommons Co."
+copyright = "2025, OneCommons Co."
 author = "Adam Souzis"
 release = VERSION
 
@@ -59,12 +59,11 @@ extlinks = {
     ),
     "cli": (
         "cli.html#%s",
-        "Command Line: %s",
+        "%s",
     ),
 }
 
 rst_epilog = """
-.. _How it works: https://unfurl.run/howitworks.html
 """
 
 
