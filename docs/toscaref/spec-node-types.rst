@@ -143,25 +143,25 @@ Examples
     
     class MongoDatabase(tosca.nodes.DBMS):
       port: int
-      create_script: str = "scripts/mongo/install-mongo.sh"
-      start_script: str = "scripts/mongo/start-mongo.sh"
-      stop_script: str = "scripts/mongo/stop-mongo.sh"
 
-      @tosca.operation(name="create")
-      def create(self):
-          return self.run_script(self.create_script)
+      def create(self, **kw):
+          return unfurl.configurators.shell.ShellConfigurator(
+            command=["scripts/mongo/install-mongo.sh"]
+          )
 
-      @tosca.operation(name="start")
-      def start(self):
-          return self.run_script(self.start_script)
+      def start(self, **kw):
+          return unfurl.configurators.shell.ShellConfigurator(
+            command=["scripts/mongo/start-mongo.sh"]
+          )
 
-      @tosca.operation(name="stop")
-      def stop(self):
-          return self.run_script(self.stop_script)
+      def stop(self, **kw):
+          return unfurl.configurators.shell.ShellConfigurator(
+            command=["scripts/mongo/stop-mongo.sh"]
+          )
 
-      mongo_database = MongoDatabase("mongo_database")
+    mongo_database = MongoDatabase("mongo_database")
 
-      __all__ = ["MongoDatabase", "mongo_database"]
+    __all__ = ["MongoDatabase", "mongo_database"]
 
 
 An example of how to use this type follows:
@@ -200,16 +200,16 @@ Finally, an example on how to extend an existing type by deriving from it:
 
     class MongoDatabaseExtended(tosca.nodecellar.nodes.MongoDatabase):
       enable_replication: bool = False
-      create_script: str = "scripts/mongo/install-mongo-extended.sh"
-      configure_script: str = "scripts/mongo/configure-mongo-extended.sh"
 
-      @tosca.operation(name="create")
-      def create(self):
-          return self.run_script(self.create_script)
+      def create(self, **kw):
+          return unfurl.configurators.shell.ShellConfigurator(
+            command=["scripts/mongo/install-mongo-extended.sh"]
+          )
 
-      @tosca.operation(name="configure")
-      def configure(self):
-          return self.run_script(self.configure_script)
+      def configure(self, **kw):
+          return unfurl.congifurators.shell.ShellConfigurator(
+            command=["scripts/mongo/configure-mongo-extended.sh"]
+          )
 
     mongo_database_extended = MongoDatabaseExtended("mongo_database_extended")
 
