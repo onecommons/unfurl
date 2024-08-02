@@ -27,7 +27,6 @@ Declaration
   ...
 
 
-
 Definition
 ++++++++++++
 
@@ -123,20 +122,47 @@ node templates.
 Examples
 *********
 
-.. code:: yaml
+.. tab-set-code::
 
- node_types:
-   nodecellar.nodes.MongoDatabase:
-     derived_from: tosca.nodes.DBMS
-     properties:
-       port:
-         description: MongoDB port
-         type: integer
-     interfaces:
-       Standard:
-         create: scripts/mongo/install-mongo.sh
-         start: scripts/mongo/start-mongo.sh
-         stop: scripts/mongo/stop-mongo.sh
+  .. code:: yaml
+
+    node_types:
+      nodecellar.nodes.MongoDatabase:
+        derived_from: tosca.nodes.DBMS
+        properties:
+          port:
+            description: MongoDB port
+            type: integer
+        interfaces:
+          Standard:
+            create: scripts/mongo/install-mongo.sh
+            start: scripts/mongo/start-mongo.sh
+            stop: scripts/mongo/stop-mongo.sh
+
+  .. code-block:: python
+    
+    class MongoDatabase(tosca.nodes.DBMS):
+      port: int
+      create_script: str = "scripts/mongo/install-mongo.sh"
+      start_script: str = "scripts/mongo/start-mongo.sh"
+      stop_script: str = "scripts/mongo/stop-mongo.sh"
+
+      @tosca.operation(name="create")
+      def create(self):
+          return self.run_script(self.create_script)
+
+      @tosca.operation(name="start")
+      def start(self):
+          return self.run_script(self.start_script)
+
+      @tosca.operation(name="stop")
+      def stop(self):
+          return self.run_script(self.stop_script)
+
+      mongo_database = MongoDatabase("mongo_database")
+
+      __all__ = ["MongoDatabase", "mongo_database"]
+
 
 An example of how to use this type follows:
 
@@ -153,20 +179,41 @@ Each of these two nodes will now have both the ``port`` property and the three o
 
 Finally, an example on how to extend an existing type by deriving from it:
 
-.. code:: yaml
+.. tab-set-code::
 
- node_types:
-   nodecellar.nodes.MongoDatabaseExtended:
-     derived_from: nodecellar.nodes.MongoDatabase
-     properties:
-       enable_replication:
-         description: MongoDB replication enabling flag
-         type: boolean
-         default: false
-     interfaces:
-       Standard:
-         create: scripts/mongo/install-mongo-extended.sh
-         configure: scripts/mongo/configure-mongo-extended.sh
+  .. code:: yaml
+
+    node_types:
+      nodecellar.nodes.MongoDatabaseExtended:
+        derived_from: nodecellar.nodes.MongoDatabase
+        properties:
+          enable_replication:
+            description: MongoDB replication enabling flag
+            type: boolean
+            default: false
+        interfaces:
+          Standard:
+            create: scripts/mongo/install-mongo-extended.sh
+            configure: scripts/mongo/configure-mongo-extended.sh
+
+  .. code-block:: python
+
+    class MongoDatabaseExtended(tosca.nodecellar.nodes.MongoDatabase):
+      enable_replication: bool = False
+      create_script: str = "scripts/mongo/install-mongo-extended.sh"
+      configure_script: str = "scripts/mongo/configure-mongo-extended.sh"
+
+      @tosca.operation(name="create")
+      def create(self):
+          return self.run_script(self.create_script)
+
+      @tosca.operation(name="configure")
+      def configure(self):
+          return self.run_script(self.configure_script)
+
+    mongo_database_extended = MongoDatabaseExtended("mongo_database_extended")
+
+    __all__ = ["MongoDatabaseExtended", "mongo_database_extended"]
 
 
 The ``nodecellar.nodes.MongoDatabaseExtended`` type derives from the ``nodecellar.nodes.MongoDatabase`` type which was defined in the previous example; As such, it derives its properties and interfaces definitions, which get either merged or overridden by the ones it defines itself.
