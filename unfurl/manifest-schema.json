@@ -122,7 +122,15 @@
           "description": ":ref:`TOSCA repositories<tosca_repositories>`"
         },
         "cloudmaps": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "repositories": {
+              "type": "object"
+            },
+            "hosts": {
+              "type": "object"
+            }
+          }
         },
         "imports": {
           "type": "array"

@@ -1,12 +1,12 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-A cloud map is document containing metadata on collections of repositories include the artifacts and blueprints they contain.
+A cloud map is document containing metadata on collections of repositories including the artifacts and blueprints they contain.
 
 You can use a cloud map to manage servers that host git repositories and synchronize mirrors of git repositories.
 Three types of repository hosts are currently supported: local, gitlab, and unfurl.cloud.
 
-You can use the cloud map to maintain mirrors of git repositories or use it to synchronize multiple instances of the same repository host by setting the "canonical_url" key in the repository host configuration.
+You can synchronize multiple instances of the same repository host by setting the "canonical_url" key in the repository host configuration.
 
 For example, given this configuration snippet:
 
@@ -1357,7 +1357,7 @@ class CloudMap:
         skip_analysis: bool,
     ) -> "CloudMap":
         url, path, revision, repository = cls.get_config(local_env, name)
-        local_repo_root = repository.get("clone_root", clone_root)
+        local_repo_root = clone_root or repository.get("clone_root") or ""
 
         # what if branch only exists locally?
         if not host_name:
@@ -1391,7 +1391,8 @@ class CloudMap:
         return CloudMap(repo, branch, local_repo_root, path, skip_analysis)
 
     @classmethod
-    def get_config(cls, local_env, name) -> Tuple[str, str, str, dict]:
+    def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
+        # name is a cloudmap url or a named cloudmap repository
         environment = local_env.get_context().get("cloudmaps", {})
         # for now name is just the name of repository
         repository = environment.get("repositories", {}).get(name)
@@ -1436,7 +1437,7 @@ class CloudMap:
                 raise UnfurlError(f"no repository host named {name} found")
         if host_config["type"] == "local":
             return LocalRepositoryHost(
-                name, host_config.get("clone_root", clone_root), namespace, repo_filter
+                name, clone_root or host_config.get("clone_root") or "", namespace, repo_filter
             )
 
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]

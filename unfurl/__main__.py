@@ -1679,16 +1679,19 @@ def serve(
     "--sync",
     default=None,
     help='Sync the given repository host ("local", name, or url).',
+    metavar="HOST",
 )
 @click.option(
     "--import",
     default=None,
     help='Update the cloudmap with the given repository host ("local", name, or url).',
+    metavar="HOST",
 )
 @click.option(
     "--export",
     default=None,
     help='Update the given repository host ("local", name, or url) with the local repositories recorded in the cloudmap.',
+    metavar="HOST",
 )
 @click.option(
     "--namespace",

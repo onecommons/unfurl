@@ -51,9 +51,57 @@ JSON Schema:
 cloudmap.yaml
 ~~~~~~~~~~~~~
 
-Example:
+Example (from https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml):
 
-See https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml
+.. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: CloudMap
+    repositories:
+      unfurl.cloud/onecommons/blueprints/mediawiki:
+        git: unfurl.cloud/onecommons/blueprints/mediawiki.git
+        path: onecommons/blueprints/mediawiki
+        name: MediaWiki
+        protocols:
+        - https
+        - ssh
+        internal_id: '35'
+        project_url: https://unfurl.cloud/onecommons/blueprints/mediawiki
+        metadata:
+          description: MediaWiki is free and open-source wiki software used in Wikipedia,
+            Wiktionary, and many other online encyclopedias.
+          issues_url: https://unfurl.cloud/onecommons/blueprints/mediawiki/-/issues
+          homepage_url: https://unfurl.cloud/onecommons/blueprints/mediawiki
+        default_branch: main
+        branches:
+          main: 0fc60cb3afd06ae2c4abe038007e9ff4db398662
+        tags:
+          v1.0.0: 0fc60cb3afd06ae2c4abe038007e9ff4db398662
+          v0.1.0: 225932bc2a45473d682e48f272bc48fcd83909bb
+        notable:
+          ensemble-template.yaml#spec/service_template:
+            artifact_type: artifact.tosca.ServiceTemplate
+            name: Mediawiki
+            version: 0.1
+            description: MediaWiki is free and open-source wiki software used in Wikipedia,
+              Wiktionary, and many other online encyclopedias.
+            type:
+              name: Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki
+              title: Mediawiki
+              extends:
+              - Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki
+              - SQLWebApp@unfurl.cloud/onecommons/std:generic_types
+              - WebApp@unfurl.cloud/onecommons/std:generic_types
+              - App@unfurl.cloud/onecommons/std:generic_types
+            dependencies:
+            - MySQLDB@unfurl.cloud/onecommons/std:generic_types
+            artifacts:
+            - docker.io/bitnami/mediawiki
+    ...
+    artifacts:
+      docker.io/bitnami/mediawiki:
+        type: artifacts.OCIImage
+
 
 JSON Schema:
 

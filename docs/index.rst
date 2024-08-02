@@ -10,7 +10,6 @@ Welcome! This is the documentation for **Unfurl**.
 **Unfurl** organizes your DevOps infrastructure into Git repositories and
 integrates with Terraform and Ansible. Use it to record `Ensembles`, reusable and sharable building blocks for deploying and managing your online creations.
 
-
 Table of Contents
 ===================================
 
@@ -44,6 +43,8 @@ Table of Contents
    processing.rst
 
    expressions.rst
+
+   cloudmap.md
 
    cli.rst
 
