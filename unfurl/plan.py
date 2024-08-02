@@ -51,7 +51,7 @@ from .spec import (
     ToscaSpec,
 )
 from .logs import getLogger
-
+from toscaparser.nodetemplate import NodeTemplate
 
 logger = getLogger("unfurl")
 
@@ -67,6 +67,12 @@ def is_external_template_compatible(
             return False
     else:
         t_name = template.name
+
+    node_filter = template.tpl.get("node_filter")
+    if node_filter:
+        return isinstance(
+            external.toscaEntityTemplate, NodeTemplate
+        ) and external.toscaEntityTemplate.match_nodefilter(node_filter)
 
     if external.name == t_name:
         if not external.is_compatible_type(template.type):
@@ -177,7 +183,6 @@ class Plan:
         self, template: NodeSpec
     ) -> Iterator[NodeInstance]:
         if template.abstract == "select":
-            # XXX also match node_filter if present
             shadowInstance = self.find_shadow_instance(template)
             if shadowInstance:
                 logger.debug('found imported instance "%s"', shadowInstance.name)

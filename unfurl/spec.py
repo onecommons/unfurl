@@ -570,7 +570,8 @@ class ToscaSpec:
         for nodespec in self.topology.node_templates.values():
             ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
-            nodespec.toscaEntityTemplate.revalidate_properties()
+            if nodespec.abstract != "select":
+                nodespec.toscaEntityTemplate.revalidate_properties()
 
     def apply_node_filters(
         self, target: NodeTemplate, req_def: dict, source: NodeTemplate
