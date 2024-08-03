@@ -380,7 +380,7 @@ class Project:
 
     def find_or_create_working_dir(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Optional[GitRepo]:
+    ) -> GitRepo:
         repo = self.find_git_repo(repoURL, revision)
         if not repo:
             repo = self.create_working_dir(repoURL, revision)
@@ -431,9 +431,10 @@ class Project:
 
     def _set_contexts(self) -> None:
         # merge project contexts with parent contexts
-        contexts = self.localConfig.config.expanded.get("environments") or {}
+        expanded = cast(dict, self.localConfig.config.expanded)
+        contexts = expanded.get("environments") or {}
         # handle null environments:
-        dict_cls = getattr(contexts, "mapCtor", contexts.__class__)
+        dict_cls = getattr(expanded, "mapCtor", expanded.__class__)
         contexts = dict_cls(
             (n, dict_cls() if v is None else v) for n, v in contexts.items()
         )
@@ -459,6 +460,15 @@ class Project:
         return merge_dicts(
             context or {}, localContext, replaceKeys=LocalConfig.replaceKeys
         )
+
+    def add_context(self, name: str, value: dict):
+        yaml_config = self.localConfig.config
+        expanded = cast(dict, yaml_config.expanded)
+        assert yaml_config.config
+        dict_cls = getattr(expanded, "mapCtor", expanded.__class__)
+        yaml_config.config.setdefault("environments", dict_cls())[name] = value
+        expanded.setdefault("environments", dict_cls())[name] = value
+        self._set_contexts()
 
     @staticmethod
     def _check_vault_env_var(context, vaultId, default=None):
@@ -592,7 +602,7 @@ class Project:
         self,
         manifestPath: str,
         *,
-        project: "Project" = None,
+        project: Optional["Project"] = None,
         managedBy: Optional["Project"] = None,
         context: Optional[str] = None,
     ) -> None:
@@ -613,7 +623,7 @@ class Project:
         if managedBy or project:
             assert not (managedBy and project)
             self.register_project(managedBy or project, changed=True)
-        else:
+        elif self.localConfig.config.config:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
             if not self.localConfig.config.readonly:
                 self.localConfig.config.save()
@@ -1448,9 +1458,7 @@ class LocalEnv:
         bare: Optional[bool] = False
         project = self.project or self.homeProject
         while project:
-            repoview, filePath, bare = project.find_path_in_repos(
-                path, importLoader
-            )
+            repoview, filePath, bare = project.find_path_in_repos(path, importLoader)
             if repoview:
                 candidate = (repoview.repo, filePath, repoview.revision, bare)
                 if not bare:
