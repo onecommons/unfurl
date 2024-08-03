@@ -885,6 +885,8 @@ class Manifest(AttributeManager):
         self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
+        for (path, included) in yamlConfig._cachedDocIncludes.values():
+            self._update_repositories(included, None, resolver)
         repositories = self.repositories_as_tpl()
         base_dir = get_base_dir(baseDir)
         if repository_root is None:

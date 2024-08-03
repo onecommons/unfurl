@@ -1185,9 +1185,9 @@ class YamlConfig:
             f.write(output.getvalue())
 
     def load_include(
-        self, templatePath, warnWhenNotFound=False, expanded=None, check=False
+        self, templatePath, warnWhenNotFound=False, expanded=None, check_or_path=False
     ):
-        if check and isinstance(check, bool):
+        if check_or_path and isinstance(check_or_path, bool):
             # called by merge.has_template
             if self.loadHook:
                 return self.loadHook(

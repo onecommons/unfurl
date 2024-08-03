@@ -275,7 +275,7 @@ def _json_pointer_validate(pointer):
     return None
 
 
-def get_template(doc, key, value, path, cls, includes=None):
+def get_template(doc, key: "MergeKey", value, path, cls, includes=None):
     template = doc
     templatePath = None
     if key.include:
@@ -318,7 +318,7 @@ def get_template(doc, key, value, path, cls, includes=None):
 
 
 def _find_template(
-    doc: MutableMapping, key, path, cls, fail: bool
+    doc: MutableMapping, key: "MergeKey", path, cls, fail: bool
 ) -> Optional[Tuple[Any, Optional[List[str]]]]:
     template: Optional[MutableMapping] = doc
     templatePath: Optional[list] = None
@@ -394,7 +394,7 @@ RE_FIRST = re.compile(r"([?]?)(include\d*)?([*]\S+)?([.]+$)?")
 MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
 
 
-def parse_merge_key(key) -> Optional[MergeKey]:
+def parse_merge_key(key: str) -> Optional[MergeKey]:
     """
     +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
 
