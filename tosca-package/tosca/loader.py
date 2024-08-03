@@ -64,9 +64,16 @@ class RepositoryFinder(PathFinder):
             if repo_path:
                 if len(names) == 2:
                     if os.path.exists(repo_path):
-                        return ModuleSpec(
-                            fullname, None, origin=repo_path, is_package=True
-                        )
+                        init_path = os.path.join(repo_path, "__init__.py")
+                        if os.path.exists(init_path):
+                            loader = ToscaYamlLoader(fullname, init_path, modules)
+                            return spec_from_file_location(
+                                fullname, init_path, loader=loader, submodule_search_locations=[repo_path]
+                            )
+                        else:
+                            return ModuleSpec(
+                                fullname, None, origin=repo_path, is_package=True
+                            )
                     else:
                         logger.error(
                             f"Can't load module {fullname}: {repo_path} doesn't exist"
@@ -77,15 +84,22 @@ class RepositoryFinder(PathFinder):
                     if os.path.isdir(origin_path) and not os.path.isfile(
                         origin_path + ".py"
                     ):
-                        return ModuleSpec(
-                            fullname, None, origin=origin_path, is_package=True
-                        )
-                    origin_path += ".py"
+                        init_path = os.path.join(origin_path, "__init__.py")
+                        if os.path.exists(init_path):
+                            loader = ToscaYamlLoader(fullname, init_path, modules)
+                            return spec_from_file_location(
+                                fullname, init_path, loader=loader, submodule_search_locations=[origin_path]
+                            )
+                        else:
+                            return ModuleSpec(
+                                fullname, None, origin=origin_path, is_package=True
+                            )
+                    else:
+                        origin_path += ".py"
                     assert os.path.isfile(origin_path), origin_path
                     loader = ToscaYamlLoader(fullname, origin_path, modules)
                     spec = spec_from_loader(fullname, loader, origin=origin_path)
                     return spec
-                    # return PathFinder.find_spec(fullname, [repo_path], target)
             else:
                 logger.error(
                     f"Can't load module {fullname}: have you declared a repository for {names[1]}?"
@@ -699,7 +713,7 @@ def restricted_exec(
         namespace["__file__"] = (
             os.path.join(base_dir, full_name.replace(".", "/")) + ".py"
         )
-    if package:
+    if package and "__package__" not in namespace:
         namespace["__package__"] = package
     policy = SafeToscaDslNodeTransformer if safe_mode else ToscaDslNodeTransformer
     # print(python_src)

@@ -266,6 +266,8 @@ class DeploymentBlueprint(Namespace):
         for fieldname in cls._fields:
             field = cls.__dict__.get(fieldname)
             if field:
+                if fieldname == "_cloud" and hasattr(field, "tosca_type_name"):
+                    field = field.tosca_type_name()
                 blueprint[fieldname[1:]] = field
         converter.topology_templates.append(blueprint)
         converter._namespace2yaml(cls.get_defs())
