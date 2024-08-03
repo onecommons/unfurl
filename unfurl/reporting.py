@@ -325,9 +325,14 @@ class JobReporter:
                             for wf in request.task._workFolders.values():
                                 output.append(" " * indent + f"   rendered at {wf.cwd}")
                         if request.not_ready:
+                            # don't report error if waiting
+                            if request.dependencies:
+                                msg = "render waiting for dependents"
+                            else:
+                                msg = "render deferred due to errors"
                             if verbose:
                                 output.append(
-                                    " " * indent + "   render waiting for dependents:"
+                                    " " * indent + f"   {msg}:"
                                 )
                                 output.append(
                                     " " * indent
@@ -335,9 +340,9 @@ class JobReporter:
                                 )
                             else:
                                 output.append(
-                                    " " * indent + "   (render waiting for dependents)"
+                                    " " * indent + f"   ({msg})"
                                 )
-                        elif request.task._errors:  # don't report error if waiting
+                        elif request.task._errors or request.render_errors:
                             output.append(" " * indent + "   (errors while rendering)")
 
         opts = job.jobOptions.get_user_settings()
