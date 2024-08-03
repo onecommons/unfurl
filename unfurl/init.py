@@ -24,7 +24,7 @@ from .repo import (
 )
 from .util import UnfurlError, assert_not_none, substitute_env
 from .tosca_plugins.functions import get_random_password
-from .yamlloader import make_yaml, make_vault_lib
+from .yamlloader import make_yaml, make_vault_lib, yaml
 from .venv import init_engine
 from .logs import getLogger
 
@@ -74,6 +74,8 @@ def write_template(folder, filename, template, vars, templateDir=None):
 
     overrides = dict(loader=FileSystemLoader(searchPath))
     content = apply_template(source, RefContext(instance, vars), overrides)
+    if folder is None:
+        return content
     return _write_file(folder, filename, content)
 
 
@@ -556,7 +558,6 @@ def _looks_like(path, name):
     return None
 
 
-
 def _from_localenv(
     sourceProject: Project, sourcePath: str, use_environment: Optional[str]
 ) -> Optional[dict]:
@@ -600,7 +601,7 @@ def find_project(source, home_path):
     return None
 
 
-def _get_context_and_shared_repo(project, options):
+def _get_context_and_shared_repo(project: Project, options):
     # when creating ensemble, get the default project for the given context if set
     shared_repo = None
     shared = options.get("shared_repository")
@@ -609,10 +610,6 @@ def _get_context_and_shared_repo(project, options):
         context = project.get_default_context()
     if not shared and context:
         shared = project.get_default_project_path(context)
-        if not shared and context not in project.contexts:
-            raise UnfurlError(
-                f'environment "{context}" not found in project at "{project.projectRoot}"'
-            )
     if shared:
         shared_repo = Repo.find_containing_repo(shared)
         if not shared_repo:
@@ -688,12 +685,15 @@ class EnsembleBuilder:
                 # failed to load, look for well-known template files
                 template_vars = _find_templates(source_project, source_path)
         if not template_vars:
-            raise UnfurlError(f"Can't find suitable template files or ensemble from source: {source_path}")
+            raise UnfurlError(
+                f"Can't find suitable template files or ensemble from source: {source_path}"
+            )
         self.template_vars = template_vars
         if self.options.get("use_deployment_blueprint"):
             self.template_vars["deployment_blueprint"] = self.options[
                 "use_deployment_blueprint"
             ]
+        assert self.dest_project
         (self.environment, self.shared_repo) = _get_context_and_shared_repo(
             self.dest_project, self.options
         )
@@ -755,7 +755,7 @@ class EnsembleBuilder:
         )
         return localEnv, manifest
 
-    def create_new_ensemble(self):
+    def create_new_ensemble(self) -> str:
         """
         If "localEnv" is in template_vars, clone that ensemble;
         otherwise create one from a template with template_vars
@@ -830,12 +830,18 @@ class EnsembleBuilder:
         self.manifest = manifest
         return destDir
 
-    def clone_local_project(self, currentProject, sourceProject, dest_dir):
+    def clone_local_project(
+        self, currentProject: Optional[Project], sourceProject: Project, dest_dir: str
+    ) -> Project:
         self.source_path = sourceProject.get_relative_path(self.input_source)
         assert self.source_path
         assert not self.source_path.startswith(
             ".."
         ), f"{self.source_path} should be inside the project"
+        if not sourceProject.project_repoview.repo:
+            raise UnfurlError(
+                f"Only local projects with a git repository can be cloned."
+            )
         if currentProject:
             repoURL = sourceProject.project_repoview.repo.url
             if currentProject.find_git_repo(repoURL):
@@ -860,7 +866,7 @@ class EnsembleBuilder:
         ), f"project not found in {search}, cloned to {newrepo.working_dir}"
         return self.source_project
 
-    def resolve_input_source(self, current_project):
+    def resolve_input_source(self, current_project) -> str:
         if self.input_source.startswith("cloudmap:"):
             from .cloudmap import CloudMap
 
@@ -879,7 +885,9 @@ class EnsembleBuilder:
                 raise UnfurlError(f"Could not find {repo_key} in the cloudmap.")
         return self.input_source
 
-    def clone_remote_project(self, currentProject, destDir):
+    def clone_remote_project(
+        self, currentProject: Optional[Project], destDir: str
+    ) -> Project:
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
         self.source_revision = revision
@@ -909,14 +917,14 @@ class EnsembleBuilder:
         self.source_path = self.source_project.get_relative_path(targetDir)
         return self.source_project
 
-    def _needs_local_config(self, clonedProject):
-        return self.skeleton_vars and not os.path.exists(
+    def _needs_local_config(self, clonedProject: Project) -> bool:
+        return bool(self.skeleton_vars) and not os.path.exists(
             os.path.join(clonedProject.projectRoot, "local", DefaultNames.LocalConfig)
         )
 
     def set_dest_project_and_path(
-        self, existingSourceProject, existingDestProject, dest
-    ):
+        self, existingSourceProject: Optional[Project], existingDestProject: Optional[Project], dest: str
+    ) -> None:
         assert self.dest_project is None
         if existingDestProject:
             #  set that as the dest_project
@@ -951,7 +959,7 @@ class EnsembleBuilder:
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
 
-    def has_existing_ensemble(self, sourceProject):
+    def has_existing_ensemble(self, sourceProject: Optional[Project]) -> bool:
         if self.source_project is not sourceProject and not self.shared_repo:
             if "localEnv" in self.template_vars and os.path.exists(
                 Path(assert_not_none(self.dest_project).projectRoot)
@@ -961,14 +969,37 @@ class EnsembleBuilder:
                 return True
         return False
 
-    def set_source(self, sourceProject):
+    def set_source(self, sourceProject: Project) -> None:
         self.source_project = sourceProject
         # make source relative to the source project
         source_path = sourceProject.get_relative_path(self.input_source)
         assert not source_path.startswith("..")
         self.source_path = source_path
 
-    def set_ensemble(self, isRemote, existingSourceProject, existingDestProject):
+    def add_missing_environment(self, existing_project: Project) -> None:
+        kw = self.options
+        use_context = kw.get("use_environment")
+        if use_context and use_context not in existing_project.contexts:
+            skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+            skeleton_vars["default_context"] = use_context
+            content = write_project_config(
+                None,
+                "",
+                "unfurl.yaml.j2",
+                skeleton_vars,
+                kw.get("skeleton"),
+            )
+            existing_project.add_context(
+                use_context, yaml.load(content)["environments"][use_context]
+            )
+            logger.info(f"Added new environment {use_context} to project")
+
+    def set_ensemble(
+        self,
+        isRemote: bool,
+        existingSourceProject: Optional[Project],
+        existingDestProject: Optional[Project],
+    ) -> str:
         sourceWasCloned = self.source_project is not existingSourceProject
         destIsNew = not existingDestProject
         assert self.dest_project
@@ -992,8 +1023,10 @@ class EnsembleBuilder:
                     f'Can\'t find anything to clone in "{self.input_source}"'
                 )
 
+        if existingDestProject:
+            self.add_missing_environment(existingDestProject)
         destDir = self.create_new_ensemble()
-        if not isRemote and existingSourceProject is not self.source_project:
+        if not isRemote and sourceWasCloned and existingSourceProject:
             # we need to clone the referenced local repos so the new project has access to them
             clone_local_repos(
                 self.manifest,
@@ -1064,7 +1097,7 @@ def clone(
     source = builder.resolve_input_source(currentProject)
 
     ### step 1: clone the source repository and set the the source path
-    sourceProject = None
+    sourceProject: Optional[Project] = None
     isRemote = is_url_or_git_path(source)
 
     if isRemote:
