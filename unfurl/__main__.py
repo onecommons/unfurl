@@ -1350,8 +1350,11 @@ def _yaml_to_python(
             manifest = local_env.get_manifest(
                 skip_validation=True,
             )  # XXX safe_mode=True
-        except UnfurlBadDocumentError:
-            manifest = None  # assume the user didn't specify a manifest file
+        except UnfurlBadDocumentError as e:
+            if not e.doc or "apiVersion" in e.doc:
+                raise
+            # otherwise assume the user didn't specify a manifest file
+            manifest = None
         except Exception:
             raise  # unexpected error
 
