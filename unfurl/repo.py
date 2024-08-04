@@ -813,7 +813,7 @@ class GitRepo(Repo):
         return not self.run_cmd(("reset " + args).split())[0]
 
     def run_cmd(
-        self, args, with_exceptions: bool=False, **kw
+        self, args, with_exceptions: bool = False, **kw
     ) -> Tuple[int, str, str]:
         """
         :return:
@@ -977,6 +977,50 @@ class GitRepo(Repo):
         self.repo.index.remove(os.path.abspath(path), r=True, working_tree=True)
         if commit:
             self.repo.index.commit(commit)
+
+    def is_lfs_enabled(self, url=None) -> bool:
+        if self.repo.remotes:
+            status, out, err = self.run_cmd(["lfs", "locks"], remote=url)
+            if status:
+                logger.warning(
+                    "git lfs on %s not available, `git lfs locks` says: %s",
+                    self.safe_url,
+                    err,
+                )
+            else:
+                logger.debug(
+                    "git lfs on %s available, `git lfs locks` says: %s",
+                    self.safe_url,
+                    out,
+                )
+                return True
+        return False
+
+    def lock_lfs(self, lockfilepath: str, url=None) -> bool:
+        try:
+            # note: file doesn't have to exist or added to the repo or have its .gitattributes set
+            self.run_cmd(
+                ["lfs", "lock", lockfilepath], remote=url, with_exceptions=True
+            )
+        except git.exc.GitCommandError as e:
+            if "already locked" in e.stderr:
+                return False
+            else:
+                raise
+        return True
+
+    def unlock_lfs(self, lockfilepath: str, url=None) -> bool:
+        try:
+            # note: file doesn't have to exist or added to the repo or have its .gitattributes set
+            self.run_cmd(
+                ["lfs", "unlock", lockfilepath], remote=url, with_exceptions=True
+            )
+        except git.exc.GitCommandError as e:
+            if "no matching locks found" in e.stderr:
+                return False
+            else:
+                raise
+        return True
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()

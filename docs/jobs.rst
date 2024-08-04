@@ -93,3 +93,32 @@ can be found in its `readyState` section, for example:
     state: started # node state
   lastConfigChange: A0AP4P9C0001 # change id of the last ConfigChange that was applied
   lastStateChange: A0DEVF0003 # change id of the last detected change to the instance
+
+Locking
+~~~~~~~
+
+When a job is running Unfurl will lock the ensemble to prevent other instances of Unfurl from modifying the same ensemble.
+There are two kinds of locks: a local lock that prevents access to the same local copy of an ensemble and a global lock which takes a `git lfs`_ lock to prevent access to the ensemble across remote servers.
+Note that locks don't cause the job to block, instead the job will just abort when it starts. It is up to the user to re-run the job if aborts due to locking.
+
+The local locking is always enabled but global remote lock need to be enabled via the ``lfs_lock`` section in your project's `environment` configuration. The following settings are available:
+
+
+:lock: Whether to use git lfs when locking an ensemble, it can be set to one of:
+
+    "no", don't try to lock (the default)
+
+    "try", take a lock if th e git lfs server is available
+
+    "require" abort job if unable to take a git lfs lock
+
+:url: The URL of the Git LFS server to use. If missing, the ensemble's git repository origin remote will be used.
+
+:name: Name of the lock file to use. Note that with git lfs, the file doesn't need to exist in in the git repository. If omitted, the local lock's file path will be used.
+  By setting this you can set the scope to be coarser (or narrower) than each Individual ensemble as any ensemble using the same name will be locked.
+
+  The following string substitutions are available to dynamically generate the name: ``$ensemble_uri``, ``$environment``, and ``$local_lock_path``. For example, setting a name like "group1/$environment" would prevent jobs from simultaneously running that share the lock name "group1" and were in same environment.
+
+As these settings are `environment`` settings, they will be merged with the current project, home project, and the ensemble's environment sections. Unlike most other environment settings, the ensemble's settings takes priority and overrides the project's settings.
+
+.. _git lfs: https://git-lfs.com/
