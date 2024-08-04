@@ -147,6 +147,32 @@
               }
             }
           ]
+        },
+        "lfs_lock": {
+          "type": "object",
+          "$$target": "#/definitions/environment/lfs_lock",
+          "description": "Configure the global git lfs lock for jobs. See Job `locking`",
+          "properties": {
+            "lock": {
+              "type": "string",
+              "enum": [
+                "no",
+                "try",
+                "require"
+              ],
+              "default": "no",
+              "description": "Whether to use git lfs when locking an ensemble. 'try' use locking if lfs is available; 'require' means error if unable to lock"
+            },
+            "name": {
+              "type": "string",
+              "description": "Name of the lock file"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Git LFS server url; if missing, use the ensemble's git repository"
+            }
+          }
         }
       }
     },

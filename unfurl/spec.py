@@ -91,11 +91,11 @@ def validate_unfurl_identifier(name):
     return re.match(r"^[A-Za-z._][A-Za-z0-9._:\-]*$", name) is not None
 
 
-def encode_unfurl_identifier(name):
+def encode_unfurl_identifier(name, escape=r"[^A-Za-z0-9._:-]"):
     def encode(match):
         return f"-{ord(match.group(0))}-"
 
-    return re.sub(r"[^A-Za-z0-9._:\-]", encode, name)
+    return re.sub(escape, encode, name)
 
 
 def decode_unfurl_identifier(name):

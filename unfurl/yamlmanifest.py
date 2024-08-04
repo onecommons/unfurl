@@ -4,7 +4,8 @@
 
 import io
 import json
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, TypedDict, cast
+from typing_extensions import NotRequired
 import sys
 from collections.abc import MutableSequence, Mapping
 import numbers
@@ -19,7 +20,7 @@ except ImportError:
     from functools import lru_cache as cache
 
 from . import DefaultNames
-from .util import UnfurlError, get_base_dir, to_yaml_text, filter_env
+from .util import UnfurlError, get_base_dir, substitute_env, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig, make_yaml
 from .result import serialize_value
@@ -27,7 +28,7 @@ from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .spec import ArtifactSpec, NodeSpec, find_env_vars
+from .spec import ArtifactSpec, NodeSpec, encode_unfurl_identifier, find_env_vars
 from .runtime import EntityInstance, NodeInstance, TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
@@ -205,6 +206,12 @@ def get_manifest_schema(format: str) -> dict:
     return schema
 
 
+class LfsSettings(TypedDict):
+    lock: NotRequired[str]  # require, no, try
+    name: NotRequired[str]  # name of the lock $ensemble or $environment
+    url: NotRequired[str]  # otherwise use the ensemble's git repository
+
+
 class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
@@ -225,7 +232,7 @@ class ReadOnlyManifest(Manifest):
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
         schema = get_manifest_schema(
-          localEnv and localEnv.overrides.get("format") or ""
+            localEnv and localEnv.overrides.get("format") or ""
         )
         self.manifest = YamlConfig(
             manifest,
@@ -333,6 +340,8 @@ class YamlManifest(ReadOnlyManifest):
     _operationIndex: Optional[Dict[Tuple[str, str], str]] = None
     lockfilepath = None
     lockfile = None
+    lfs_locked: Optional[str] = None
+    lfs_url: Optional[str] = None
 
     def __init__(
         self,
@@ -681,8 +690,58 @@ class YamlManifest(ReadOnlyManifest):
                     }
         return self.changeSets is not None
 
-    def lock(self):
+    def lfs_settings(self) -> Tuple[bool, bool, str, Optional[str]]:
+        local = self.manifest.expanded.get("environment", {}).get("lfs_lock")
+        env = self.context.get("lfs_lock", {}).copy()
+        # give ensemble priority:
+        if local:
+            env.update(local)
+        lock = cast(LfsSettings, env)
+        enable = lock.get("lock", "no")
+        assert enable in ("require", "no", "try")
+        if not lock or enable == "no":
+            return False, False, "", None
+        else:
+            lfs_try = True
+            lfs_required = enable == "require"
+            lfs_url = lock.get("url", "")
+        lfs_lock_path = lock.get("name")
+        if lfs_lock_path and self.localEnv:
+            lock_vars = dict(
+                environment=self.localEnv.manifest_context_name, ensemble_uri=self.uri
+            )
+            if self.repo:
+                lock_vars["local_lock_path"] = os.path.relpath(
+                    self.lockfilepath or "", self.repo.working_dir
+                )
+            lfs_lock_path = substitute_env(lfs_lock_path, lock_vars)
+        elif self.lockfilepath and self.repo:
+            lfs_lock_path = os.path.relpath(self.lockfilepath, self.repo.working_dir)
+        else:
+            lfs_lock_path = self.uri
+        escaped_lfs_lock_path = encode_unfurl_identifier(lfs_lock_path, r"[^\w/-]")
+        return lfs_try, lfs_required, escaped_lfs_lock_path, lfs_url
+
+    def _lock_lfs(self) -> bool:
+        lfs_try, lfs_required, lfs_lock_path, lfs_url = self.lfs_settings()
+        if lfs_try:
+            if self.repo and self.repo.is_lfs_enabled(lfs_url):
+                if self.repo.lock_lfs(lfs_lock_path, lfs_url):
+                    self.lfs_locked = lfs_lock_path
+                    self.lfs_url = lfs_url
+                    logger.debug(f"git lfs locked {self.lockfilepath}")
+                    return True
+                else:
+                    msg = f"Ensemble {self.path} is remotely locked at {lfs_lock_path}"
+                    raise UnfurlError(msg)
+            elif lfs_required:
+                msg = "git lfs is not available but is required to use this ensemble"
+                raise UnfurlError(msg)
+        return False
+
+    def lock(self) -> bool:
         # implement simple local file locking -- no waiting on the lock
+        # lock() should never be called when already holding a lock, raise error if it does
         msg = f"Ensemble {self.path} was already locked -- is there a circular reference between external ensembles?"
         if self.lockfile:
             raise UnfurlError(msg)
@@ -698,12 +757,20 @@ class YamlManifest(ReadOnlyManifest):
                         f"Lockfile '{self.lockfilepath}' already created by another process {pid} "
                     )
         else:
-            # ok if we race here, we'll just raise an error
+            # open exclusively, ok if we race here, we'll just raise an error
             self.lockfile = open(self.lockfilepath, "xb", buffering=0)
             self.lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
+            try:
+                self._lock_lfs()
+            except Exception:
+                self.unlock()
+                raise
             return True
 
     def unlock(self):
+        if self.repo and self.lfs_locked:
+            self.repo.unlock_lfs(self.lfs_locked, self.lfs_url)
+            self.lfs_locked = None
         if self.lockfile and self.lockfilepath:
             # unlink first to avoid race (this will fail on Windows)
             os.unlink(self.lockfilepath)
