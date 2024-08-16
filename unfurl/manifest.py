@@ -144,7 +144,7 @@ class Manifest(AttributeManager):
                 )
             else:
                 repositories[key] = value
-        env_package_spec = context.get("variables", {}).get(
+        env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
             "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
         )
         if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):

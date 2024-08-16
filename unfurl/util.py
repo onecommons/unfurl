@@ -622,8 +622,8 @@ class Generate:
             return False
 
 
-def taketwo(seq):
-    last = None
+def taketwo(seq: Iterable[_T]) -> Iterator[Tuple[_T, Optional[_T]]]:
+    last: _T = cast(_T, None)
     for i, x in enumerate(seq):
         if (i + 1) % 2 == 0:
             yield last, x

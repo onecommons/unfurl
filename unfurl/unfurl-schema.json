@@ -4,8 +4,12 @@
   "description": "Unfurl configuration file",
   "type": "object",
   "properties": {
-    "apiVersion": { "const": "unfurl/v1alpha1" },
-    "kind": { "const": "Project" },
+    "apiVersion": {
+      "const": "unfurl/v1alpha1"
+    },
+    "kind": {
+      "const": "Project"
+    },
     "ensembles": {
       "type": "array",
       "items": {
@@ -36,36 +40,58 @@
             "description": "The name of the environment to use for this ensemble."
           }
         },
-        "required": ["file"]
+        "required": [
+          "file"
+        ]
       }
     },
     "environments": {
       "anyOf": [
         {
           "type": "object",
-          "propertyNames": { "pattern": "^[A-Za-z._][A-Za-z0-9._\\-]*$" },
+          "propertyNames": {
+            "pattern": "^[A-Za-z._][A-Za-z0-9._\\-]*$"
+          },
           "additionalProperties": {
             "anyOf": [
-              { "$ref": "./manifest-schema.json#/definitions/environment" },
-              { "type": "null" }
+              {
+                "$ref": "./manifest-schema.json#/definitions/environment"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
-    "default_environment": { "type": "string" },
+    "default_environment": {
+      "type": "string",
+      "description": "The name of the environment to deploy into if none was specified for the ensemble in its configuration or by the command line)."
+    },
     "projects": {
       "type": "object",
       "allOf": [
-        { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
+        {
+          "$ref": "./manifest-schema.json#/definitions/namedObjects"
+        },
         {
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "url": { "type": "string", "format": "uri" },
-              "initial": { "type": "string" },
-              "file": { "type": "string" }
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "initial": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              }
             }
           }
         }
@@ -79,6 +105,9 @@
       }
     }
   },
-  "required": ["apiVersion", "kind"],
+  "required": [
+    "apiVersion",
+    "kind"
+  ],
   "additionalProperties": false
 }

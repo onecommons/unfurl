@@ -553,9 +553,10 @@ spec:
             )
             # print_config("p1", "./unfurl_home")
 
-            # creates in production project because that's the defaultProject
+            # creates ensemble named "p1" in production project because that's the defaultProject
             self.assertNotIn("ensemble", os.listdir("p1"))
             self.assertNotIn("p1", os.listdir("p1"))
+            self.assertNotIn("production", os.listdir("p1"))
             self.assertIn("p1", os.listdir("production"))
 
             localEnv = LocalEnv("p1", homePath="./unfurl_home")
@@ -624,7 +625,7 @@ spec:
             os.chdir("..")
 
             run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
-
+            # print_config("p1copy", "./unfurl_home")
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
             assert localEnv.manifest_context_name == "production"
             # default context is set for the new

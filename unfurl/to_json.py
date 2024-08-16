@@ -1784,7 +1784,7 @@ def to_environments(
             )
             if path not in deployment_paths:
                 deployment_paths[path] = obj
-        default_manifest = localEnv.project.search_for_manifest(True)
+        default_manifest = localEnv.project.search_for_default_manifest()
         if default_manifest and default_manifest != localEnv.manifestPath:
             path, obj = GraphqlDB.get_deployment_path(
                 localEnv.project, dict(file=default_manifest)

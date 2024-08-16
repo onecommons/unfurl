@@ -7,7 +7,7 @@ This module implements creating and cloning project and ensembles as well Unfurl
 import datetime
 import os
 import os.path
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional, cast, TYPE_CHECKING
 import uuid
 from jinja2.loaders import FileSystemLoader
 from pathlib import Path
@@ -18,16 +18,25 @@ from .repo import (
     GitRepo,
     Repo,
     is_url_or_git_path,
+    normalize_git_url,
     split_git_url,
     commit_secrets,
     sanitize_url,
 )
-from .util import UnfurlError, assert_not_none, substitute_env
+from .util import (
+    UnfurlError,
+    assert_not_none,
+    get_base_dir,
+    is_relative_to,
+    substitute_env,
+)
 from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib, yaml
 from .venv import init_engine
 from .logs import getLogger
 
+if TYPE_CHECKING:
+    from . import yamlmanifest
 logger = getLogger("unfurl")
 
 _skeleton_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "skeletons")
@@ -40,7 +49,7 @@ def rename_for_backup(dir):
     return new
 
 
-def _write_file(folder, filename, content):
+def _write_file(folder, filename, content) -> str:
     if not os.path.isdir(folder):
         os.makedirs(os.path.normpath(folder))
     filepath = os.path.join(folder, filename)
@@ -49,7 +58,7 @@ def _write_file(folder, filename, content):
     return filepath
 
 
-def write_template(folder, filename, template, vars, templateDir=None):
+def write_template(folder, filename, template, vars, templateDir=None) -> str:
     from .eval import RefContext
     from .runtime import NodeInstance
     from .support import apply_template
@@ -75,7 +84,7 @@ def write_template(folder, filename, template, vars, templateDir=None):
     overrides = dict(loader=FileSystemLoader(searchPath))
     content = apply_template(source, RefContext(instance, vars), overrides)
     if folder is None:
-        return content
+        return cast(str, content)
     return _write_file(folder, filename, content)
 
 
@@ -236,7 +245,7 @@ def render_project(
     externalProject = None
     ensembleDir = os.path.join(projectdir, names.EnsembleDirectory)
     if ensembleRepo:
-        if ensembleRepo.working_dir not in projectdir:
+        if not is_relative_to(ensembleRepo.working_dir, projectdir):
             externalProject = find_project(ensembleRepo.working_dir, homePath)
         if externalProject:
             dirname, ensembleDirName = os.path.split(projectdir)
@@ -375,7 +384,7 @@ def _find_project_repo(projectdir):
     return repo
 
 
-def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name):
+def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name, kw):
     if shared:
         ensembleRepo = Repo.find_containing_repo(shared)
         if not ensembleRepo:
@@ -383,10 +392,11 @@ def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name):
     else:
         ensembleDir = os.path.join(projectdir, ensemble_name)
         ensembleRepo = _create_repo(ensembleDir, not submodule)
+        _add_ensemble_specific_unfurl_config(ensembleRepo, kw)
     return ensembleRepo
 
 
-def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, runtime):
+def _commit_repos(projectdir, repo: GitRepo, ensembleRepo: Optional[GitRepo], shared, kw, ensembleDir, runtime):
     if ensembleRepo:
         ensembleRepo.add_all(ensembleDir)
         if shared:
@@ -412,7 +422,7 @@ def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, runti
     repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
 
 
-def _get_shared(kw, homePath):
+def _get_shared(kw, homePath) -> Optional[str]:
     shared = kw.get("shared_repository")
     if shared:
         return shared
@@ -477,7 +487,7 @@ def create_project(
         ensembleRepo = repo
     else:
         ensembleRepo = _find_ensemble_repo(
-            projectdir, shared, submodule, names.EnsembleDirectory
+            projectdir, shared, submodule, names.EnsembleDirectory, kw
         )
 
     logger.info(f"Creating Unfurl project at {projectdir}...")
@@ -493,7 +503,7 @@ def create_project(
         False,
         skeleton_vars,
     )
-    if homePath and create_context:
+    if homePath and not creating_home:
         newProject = find_project(projectConfigPath, homePath)
         assert newProject
         homeProject = newProject.parentProject
@@ -511,7 +521,7 @@ def create_project(
         _commit_repos(
             projectdir,
             repo,
-            not mono and ensembleRepo,
+            ensembleRepo if not mono else None,
             shared,
             kw,
             ensembleDir,
@@ -534,19 +544,44 @@ def clone_local_repos(manifest, sourceProject: Project, targetProject: Project):
             targetProject.find_or_clone(repo)
 
 
-def _create_ensemble_repo(manifest, repo, commit=True):
-    destDir = os.path.dirname(manifest.manifest.path)
+def _add_ensemble_specific_unfurl_config(repo: GitRepo, kw: dict):
+    # when creating a separate repo, add a stub unfurl.yaml too
+    skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+    use_context = kw.get("use_environment")
+    if use_context:
+        skeleton_vars["default_context"] = use_context
+    skeleton_vars["ensemble_repository_config"] = (
+        "# The configuration here is specific to the ensemble.yaml found in the same directory of this file.\n"
+        "# The project-level unfurl.yaml configuration can override these and environment-specific configuration should be set there."
+    )
+    project_config_path = write_project_config(
+        repo.working_dir,
+        DefaultNames.LocalConfig,
+        "unfurl.yaml.j2",
+        skeleton_vars,
+        kw.get("skeleton"),
+    )
+    repo.repo.index.add([project_config_path])
+
+
+def _create_ensemble_repo(
+    manifest: "yamlmanifest.ReadOnlyManifest", repo: Optional[GitRepo], kw: dict
+):
+    manifest_path = manifest.manifest.path
+    assert manifest_path
+    destDir = os.path.dirname(manifest_path)
     if not repo:
         repo = _create_repo(destDir)
+        _add_ensemble_specific_unfurl_config(repo, kw)
     elif not os.path.isdir(destDir):
         os.makedirs(destDir)
 
-    manifest.metadata["uri"] = repo.get_url_with_path(manifest.manifest.path, True)
-    with open(manifest.manifest.path, "w") as f:
+    manifest.metadata["uri"] = repo.get_url_with_path(manifest_path, True)
+    with open(manifest_path, "w") as f:
         manifest.dump(f)
 
-    if commit:
-        repo.repo.index.add([manifest.manifest.path])
+    if not kw.get("render"):  # don't commit if --render set
+        repo.repo.index.add([manifest_path])
         repo.repo.index.commit("Default ensemble repository boilerplate")
     return repo
 
@@ -561,11 +596,11 @@ def _looks_like(path, name):
 
 
 def _from_localenv(
-    sourceProject: Project, sourcePath: str, use_environment: Optional[str]
+    sourceProject: Project, sourcePath: str, use_environment: Optional[str], home_path: Optional[str]
 ) -> Optional[dict]:
     try:
-        overrides = dict(ENVIRONMENT=use_environment, format="blueprint")
-        localEnv = LocalEnv(sourcePath, project=sourceProject, overrides=overrides)
+        overrides = dict(ENVIRONMENT=use_environment)
+        localEnv = LocalEnv(sourcePath, home_path, overrides=overrides)
         assert localEnv.manifestPath
         sourceDir = sourceProject.get_relative_path(
             os.path.dirname(localEnv.manifestPath)
@@ -594,8 +629,9 @@ def _find_templates(sourceProject: Project, sourcePath: str):
     return None
 
 
-def find_project(source, home_path):
-    sourceRoot = Project.find_path(source)
+def find_project(source: str, home_path: Optional[str]):
+    src_dir = get_base_dir(source)
+    sourceRoot = Project.find_path(src_dir)
     if sourceRoot:
         if home_path:
             return Project(sourceRoot, Project(home_path))
@@ -658,39 +694,51 @@ class EnsembleBuilder:
             f"Can't clone \"{self.input_source}\": it isn't in an Unfurl project or repository"
         )
 
-    def configure(self):
+    def configure(self, remote_source: bool):
+        # set self.template_vars for creating a new ensemble
         assert not self.template_vars
-
         # source is a path into the project relative to the current directory
         assert self.source_path
         source_project = assert_not_none(self.source_project)
         source_path = os.path.join(source_project.projectRoot, self.source_path)
         if not os.path.exists(source_path):
             raise UnfurlError(
-                f'Given source "{os.path.abspath(source_path)}" does not exist.'
+                f'Given source "{os.path.abspath(source_path)}" {source_project.projectRoot} ... {self.source_path} does not exist.'
             )
-        if self.options.get("want_init"):  # if creating a new project or ensemble
-            #  if source is a directory look for well-known template files, otherwise
+        specific_file = self.source_path != "." and not self.source_path.endswith(
+            "unfurl.yaml"
+        )
+        source_has_ensembles = source_project.has_ensembles()
+        if (
+            not specific_file
+            and not self.options.get("want_init")
+            and remote_source  # always create a new ensemble if cloning from self or another local project
+            and source_has_ensembles  # we want a new ensemble if source is a blueprint project with no ensembles
+        ):
+            self.template_vars = {}  # don't create an ensemble
+        else:
             template_vars = _find_templates(source_project, source_path)
             if not template_vars:
-                # if none are found then try to treat as an ensemble to clone
+                # if none are found then try to treat source_path as an ensemble to clone
                 template_vars = _from_localenv(
-                    source_project, source_path, self.options.get("use_environment")
+                    source_project, source_path, self.options.get("use_environment"), self.home_path
                 )
-        else:  # clone an ensemble or template
-            template_vars = None
-            if not source_path.endswith(DefaultNames.ServiceTemplate):
-                template_vars = _from_localenv(
-                    source_project, source_path, self.options.get("use_environment")
-                )
-            if not template_vars:
-                # failed to load, look for well-known template files
-                template_vars = _find_templates(source_project, source_path)
-        if not template_vars:
-            raise UnfurlError(
-                f"Can't find suitable template files or ensemble from source: {source_path}"
-            )
-        self.template_vars = template_vars
+                if not template_vars:
+                    if specific_file and os.path.isfile(source_path):
+                        # assume its an ensemble-template
+                        sourceDir, ensembleTemplate = os.path.split(source_path)
+                        template_vars = dict(
+                            sourceDir=sourceDir, ensembleTemplate=ensembleTemplate
+                        )
+                    elif self.options.get("want_init"):
+                        # can't find anything to do, so raise an error
+                        raise UnfurlError(
+                            f"Can't find suitable template files or ensemble to clone in source {source_path}"
+                        )
+                    else:
+                        template_vars = {}  # otherwise, don't create an ensemble
+            self.template_vars = template_vars
+        logger.trace(f"creating ensemble from {'remote' if remote_source else 'local'} {'' if source_has_ensembles else 'blueprint '}repo at {source_path} with %s", self.template_vars)
         if self.options.get("use_deployment_blueprint"):
             self.template_vars["deployment_blueprint"] = self.options[
                 "use_deployment_blueprint"
@@ -807,12 +855,12 @@ class EnsembleBuilder:
             manifest = yamlmanifest.clone(localEnv, targetPath)
 
         dest_project = assert_not_none(self.dest_project)
+        repo = self.shared_repo or self.mono and dest_project.project_repoview.repo
         _create_ensemble_repo(
             manifest,
-            self.shared_repo or self.mono and dest_project.project_repoview.repo,
-            not self.options.get("render"),
+            repo,
+            self.options,
         )
-
         manifest_path: str = assert_not_none(manifest.path)
         if destProject.projectRoot != dest_project.projectRoot:
             # cross reference each other
@@ -822,7 +870,7 @@ class EnsembleBuilder:
             dest_project.register_ensemble(
                 manifest_path, project=destProject, context=self.environment
             )
-        else:
+        elif repo:  # register if added in the same repo
             destProject.register_ensemble(manifest_path, context=self.environment)
         if not self.options.get("render"):
             msg = f"Add ensemble at {destProject.get_relative_path(manifest_path)}"
@@ -863,9 +911,10 @@ class EnsembleBuilder:
             )
 
         self.source_project = find_project(search, self.home_path)
-        assert (
-            self.source_project
-        ), f"project not found in {search}, cloned to {newrepo.working_dir}"
+        if not self.source_project:
+            raise UnfurlError(
+                f"project not found in {search}, cloned to {newrepo.working_dir}"
+            )
         return self.source_project
 
     def resolve_input_source(self, current_project) -> str:
@@ -893,6 +942,7 @@ class EnsembleBuilder:
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
         self.source_revision = revision
+        repoURL = normalize_git_url(repoURL)
         if currentProject:
             repo = currentProject.find_or_create_working_dir(repoURL, revision)
             destDir = repo.working_dir
@@ -925,7 +975,10 @@ class EnsembleBuilder:
         )
 
     def set_dest_project_and_path(
-        self, existingSourceProject: Optional[Project], existingDestProject: Optional[Project], dest: str
+        self,
+        existingSourceProject: Optional[Project],
+        existingDestProject: Optional[Project],
+        dest: str,
     ) -> None:
         assert self.dest_project is None
         if existingDestProject:
@@ -1003,27 +1056,18 @@ class EnsembleBuilder:
         existingDestProject: Optional[Project],
     ) -> str:
         sourceWasCloned = self.source_project is not existingSourceProject
-        destIsNew = not existingDestProject
         assert self.dest_project
-        if destIsNew and self.has_existing_ensemble(existingSourceProject):
-            # if dest_project is new (we just cloned it)
-            # check if we cloned the ensemble already
-            # if so we done, we don't need to create a new one
-            return (
-                "Cloned project with a pre-existing ensemble to "
-                + self.dest_project.projectRoot
-            )
-
+        assert self.source_project
         if not self.template_vars:
-            # source wasn't pointing to an ensemble to clone
-            if sourceWasCloned:
-                # but we cloned a project
-                return "Cloned empty project to " + self.dest_project.projectRoot
-            else:
-                # can't find anything to do, so raise an error
-                raise UnfurlError(
-                    f'Can\'t find anything to clone in "{self.input_source}"'
+            if self.source_project.has_ensembles():
+                # XXX if not destIsNew and use_environment warn: that setting is ignored with existing deployments
+                return (
+                    "Cloned project with a pre-existing ensemble(s) to "
+                    + self.dest_project.projectRoot
                 )
+            else:
+                # source wasn't pointing to an ensemble to clone
+                return "Cloned empty project to " + self.dest_project.projectRoot
 
         if existingDestProject:
             self.add_missing_environment(existingDestProject)
@@ -1033,14 +1077,14 @@ class EnsembleBuilder:
             clone_local_repos(
                 self.manifest,
                 existingSourceProject,
-                assert_not_none(self.source_project),
+                assert_not_none(self.dest_project),
             )
         return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
     def load_ensemble_template(self):
         if not self.template_vars or not self.template_vars.get("ensembleTemplate"):
             raise UnfurlError(
-                f"Clone with --design not supported: no ensemble template found."
+                "Clone with --design not supported: no ensemble template found."
             )
         assert isinstance(self.template_vars["sourceDir"], str)
         sourceDir = os.path.normpath(
@@ -1068,23 +1112,36 @@ def clone(
     **options: Any,
 ) -> str:
     """
-    Clone the ``source`` ensemble to ``dest``. If ``dest`` isn't in a project, create one.
-    ``source`` can point to an ensemble_template, a service_template, an existing ensemble
-    or a folder containing one of those. If it points to a project its default ensemble will be cloned.
+    Clone the ``source`` project or ensemble to ``dest``. If ``dest`` isn't in a project, create a new one.
 
-    Referenced `repositories` will be cloned if a git repository or copied if a regular file folder,
-    If the folders already exist they will be copied to new folder unless the git repositories have the same HEAD.
-    but the local repository names will remain the same.
+    ``source`` can be a git URL or a path inside a local git repository.
+    Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<file\path>``.
+    You can use cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
 
-    ======================= =============================================
-    dest                    result
-    ======================= =============================================
-    Inside source project   new ensemble
-    missing or empty folder clone project, new or cloned ensemble
-    another project         new or cloned ensemble with source as spec
-    non-empty folder        error
-    ======================= =============================================
+    If ``source`` can point to an Unfurl project, an ensemble_template, a service_template, an existing ensemble or a folder containing one of those.
 
+    The result of the clone depends on the destination:
+
+    ======================= ===============================================
+    ``dest``                Result
+    ======================= ===============================================
+    Inside source project   New or cloned ensemble (depending on source)
+    Missing or empty folder Clone project, create new ensemble if missing
+    Another project         See below
+    Non-empty folder        Error, abort
+    ======================= ===============================================
+
+    When creating a new ensemble from a source, if the source points to:
+
+    * an ensemble: clone the ensemble
+    * an ensemble template or TOSCA service template: a create new ensemble from the template.
+    * a project: If the project includes a ensemble-template.yaml, use that; if missing, clone the project's default ensemble.
+
+    When dest is set to another project, clone's behavior depends on source:
+
+    If the source is a local file path, the project and local repository is registered in the destination project and a new ensemble is created based on the source.
+
+    If the source is a git URL, the repository is cloned inside the destination project. A new ensemble is only created if the source specified a specific ensemble or template or if the source was blueprint project (i.e. it contains an ensemble template but doesn't contain any ensembles).
     """
     builder = EnsembleBuilder(source, ensemble_name, options)
     if not dest:
@@ -1136,7 +1193,7 @@ def clone(
         return "Cloned project to " + assert_not_none(builder.dest_project).projectRoot
 
     ##### step 3: examine source for template details and determine shared project
-    builder.configure()
+    builder.configure(isRemote)
 
     if options.get("design"):
         # don't create an ensemble but fully instantiate the ensemble-template

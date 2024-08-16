@@ -262,7 +262,7 @@ class ReadOnlyManifest(Manifest):
     @property
     def uris(self) -> List[str]:
         uris: List[str] = []
-        if "metadata" in self.manifest.config:
+        if self.manifest.config and "metadata" in self.manifest.config:
             uri = self.metadata.get("uri")
             uris = self.metadata.get("aliases") or []
             if uri:

@@ -14,8 +14,9 @@ from unfurl.repo import (
 from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
+from unfurl.testing import run_cmd
 from unfurl.yamlmanifest import YamlManifest
-
+from .utils import print_config
 
 def createUnrelatedRepo(gitDir):
     os.makedirs(gitDir)
@@ -213,7 +214,7 @@ class GitRepoTest(unittest.TestCase):
         self.maxDiff = None
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["--home", "", "init"])
+            result = runner.invoke(cli, ["--home", "", "init", "--use-environment", "test"])
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -240,6 +241,7 @@ unfurl.yaml
 .gitattributes
 .gitignore
 ensemble.yaml
+unfurl.yaml
 """
             self.assertEqual(
                 output.strip(), result.output.strip(), result.output.strip()
@@ -256,6 +258,13 @@ ensemble.yaml
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
+            result = runner.invoke(cli, ["--home", "", "clone", "ensemble", "cloned-ensemble"])
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+            assert os.path.isdir("cloned-ensemble")
 
     def test_home_manifest(self):
         """
@@ -410,6 +419,8 @@ ensemble.yaml
                 "branch",
             ),
             "file:foo/repo.git": ("file:foo/repo.git", "", ""),
+            "file:foo/repo#": ("file:foo/repo#", "", ""),
+            "file:foo/repo#:path": ("file:foo/repo", "path", ""),
         }
         for url, expected in urls.items():
             if expected:
@@ -600,7 +611,7 @@ spec:
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["clone", "test", "cloned"])
+            result = runner.invoke(cli, ["clone", "file:test#:", "cloned"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -692,3 +703,19 @@ def test_reified_repo(caplog):
         # and make sure the environment can override the built-in "spec" repository
         assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
         assert 'skipping inline repository definition for "include-early-repo", it was previously defined' in caplog.text
+
+def test_clone_ensemble_repo():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        # use a share home project so git-local: url resolve across projects
+        run_cmd(runner, ["--home", "local_home", "home", "--init"])
+        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "test", "src"])
+        ensemble_repo_files = set(['unfurl.yaml', '.gitignore', '.gitattributes', '.git', 'ensemble.yaml'])
+        assert set(os.listdir("src/ensemble")) == ensemble_repo_files
+        run_cmd(runner, ["--home", "local_home", "init", "dst"])
+        # use URL with fragment instead of file path to induce remote cloning semantics
+        run_cmd(runner, ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"])
+        assert "ensemble1" in os.listdir("dst")
+        assert set(os.listdir("dst/ensemble1")) == ensemble_repo_files
+        print_config("local_home")
+        run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])

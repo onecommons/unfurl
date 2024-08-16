@@ -459,7 +459,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     self.config.get("environment")
                 )
                 tpl["credential"] = self.manifest.localEnv.map_value(
-                    credential, context.get("variables")
+                    credential, cast(dict, context.get("variables"))
                 )
 
         return Repository(name, tpl)
@@ -1158,7 +1158,7 @@ class YamlConfig:
             baseUri = urljoin("file:", urllib.request.pathname2url(path))
         return find_schema_errors(config, self.schema, baseUri)
 
-    def search_includes(self, key=None, pathPrefix=None):
+    def search_includes(self, key: Optional[str]=None, pathPrefix: Optional[str]=None) -> Union[Tuple[None, None], Tuple[str, dict]]:
         for k in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[k]
             candidate = True
