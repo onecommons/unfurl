@@ -105,6 +105,7 @@ def create_home(
     if exists and not replace:
         return None
 
+    skeleton = kw.get("skeleton") or "home"
     homedir, filename = os.path.split(homePath)
     if render:  # just render
         repo = Repo.find_containing_repo(homedir)
@@ -112,7 +113,7 @@ def create_home(
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
         configPath, ensembleDir, password_vault = render_project(
-            homedir, repo, ensembleRepo, None, "home"
+            homedir, repo, ensembleRepo, None, skeleton
         )
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
         return configPath
@@ -124,7 +125,8 @@ def create_home(
 
     newHome, configPath, repo = create_project(
         homedir,
-        skeleton="home",
+        mono=not kw.get("poly"),
+        skeleton=skeleton,
         runtime=runtime or "venv:",
         no_runtime=no_runtime,
         msg="Create the unfurl home repository",
@@ -135,7 +137,7 @@ def create_home(
     return configPath
 
 
-def _create_repo(gitDir, ignore=True):
+def _create_repo(gitDir, ignore=True) -> GitRepo:
     import git
 
     if not os.path.isdir(gitDir):
@@ -429,11 +431,11 @@ def create_project(
     mono=False,
     existing=False,
     empty=False,
-    skeleton=None,
     creating_home=False,
     **kw,
 ):
     # check both new and old name for option flag
+    skeleton = kw.get("skeleton")
     create_context = kw.get("as_shared_environment") or kw.get("create_environment")
     use_context = kw.get("use_environment")
     skeleton_vars = dict((n, v) for n, v in kw.get("var", []))

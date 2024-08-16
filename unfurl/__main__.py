@@ -1010,6 +1010,19 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     is_flag=True,
     help="Replace (and backup) current home project",
 )
+@click.option(
+    "--skeleton",
+    type=click.Path(exists=False),
+    metavar="NAME or PATH",
+    default="home",
+    help="Name of built-in skeleton or path to a directory with a project skeleton. (Default: home)",
+)
+@click.option(
+    "--poly",
+    default=False,
+    is_flag=True,
+    help="Create a separate repository for the localhost ensemble.",
+)
 def home(ctx, init=False, render=False, replace=False, **options):
     """If no options are set, display the location of current unfurl home.
     To create a new home project use --init and the global --home option.
