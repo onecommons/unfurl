@@ -22,6 +22,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
+from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
@@ -779,7 +780,7 @@ deployFilterOptions = option_group(
 @commonJobOptions
 @deployFilterOptions
 @jobControlOptions
-def deploy(ctx, ensemble: Optional[str] = None, **options):
+def deploy(ctx: Context, ensemble: Optional[str] = None, **options):
     """
     Deploy the given ensemble
     """
@@ -793,7 +794,7 @@ def deploy(ctx, ensemble: Optional[str] = None, **options):
 @commonJobOptions
 @checkFilterOptions
 @readonlyJobControlOptions
-def check(ctx, ensemble=None, **options):
+def check(ctx: Context, ensemble=None, **options):
     """
     Check and update the status of the ensemble's instances
     """
@@ -807,7 +808,7 @@ def check(ctx, ensemble=None, **options):
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobOptions
 @jobControlOptions
-def discover(ctx, ensemble=None, **options):
+def discover(ctx: Context, ensemble=None, **options):
     """
     Run the "discover" workflow which updates the ensemble's spec by probing its live instances.
     """
@@ -815,26 +816,38 @@ def discover(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
+@deploy_cli.command(hidden=True)
+@click.pass_context
+@click.argument("ensemble", default="", type=click.Path(exists=False))
+@commonJobOptions
+@jobControlOptions
+@destroyUnmanagedOption
+def undeploy(ctx: Context, ensemble=None, **options):
+    """
+    Destroy what was deployed (alias for teardown).
+    """
+    options.update(ctx.obj)
+    return _run(ensemble, options, ctx.info_name)
+
 @deploy_cli.command()
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobOptions
 @jobControlOptions
 @destroyUnmanagedOption
-def undeploy(ctx, ensemble=None, **options):
+def teardown(ctx: Context, ensemble=None, **options):
     """
-    Destroy what was deployed.
+    Destroy what was previously deployed by running the "undeploy" workflow.
     """
     options.update(ctx.obj)
-    return _run(ensemble, options, ctx.info_name)
-
+    return _run(ensemble, options, "undeploy")
 
 @deploy_cli.command()
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobOptions
 @jobControlOptions
-def stop(ctx, ensemble=None, **options):
+def stop(ctx: Context, ensemble=None, **options):
     """
     Stop running instances.
     """
@@ -848,7 +861,7 @@ def stop(ctx, ensemble=None, **options):
 @commonJobOptions
 @deployFilterOptions
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
-def plan(ctx, ensemble=None, **options):
+def plan(ctx: Context, ensemble=None, **options):
     """Print the given deployment plan"""
     options.update(ctx.obj)
     options["planOnly"] = True
@@ -882,30 +895,28 @@ def plan(ctx, ensemble=None, **options):
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 @click.option(
-    "--overwrite",
-    type=click.Path(exists=False),
-    help="Create in the given directory even if it exists.",
-)
-@click.option(
     "--skeleton",
     type=click.Path(exists=False),
     metavar="NAME or PATH",
-    help="Path to a directory of project skeleton templates.",
+    help="Name of built-in skeleton or path to a directory with a project skeleton.",
 )
 @click.option(
     "--var",
     nargs=2,
     type=click.Tuple([str, str]),
     multiple=True,
-    help="name/value pair to pass to skeleton (multiple times ok).",
+    metavar="NAME VALUE",
+    help="Name/value pair to pass to skeleton (multiple times ok).",
 )
 @click.option(
     "--use-environment",
     default=None,
+    metavar="NAME",
     help="Associate the given environment with this ensemble.",
 )
 @click.option(
     "--use-deployment-blueprint",
+    metavar="NAME",
     help="Use this deployment blueprint.",
 )
 @click.option(
@@ -1087,7 +1098,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     default="",
 )
 @click.option(
-    "--mono", default=False, is_flag=True, help="Create one repository for the project."
+    "--mono", default=False, is_flag=True, help="Don't create a separate ensemble repository."
 )
 @click.option(
     "--existing",
@@ -1108,12 +1119,13 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--use-environment",
     default=None,
     help="Associate the given environment with the ensemble.",
+    metavar="NAME",
 )
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
     metavar="NAME or PATH",
-    help="Path to a directory of project skeleton templates.",
+    help="Name of built-in skeleton or path to a directory with a project skeleton.",
 )
 @click.option(
     "--overwrite",
@@ -1124,13 +1136,15 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
 @click.option(
     "--use-deployment-blueprint",
     help="Use this deployment blueprint.",
+    metavar="NAME",
 )
 @click.option(
     "--var",
     nargs=2,
     type=click.Tuple([str, str]),
+    metavar="NAME VALUE",
     multiple=True,
-    help="name/value pair to pass to skeleton (multiple times ok).",
+    help="Name/value pair to pass to skeleton (multiple times ok).",
 )
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
