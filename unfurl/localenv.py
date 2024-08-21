@@ -251,7 +251,9 @@ class Project:
             return True
         # looks for ensembles in separate repositories
         for path in self.workingDirs:
-            if is_relative_to(path, self.projectRoot) and os.path.isfile(os.path.join(path, DefaultNames.Ensemble)):
+            if is_relative_to(path, self.projectRoot) and os.path.isfile(
+                os.path.join(path, DefaultNames.Ensemble)
+            ):
                 return True
         return False
 
@@ -400,65 +402,27 @@ class Project:
             repo = self.create_working_dir(repoURL, revision)
         return repo
 
-    def find_manifest(
-        self, local_env: "LocalEnv", manifest_path: Optional[str], can_be_empty: bool
-    ) -> Tuple[Optional["Project"], Optional[str], Optional[str]]:
-        """
-        Find the manifest using the provided manifest path if given or the default manifest.
-
-        Args:
-            local_env: The LocalEnv object.
-            manifest_path: The path to the manifest file.
-            can_be_empty: A boolean indicating if the manifest can be empty.
-
-        Returns:
-            A tuple containing the Project object, the full path to the manifest file, and the environment name.
-        """
-        if manifest_path:
-            # at this point a named manifest
-            location = self.find_ensemble_by_name(manifest_path)
-            if not location:
-                raise UnfurlError(f'Could not find ensemble "{manifest_path}"')
-        else:
-            location = self.localConfig.get_default_manifest_tpl()
-
-        if location:
-            context_name = cast(
-                Optional[str], location.get("environment", self.get_default_context())
-            )
-            if "project" in location and location["project"] != self.name:
-                external_local_env = local_env._get_external_localenv(location, self)
-                if external_local_env:
-                    # if the manifest lives in an external projects repo,
-                    # _get_external_localenv() above will have set that project
-                    # as the parent project and register our project with it
-                    return self, external_local_env.manifestPath or "", context_name
-                else:
-                    raise UnfurlError(
-                        'Could not find external project "%s" referenced by ensemble "%s"'
-                        % (location["project"], manifest_path or location["file"])
-                    )
+    def adjust_manifest_path(self, location: dict, local_env: "LocalEnv") -> str:
+        if "project" in location and location["project"] != self.name:
+            external_local_env = local_env._get_external_localenv(location, self)
+            if external_local_env:
+                # if the manifest lives in an external projects repo,
+                # _get_external_localenv() above will have set that project
+                # as the parent project and register our project with it
+                return external_local_env.manifestPath or ""
             else:
-                full_path = self.localConfig.adjust_path(location["file"])
-                if not os.path.exists(full_path):
-                    raise UnfurlError(
-                        "The default ensemble found in %s does not exist: %s"
-                        % (self.localConfig.config.path, os.path.abspath(full_path))
-                    )
-                if "managedBy" in location:
-                    project = self.get_managed_project(location, local_env)
-                else:
-                    project = self
-                return project, full_path, context_name
-        else:
-            # no manifest specified in the project config so check the default locations
-            assert not manifest_path
-            full_path = self.search_for_default_manifest()
-            if not can_be_empty and full_path is None:
                 raise UnfurlError(
-                    f'Can not find an ensemble at a default location in "{self.projectRoot}"'
+                    'Could not find external project "%s" referenced by ensemble "%s"'
+                    % (location["project"], location["file"])
                 )
-            return self, full_path, self.get_default_context()
+        else:
+            full_path = self.localConfig.adjust_path(location["file"])
+            if not os.path.exists(full_path):
+                raise UnfurlError(
+                    "The default ensemble found in %s does not exist: %s"
+                    % (self.localConfig.config.path, os.path.abspath(full_path))
+                )
+            return full_path
 
     def _set_contexts(self) -> None:
         # merge project contexts with parent contexts
@@ -627,7 +591,7 @@ class Project:
                 location["managedBy"],
                 path,
             )
-        return self
+        return None
 
     def register_ensemble(
         self,
@@ -943,91 +907,6 @@ class LocalEnv:
     project: Optional[Project] = None
     parent: Optional["LocalEnv"] = None
 
-    def _find_external_project(
-        self, manifestPath: str, project: Project
-    ) -> Tuple[Optional[Project], Optional[str]]:
-        # We're pointing directly at a manifest path, check if it is might be part of an external project
-        context_name = None
-        location = project.find_ensemble_by_path(manifestPath)
-        if location:
-            context_name = location.get("environment")
-            if "managedBy" in location:
-                # this ensemble is managed by another project
-                return project.get_managed_project(location, self), context_name
-        return project, context_name
-
-    def _resolve_path_and_project(
-        self, manifestPath: str, can_be_empty: bool, stop_at: str = os.sep
-    ) -> None:
-        if manifestPath:
-            # both manifest path and project are set if both are in the same directory
-            foundManifestPath, project = self._find_given_manifest_or_project(
-                os.path.abspath(manifestPath)
-            )
-            if not foundManifestPath and not project and os.path.isdir(manifestPath):
-                message = (
-                    f"Can't find an Unfurl ensemble or project in folder {manifestPath}"
-                )
-                raise UnfurlError(message)
-        else:
-            # manifestPath not specified so search current directory and parents for either a manifest or a project
-            # (project gets priority)
-            # raises if not found
-            foundManifestPath, project = self._search_for_manifest_or_project(
-                ".", can_be_empty
-            )
-
-        self.manifestPath = foundManifestPath
-        if foundManifestPath:
-            if not project:
-                # set overrides because the yaml loader needs access to this while the project is being instantiated
-                self.overrides["manifest_path"] = foundManifestPath
-                project = self.find_project(os.path.dirname(foundManifestPath), stop_at)
-            else:  # both exist in the same directory, look for containing project
-                # projects can be nested (handle stand-alone ensemble repositories)
-                parent_project = self.find_project(
-                    os.path.dirname(project.projectRoot), stop_at
-                )
-                if parent_project and parent_project is not self.homeProject:
-                    parent_project._set_parent_project(
-                        project, False
-                    )  # inherit from self
-                    project = parent_project
-        elif project:
-            # the manifestPath was pointing to a project, not a manifest
-            manifestPath = ""
-        elif manifestPath:
-            # set this because the yaml loader needs access to this while the project is being instantiated
-            self.overrides["manifest_alias"] = manifestPath
-            # if manifestPath doesn't point to a project or ensemble,
-            # look for a project in the current directory and then see if the project has a manifest with that name
-            project = self.find_project(".", stop_at)
-            if not project:
-                raise UnfurlError(
-                    "Ensemble manifest does not exist: '%s'" % manifestPath
-                )
-
-        if project:
-            if foundManifestPath:
-                # We're pointing directly at a manifest path,
-                # look up project info to get its context
-                # if it is managedBy by another project, switch to that project
-                (
-                    project,
-                    self.manifest_context_name,
-                ) = self._find_external_project(foundManifestPath, project)
-            else:
-                # not found, see if the manifest if it is located in a shared project or is referenced by name
-                # raises if not found
-                (
-                    project,
-                    self.manifestPath,
-                    self.manifest_context_name,
-                ) = project.find_manifest(self, manifestPath, can_be_empty)
-            self.project = project
-        else:
-            self.project = None
-
     def __init__(
         self,
         manifestPath: Optional[str] = None,
@@ -1126,6 +1005,98 @@ class LocalEnv:
                 raise UnfurlError(
                     f'No environment named "{self.manifest_context_name}" found.'
                 )
+
+    def _resolve_path_and_project(
+        self, manifest_path: str, can_be_empty: bool, stop_at: str = os.sep
+    ) -> None:
+        if manifest_path:
+            # both manifest path and project are set if both are in the same directory
+            foundManifestPath, project = self._find_given_manifest_or_project(
+                os.path.abspath(manifest_path)
+            )
+            if not foundManifestPath and not project and os.path.isdir(manifest_path):
+                message = f"Can't find an Unfurl ensemble or project in folder {manifest_path}"
+                raise UnfurlError(message)
+        else:
+            # manifestPath not specified so search current directory and parents for either a manifest or a project
+            # raises if not found and not can_be_empty
+            foundManifestPath, project = self._search_for_manifest_or_project(
+                ".", can_be_empty
+            )
+
+        self.manifestPath = foundManifestPath
+        if foundManifestPath:
+            if not project:
+                # set overrides because the yaml loader needs access to this while the project is being instantiated
+                self.overrides["manifest_path"] = foundManifestPath
+                project = self.find_project(os.path.dirname(foundManifestPath), stop_at)
+        elif project:
+            # the manifestPath was pointing to a project, not a manifest
+            manifest_path = ""
+        elif manifest_path:
+            # set this because the yaml loader needs access to this while the project is being instantiated
+            self.overrides["manifest_alias"] = manifest_path
+            # if manifestPath doesn't point to a project or ensemble,
+            # look for a project in the current directory and then see if the project has a manifest with that name
+            project = self.find_project(".", stop_at)
+            if not project:
+                raise UnfurlError(
+                    "Ensemble manifest does not exist: '%s'" % manifest_path
+                )
+
+        if project:
+            project = self._resolve_from_config(
+                manifest_path, can_be_empty, stop_at, project
+            )
+            self.project = project
+            if self.manifest_context_name is None:
+                # don't set this if the nested project already set it
+                self.manifest_context_name = project.get_default_context()
+        else:
+            self.project = None
+
+    def _resolve_from_config(
+        self, manifest_path: str, can_be_empty: bool, stop_at: str, project: Project
+    ) -> Project:
+        self.manifest_context_name = project.get_default_context()
+        if self.manifestPath:
+            # We're pointing directly at a manifest path,
+            # look up project info to get its context
+            location = project.find_ensemble_by_path(self.manifestPath)
+        else:
+            if manifest_path:
+                # manifest_path wasn't found, see if it's a named manifest
+                location = project.find_ensemble_by_name(manifest_path)
+                if not location:
+                    raise UnfurlError(f'Could not find ensemble "{manifest_path}"')
+            else:
+                location = project.localConfig.get_default_manifest_tpl()
+                if not location:
+                    self.manifestPath = project.search_for_default_manifest()
+                    if not can_be_empty and self.manifestPath is None:
+                        raise UnfurlError(
+                            f'Can not find an ensemble at a default location in "{project.projectRoot}"'
+                        )
+        if location:
+            self.manifest_context_name = location.get(
+                "environment", self.manifest_context_name
+            )
+            self.manifestPath = project.adjust_manifest_path(location, self)
+            if "managedBy" in location:
+                # this ensemble is managed by another project
+                managed_project = project.get_managed_project(location, self)
+                if managed_project:
+                    return managed_project
+
+        # projects can be nested (handle stand-alone ensemble repositories)
+        parent_project = self.find_project(
+            os.path.dirname(project.projectRoot), stop_at
+        )
+        if parent_project and parent_project is not self.homeProject:
+            #  (outer) parent_project inherits (overrides) (nested) project
+            parent_project._set_parent_project(project, False)
+            return parent_project
+        return project
 
     def _get_home_project(self) -> Optional[Project]:
         homeProject = None
