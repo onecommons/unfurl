@@ -1002,6 +1002,7 @@ class YamlConfig:
             self.schema = schema
             self.readonly = bool(readonly)
             self.file_size = None
+            self.saved = False
             if path:
                 self.path = os.path.abspath(path)
                 err_msg = f"Unable to load yaml config at {self.path}"
@@ -1130,6 +1131,7 @@ class YamlConfig:
                 f.write(output.getvalue())
             statinfo = os.stat(self.path)
             self.file_size = statinfo.st_size
+            self.saved = True
         return output
 
     @property

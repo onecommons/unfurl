@@ -396,7 +396,15 @@ def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name, kw):
     return ensembleRepo
 
 
-def _commit_repos(projectdir, repo: GitRepo, ensembleRepo: Optional[GitRepo], shared, kw, ensembleDir, runtime):
+def _commit_repos(
+    projectdir,
+    repo: GitRepo,
+    ensembleRepo: Optional[GitRepo],
+    shared,
+    kw,
+    ensembleDir,
+    runtime,
+):
     if ensembleRepo:
         ensembleRepo.add_all(ensembleDir)
         if shared:
@@ -596,7 +604,10 @@ def _looks_like(path, name):
 
 
 def _from_localenv(
-    sourceProject: Project, sourcePath: str, use_environment: Optional[str], home_path: Optional[str]
+    sourceProject: Project,
+    sourcePath: str,
+    use_environment: Optional[str],
+    home_path: Optional[str],
 ) -> Optional[dict]:
     try:
         overrides = dict(ENVIRONMENT=use_environment)
@@ -721,7 +732,10 @@ class EnsembleBuilder:
             if not template_vars:
                 # if none are found then try to treat source_path as an ensemble to clone
                 template_vars = _from_localenv(
-                    source_project, source_path, self.options.get("use_environment"), self.home_path
+                    source_project,
+                    source_path,
+                    self.options.get("use_environment"),
+                    self.home_path,
                 )
                 if not template_vars:
                     if specific_file and os.path.isfile(source_path):
@@ -738,7 +752,10 @@ class EnsembleBuilder:
                     else:
                         template_vars = {}  # otherwise, don't create an ensemble
             self.template_vars = template_vars
-        logger.trace(f"creating ensemble from {'remote' if remote_source else 'local'} {'' if source_has_ensembles else 'blueprint '}repo at {source_path} with %s", self.template_vars)
+        logger.trace(
+            f"creating ensemble from {'remote' if remote_source else 'local'} {'' if source_has_ensembles else 'blueprint '}repo at {source_path} with %s",
+            self.template_vars,
+        )
         if self.options.get("use_deployment_blueprint"):
             self.template_vars["deployment_blueprint"] = self.options[
                 "use_deployment_blueprint"
@@ -872,7 +889,7 @@ class EnsembleBuilder:
             )
         elif repo:  # register if added in the same repo
             destProject.register_ensemble(manifest_path, context=self.environment)
-        if not self.options.get("render"):
+        if not self.options.get("render") and destProject.localConfig.config.saved:
             msg = f"Add ensemble at {destProject.get_relative_path(manifest_path)}"
             assert_not_none(destProject.project_repoview.repo).commit_files(
                 [assert_not_none(destProject.localConfig.config.path)], msg
@@ -1047,7 +1064,9 @@ class EnsembleBuilder:
             existing_project.add_context(
                 use_context, yaml.load(content)["environments"][use_context]
             )
-            logger.info(f"Added new environment {use_context} to project")
+            logger.info(f"Added new environment {use_context} to project {existing_project.projectRoot}")
+            if not self.mono:  # save now, not gonna be saved later
+                existing_project.localConfig.config.save()
 
     def set_ensemble(
         self,
@@ -1142,6 +1161,8 @@ def clone(
     If the source is a local file path, the project and local repository is registered in the destination project and a new ensemble is created based on the source.
 
     If the source is a git URL, the repository is cloned inside the destination project. A new ensemble is only created if the source specified a specific ensemble or template or if the source was blueprint project (i.e. it contains an ensemble template but doesn't contain any ensembles).
+
+    When deploying an ensemble that is in project that was cloned into another project, the environment setting in each unfurl.yaml are merged, with the top-level project's settings taking precedence.
     """
     builder = EnsembleBuilder(source, ensemble_name, options)
     if not dest:
@@ -1153,6 +1174,8 @@ def clone(
                 + '": file already exists with that name'
             )
     currentProject = find_project(dest, builder.home_path)
+    if currentProject:
+        logger.trace(f"Cloning in to project at {currentProject.projectRoot}")
     source = builder.resolve_input_source(currentProject)
 
     ### step 1: clone the source repository and set the the source path
