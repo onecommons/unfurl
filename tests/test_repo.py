@@ -231,7 +231,6 @@ class GitRepoTest(unittest.TestCase):
 *** Running 'git ls-files' in '.'
 .gitattributes
 .gitignore
-.secrets/secrets.yaml
 .unfurl-local-template.yaml
 ensemble-template.yaml
 service_template.py
@@ -240,6 +239,8 @@ unfurl.yaml
 *** Running 'git ls-files' in './ensemble'
 .gitattributes
 .gitignore
+.secrets/secrets.yaml
+.unfurl-local-template.yaml
 ensemble.yaml
 unfurl.yaml
 """
@@ -707,15 +708,20 @@ def test_reified_repo(caplog):
 def test_clone_ensemble_repo():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        # use a share home project so git-local: url resolve across projects
+        # use a home project so git-local: url resolve across projects
         run_cmd(runner, ["--home", "local_home", "home", "--init"])
-        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "test", "src"])
-        ensemble_repo_files = set(['unfurl.yaml', '.gitignore', '.gitattributes', '.git', 'ensemble.yaml'])
-        assert set(os.listdir("src/ensemble")) == ensemble_repo_files
-        run_cmd(runner, ["--home", "local_home", "init", "dst"])
+        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "inner", "src"])
+        ensemble_repo_files = set(['unfurl.yaml', '.gitignore', '.gitattributes', '.git', 'ensemble.yaml', '.secrets', '.unfurl-local-template.yaml'])
+        assert set(os.listdir("src/ensemble")) == (ensemble_repo_files | set(['local', 'secrets']))
+        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "outer", "dst"])
         # use URL with fragment instead of file path to induce remote cloning semantics
         run_cmd(runner, ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"])
         assert "ensemble1" in os.listdir("dst")
         assert set(os.listdir("dst/ensemble1")) == ensemble_repo_files
-        print_config("local_home")
+        local_env = LocalEnv("dst/ensemble1")
+        assert local_env.manifest_context_name == "inner"
+        assert local_env.project.projectRoot.endswith("dst")
+        local_env2 = LocalEnv("dst")
+        assert local_env2.manifest_context_name == "outer"
+        # print_config("local_home")
         run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])

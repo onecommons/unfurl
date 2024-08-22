@@ -1120,7 +1120,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     help="Add project to nearest existing repository.",
 )
 @click.option(
-    "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
+    "--empty", default=False, is_flag=True, help="Don't create a new ensemble."
 )
 @click.option(
     "--design",

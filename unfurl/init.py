@@ -171,7 +171,7 @@ def write_service_template(projectdir, templateDir=None):
 def write_ensemble_manifest(
     destDir: str,
     manifestName: str,
-    specRepo: GitRepo,
+    specRepo: Optional[GitRepo],
     specDir=None,
     extraVars=None,
     templateDir=None,
@@ -184,7 +184,10 @@ def write_ensemble_manifest(
         revision = extraVars.get("revision") or ""
     else:
         revision = ""
-    vars = dict(specRepoUrl=specRepo.get_url_with_path(specDir, True, revision))
+    if specRepo:
+        vars = dict(specRepoUrl=specRepo.get_url_with_path(specDir, True, revision))
+    else:
+        vars = {}
     if extraVars:
         vars.update(extraVars)
     return write_template(destDir, manifestName, "manifest.yaml.j2", vars, templateDir)
@@ -217,16 +220,17 @@ def _warn_about_new_password(localProjectConfig):
 
 
 def render_project(
-    projectdir,
-    repo,
-    ensembleRepo,
-    homePath,
-    templateDir=None,
-    names=DefaultNames,
-    use_context=None,
+    projectdir: str,
+    repo: Optional[GitRepo],
+    ensembleRepo: Optional[GitRepo],
+    homePath: Optional[str],
+    templateDir: Optional[str] = None,
+    names: Any = DefaultNames,
+    use_context: Optional[str] = None,
     mono=False,
-    no_secrets=False,
+    use_vault=True,
     skeleton_vars: Optional[Dict[str, Any]] = None,
+    ensemble_template=True,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -262,16 +266,20 @@ def render_project(
         vars = skeleton_vars.copy()
     else:
         vars = {}
-    if "vaultpass" not in vars:
-        vars["vaultpass"] = get_random_password()
-    vaultpass = vars["vaultpass"]
-    if "vaultid" not in vars:
-        # use project name plus a couple of random digits to avoid collisions
-        vars["vaultid"] = (
-            Project.get_name_from_dir(projectdir)
-            + get_random_password(2, "", "").upper()
-        )
-    vaultid = vars["vaultid"]
+    if use_vault:
+        if not vars.get("VAULT_PASSWORD"):
+            vars["VAULT_PASSWORD"] = get_random_password()
+        vaultpass = vars["VAULT_PASSWORD"]
+        if "vaultid" not in vars:
+            # use project name plus a couple of random digits to avoid collisions
+            vars["vaultid"] = (
+                Project.get_name_from_dir(projectdir)
+                + get_random_password(2, "", "").upper()
+            )
+        vaultid = vars["vaultid"]
+    else:
+        vaultpass = vars["VAULT_PASSWORD"] = ""
+        vaultid = ""
 
     # only commit external ensembles references if we are creating a mono repo
     # otherwise record them in the local config:
@@ -290,14 +298,12 @@ def render_project(
         templateDir,
     )
 
-    if not skeleton_vars or "vaultpass" not in skeleton_vars:
+    if use_vault and (not skeleton_vars or not skeleton_vars.get("VAULT_PASSWORD")):
         _warn_about_new_password(localProjectConfig)
 
     localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
 
-    if no_secrets:
-        secretsInclude = ""
-    else:
+    if use_vault:
         write_project_config(
             os.path.join(projectdir, "secrets"),
             names.SecretsConfig,
@@ -308,6 +314,8 @@ def render_project(
         secretsInclude = "+?include-secrets: " + os.path.join(
             "secrets", names.SecretsConfig
         )
+    else:
+        secretsInclude = ""
 
     # note: local overrides secrets
     vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid)
@@ -333,16 +341,17 @@ def render_project(
         templateDir,
     )
 
-    # write ensemble-template.yaml
-    write_template(
-        projectdir,
-        names.EnsembleTemplate,
-        "manifest-template.yaml.j2",
-        {},
-        templateDir,
-    )
-    # write service_template.py
-    write_service_template(projectdir, templateDir)
+    if ensemble_template:
+        # write ensemble-template.yaml
+        write_template(
+            projectdir,
+            names.EnsembleTemplate,
+            "manifest-template.yaml.j2",
+            {},
+            templateDir,
+        )
+        # write service_template.py
+        write_service_template(projectdir, templateDir)
 
     if ensembleRepo:
         extraVars = dict(
@@ -384,14 +393,14 @@ def _find_project_repo(projectdir):
     return repo
 
 
-def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name, kw):
+def _find_ensemble_repo(projectdir, shared, ensemble_name, kw):
     if shared:
         ensembleRepo = Repo.find_containing_repo(shared)
         if not ensembleRepo:
             raise UnfurlError("can not find shared repository " + shared)
     else:
         ensembleDir = os.path.join(projectdir, ensemble_name)
-        ensembleRepo = _create_repo(ensembleDir, not submodule)
+        ensembleRepo = _create_repo(ensembleDir, not kw.get("submodule"))
         _add_ensemble_specific_unfurl_config(ensembleRepo, kw)
     return ensembleRepo
 
@@ -490,25 +499,32 @@ def create_project(
         repo = _create_repo(projectdir)
 
     shared = _get_shared(kw, homePath)
-    submodule = kw.get("submodule")
     if mono and not shared:
         ensembleRepo = repo
+    elif empty:
+        ensembleRepo = None
     else:
         ensembleRepo = _find_ensemble_repo(
-            projectdir, shared, submodule, names.EnsembleDirectory, kw
+            projectdir, shared, names.EnsembleDirectory, kw
         )
 
     logger.info(f"Creating Unfurl project at {projectdir}...")
+    if "VAULT_PASSWORD" in skeleton_vars:
+        use_vault = True
+    elif empty:
+        use_vault = False
+    else:
+        use_vault = kw.get("submodule") or mono
     projectConfigPath, ensembleDir, password_vault = render_project(
         projectdir,
         repo,
-        not empty and ensembleRepo,
+        ensembleRepo,
         homePath,
         skeleton,
         names,
         create_context or use_context,
         mono,
-        False,
+        use_vault,
         skeleton_vars,
     )
     if homePath and not creating_home:
@@ -562,14 +578,23 @@ def _add_ensemble_specific_unfurl_config(repo: GitRepo, kw: dict):
         "# The configuration here is specific to the ensemble.yaml found in the same directory of this file.\n"
         "# The project-level unfurl.yaml configuration can override these and environment-specific configuration should be set there."
     )
-    project_config_path = write_project_config(
+    project_config_path, ensembleDir, password_vault = render_project(
         repo.working_dir,
-        DefaultNames.LocalConfig,
-        "unfurl.yaml.j2",
-        skeleton_vars,
+        repo,
+        None,
+        None,
         kw.get("skeleton"),
+        DefaultNames,
+        use_context,
+        False,
+        not kw.get("submodule"),  # if submodule, use parent repo's vault
+        skeleton_vars,
+        False,
     )
-    repo.repo.index.add([project_config_path])
+    if password_vault:
+        yaml = make_yaml(password_vault)
+        commit_secrets(repo.working_dir, yaml, repo)
+    repo.add_all(repo.working_dir)
 
 
 def _create_ensemble_repo(
@@ -1064,7 +1089,9 @@ class EnsembleBuilder:
             existing_project.add_context(
                 use_context, yaml.load(content)["environments"][use_context]
             )
-            logger.info(f"Added new environment {use_context} to project {existing_project.projectRoot}")
+            logger.info(
+                f"Added new environment {use_context} to project {existing_project.projectRoot}"
+            )
             if not self.mono:  # save now, not gonna be saved later
                 existing_project.localConfig.config.save()
 

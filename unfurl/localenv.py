@@ -544,7 +544,7 @@ class Project:
     @staticmethod
     def get_name_from_dir(projectRoot: str) -> str:
         dirname, name = os.path.split(projectRoot)
-        if name == DefaultNames.ProjectDirectory:
+        if not name or name == DefaultNames.ProjectDirectory:
             name = os.path.basename(dirname)
         # make sure this conforms to project name syntax in json-schema:
         #       ^[A-Za-z._][A-Za-z0-9._:\\-]*$

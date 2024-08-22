@@ -181,7 +181,7 @@ class Repo(abc.ABC):
     url: str = ""
 
     @staticmethod
-    def find_containing_repo(rootDir, gitDir=".git"):
+    def find_containing_repo(rootDir, gitDir=".git") -> Optional["GitRepo"]:
         """
         Walk parents looking for a git repository.
         """
