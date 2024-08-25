@@ -78,6 +78,8 @@ def write_template(folder, filename, template, vars, templateDir=None) -> str:
 
     with open(os.path.join(templateDir, template)) as f:
         source = f.read()
+    if not source:
+        return source
     instance = NodeInstance()
     instance._baseDir = _skeleton_path
 
@@ -298,10 +300,15 @@ def render_project(
         templateDir,
     )
 
-    if use_vault and (not skeleton_vars or not skeleton_vars.get("VAULT_PASSWORD")):
-        _warn_about_new_password(localProjectConfig)
+    if localProjectConfig:
+        if use_vault and (not skeleton_vars or not skeleton_vars.get("VAULT_PASSWORD")):
+            _warn_about_new_password(localProjectConfig)
 
-    localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
+        localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
+    else:
+        # no local config
+        use_vault = False
+        localInclude = ""
 
     if use_vault:
         write_project_config(
