@@ -169,7 +169,7 @@ Of course, we don't have enough information "my_server" to actually create a com
 "my_server" are a set of abstract constraints that be applied to any number of
 
 It is the implementation that create (or discover) instances that conforms to this specification.
-Implementations are defined by specifying how to carry ouy operations that are applied to the node templates.
+Implementations are defined by specifying how to carry out operations that are applied to the node templates.
 TOSCA defines a vocabulary of a few standard operations such as "create" or "delete" and you can define your own.
 Their implementations can be a simple as the name of a shell script to invoke or yaml specification that is passed to a `configurator`,
 which is Unfurl's plugin system for implementing operations.
@@ -228,8 +228,8 @@ Creates a little more verbose and illustrates how to pass input parameters and s
 This implementation calls ``gcloud compute instances create`` to create the instance
 and then ``gcloud compute instances describe``. The ``resultTemplate`` parses that json and
 
-One mysterious looking line is ``+*gcloudStatusMap:`` which is a merge directive
-That's because its an anchor to a yaml map we haven't defined yet.
+One mysterious looking line is ``+*gcloudStatusMap:`` which is a `merge directive<YAML Merge directives>`
+It's referencing a yaml map we haven't defined yet.
 We'll see it when we finish off the implementation by defining the "check" operation:
 
 .. code-block:: YAML
@@ -245,7 +245,8 @@ We'll see it when we finish off the implementation by defining the "check" opera
           check:
             implementation: gcloud compute instances describe {{ '.name' | eval }}  --format=json
             inputs:
-              resultTemplate: &gcloudStatusMap
+              resultTemplate:
+                +&: gcloudStatusMap
                 eval:
                   if: $result
                   then:
