@@ -413,13 +413,13 @@ class JobReporter:
             if task.result and task.result.result:
                 output = task.result.result
                 if isinstance(output, Mapping):
-                    # sort dict so that the longest values are last if a string otherwise preserve key order
+                    # sort dict so that the longest values are last if a string, list, or dict otherwise preserve key order
                     output = {
                         k: v.map_all() if isinstance(v, Results) else v
                         for i, (k, v) in sorted(
                             enumerate(output.items()),
                             key=lambda x: (
-                                len(x[1][1]) if isinstance(x[1][1], str) else x[0]
+                                len(x[1][1]) if isinstance(x[1][1], (str, list, dict)) else x[0]
                             ),
                         )
                     }

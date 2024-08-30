@@ -310,22 +310,23 @@ spec:
             with open("manifest2.yaml", "w") as f:
                 f.write(manifest_yaml)
             run_cmd = ["run", "--ensemble", "manifest2.yaml"]
-            result = runner.invoke(cli, run_cmd + ["--", "echo", "ok"])
+            # jinja2 expression in command line should be evaluated in task context
+            result = runner.invoke(cli, run_cmd + ["--", "echo", "{{'.name'|eval|upper}}"])
             # print("result.output1!", result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
-            assert r"ok" in output, output
+            assert r"ROOT" in output, output
             # run same command using ansible
             result = runner.invoke(
-                cli, run_cmd + ["--host", "localhost", "--", "echo", "ok"]
+                cli, run_cmd + ["--host", "localhost", "--", "echo", "{{'.name'|eval|upper}}"]
             )
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
-            assert r"'stdout': 'ok'" in output, output
+            assert r"'stdout': 'ROOT'" in output, output
 
             result = runner.invoke(
                 cli, run_cmd + ["--operation", "MyOps.test_op"]
