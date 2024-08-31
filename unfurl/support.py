@@ -156,6 +156,8 @@ class Reason(str, Enum):
     prune = "prune"
     run = "run"
     check = "check"
+    undeploy = "undeploy"
+    stop = "stop"
 
     def __str__(self) -> str:
         return self.value

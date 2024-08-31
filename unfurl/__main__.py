@@ -70,8 +70,8 @@ click.rich_click.OPTION_GROUPS = {
 
 
 if TYPE_CHECKING:
-    from repo import RepoView
-    from yamlmanifest import YamlManifest
+    from .repo import RepoView
+    from .yamlmanifest import YamlManifest
 
 _latestJobs = []  # for testing
 _args: List[str] = []  # for testing
@@ -663,12 +663,12 @@ def yesno(prompt):
         return False
 
 
-def _stop_logging(job, options, verbose, tmplogfile, summary):
+def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary):
     if summary:
         with open(tmplogfile, "a") as f:
             f.write(summary)
-    if job and job.log_path:
-        log_path = job.log_path
+    if job and job.log_path():
+        log_path = job.log_path()
         dir = os.path.dirname(log_path)
         if not os.path.exists(dir):
             os.makedirs(dir)

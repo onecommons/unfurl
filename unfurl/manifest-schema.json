@@ -4,7 +4,7 @@
   "definitions": {
     "state": {
       "title": "state",
-      "description": "the operational state of the instance",
+      "description": "the `node state` of the instance",
       "type": "string",
       "enum": [
         "initial",
@@ -505,6 +505,9 @@
             "implementation": {
               "$ref": "#/definitions/configurationSpec"
             },
+            "reason": {
+              "type": "string"
+            },
             "inputs": {
               "$ref": "#/definitions/attributes"
             },
@@ -741,9 +744,6 @@
       "$ref": "#/definitions/job"
     },
     "jobsLog": {
-      "type": "string"
-    },
-    "jobsFolder": {
       "type": "string"
     },
     "changes": {

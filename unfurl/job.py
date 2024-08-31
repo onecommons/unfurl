@@ -1415,12 +1415,11 @@ class Job(ConfigChange):
             self.task_count += 1
         return self.task_count
 
-    @property
-    def log_path(self) -> str:
+    def log_path(self, folder="jobs", ext=".log") -> str:
         log_name = (
             self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
         )
-        return self.manifest.get_job_log_path(log_name, ".log")
+        return self.manifest.get_job_log_path(log_name, folder, ext)
 
     ###########################################################################
     # Job Reporting methods

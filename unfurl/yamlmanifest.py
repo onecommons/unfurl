@@ -98,7 +98,7 @@ def has_status(operational):
     return operational.last_change or operational.status
 
 
-def save_status(operational, status=None):
+def save_status(operational, status: Optional[CommentedMap] = None) -> CommentedMap:
     if status is None:
         status = CommentedMap()
     if not has_status(operational):
@@ -141,7 +141,7 @@ def save_result(value):
         return value
 
 
-def save_task(task: "ConfigTask", skip_result=False):
+def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
     """
     Convert dictionary suitable for serializing as yaml
       or creating a Changeset.
@@ -166,6 +166,8 @@ def save_task(task: "ConfigTask", skip_result=False):
         output["target"] = task.target.key
     save_status(task, output)
     output["implementation"] = save_config_spec(task.configSpec)
+    if task.reason:
+        output["reason"] = str(task.reason)
     try:
         if task._resolved_inputs:  # only serialize resolved inputs
             output["inputs"] = serialize_value(task._resolved_inputs)
@@ -194,6 +196,22 @@ def save_task(task: "ConfigTask", skip_result=False):
         logger.error("Error while saving task %s", task, exc_info=True)
     output["summary"] = task.summary()
     return output
+
+
+def split_changes(
+    changes: List[CommentedMap],
+) -> Tuple[List[CommentedMap], List[CommentedMap]]:
+    local_changes = []
+    committed_changes = []
+    for change in changes:
+        local_change = change.copy()
+        local_change.pop("dependencies", None)
+        local_change.pop("change", None)
+        local_changes.append(local_change)
+        if "result" in change and change["result"] != "skipped":
+            change.pop("result")
+        committed_changes.append(change)
+    return local_changes, committed_changes
 
 
 @cache
@@ -404,7 +422,6 @@ class YamlManifest(ReadOnlyManifest):
 
         status = manifest.get("status", {})
         self.changeLogPath: str = manifest.get("jobsLog") or ""
-        self.jobsFolder: str = manifest.get("jobsFolder", "jobs")
         if not self.changeLogPath and localEnv and manifest.get("changes") is None:
             # save changes to a separate file if we're in a local environment
             self.changeLogPath = DefaultNames.JobsLog
@@ -945,7 +962,7 @@ class YamlManifest(ReadOnlyManifest):
         )
         return status
 
-    def save_job_record(self, job: "Job"):
+    def save_job_record(self, job: "Job") -> CommentedMap:
         """
         .. code-block:: YAML
 
@@ -982,7 +999,7 @@ class YamlManifest(ReadOnlyManifest):
         output["specDigest"] = self.specDigest
         return save_status(job, output)
 
-    def save_job(self, job):
+    def save_job(self, job: "Job") -> Tuple[CommentedMap, List[CommentedMap]]:
         discovered = CommentedMap()
         assert self.rootResource
         changed = self.save_root_resource(self.rootResource, discovered)
@@ -1016,15 +1033,15 @@ class YamlManifest(ReadOnlyManifest):
         jobRecord = self.save_job_record(job)
         if job.workDone:
             self.manifest.config["lastJob"] = jobRecord
-            exclude_result = not self.changeLogPath
             # don't save result.results into this yaml, it might contain sensitive data
+            exclude_result = not self.changeLogPath and not job.dry_run
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
             if self.changeLogPath and self.path is not None:
-                self.manifest.config["jobsLog"] = self.changeLogPath
+                self.manifest.config["jobsLog"] = self.changeLogPath  # jobs.tsv
 
-                jobLogPath = self.get_job_log_path(jobRecord["startTime"])
+                jobLogPath = job.log_path("changes", ".yaml")
                 jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(self.path))
                 jobRecord["changelog"] = jobLogRelPath
             else:
@@ -1033,15 +1050,16 @@ class YamlManifest(ReadOnlyManifest):
             # no work was done
             changes = []
 
-        if job.out or job.jobOptions.out:
+        output = job.out or job.jobOptions.out  # type: ignore
+        if output:
             if job.dry_run:
                 logger.info("printing results from dry run")
-            self.dump(job.out or job.jobOptions.out)
+            self.dump(output)
         else:
-            job.out = self.manifest.save()
+            job.out = self.manifest.save()  # type: ignore
         return jobRecord, changes
 
-    def commit_job(self, job: "Job"):
+    def commit_job(self, job: "Job") -> None:
         if job.jobOptions.planOnly:
             return
         if job.dry_run and job.jobOptions.skip_save != "never":
@@ -1053,7 +1071,10 @@ class YamlManifest(ReadOnlyManifest):
             return
 
         if self.changeLogPath:
-            jobLogPath = self.save_change_log(jobRecord, changes)
+            local_changes, committed_changes = split_changes(changes)
+            self.save_change_log(job.log_path(ext=".yaml"), jobRecord, local_changes)
+            jobLogPath = job.log_path("changes", ".yaml")
+            self.save_change_log(jobLogPath, jobRecord, committed_changes)
             if not job.dry_run:
                 self._append_log(job, jobRecord, changes, jobLogPath)
 
@@ -1114,19 +1135,20 @@ class YamlManifest(ReadOnlyManifest):
 
         return committed
 
-    def get_change_log_path(self):
+    def get_change_log_path(self) -> str:
+        # jobs.tsv
         return os.path.join(
             self.get_base_dir(), self.changeLogPath or DefaultNames.JobsLog
         )
 
-    def get_job_log_path(self, startTime, ext=".yaml"):
+    def get_job_log_path(self, startTime, folder_name, ext=".yaml") -> str:
         name = os.path.basename(self.get_change_log_path())
         # try to figure out any custom name pattern from changelogPath:
         defaultName = os.path.splitext(DefaultNames.JobsLog)[0]
         currentName = os.path.splitext(name)[0]
         prefix, _, suffix = currentName.partition(defaultName)
         fileName = prefix + "job" + startTime + suffix + ext
-        return os.path.join(self.get_base_dir(), self.jobsFolder, fileName)
+        return os.path.join(self.get_base_dir(), folder_name, fileName)
 
     def _append_log(self, job, jobRecord, changes, jobLogPath):
         logPath = self.get_change_log_path()
@@ -1171,10 +1193,9 @@ class YamlManifest(ReadOnlyManifest):
                 line = ChangeRecordRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
-    def save_change_log(self, jobRecord, newChanges):
+    def save_change_log(self, fullPath, jobRecord, newChanges) -> None:
         try:
             changelog = CommentedMap()
-            fullPath = self.get_job_log_path(jobRecord["startTime"])
             if self.manifest.path is not None:
                 changelog["manifest"] = os.path.relpath(
                     self.manifest.path, os.path.dirname(fullPath)
@@ -1188,6 +1209,5 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("saving job changes to %s", fullPath)
             with open(fullPath, "w") as f:
                 f.write(output.getvalue())
-            return fullPath
-        except:
+        except Exception:
             raise UnfurlError(f"Error saving changelog {self.changeLogPath}", True)
