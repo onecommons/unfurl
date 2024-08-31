@@ -116,7 +116,7 @@ def create_home(
     if exists and not replace:
         return None
 
-    skeleton = kw.get("skeleton") or "home"
+    skeleton = kw.pop("skeleton", "home")
     homedir, filename = os.path.split(homePath)
     if render:  # just render
         repo = Repo.find_containing_repo(homedir)
@@ -142,6 +142,7 @@ def create_home(
         no_runtime=no_runtime,
         msg="Create the unfurl home repository",
         creating_home=True,
+        **kw
     )
     if repo:
         repo.repo.git.branch("rendered")  # now create a branch

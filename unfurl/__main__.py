@@ -945,7 +945,7 @@ def plan(ctx: Context, ensemble=None, **options):
 )
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
-    Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
+    Create a new project, or, if [project_dir] is an existing project, create a new ensemble.
     If [ensemble_name] is omitted, use a default name.
     """
     options.update(ctx.obj)
@@ -1022,6 +1022,14 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     default=False,
     is_flag=True,
     help="Create a separate repository for the localhost ensemble.",
+)
+@click.option(
+    "--var",
+    nargs=2,
+    type=click.Tuple([str, str]),
+    metavar="NAME VALUE",
+    multiple=True,
+    help="Name/value pair to pass to skeleton (multiple times ok).",
 )
 def home(ctx, init=False, render=False, replace=False, **options):
     """If no options are set, display the location of current unfurl home.
