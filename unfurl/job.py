@@ -35,6 +35,7 @@ from .support import (
     Reason,
     NodeState,
     AttributesChanges,
+    _Dependencies,
 )
 from .result import ResourceRef, ResultsItem, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
@@ -379,6 +380,7 @@ class ConfigTask(TaskView, ConfigChange):
         return False
 
     def _finished_workflow(self, successStatus, workflow):
+        # non-readonly workflow finished successfully
         instance = self.target
         self.modified_target = True
         instance.local_status = successStatus
@@ -432,9 +434,32 @@ class ConfigTask(TaskView, ConfigChange):
         self.result = result
         self.local_status = Status.ok if result.success else Status.error
         self.modified_target = targetChanged or self.target_status != self.target.status
+        self._set_customized()
         self.target_status = self.target.status
         self.target_state = self.target.state
         return self
+
+    def _set_customized(self) -> bool:
+        # If non-Standard operation has modified attribute which overlaps with attributes
+        # that the last config operation depended on or modified, then mark the target as customized
+        if self.configSpec.interface != "Standard" and self.target.customized is None:
+            changeset = cast("YamlManifest", self._manifest).find_last_operation(
+                self.target.key, "configure"
+            )
+            if changeset:
+                for expr in self._resourceChanges.get_changes_as_expr():
+                    if expr in changeset.digestKeys or expr in changeset.digestPut:
+                        self.target.customized = self.changeId
+                        self.logger.debug("setting customized to %s", self.changeId)
+                        return True
+        elif (
+            self.reason == Reason.reconfigure
+            and self.local_status == Status.ok
+            and self.target.customized is not None
+        ):
+            self.logger.debug("clearing customized")
+            self.target.customized = None
+        return False
 
     @property
     def completed(self) -> bool:
@@ -445,7 +470,7 @@ class ConfigTask(TaskView, ConfigChange):
         self._environ = None
         self._attributeManager._reset()
 
-    def commit_changes(self):
+    def commit_changes(self) -> Tuple[AttributesChanges, _Dependencies]:
         """
         This can be called multiple times if the configurator yields multiple times.
         Save the changes made each time.
@@ -508,7 +533,6 @@ class ConfigTask(TaskView, ConfigChange):
                 self.configSpec.operation,
             )
             return False
-
         return self.configurator.check_digest(self, changeset)
 
     def has_dependencies_changed(self):
@@ -1083,7 +1107,7 @@ class Job(ConfigChange):
 
     def should_run_task(self, task: ConfigTask) -> Tuple[bool, str]:
         """
-        Checked at runtime right before each task is run
+        Checked before rendering the task.
         """
         try:
             if task._configurator:
@@ -1458,7 +1482,7 @@ class Job(ConfigChange):
         return JobReporter.json_plan_summary(self, pretty, include_rendered)
 
     @overload
-    def json_summary(self) -> Dict[str, int]: ...
+    def json_summary(self) -> Dict[str, Any]: ...
 
     @overload
     def json_summary(self, pretty: Literal[True]) -> str: ...

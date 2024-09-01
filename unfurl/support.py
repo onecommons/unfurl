@@ -1428,7 +1428,6 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
         # special keys:
         .added: # resource spec if this resource was added by the task
         .status: # set when status changes, including when removed (Status.absent)
-        .accessed: list of accessed attributes
     """
 
     statusIndex = 0
@@ -1529,8 +1528,8 @@ class TopologyMap(dict):
 
 
 AttributeInfo = Tuple[bool, Union[ResultsItem, Any], bool]  # live, value, accessed
-LiveDependencies = NewType(
-    "LiveDependencies",
+_Dependencies = NewType(
+    "_Dependencies",
     Dict[
         "InstanceKey",
         Tuple["EntityInstance", Dict[str, AttributeInfo]],
@@ -1686,9 +1685,9 @@ class AttributeManager:
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
 
-    def commit_changes(self) -> Tuple[AttributesChanges, LiveDependencies]:
+    def commit_changes(self) -> Tuple[AttributesChanges, _Dependencies]:
         changes: AttributesChanges = cast(AttributesChanges, {})
-        liveDependencies = cast(LiveDependencies, {})
+        _dependencies = cast(_Dependencies, {})
         for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
             # overrides will only contain:
@@ -1697,7 +1696,7 @@ class AttributeManager:
             _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
-            live: Dict[str, Any] = {}
+            touched: Dict[str, Any] = {}
             # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in list(overrides.items()):
                 if not isinstance(value, ResultsItem):
@@ -1710,7 +1709,7 @@ class AttributeManager:
                     savedValue = self._save_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
-                    live[key] = (
+                    touched[key] = (
                         isLive,
                         savedValue if is_sensitive else value,
                         accessed,
@@ -1729,8 +1728,8 @@ class AttributeManager:
                     _attributes[key] = savedValue
             resource._attributes = _attributes
 
-            if live:
-                liveDependencies[resource.key] = (resource, live)
+            if touched:
+                _dependencies[resource.key] = (resource, touched)
             # save changes
             diff = attributes.get_diff()
             if not diff:
@@ -1741,4 +1740,4 @@ class AttributeManager:
             changes[resource.key] = diff
 
         self._reset()
-        return changes, liveDependencies
+        return changes, _dependencies

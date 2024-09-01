@@ -442,7 +442,7 @@ class TaskRequest(PlanRequest):
             name = "__artifact__" + artifact.get_name_from_artifact_spec(
                 artifact.as_import_spec()
             )
-            operation_host = (
+            operation_host = cast(HasInstancesInstance,
                 find_operation_host(self.target, self.configSpec.operation_host)
                 or self.target.apex
             )
@@ -453,6 +453,7 @@ class TaskRequest(PlanRequest):
                 else:
                     return JobRequest([existing])
             else:
+                assert operation_host.template
                 # XXX what if there's another artifact with the same name?
                 if not operation_host.template.get_template(name):
                     # template isn't defined, define inline

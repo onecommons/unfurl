@@ -809,9 +809,9 @@ class DeployPlan(Plan):
             if "check" in instance.template.directives:
                 instance.local_status = Status.unknown
                 return Reason.check
-            if jobOptions.change_detection != "skip" and instance.last_change:
-                # XXX distinguish between "spec" and "evaluate" change_detection after template comparisons
-                return Reason.reconfigure
+            if jobOptions.change_detection != "skip" and instance.last_config_change:
+                if not instance.customized or jobOptions.change_detection == "always":
+                    return Reason.reconfigure
         return reason
 
     def check_for_repair(self, instance):

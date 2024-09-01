@@ -259,6 +259,16 @@
                   "type": "string"
                 }
               ]
+            },
+            "customized": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
             }
           }
         },

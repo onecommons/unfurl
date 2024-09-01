@@ -844,6 +844,8 @@ class YamlManifest(ReadOnlyManifest):
             status["created"] = resource.created
         if resource.protected is not None:
             status["protected"] = resource.protected
+        if resource.customized is not None:
+            status["customized"] = resource.customized
         return (resource.name, status)
 
     def save_artifact(self, resource: EntityInstance) -> Optional[Tuple[str, Dict]]:

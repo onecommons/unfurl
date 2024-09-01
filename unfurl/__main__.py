@@ -737,7 +737,7 @@ checkFilterOptions = option_group(
     click.option(
         "--change-detection",
         default="evaluate",
-        type=click.Choice(["skip", "spec", "evaluate"]),
+        type=click.Choice(["skip", "always", "evaluate"]),
         help="How to detect configuration changes to existing instances. (Default: evaluate)",
     ),
     rich_group=job_filter_group_label,

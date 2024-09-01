@@ -300,9 +300,12 @@ class Configurator(metaclass=AutoRegisterClass):
         ]
         values: List[Any] = [inputs[key] for key in keys]
 
+        changed = set(task._resourceChanges.get_changes_as_expr())
         for dep in task.dependencies:
             assert isinstance(dep, Dependency)
-            if not isinstance(dep.expected, sensitive):
+            if dep.write_only: # include values that were set but might not have changed
+                changed.add(str(dep.expr))
+            elif not isinstance(dep.expected, sensitive):
                 keys.append(str(dep.expr))
                 values.append(dep.expected)
 
@@ -311,10 +314,16 @@ class Configurator(metaclass=AutoRegisterClass):
         else:
             inputdigest = ""
 
-        digest = dict(digestKeys=",".join(keys), digestValue=inputdigest)
+        digest = dict(
+            digestKeys=",".join(keys),
+            digestValue=inputdigest,
+            digestPut=",".join(changed),
+        )
         task.logger.debug(
             "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
         )
+        if changed:
+            task.logger.debug("digestPut for %s: %s", task.target.name, digest["digestPut"])
         return digest
 
     def check_digest(self, task: "TaskView", changeset: "ChangeRecordRecord") -> bool:
@@ -936,7 +945,7 @@ class TaskView:
         required: bool = True,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
-        write_only: Optional[bool] = None
+        write_only: Optional[bool] = None,
     ) -> "Dependency":
         getter = getattr(expr, "as_ref", None)
         if getter:
@@ -1283,7 +1292,7 @@ class Dependency(Operational):
         required: bool = False,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
-        write_only: Optional[bool] = None
+        write_only: Optional[bool] = None,
     ) -> None:
         """
         if schema is not None, validate the result using schema

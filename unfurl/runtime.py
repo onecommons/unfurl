@@ -399,6 +399,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[Literal[False], str]] = None
     protected: Optional[bool] = None
+    customized: Optional[Union[bool, str]] = None
     imports: Optional[Imports] = None
     imported: Optional[str] = None
     _baseDir = ""
@@ -450,6 +451,27 @@ class EntityInstance(OperationalInstance, ResourceRef):
         from .eval import Ref, RefContext
 
         return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
+
+    def out_of_sync(self):
+        instance_keys = set(self._properties)
+        template_keys = set(self.template.properties)
+        if instance_keys - template_keys:
+            # deleted properties (missing in template)
+            return instance_keys - template_keys
+        template_props = ResultsMap(self.template.properties, self)
+        instance_props = ResultsMap(self._properties, self) # serialized values
+        instance_attrs = ResultsMap(self._attributes, self) # serialized values
+        overridden = set(self._attributes) & template_keys
+        for key in overridden:
+            # attribute overrides property and is different
+            if instance_attrs[key] != template_props[key]: # evaluates
+                return key
+        # check if previously evaluated, non-overridden properties have changed
+        for key in instance_keys - overridden:
+            if instance_props[key] != template_props[key]: # evaluates
+                # property changed since last save
+                return key
+        return False
 
     def __priority():  # type: ignore
         doc = "The priority property."

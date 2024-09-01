@@ -571,8 +571,7 @@ class ResultsItem(Result):
         self.resolved = newvalue
 
     def get_before_set(self) -> bool:
-        # (false if computed or MAX_CHANGE_COUNT_SET)
-        return self.last_computed == MAX_CHANGE_COUNT
+        return self.last_computed != MAX_CHANGE_COUNT_SET
 
     def has_diff(self):
         "Was the item modified?"
@@ -805,8 +804,8 @@ class Results(ABC, metaclass=ProxyableType):
                 if old_val.resolved != value:  # only set if values are different
                     if self.validate:
                         self._validate(key, value)
-                    old_val.update_value(value)
                     self.bump_change_count()
+                    old_val.update_value(value)
             else:
                 # hasn't been evaluate yet
                 if value != old_val:
@@ -814,9 +813,9 @@ class Results(ABC, metaclass=ProxyableType):
                     # but don't bother with that, the caller can compare the resolved item if they care
                     if self.validate:
                         self._validate(key, value)
-                    self._attributes[key] = ResultsItem(
-                        value, old_val, MAX_CHANGE_COUNT_SET
-                    )
+                self._attributes[key] = ResultsItem(
+                    value, old_val, MAX_CHANGE_COUNT_SET
+                )
 
         # remove from deleted if it's there
         self._deleted.pop(key, None)
