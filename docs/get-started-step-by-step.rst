@@ -478,7 +478,7 @@ All together we have created
                         vars:
                           result: "{%if success %}{{ stdout | from_json }}{% endif %}"
 
-  .. literalinclude:: ./examples/get-started-5.py
+  .. literalinclude:: ./examples/get-started.py
     :language: python
 
 
