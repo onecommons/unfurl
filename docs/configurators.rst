@@ -26,22 +26,8 @@ it will use the ``Ansible`` configurator and generate a playbook that invokes it
                 Standard:
                   configure: echo "abbreviated configuration"
 
-  .. code-block:: python
-
-    @operation(name="configure")
-    def test_remote_configure(**kw):
-      return unfurl.configurators.shell.ShellConfigurator(
-        command='echo "abbreviated configuration"',
-      )
-
-
-    test_remote = tosca.nodes.Root(
-        "test_remote",
-    )
-    test_remote.configure = test_remote_configure
-
-
-    __all__ = ["test_remote"]
+  .. literalinclude:: ./examples/configurators-1.py
+    :language: python
 
 
 Available configurators include:
@@ -87,30 +73,8 @@ Example
                     outputs:
                       fact1:
 
-  .. code-block:: python
-
-    @operation(name="configure", outputs={"fact1": None})
-    def test_remote_configure(**kw):
-        return unfurl.configurators.ansible.AnsibleConfigurator(
-            playbook=Eval(
-                {
-                    "q": [
-                        {"set_fact": {"fact1": "{{ '.name' | eval }}"}},
-                        {"name": "Hello", "command": 'echo "{{ fact1 }}"'},
-                    ]
-                }
-            ),
-        )
-
-
-    test_remote = tosca.nodes.Root(
-        "test_remote",
-    )
-    test_remote.configure = test_remote_configure
-
-
-    __all__ = ["test_remote"]
-
+  .. literalinclude:: ./examples/configurators-2.py
+    :language: python
 
 Inputs
 ------
@@ -205,23 +169,8 @@ In this example, ``operation_host`` is set to a remote instance so the command i
                     inputs:
                       cmd: echo "test"
 
-  .. code-block:: python
-
-    @operation(name="configure", operation_host="staging.example.com")
-    def test_remote_configure(**kw):
-        return unfurl.configurators.CmdConfigurator(
-            cmd='echo "test"',
-        )
-
-
-    test_remote = tosca.nodes.Root(
-        "test_remote",
-    )
-    test_remote.configure = test_remote_configure
-
-
-    __all__ = ["test_remote"]
-
+  .. literalinclude:: ./examples/configurators-3.py
+    :language: python
 
 Delegate
 ========
@@ -274,25 +223,8 @@ This example executes an inline shell script and uses the ``cwd`` and ``shell`` 
                           # our script requires bash
                           shell: '{{ "bash" | which }}'
 
-  .. code-block:: python
-
-    @operation(name="configure")
-    def shellscript_example_configure(**kw):
-        return unfurl.configurators.shell.ShellConfigurator(
-            command='if ! [ -x "$(command -v testvars)" ]; then\n  source testvars.sh\nfi\n',
-            cwd=Eval('{{ "project" | get_dir }}'),
-            keeplines=True,
-            shell=Eval('{{ "bash" | which }}'),
-        )
-
-
-    shellscript_example = tosca.nodes.Root(
-        "shellscript-example",
-    )
-    shellscript_example.configure = shellscript_example_configure
-
-
-    __all__ = ["shellscript_example"]
+  .. literalinclude:: ./examples/configurators-4.py
+    :language: python
 
 
 Example with artifact
@@ -329,74 +261,8 @@ ensures Unfurl will install the artifact if necessary, before it runs the comman
                       inputs:
                         cmd: rg search
 
-  .. code-block:: python
-
-    @operation(name="configure")
-    def terraform_example_configure(**kw):
-        return unfurl.configurators.shell.ShellConfigurator(
-            command=["ripgrep"],
-            cmd="rg search",
-        )
-
-
-    terraform_example = tosca.nodes.Root(
-        "terraform-example",
-    )
-    terraform_example.ripgrep = artifact_AsdfTool(
-        "ripgrep",
-        version="13.0.0",
-        file="ripgrep",
-    )
-    terraform_example.configure = terraform_example_configure
-
-    configurator_artifacts = unfurl.nodes.LocalRepository(
-        "configurator-artifacts",
-        _directives=["default"],
-    )
-    configurator_artifacts.terraform = artifact_AsdfTool(
-        "terraform",
-        version="1.1.4",
-        file="terraform",
-    )
-    configurator_artifacts.gcloud = artifact_AsdfTool(
-        "gcloud",
-        version="398.0.0",
-        file="gcloud",
-    )
-    configurator_artifacts.kompose = artifact_AsdfTool(
-        "kompose",
-        version="1.26.1",
-        file="kompose",
-    )
-    configurator_artifacts.google_auth = artifact_PythonPackage(
-        "google-auth",
-        file="google-auth",
-    )
-    configurator_artifacts.octodns = artifact_PythonPackage(
-        "octodns",
-        version="==0.9.14",
-        file="octodns",
-    )
-    configurator_artifacts.kubernetes_core = artifact_AnsibleCollection(
-        "kubernetes.core",
-        version="2.4.0",
-        file="kubernetes.core",
-    )
-    configurator_artifacts.community_docker = artifact_AnsibleCollection(
-        "community.docker",
-        version="1.10.2",
-        file="community.docker",
-    )
-    configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
-        "ansible.utils",
-        version="2.10.3",
-        file="ansible.utils",
-    )
-
-
-    __all__ = ["terraform_example", "configurator_artifacts"]
-
-
+  .. literalinclude:: ./examples/configurators-5.py
+    :language: python
 Inputs
 ------
 
@@ -493,59 +359,8 @@ Example
                           value = var.tag
                         }
 
-  .. code-block:: python
-
-    terraform_example = unfurl_nodes_Installer_Terraform(
-        "terraform-example",
-    )
-
-    configurator_artifacts = unfurl.nodes.LocalRepository(
-        "configurator-artifacts",
-        _directives=["default"],
-    )
-    configurator_artifacts.terraform = artifact_AsdfTool(
-        "terraform",
-        version="1.1.4",
-        file="terraform",
-    )
-    configurator_artifacts.gcloud = artifact_AsdfTool(
-        "gcloud",
-        version="398.0.0",
-        file="gcloud",
-    )
-    configurator_artifacts.kompose = artifact_AsdfTool(
-        "kompose",
-        version="1.26.1",
-        file="kompose",
-    )
-    configurator_artifacts.google_auth = artifact_PythonPackage(
-        "google-auth",
-        file="google-auth",
-    )
-    configurator_artifacts.octodns = artifact_PythonPackage(
-        "octodns",
-        version="==0.9.14",
-        file="octodns",
-    )
-    configurator_artifacts.kubernetes_core = artifact_AnsibleCollection(
-        "kubernetes.core",
-        version="2.4.0",
-        file="kubernetes.core",
-    )
-    configurator_artifacts.community_docker = artifact_AnsibleCollection(
-        "community.docker",
-        version="1.10.2",
-        file="community.docker",
-    )
-    configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
-        "ansible.utils",
-        version="2.10.3",
-        file="ansible.utils",
-    )
-
-
-    __all__ = ["terraform_example", "configurator_artifacts"]
-
+  .. literalinclude:: ./examples/configurators-6.py
+    :language: python
 
 Inputs
 ------
@@ -717,64 +532,8 @@ Example
                       detach: no
                       output_logs: yes
 
-  .. code-block:: python
-
-    hello_world_container = unfurl_nodes_Container_Application_Docker(
-    "hello-world-container",
-    image=tosca.artifacts.DeploymentImageContainerDocker(
-        "image",
-        file="busybox",
-      ),
-    )
-    hello_world_container.host = tosca.find_node("compute")
-
-    configurator_artifacts = unfurl.nodes.LocalRepository(
-        "configurator-artifacts",
-        _directives=["default"],
-    )
-    configurator_artifacts.terraform = artifact_AsdfTool(
-        "terraform",
-        version="1.1.4",
-        file="terraform",
-    )
-    configurator_artifacts.gcloud = artifact_AsdfTool(
-        "gcloud",
-        version="398.0.0",
-        file="gcloud",
-    )
-    configurator_artifacts.kompose = artifact_AsdfTool(
-        "kompose",
-        version="1.26.1",
-        file="kompose",
-    )
-    configurator_artifacts.google_auth = artifact_PythonPackage(
-        "google-auth",
-        file="google-auth",
-    )
-    configurator_artifacts.octodns = artifact_PythonPackage(
-        "octodns",
-        version="==0.9.14",
-        file="octodns",
-    )
-    configurator_artifacts.kubernetes_core = artifact_AnsibleCollection(
-        "kubernetes.core",
-        version="2.4.0",
-        file="kubernetes.core",
-    )
-    configurator_artifacts.community_docker = artifact_AnsibleCollection(
-        "community.docker",
-        version="1.10.2",
-        file="community.docker",
-    )
-    configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
-        "ansible.utils",
-        version="2.10.3",
-        file="ansible.utils",
-    )
-
-
-    __all__ = ["hello_world_container", "configurator_artifacts"]
-
+  .. literalinclude:: ./examples/configurators-7.py
+    :language: python
 
 DNS
 ====
@@ -854,23 +613,8 @@ Example
                               # get the ip address of the Compute instance that this is hosted on
                               eval: .source::.requirements::[.name=host]::.target::public_address
 
-  .. code-block:: python
-
-    example_com_zone = unfurl_nodes_DNSZone(
-      "example_com_zone",
-      name="example.com.",
-      provider={"class": "octodns.provider.route53.Route53Provider"},
-    )
-
-    test_app = tosca.nodes.WebServer(
-        "test_app",
-        host=[tosca.find_node("compute")],
-    )
-    test_app.dns = example_com_zone
-
-
-    __all__ = ["example_com_zone", "test_app"]
-
+  .. literalinclude:: ./examples/configurators-8.py
+    :language: python
 
 .. _helm:
 

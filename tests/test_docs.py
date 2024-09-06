@@ -2,6 +2,7 @@ import unittest
 import os
 import glob
 
+# Usage: python3 -m unittest test_docs.py
 class DocsTest(unittest.TestCase):
     def test_python_snippets(self):
         basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
@@ -15,7 +16,6 @@ from tosca import Attribute, Eval, Property, operation, GB, MB
 import unfurl.configurators.shell
 
 # Define missing elements if necessary
-# Example: my_server, unfurl_nodes_Installer_Terraform, etc.
 """
 
         for py_file in python_files:
@@ -29,6 +29,7 @@ import unfurl.configurators.shell
                 # Execute the code to ensure it's valid
                 try:
                     exec(full_code, {})
+                # Suppress name errors
                 except NameError as e:
                     print(f"Suppressed NameError in {py_file}: {str(e)}")
                 except Exception as e:

@@ -113,53 +113,7 @@ Example
           - type: tosca.requirements.contained_in
             target: vm
 
-  .. code-block:: python
-
-    import unfurl
-    from typing import Sequence
-    import tosca
-    from tosca import Eval, Property
-    import unfurl.configurators.shell
-
-
-    class NodesNginx(tosca.nodes.WebServer):
-        port: int = Property(description="The default listening port for the Nginx server.")
-
-        def create(self, **kw):
-            return unfurl.configurators.shell.ShellConfigurator(
-                command="scripts/install-nginx.sh",
-                inputs={
-                    "process": {
-                        "env": {
-                            "port": Eval({"get_property": ["SELF", "port"]})
-                        }
-                    }
-                },
-            )
-
-        def start(self, **kw):
-            return unfurl.configurators.shell.ShellConfigurator(
-                command="scripts/start-nginx.sh",
-            )
-
-
-    vm = tosca.nodes.Compute(
-        "vm",
-        ip="192.168.0.11",
-    )
-
-    nginx = NodesNginx(
-        "nginx",
-        port=80,
-        requirements=[
-            tosca.relationships.ContainedIn(
-                target=vm
-            )
-        ]
-    )
-
-
-    __all__ = ["NodesNginx", "vm", "nginx"]
-
+  .. literalinclude:: ./../examples/node-templates-1.py
+    :language: python
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Node Templates Section <_Toc50125410>`

@@ -139,30 +139,8 @@ Examples
             start: scripts/mongo/start-mongo.sh
             stop: scripts/mongo/stop-mongo.sh
 
-  .. code-block:: python
-    
-    class MongoDatabase(tosca.nodes.DBMS):
-      port: int
-
-      def create(self, **kw):
-          return unfurl.configurators.shell.ShellConfigurator(
-            command=["scripts/mongo/install-mongo.sh"]
-          )
-
-      def start(self, **kw):
-          return unfurl.configurators.shell.ShellConfigurator(
-            command=["scripts/mongo/start-mongo.sh"]
-          )
-
-      def stop(self, **kw):
-          return unfurl.configurators.shell.ShellConfigurator(
-            command=["scripts/mongo/stop-mongo.sh"]
-          )
-
-    mongo_database = MongoDatabase("mongo_database")
-
-    __all__ = ["MongoDatabase", "mongo_database"]
-
+  .. literalinclude:: ./../examples/node-types-1.py
+    :language: python
 
 An example of how to use this type follows:
 
@@ -196,24 +174,8 @@ Finally, an example on how to extend an existing type by deriving from it:
             create: scripts/mongo/install-mongo-extended.sh
             configure: scripts/mongo/configure-mongo-extended.sh
 
-  .. code-block:: python
-
-    class MongoDatabaseExtended(tosca.nodecellar.nodes.MongoDatabase):
-      enable_replication: bool = False
-
-      def create(self, **kw):
-          return unfurl.configurators.shell.ShellConfigurator(
-            command=["scripts/mongo/install-mongo-extended.sh"]
-          )
-
-      def configure(self, **kw):
-          return unfurl.congifurators.shell.ShellConfigurator(
-            command=["scripts/mongo/configure-mongo-extended.sh"]
-          )
-
-    mongo_database_extended = MongoDatabaseExtended("mongo_database_extended")
-
-    __all__ = ["MongoDatabaseExtended", "mongo_database_extended"]
+  .. literalinclude:: ./../examples/node-types-2.py
+    :language: python
 
 
 The ``nodecellar.nodes.MongoDatabaseExtended`` type derives from the ``nodecellar.nodes.MongoDatabase`` type which was defined in the previous example; As such, it derives its properties and interfaces definitions, which get either merged or overridden by the ones it defines itself.

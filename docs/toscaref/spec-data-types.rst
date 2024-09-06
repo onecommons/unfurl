@@ -127,24 +127,8 @@ configures the endpoint properties (i.e. the ``ip`` and ``port``).
             ip: 192.168.15.85
             port: 2233
 
-  .. code-block:: python
-
-    class Endpoint(tosca.datatypes.Root):
-        ip: str
-        port: int
-
-    class DatabaseService(tosca.nodes.DBMS):
-        endpoint: Endpoint
-
-    my_db_service = DatabaseService(
-        "my_db_service",
-        endpoint=Endpoint(
-            ip="192.168.15.85",
-            port=2233
-        )
-    )
-
-    __all__ = ["Endpoint", "DatabaseService", "my_db_service"]
+  .. literalinclude:: ./../examples/data-types-1.py
+    :language: python
 
 
 Schema Validations
@@ -228,28 +212,8 @@ that also includes a user name.
             port: 2233
             username: jimmy
 
-  .. code-block:: python
-
-    class Endpoint(tosca.datatypes.Root):
-        ip: str
-        port: int
-
-    class ExtendedEndpoint(Endpoint):
-        username: str
-
-    class DatabaseService(tosca.nodes.DBMS):
-        endpoint: ExtendedEndpoint
-
-    my_db_service = DatabaseService(
-        "my_db_service",
-        endpoint=ExtendedEndpoint(
-            ip="192.168.15.85",
-            port=2233,
-            username="jimmy"
-        )
-    )
-
-    __all__ = ["Endpoint", "ExtendedEndpoint", "DatabaseService", "my_db_service"]
+  .. literalinclude:: ./../examples/data-types-1.py
+    :language: python
 
 
 Composition
@@ -306,39 +270,8 @@ information + authentication details.
               username: jimmy
               password: secret
 
-  .. code-block:: python
-
-    class Auth(tosca.datatypes.Root):
-        username: str
-        password: str
-
-    class Endpoint(tosca.datatypes.Root):
-        ip: str
-        port: int
-
-    class Connection(tosca.datatypes.Root):
-        endpoint: Endpoint
-        auth: Auth
-
-    class DatabaseService(tosca.nodes.DBMS):
-        connection: Connection
-
-    my_db_service = DatabaseService(
-        "my_db_service",
-        connection=Connection(
-            endpoint=Endpoint(
-                ip="192.168.15.85",
-                port=2233
-            ),
-            auth=Auth(
-                username="jimmy",
-                password="secret"
-            )
-        )
-    )
-
-    __all__ = ["Auth", "Endpoint", "Connection", "DatabaseService", "my_db_service"]
-
+  .. literalinclude:: ./../examples/data-types-3.py
+    :language: python
 
 Default Values
 --------------
@@ -401,36 +334,8 @@ will be ``admin``.
             auth:
               password: secret
 
-  .. code-block:: python
-
-    class Auth(tosca.datatypes.Root):
-      username: str = "admin"
-      password: str
-
-    class Endpoint(tosca.datatypes.Root):
-        ip: str
-        port: int = 2233
-
-    class Connection(tosca.datatypes.Root):
-        endpoint: Endpoint
-        auth: Auth
-
-    class DatabaseService(tosca.nodes.DBMS):
-        connection: Connection
-
-    my_db_service = DatabaseService(
-        "my_db_service",
-        connection=Connection(
-            endpoint=Endpoint(
-                ip="192.168.15.85"
-            ),
-            auth=Auth(
-                password="secret"
-            )
-        )
-    )
-
-    __all__ = ["Auth", "Endpoint", "Connection", "DatabaseService", "my_db_service"]
+  .. literalinclude:: ./../examples/data-types-4.py
+    :language: python
 
 Notice how the ``my_db_service`` node template only specified the
 ``connection.endpoint.ip`` and ``connection.auth.password``. The other
@@ -509,24 +414,8 @@ property.
           data1:
             prop3: prop3_override
 
-  .. code-block:: python
-
-    class Data1(tosca.datatypes.Root):
-        prop1: str = "prop1_default"
-        prop2: str = "prop2_default"
-        prop3: str = "prop3_default"
-
-    class MyApp(tosca.nodes.Root):
-        data1: Data1 = Data1(prop2="prop2_override")
-
-    my_app = MyApp(
-        "my_app",
-        data1=Data1(
-            prop3="prop3_override"
-        )
-    )
-
-    __all__ = ["Data1", "MyApp", "my_app"]
+  .. literalinclude:: ./../examples/data-types-5.py
+    :language: python
 
 
 After the service template is parsed, the ``my_app`` node template properties will be:
@@ -613,23 +502,8 @@ previously. For example:
       my_app:
         type: nodes.DerivedFromMyApp
 
-  .. code-block:: python
-
-    class Data1(tosca.datatypes.Root):
-      prop1: str = "prop1_default"
-      prop2: str = "prop2_default"
-      prop3: str = "prop3_default"
-
-    class MyApp(tosca.nodes.Root):
-        data2: Data1 = Data1(prop2="prop2_override")
-
-    class DerivedFromMyApp(MyApp):
-        data2: Data1 = Data1(prop3="prop3_override")
-
-    my_app = DerivedFromMyApp("my_app")
-
-    __all__ = ["Data1", "MyApp", "DerivedFromMyApp", "my_app"]
-
+  .. literalinclude:: ./../examples/data-types-6.py
+    :language: python
 
 After the service template is parsed, the ``my_app`` node template properties will be:
 
