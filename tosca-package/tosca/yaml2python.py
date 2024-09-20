@@ -203,6 +203,7 @@ class Imports:
         self.prelude_prelude: str = "import unfurl" if unfurl_prelude else ""
         self._import_statements: Set[str] = set()
         self.declared: List[str] = []
+        self._all: List[str] = []
         self.from_tosca: Set[str] = set()
         self._globals: Dict[str, Any] = {}
 
@@ -211,12 +212,14 @@ class Imports:
         return name
 
     def get_all(self):
-        return self.declared
+        return self._all
 
-    def add_declaration(self, tosca_name: str, localname: str):
+    def add_declaration(self, tosca_name: str, localname: str, include_in_all=True):
         # new obj is being declared in the current module in the current scope
         self._imports[tosca_name] = (localname, None)
         self.declared.append(localname)
+        if include_in_all:
+            self._all.append(localname)
 
     def enter_scope(self) -> Tuple[List[str], Scope]:
         declared = self.declared
@@ -578,7 +581,9 @@ class Convert:
             name += "_"
         return name, toscaname
 
-    def add_declaration(self, tosca_name: str, localname: Optional[str]):
+    def add_declaration(
+        self, tosca_name: str, localname: Optional[str], include_in_all=True
+    ):
         # new obj is being declared in the current module in the global scope
         if not localname:
             localname, _ = self._get_name(tosca_name)
@@ -588,7 +593,7 @@ class Convert:
         while localname in self.imports.declared:
             localname = basename + str(counter)
             counter += 1
-        self.imports.add_declaration(tosca_name, localname)
+        self.imports.add_declaration(tosca_name, localname, include_in_all)
         return localname
 
     def _set_name(self, yaml_name: str, fieldtype: str) -> Tuple[str, str]:
@@ -1355,11 +1360,17 @@ class Convert:
         return op_name, src
 
     def _get_prop_init_list(
-        self, props, prop_defs, cls: Optional[Type[_tosca.ToscaType]], indent=""
-    ):
+        self,
+        props,
+        prop_defs,
+        cls: Optional[Type[_tosca.ToscaType]],
+        indent="",
+        include_additional=False,
+    ) -> Tuple[str, Dict[str, str]]:
         src = ""
+        skipped: Dict[str, str] = {}
         if not props:
-            return src
+            return src, skipped
         for key, val in props.items():
             prop = prop_defs.get(key)
             if prop:
@@ -1375,13 +1386,15 @@ class Convert:
                 if field:
                     field_name = field.name
                 else:
-                    # XXX add _extra field to type and add field_name to _extra
-                    # field_name, tosca_name = self._get_name(key)
-                    continue
+                    if include_additional:
+                        field_name, tosca_name = self._get_name(key)
+                    else:
+                        skipped[key] = prop_repr
+                        continue
             else:
                 field_name, tosca_name = self._get_name(key)
             src += f"{indent}{field_name}={prop_repr},\n"
-        return src
+        return src, skipped
 
     def convert_datatype_value(
         self,
@@ -1394,8 +1407,19 @@ class Convert:
         # convert dict to the datatype
         src = f"{indent}{classname}("
         props = dt.get_properties_def()
-        src += self._get_prop_init_list(value, props, cls, indent)
-        src += ")"
+        include_additional = bool(
+            cls
+            and cls._type_metadata
+            and cls._type_metadata.get("additionalProperties")
+        )
+        init_list, skipped = self._get_prop_init_list(
+            value, props, cls, indent, include_additional
+        )
+        if skipped:
+            logger.warning(
+                f"Additional properties on datatype {classname} skipped: {skipped}"
+            )
+        src += init_list + ")"
         return src
 
     def _get_capability(
@@ -1407,8 +1431,12 @@ class Convert:
         typename, cls = self.imports.get_type_ref(capability_type.type)
         src = f"{indent}{typename}("
         prop_defs = capability_type.get_properties_def()
-        src += self._get_prop_init_list(values, prop_defs, cls, indent)
-        src += ")"
+        init_list, skipped = self._get_prop_init_list(values, prop_defs, cls, indent)
+        if skipped:
+            logger.warning(
+                f"Additional properties on capability {typename} skipped: {skipped}"
+            )
+        src += init_list + ")"
         return src
 
     def flush_pending_defs(self, indent="") -> str:
@@ -1467,29 +1495,40 @@ class Convert:
         entity_template: EntityTemplate,
         indent="",
         declare=True,
-    ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str]:
+    ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str, Dict[str, str]]:
         self.local_names = {}
+        skipped: Dict[str, str] = {}
         assert entity_template.type
         cls_name, cls = self.imports.get_type_ref(entity_template.type)
         if not cls_name:
             logger.error(
                 f"could not convert template {entity_template.name}: {entity_template.type} wasn't imported"
             )
-            return None, "", ""
+            return None, "", "", skipped
         elif not cls:
             logger.error(
                 f"could not convert template {entity_template.name}: {entity_template.type} is defined in current file so the compiled class isn't available"
             )
             # XXX compile and exec the source code generated so far
-            return None, "", ""
+            return None, "", "", skipped
+        # use substitute_node and select_node since __init__() might be missing required arguments
+        if "select" in entity_template.directives:
+            self.imports.add_tosca_from("select_node")
+            decl = f"select_node({cls_name}, "
+        elif "substitute" in entity_template.directives:
+            self.imports.add_tosca_from("substitute_node")
+            decl = f"substitute_node({cls_name}, "
+        else:
+            decl = f"{cls_name}("
         if entity_template.name and declare:
             # XXX names should be from parent namespace (module or Namespace)
-            name = self.add_declaration(entity_template.name, None)
+            # don't include templates in __all__
+            name = self.add_declaration(entity_template.name, None, False)
             logger.info("converting template %s to python", name)
-            src = f"{indent}{name} = {cls_name}("
+            src = f"{indent}{name} = {decl}"
         else:
             name, _ = self._get_name(entity_template.name)
-            src = f"{cls_name}("
+            src = decl
         # always add name because we might not have access to the name reference
         src += f'"{entity_template.name}", '
         entity_tpl = entity_template.entity_tpl
@@ -1506,11 +1545,17 @@ class Convert:
         properties = entity_tpl.get("properties")
         if properties:
             prop_defs = entity_template.type_definition.get_properties_def()
-            src += self._get_prop_init_list(properties, prop_defs, cls, indent)
-        return cls, name, src
+            init_list, skipped = self._get_prop_init_list(
+                properties, prop_defs, cls, indent
+            )
+            src += init_list
+        node_filter = entity_tpl.get("node_filter")
+        if node_filter:
+            src += f"_node_filter={repr(node_filter)},\n"
+        return cls, name, src, skipped
 
     def artifact2obj(self, artifact: Artifact, indent="") -> Tuple[str, str]:
-        cls, name, src = self.template2obj(artifact, indent, False)
+        cls, name, src, skipped = self.template2obj(artifact, indent, False)
         if not cls:
             return "", ""
         src += "file=" + self.value2python_repr(artifact.file) + ", "  # type: ignore
@@ -1519,16 +1564,18 @@ class Convert:
             if val:
                 src += f"{field}={self.value2python_repr(val)},\n"
         src += ")"  # close ctor
+        src += self.add_additional_properties(indent, name, skipped)
         src += self.add_template_description(artifact, indent, name)
         return name, src
 
     def relationship_template2obj(
         self, template: RelationshipTemplate, indent=""
     ) -> Tuple[str, str]:
-        cls, name, src = self.template2obj(template, indent)
+        cls, name, src, skipped = self.template2obj(template, indent)
         if not cls:
             return "", ""
         src += ")"  # close ctor
+        src += self.add_additional_properties(indent, name, skipped)
         src += self.add_template_description(template, indent, name)
         src += self.add_template_interfaces(template, indent, name)
         return name, src
@@ -1536,7 +1583,7 @@ class Convert:
     def node_template2obj(
         self, node_template: NodeTemplate, indent=""
     ) -> Tuple[str, str]:
-        cls, name, src = self.template2obj(node_template, indent)
+        cls, name, src, skipped = self.template2obj(node_template, indent)
         if not cls:
             return "", ""
         # note: the toscaparser doesn't support declared attributes currently
@@ -1589,7 +1636,7 @@ class Convert:
                 else:
                     artifacts.append((artifact_name, artifact_src))
         src += ")\n"  # close ctor
-
+        src += self.add_additional_properties(indent, name, skipped)
         src += self.add_template_description(node_template, indent, name)
         # add these as attribute statements
         # (use setattr to avoid mypy complaints about attribute not defined)
@@ -1605,6 +1652,15 @@ class Convert:
                 src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
         src += self.add_template_interfaces(node_template, indent, name)
         return name, src
+
+    def add_additional_properties(self, indent, name, skipped) -> str:
+        src = ""
+        for prop_name, prop_value in skipped.items():
+            if self.concise:
+                src += f"{indent}{name}.{prop_name} = {prop_value}\n"
+            else:
+                src += f"{indent}setattr({name}, '{prop_name}', {prop_value})\n"
+        return src
 
     def add_template_description(self, template, indent, name) -> str:
         src = ""

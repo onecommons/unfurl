@@ -96,9 +96,9 @@ def global_state_context() -> Any:
 
 yaml_cls = dict
 
-JsonObject: TypeAlias = Dict[str, Any]
+JsonObject: TypeAlias = Dict[str, "JsonType"]
 JsonType: TypeAlias = Union[
-    None, int, float, str, bool, Sequence["JsonType"], Mapping[str, "JsonType"]
+    None, int, float, str, bool, Sequence["JsonType"], Dict[str, "JsonType"]
 ]
 
 
@@ -340,7 +340,7 @@ def operation(
 
 
 class NodeTemplateDirective(str, Enum):
-    "Node Template directives."
+    "Node Template :tosca_spec:`directives<_Toc50125217>`."
 
     select = "select"
     "Match with instance in external ensemble"
@@ -349,7 +349,7 @@ class NodeTemplateDirective(str, Enum):
     "Create a nested topology"
 
     default = "default"
-    "Only use this template if one with the same name isn't already defined in primary topology."
+    "Only use this template if one with the same name isn't already defined in the root topology."
 
     dependent = "dependent"
     "Exclude from plan generation"
@@ -2240,6 +2240,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 raise AttributeError(f"can't find {name} in {qname}")
         return obj
 
+
 class ToscaInputs(_ToscaType):
     @classmethod
     def _shared_cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
@@ -2407,14 +2408,18 @@ class ToscaType(_ToscaType):
         for field in fields.values():
             val = object.__getattribute__(self, field.name)
             if val is REQUIRED:
-                # on Python < 3.10 we set this to workaround the lack of keyword only fields
-                raise ValueError(
-                    f'Keyword argument was missing: {field.name} on "{self}".'
-                )
+                if self._enforce_required_fields():
+                    # on Python < 3.10 we set this to workaround the lack of keyword only fields
+                    raise ValueError(
+                        f'Keyword argument was missing: {field.name} on "{self}".'
+                    )
             elif getattr(field, "deferred_property_assignments", None):
                 for name, value in field.deferred_property_assignments.items():
                     setattr(val, name, value)
         self._initialized = True
+
+    def _enforce_required_fields(self):
+        return True
 
     # XXX version (type and template?)
 
@@ -2850,6 +2855,20 @@ class TopologyOutputs(_TopologyParameter):
 _TT = TypeVar("_TT", bound="NodeType")
 
 
+def substitute_node(node_type: Type[_TT], _name: str = "", **kw) -> _TT:
+    directives = kw.pop("_directives", [])
+    if NodeTemplateDirective.substitute not in directives:
+        directives.append(NodeTemplateDirective.substitute)
+    return node_type(_name, _directives=directives, **kw)
+
+
+def select_node(node_type: Type[_TT], _name: str = "", **kw) -> _TT:
+    directives = kw.pop("_directives", [])
+    if NodeTemplateDirective.select not in directives:
+        directives.append(NodeTemplateDirective.select)
+    return node_type(_name, _directives=directives, **kw)
+
+
 # set requirement_name to the types the type checker will see,
 # e.g. Foo.my_requirement: T
 def find_required_by(
@@ -3008,20 +3027,45 @@ class NodeType(ToscaType):
     _directives: List[str] = field(default_factory=list)
     "List of this node template's TOSCA directives"
 
+    _node_filter: Optional[Dict[str, Any]] = None
+    "Optional node_filter to use with 'select' directive"
+
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         yaml = cls._shared_cls_to_yaml(converter)
         return yaml
 
+    def _enforce_required_fields(self):
+        for directive in self._directives:
+            for name in ("select", "substitute"):
+                return False
+        return True
+
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
         if self._directives:
             tpl["directives"] = self._directives
+        if self._node_filter:
+            tpl["node_filter"] = self._node_filter
         return tpl
 
     def find_artifact(self, name_or_tpl) -> Optional["ArtifactType"]:
         # XXX
         return None
+
+    def substitute(self, _name: str = "", **overrides) -> Self:
+        """
+        Create a new node template with a "substitute" directive.
+
+        For example:
+
+        .. code-block:: python
+
+          from tosca_repositories import nested
+
+          substitution_node = nested.__root__.substitute(property="override", db=DB())
+        """
+        return substitute_node(type(self), _name=_name, **overrides)
 
     if typing.TYPE_CHECKING:
         # trick the type checker to support both class and instance method calls
