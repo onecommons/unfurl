@@ -19,6 +19,7 @@ import ast
 import time
 from typing import (
     TYPE_CHECKING,
+    Iterable,
     Iterator,
     List,
     MutableMapping,
@@ -1489,7 +1490,7 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
             else:
                 self[name] = [change[1], None, {}]
 
-    def add_resources(self, resources: List[MutableMapping[str, Any]]) -> None:
+    def add_resources(self, resources: Iterable[Dict[str, Any]]) -> None:
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
