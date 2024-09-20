@@ -582,18 +582,19 @@ import_resolver: Optional[ImportResolver] = None
 service_template_basedir = ""
 
 
-def install(import_resolver_: Optional[ImportResolver], base_dir=None):
+def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     # insert the path hook ahead of other path hooks
     global import_resolver
     import_resolver = import_resolver_
     global service_template_basedir
+    old_basedir = service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
-    elif not service_template_basedir:
+    else:
         service_template_basedir = os.getcwd()
     global installed
     if installed:
-        return
+        return old_basedir
 
     sys.meta_path.insert(0, RepositoryFinder())
     # XXX this breaks imports in local scope somehow:
@@ -603,6 +604,7 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None):
     # sys.path_importer_cache.clear()
     # invalidate_caches()
     installed = True
+    return old_basedir
 
 
 class PrintCollector:
@@ -729,6 +731,8 @@ def restricted_exec(
         # so to make it happy add a dummy one if its missing
         temp_module = ModuleType(full_name)
         temp_module.__dict__.update(namespace)
+        if full_name == "service_template":
+            temp_module.__path__ = [service_template_basedir]
         sys.modules[full_name] = temp_module
     previous_safe_mode = global_state.safe_mode
     previous_mode = global_state.mode
