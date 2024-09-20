@@ -238,6 +238,7 @@ class Configurator(metaclass=AutoRegisterClass):
             If ``run`` is not defined as a generator it must return either a :py:class:`~unfurl.support.Status`, a ``bool`` or a :class:`ConfiguratorResult` to indicate if the task succeeded and any changes to the target's state.
         """
         yield task.done(False)
+        return False
 
     def can_dry_run(self, task: "TaskView") -> bool:
         """

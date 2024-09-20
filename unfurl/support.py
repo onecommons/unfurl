@@ -158,6 +158,7 @@ class Reason(str, Enum):
     check = "check"
     undeploy = "undeploy"
     stop = "stop"
+    connect = "connect"
 
     def __str__(self) -> str:
         return self.value

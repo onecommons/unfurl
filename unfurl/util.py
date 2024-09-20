@@ -494,7 +494,7 @@ def change_cwd(new_path: Optional[str] = None, log: Optional[LogExtraLevels] = N
 
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 # XXX unused because this breaks check_schema
-def extend_with_default(validator_class: Draft7Validator) -> None:
+def extend_with_default(validator_class: Draft7Validator) -> Draft7Validator:
     """
     # Example usage:
     obj = {}
@@ -511,7 +511,7 @@ def extend_with_default(validator_class: Draft7Validator) -> None:
         properties: Mapping,
         instance: Draft7Validator,
         schema: Mapping,
-    ) -> Union[Generator, Draft7Validator]:
+    ) -> Iterator:
         if not validator.is_type(instance, "object"):
             return
 

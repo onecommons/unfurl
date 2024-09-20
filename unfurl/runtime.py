@@ -507,7 +507,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
-    def get_operational_dependencies(self) -> Iterator[Operational]:
+    def get_operational_dependencies(self) -> Iterable[Operational]:
         if self.parent and self.parent is not self.root:
             yield self.parent
 
@@ -944,7 +944,7 @@ class ArtifactInstance(EntityInstance):
     def as_import_spec(self):
         return self.template.as_import_spec()
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         # skip dependency on the parent
         for d in self.dependencies:
             yield d
@@ -1198,7 +1198,7 @@ class NodeInstance(HasInstancesInstance):
                 else:
                     raise
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         yield from super().get_operational_dependencies()
 
         for instance in self.requirements:
@@ -1303,7 +1303,7 @@ class TopologyInstance(HasInstancesInstance):
             if rel.template.is_compatible_type(relation)
         ]
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         for instance in self.instances:
             yield instance
 

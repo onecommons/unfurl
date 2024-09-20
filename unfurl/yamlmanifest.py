@@ -4,7 +4,17 @@
 
 import io
 import json
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, TypedDict, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TYPE_CHECKING,
+    TypedDict,
+    cast,
+)
 from typing_extensions import NotRequired
 import sys
 from collections.abc import MutableSequence, Mapping
@@ -378,6 +388,8 @@ class YamlManifest(ReadOnlyManifest):
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
         spec = manifest.get("spec", {})
+        # load_env_instances is only set when exporting environments
+        # otherwise don't include environment instances in the environment
         load_env_instances = self.localEnv and self.localEnv.overrides.get(
             "load_env_instances"
         )
@@ -878,7 +890,9 @@ class YamlManifest(ReadOnlyManifest):
             return None
         return self.save_entity_instance(resource)
 
-    def save_resource(self, resource: NodeInstance, discovered):
+    def save_resource(
+        self, resource: NodeInstance, discovered: Dict[str, Any]
+    ) -> Optional[Tuple[str, Dict]]:
         # XXX checkstatus break unit tests so skip mostly
         checkstatus = (
             resource.template.type == "unfurl.nodes.LocalRepository"
@@ -943,7 +957,9 @@ class YamlManifest(ReadOnlyManifest):
             )
         return (name, status)
 
-    def save_root_resource(self, root: TopologyInstance, discovered):
+    def save_root_resource(
+        self, root: TopologyInstance, discovered: Dict[str, Any]
+    ) -> CommentedMap:
         resource = root
         assert resource
         status = CommentedMap()
@@ -958,7 +974,9 @@ class YamlManifest(ReadOnlyManifest):
                 None,
                 map(
                     lambda r: self.save_resource(r, discovered),
-                    resource.get_operational_dependencies(),
+                    cast(
+                        Iterable[NodeInstance], resource.get_operational_dependencies()
+                    ),
                 ),
             )
         )

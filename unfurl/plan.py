@@ -404,10 +404,11 @@ class Plan:
                         reason,
                     )
 
+        # note: filter logic should have already been applied by generate_delete_configurations()
         if resource.created or self.jobOptions.destroyunmanaged:
             nodeState = NodeState.deleting
             op = "Standard.delete"
-        else:
+        else:  # XXX filter logic filters out this case so this never happens
             nodeState = None
             op = "Install.revert"
 
@@ -464,11 +465,13 @@ class Plan:
     def generate_delete_configurations(
         self, include_test: Callable[[EntityInstance], Optional[str]]
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
+        # called by prune and the undeploy plan
         seen: Set[int] = set()
         test = partial(self.should_delete, include_test)
         for child, reason in select_dependents(self.root, test, seen):
             if reason != "cancelled" and id(child) not in seen:
                 seen.add(id(child))
+                # eventually calls execute_default_undeploy() unless custom workflow
                 yield from self._generate_delete_configurations(child, reason)
 
     def should_delete(
@@ -566,7 +569,7 @@ class Plan:
                 assert False, self.root.requirements
 
     def _generate_configurations(
-        self, resource: "NodeInstance", reason: str, workflow: Optional[str] = None
+        self, resource: "NodeInstance", reason: Optional[str], workflow: Optional[str] = None
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
@@ -769,7 +772,7 @@ class DeployPlan(Plan):
             return Reason.add
         return None
 
-    def include_instance(self, template: EntitySpec, instance: EntityInstance):
+    def include_instance(self, template: EntitySpec, instance: EntityInstance) -> Optional[str]:
         """Return whether or not the given instance should be included in the current plan,
         based on the current job's options and whether the template changed or the instance in need of repair?
 
@@ -807,14 +810,17 @@ class DeployPlan(Plan):
         # there isn't a new config to run, see if the last applied config needs to be re-run
         if not reason:
             if "check" in instance.template.directives:
+                # always triggers "check" operation if set
                 instance.local_status = Status.unknown
-                return Reason.check
             if jobOptions.change_detection != "skip" and instance.last_config_change:
+                # customized is only set if created first!
+                # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
+                # discover would have to calculate digest for configure!
                 if not instance.customized or jobOptions.change_detection == "always":
                     return Reason.reconfigure
         return reason
 
-    def check_for_repair(self, instance):
+    def check_for_repair(self, instance) -> Optional[str]:
         jobOptions = self.jobOptions
         assert instance
         if jobOptions.repair == "none":
@@ -848,10 +854,10 @@ class DeployPlan(Plan):
     def _generate_workflow_configurations(
         self, instance: NodeInstance, oldTemplate: Optional[NodeSpec]
     ):
-        # if oldTemplate is not None this is an existing instance, so check if we should include
         if instance.shadow:
-            reason = "connect"
+            reason: Optional[str] = Reason.connect
         elif oldTemplate:
+            # this is an existing instance, so check if we should include it
             reason = self.include_instance(oldTemplate, instance)
             if not reason:
                 logger.debug(
