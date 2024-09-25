@@ -176,7 +176,8 @@ https://github.com/oasis-open/tosca-community-contributions/tree/master/examples
       ),
     )
 
-    
+.. _implement_operation:
+
 4. Implementing an operation
 ============================
 
