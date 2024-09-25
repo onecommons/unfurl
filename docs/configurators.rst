@@ -10,19 +10,25 @@ If you set an external command line directly as the ``implementation``, Unfurl w
 If ``operation_host`` is local it will use the `Shell` configurator, if it is remote,
 it will use the ``Ansible`` configurator and generate a playbook that invokes it on the remote machine:
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure: echo "abbreviated configuration"
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure: echo "abbreviated configuration"
+
+  .. literalinclude:: ./examples/configurators-1.py
+    :language: python
+
 
 Available configurators include:
 
@@ -40,30 +46,35 @@ The Ansible configurator executes the given playbook. You can access the same Un
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure:
-                  implementation: Ansible
-                  inputs:
-                    playbook:
-                      # quote this yaml so its templates are not evaluated before we pass it to Ansible
-                      q:
-                        - set_fact:
-                            fact1: "{{ '.name' | eval }}"
-                        - name: Hello
-                          command: echo "{{ fact1 }}"
-                  outputs:
-                    fact1:
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation: Ansible
+                    inputs:
+                      playbook:
+                        # quote this yaml so its templates are not evaluated before we pass it to Ansible
+                        q:
+                          - set_fact:
+                              fact1: "{{ '.name' | eval }}"
+                          - name: Hello
+                            command: echo "{{ fact1 }}"
+                    outputs:
+                      fact1:
+
+  .. literalinclude:: ./examples/configurators-2.py
+    :language: python
 
 Inputs
 ------
@@ -137,24 +148,29 @@ Example
 
 In this example, ``operation_host`` is set to a remote instance so the command is executed remotely using Ansible.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure:
-                  implementation:
-                    primary: Cmd
-                    operation_host: staging.example.com
-                  inputs:
-                    cmd: echo "test"
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation:
+                      primary: Cmd
+                      operation_host: staging.example.com
+                    inputs:
+                      cmd: echo "test"
+
+  .. literalinclude:: ./examples/configurators-3.py
+    :language: python
 
 Delegate
 ========
@@ -180,28 +196,34 @@ Inline shell script example
 
 This example executes an inline shell script and uses the ``cwd`` and ``shell`` input options.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        topology_template:
-          node_templates:
-            shellscript-example:
-              type: tosca:Root
-              interfaces:
-                Standard:
-                  configure:
-                    implementation: |
-                      if ! [ -x "$(command -v testvars)" ]; then
-                        source testvars.sh
-                      fi
-                    inputs:
-                        cwd: '{{ "project" | get_dir }}'
-                        keeplines: true
-                        # our script requires bash
-                        shell: '{{ "bash" | which }}'
+  .. code-block:: YAML
+
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          topology_template:
+            node_templates:
+              shellscript-example:
+                type: tosca:Root
+                interfaces:
+                  Standard:
+                    configure:
+                      implementation: |
+                        if ! [ -x "$(command -v testvars)" ]; then
+                          source testvars.sh
+                        fi
+                      inputs:
+                          cwd: '{{ "project" | get_dir }}'
+                          keeplines: true
+                          # our script requires bash
+                          shell: '{{ "bash" | which }}'
+
+  .. literalinclude:: ./examples/configurators-4.py
+    :language: python
+
 
 Example with artifact
 ---------------------
@@ -209,33 +231,36 @@ Example with artifact
 Declaring an artifact of a type that is associated with the shell configurator
 ensures Unfurl will install the artifact if necessary, before it runs the command.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: tosca_plugins/artifacts.yaml
-        topology_template:
-          node_templates:
-            terraform-example:
-              type: tosca:Root
-              artifacts:
-                ripgrep:
-                  type: artifact.AsdfTool
-                  file: ripgrep
-                  properties:
-                    version: 13.0.0
-              interfaces:
-                Standard:
-                  configure:
-                    implementation: ripgrep
-                    inputs:
-                      cmd: rg search
+  .. code-block:: YAML
 
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          imports:
+          - repository: unfurl
+            file: tosca_plugins/artifacts.yaml
+          topology_template:
+            node_templates:
+              terraform-example:
+                type: tosca:Root
+                artifacts:
+                  ripgrep:
+                    type: artifact.AsdfTool
+                    file: ripgrep
+                    properties:
+                      version: 13.0.0
+                interfaces:
+                  Standard:
+                    configure:
+                      implementation: ripgrep
+                      inputs:
+                        cmd: rg search
 
+  .. literalinclude:: ./examples/configurators-5.py
+    :language: python
 
 Inputs
 ------
@@ -302,34 +327,39 @@ You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node te
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: tosca_plugins/artifacts.yaml
-        topology_template:
-          node_templates:
+  .. code-block:: YAML
 
-            terraform-example:
-              type: unfurl.nodes.Installer.Terraform
-              interfaces:
-                defaults:
-                  inputs:
-                    tfvars:
-                      tag: test
-                    main: |
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          imports:
+          - repository: unfurl
+            file: tosca_plugins/artifacts.yaml
+          topology_template:
+            node_templates:
 
-                      variable "tag" {
-                        type        = string
-                      }
+              terraform-example:
+                type: unfurl.nodes.Installer.Terraform
+                interfaces:
+                  defaults:
+                    inputs:
+                      tfvars:
+                        tag: test
+                      main: |
 
-                      output "name" {
-                        value = var.tag
-                      }
+                        variable "tag" {
+                          type        = string
+                        }
+
+                        output "name" {
+                          value = var.tag
+                        }
+
+  .. literalinclude:: ./examples/configurators-6.py
+    :language: python
 
 Inputs
 ------
@@ -472,24 +502,37 @@ Inputs
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  node_templates:
-    hello-world-container:
-      type: unfurl.nodes.Container.Application.Docker
-      requirements:
-        - host: compute
-      artifacts:
-        image:
-          type: tosca.artifacts.Deployment.Image.Container.Docker
-          file: busybox
-      interfaces:
-        Standard:
-          inputs:
-            configuration:
-              command: ["echo", "hello world"]
-              detach:  no
-              output_logs: yes
+  .. code-block:: YAML
+    
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        imports:
+        - repository: unfurl
+          file: configurators/templates/docker.yaml
+        topology_template:
+          node_templates:
+            hello-world-container:
+              type: unfurl.nodes.Container.Application.Docker
+              requirements:
+                - host: compute
+              artifacts:
+                image:
+                  type: tosca.artifacts.Deployment.Image.Container.Docker
+                  file: busybox
+              interfaces:
+                Standard:
+                  inputs:
+                    configuration:
+                      command: ["echo", "hello world"]
+                      detach: no
+                      output_logs: yes
+
+  .. literalinclude:: ./examples/configurators-7.py
+    :language: python
 
 DNS
 ====
@@ -532,33 +575,45 @@ Properties
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  node_templates:
-    example_com_zone:
-      type: unfurl.nodes.DNSZone
-      properties:
-        name: example.com.
-        provider:
-          # Amazon Route53 (Note: this provider requires that the zone already exists.)
-          class: octodns.provider.route53.Route53Provider
+  .. code-block:: YAML
 
-    test_app:
-      type: tosca.nodes.WebServer
-      requirements:
-        - host: compute
-        - dns:
-            node: example_com_zone
-            relationship:
-               type:   unfurl.relationships.DNSRecords
-               properties:
-                 records:
-                  www:
-                    type: A
-                    value:
-                      # get the ip address of the Compute instance that this is hosted on
-                      eval: .source::.requirements::[.name=host]::.target::public_address
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        imports:
+        - repository: unfurl
+          file: configurators/templates/dns.yaml
+        topology_template:
+          node_templates:
+            example_com_zone:
+              type: unfurl.nodes.DNSZone
+              properties:
+                name: example.com.
+                provider:
+                  # Amazon Route53 (Note: this provider requires that the zone already exists.)
+                  class: octodns.provider.route53.Route53Provider
 
+            test_app:
+              type: tosca.nodes.WebServer
+              requirements:
+                - host: compute
+                - dns:
+                    node: example_com_zone
+                    relationship:
+                      type: unfurl.relationships.DNSRecords
+                      properties:
+                        records:
+                          www:
+                            type: A
+                            value:
+                              # get the ip address of the Compute instance that this is hosted on
+                              eval: .source::.requirements::[.name=host]::.target::public_address
+
+  .. literalinclude:: ./examples/configurators-8.py
+    :language: python
 
 .. _helm:
 

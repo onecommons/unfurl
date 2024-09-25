@@ -92,38 +92,43 @@ the endpoint data type previously defined. Lastly, we define a node
 template with a ``DatabaseService`` type. This node template fully
 configures the endpoint properties (i.e. the ``ip`` and ``port``).
 
-.. code:: yaml
+.. tab-set-code::
 
- tosca_definitions_version: tosca_dsl_1_2
+  .. code:: yaml
 
- data_types:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
-   my.datatypes.Endpoint:
-     description: Socket endpoint details
-     properties:
-       ip:
-         description: the endpoint IP
-         type: string
-       port:
-         description: the endpoint port
-         type: integer
+    data_types:
 
- node_types:
+      my.datatypes.Endpoint:
+        description: Socket endpoint details
+        properties:
+          ip:
+            description: the endpoint IP
+            type: string
+          port:
+            description: the endpoint port
+            type: integer
 
-   DatabaseService:
-     derived_from: tosca.nodes.DBMS
-     properties:
-       endpoint:
-         type: my.datatypes.Endpoint
+    node_types:
 
- node_templates:
+      DatabaseService:
+        derived_from: tosca.nodes.DBMS
+        properties:
+          endpoint:
+            type: my.datatypes.Endpoint
 
-   my_db_service:
-     type: DatabaseService
-     properties:
-       endpoint:
-         ip: 192.168.15.85
-         port: 2233
+    node_templates:
+
+      my_db_service:
+        type: DatabaseService
+        properties:
+          endpoint:
+            ip: 192.168.15.85
+            port: 2233
+
+  .. literalinclude:: ./../examples/data-types-1.py
+    :language: python
 
 
 Schema Validations
@@ -171,39 +176,45 @@ For example, consider the ``my.datatypes.Endpoint`` defined in the
 previous example. We can derive from it, to create an endpoint data type
 that also includes a user name.
 
-.. code:: yaml
+.. tab-set-code::
 
- tosca_definitions_version: tosca_simple_unfurl_1_0_0
+  .. code:: yaml
 
- data_types:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
-   my.datatypes.Endpoint:
-     ...
+    data_types:
 
-   my.datatypes.ExtendedEndpoint:
-     derived_from: my.datatypes.Endpoint
-     properties:
-       username:
-         description: Username used to connect to the endpoint
-         type: string
+      my.datatypes.Endpoint:
+        ...
 
- node_types:
+      my.datatypes.ExtendedEndpoint:
+        derived_from: my.datatypes.Endpoint
+        properties:
+          username:
+            description: Username used to connect to the endpoint
+            type: string
 
-   DatabaseService:
-     derived_from: tosca.nodes.DBMS
-     properties:
-       endpoint:
-         type: my.datatypes.ExtendedEndpoint
+    node_types:
 
- node_templates:
+      DatabaseService:
+        derived_from: tosca.nodes.DBMS
+        properties:
+          endpoint:
+            type: my.datatypes.ExtendedEndpoint
 
-   my_db_service:
-     type: DatabaseService
-     properties:
-       endpoint:
-         ip: 192.168.15.85
-         port: 2233
-         username: jimmy
+    node_templates:
+
+      my_db_service:
+        type: DatabaseService
+        properties:
+          endpoint:
+            ip: 192.168.15.85
+            port: 2233
+            username: jimmy
+
+  .. literalinclude:: ./../examples/data-types-1.py
+    :language: python
+
 
 Composition
 -----------
@@ -213,50 +224,54 @@ reuse the previously defined ``my.datatypes.Endpoint``. This time, we
 will create a ``my.datatypes.Connection`` that will hold endpoint
 information + authentication details.
 
-.. code:: yaml
+.. tab-set-code::
 
- tosca_definitions_version: tosca_dsl_1_2
+  .. code:: yaml
 
- data_types:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
-   my.datatypes.Endpoint:
-     ...
+    data_types:
 
-   my.datatypes.Connection:
-     properties:
-       endpoint:
-         type: my.datatypes.Endpoint
-       auth:
-         type: my.datatypes.Auth
+      my.datatypes.Endpoint:
+        ...
 
-   my.datatypes.Auth:
-     properties:
-       username:
-         type: string
-       password:
-         type: string
+      my.datatypes.Connection:
+        properties:
+          endpoint:
+            type: my.datatypes.Endpoint
+          auth:
+            type: my.datatypes.Auth
 
- node_types:
+      my.datatypes.Auth:
+        properties:
+          username:
+            type: string
+          password:
+            type: string
 
-   DatabaseService:
-     derived_from: cloudify.nodes.DBMS
-     properties:
-       connection:
-         type: my.datatypes.Connection
+    node_types:
 
- node_templates:
+      DatabaseService:
+        derived_from: cloudify.nodes.DBMS
+        properties:
+          connection:
+            type: my.datatypes.Connection
 
-   my_db_service:
-     type: DatabaseService
-     properties:
-       connection:
-         endpoint:
-           ip: 192.168.15.85
-           port: 2233
-         auth:
-           username: jimmy
-           password: secret
+    node_templates:
 
+      my_db_service:
+        type: DatabaseService
+        properties:
+          connection:
+            endpoint:
+              ip: 192.168.15.85
+              port: 2233
+            auth:
+              username: jimmy
+              password: secret
+
+  .. literalinclude:: ./../examples/data-types-3.py
+    :language: python
 
 Default Values
 --------------
@@ -267,56 +282,60 @@ defined ``my.datatypes.Connection``. We can simplify its usage if we
 know that ``port`` by default will be ``2233`` and username by default
 will be ``admin``.
 
-.. code:: yaml
+.. tab-set-code::
 
- tosca_definitions_version: tosca_dsl_1_2
+  .. code:: yaml
 
- data_types:
+    tosca_definitions_version: tosca_dsl_1_2
 
-   my.datatypes.Connection:
-     properties:
-       endpoint:
-         type: my.datatypes.Endpoint
-       auth:
-         type: my.datatypes.Auth
+    data_types:
 
-   my.datatypes.Endpoint:
-     description: Socket endpoint details
-     properties:
-       ip:
-         description: the endpoint IP
-         type: string
-       port:
-         default: 2233
-         type: integer
+      my.datatypes.Connection:
+        properties:
+          endpoint:
+            type: my.datatypes.Endpoint
+          auth:
+            type: my.datatypes.Auth
 
-   my.datatypes.Auth:
-     properties:
-       username:
-         default: admin
-         type: string
-       password:
-         type: string
+      my.datatypes.Endpoint:
+        description: Socket endpoint details
+        properties:
+          ip:
+            description: the endpoint IP
+            type: string
+          port:
+            default: 2233
+            type: integer
 
- node_types:
+      my.datatypes.Auth:
+        properties:
+          username:
+            default: admin
+            type: string
+          password:
+            type: string
 
-   DatabaseService:
-     derived_from: cloudify.nodes.DBMS
-     properties:
-       connection:
-         type: my.datatypes.Connection
+    node_types:
 
- node_templates:
+      DatabaseService:
+        derived_from: cloudify.nodes.DBMS
+        properties:
+          connection:
+            type: my.datatypes.Connection
 
-   my_db_service:
-     type: DatabaseService
-     properties:
-       connection:
-         endpoint:
-           ip: 192.168.15.85
-         auth:
-           password: secret
+    node_templates:
 
+      my_db_service:
+        type: DatabaseService
+        properties:
+          connection:
+            endpoint:
+              ip: 192.168.15.85
+            auth:
+              password: secret
+
+  .. literalinclude:: ./../examples/data-types-4.py
+    :language: python
 
 Notice how the ``my_db_service`` node template only specified the
 ``connection.endpoint.ip`` and ``connection.auth.password``. The other
@@ -361,37 +380,42 @@ template ``my_app`` of type ``nodes.MyApp``. This node template
 overrides another single nested property ``prop3`` of the ``data1``
 property.
 
-.. code:: yaml
+.. tab-set-code::
 
- tosca_definitions_version: tosca_dsl_1_2
+  .. code:: yaml
 
- data_types:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
-   datatypes.Data1:
-     properties:
-       prop1:
-         default: prop1_default
-       prop2:
-         default: prop2_default
-       prop3:
-         default: prop3_default
+    data_types:
 
- node_types:
+      datatypes.Data1:
+        properties:
+          prop1:
+            default: prop1_default
+          prop2:
+            default: prop2_default
+          prop3:
+            default: prop3_default
 
-   nodes.MyApp:
-     properties:
-       data1:
-         type: datatypes.Data1
-         default:
-           prop2: prop2_override
+    node_types:
 
- node_templates:
- 
-   my_app:
-     type: nodes.MyApp
-     properties:
-       data1:
-         prop3: prop3_override
+      nodes.MyApp:
+        properties:
+          data1:
+            type: datatypes.Data1
+            default:
+              prop2: prop2_override
+
+    node_templates:
+    
+      my_app:
+        type: nodes.MyApp
+        properties:
+          data1:
+            prop3: prop3_override
+
+  .. literalinclude:: ./../examples/data-types-5.py
+    :language: python
 
 
 After the service template is parsed, the ``my_app`` node template properties will be:
@@ -439,42 +463,47 @@ property who’s type is a custom data type and keeps that type
 explicitly, a similar nested merging logic will apply as described
 previously. For example:
 
-.. code:: yaml
+.. tab-set-code::
 
- tosca_definitions_version: tosca_dsl_1_2
+  .. code:: yaml
 
- data_types:
+    tosca_definitions_version: tosca_dsl_1_2
 
-   datatypes.Data1:
-     properties:
-       prop1:
-         default: prop1_default
-       prop2:
-         default: prop2_default
-       prop3:
-         default: prop3_default
+    data_types:
 
- node_types:
+      datatypes.Data1:
+        properties:
+          prop1:
+            default: prop1_default
+          prop2:
+            default: prop2_default
+          prop3:
+            default: prop3_default
 
-   nodes.MyApp:
-     properties:
-       data2:
-         type: datatypes.Data1
-         default:
-           prop2: prop2_override
+    node_types:
 
-   nodes.DerivedFromMyApp:
-     derived_from: nodes.MyApp
-     properties:
-       data2:
-         type: datatypes.Data1
-         default:
-           prop3: prop3_override
+      nodes.MyApp:
+        properties:
+          data2:
+            type: datatypes.Data1
+            default:
+              prop2: prop2_override
 
- node_templates:
+      nodes.DerivedFromMyApp:
+        derived_from: nodes.MyApp
+        properties:
+          data2:
+            type: datatypes.Data1
+            default:
+              prop3: prop3_override
 
-   my_app:
-     type: nodes.DerivedFromMyApp
+    node_templates:
+
+      my_app:
+        type: nodes.DerivedFromMyApp
+
+  .. literalinclude:: ./../examples/data-types-6.py
+    :language: python
 
 After the service template is parsed, the ``my_app`` node template properties will be:
 
