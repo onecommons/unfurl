@@ -212,6 +212,9 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
 
     if project_path.startswith("local:"):
         # it's not a cloud server project
+        repo_info = localenv.find_path_in_repos(project_path[len("local:"):])
+        if repo_info[0]:
+            return repo_info[0]
         logger.error(f"Can't find project {project_path} in {list(local_projects)}")
         return None
 
