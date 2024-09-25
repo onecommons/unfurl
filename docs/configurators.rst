@@ -329,34 +329,8 @@ Example
 
 .. tab-set-code::
 
-  .. code-block:: YAML
-
-      apiVersion: unfurl/v1alpha1
-      kind: Ensemble
-      spec:
-        service_template:
-          imports:
-          - repository: unfurl
-            file: tosca_plugins/artifacts.yaml
-          topology_template:
-            node_templates:
-
-              terraform-example:
-                type: unfurl.nodes.Installer.Terraform
-                interfaces:
-                  defaults:
-                    inputs:
-                      tfvars:
-                        tag: test
-                      main: |
-
-                        variable "tag" {
-                          type        = string
-                        }
-
-                        output "name" {
-                          value = var.tag
-                        }
+  .. literalinclude:: ./examples/configurators-6.yaml
+    :language: yaml
 
   .. literalinclude:: ./examples/configurators-6.py
     :language: python
@@ -504,32 +478,8 @@ Example
 
 .. tab-set-code::
 
-  .. code-block:: YAML
-    
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: configurators/templates/docker.yaml
-        topology_template:
-          node_templates:
-            hello-world-container:
-              type: unfurl.nodes.Container.Application.Docker
-              requirements:
-                - host: compute
-              artifacts:
-                image:
-                  type: tosca.artifacts.Deployment.Image.Container.Docker
-                  file: busybox
-              interfaces:
-                Standard:
-                  inputs:
-                    configuration:
-                      command: ["echo", "hello world"]
-                      detach: no
-                      output_logs: yes
+  .. literalinclude:: ./examples/configurators-7.yaml
+    :language: yaml
 
   .. literalinclude:: ./examples/configurators-7.py
     :language: python
@@ -577,40 +527,8 @@ Example
 
 .. tab-set-code::
 
-  .. code-block:: YAML
-
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: configurators/templates/dns.yaml
-        topology_template:
-          node_templates:
-            example_com_zone:
-              type: unfurl.nodes.DNSZone
-              properties:
-                name: example.com.
-                provider:
-                  # Amazon Route53 (Note: this provider requires that the zone already exists.)
-                  class: octodns.provider.route53.Route53Provider
-
-            test_app:
-              type: tosca.nodes.WebServer
-              requirements:
-                - host: compute
-                - dns:
-                    node: example_com_zone
-                    relationship:
-                      type: unfurl.relationships.DNSRecords
-                      properties:
-                        records:
-                          www:
-                            type: A
-                            value:
-                              # get the ip address of the Compute instance that this is hosted on
-                              eval: .source::.requirements::[.name=host]::.target::public_address
+  .. literalinclude:: ./examples/configurators-8.yaml
+    :language: yaml
 
   .. literalinclude:: ./examples/configurators-8.py
     :language: python

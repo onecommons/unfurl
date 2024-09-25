@@ -688,7 +688,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = base
             else:
                 # url is a local path
-                assert base
+                assert base or os.path.isabs(file_name), f"{file_name} isn't absolute and base isn't set"
                 url = os.path.join(base, file_name)
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:

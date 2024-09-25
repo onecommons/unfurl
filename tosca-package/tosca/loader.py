@@ -167,7 +167,7 @@ class ToscaYamlLoader(Loader):
         for i in range(self.full_name.count(".")):
             path = path.parent
         restricted_exec(
-            src, vars(module), path, self.full_name, self.modules, safe_mode
+            src, vars(module), str(path), self.full_name, self.modules, safe_mode
         )
 
 
@@ -634,7 +634,7 @@ class PrintCollector:
 def restricted_exec(
     python_src: str,
     namespace,
-    base_dir,
+    base_dir: str,
     full_name="service_template",
     modules=None,
     safe_mode=False,
@@ -712,8 +712,14 @@ def restricted_exec(
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = full_name
     if base_dir and "__file__" not in namespace:
+        # try to guess file path from module name
+        if full_name.startswith("service_template"):
+            # assume service_template is just our dummy package
+            module_name = full_name[len("service_template"):]
+        else:
+            module_name = full_name
         namespace["__file__"] = (
-            os.path.join(base_dir, full_name.replace(".", "/")) + ".py"
+            os.path.join(base_dir, module_name.lstrip(".").replace(".", "/")) + ".py"
         )
     if package and "__package__" not in namespace:
         namespace["__package__"] = package
