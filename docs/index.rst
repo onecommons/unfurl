@@ -20,21 +20,21 @@ Table of Contents
 
    quickstart.rst
 
-   get-started-step-by-step.rst
-
-   ensembles.rst
+   solution-overview.rst
 
    projects.rst
 
-   secrets.rst
+   ensembles.rst
+
+   jobs.rst
 
    tosca.rst
 
-   Python alternative to YAML <dsl.md>
+   TOSCA as Python <dsl.md>
 
    packages.rst
 
-   jobs.rst
+   secrets.rst
 
    runtime.rst
 

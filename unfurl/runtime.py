@@ -557,11 +557,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def uri(self) -> str:
         manifest = self._manifest
         if not manifest:
-            return "#" + self.key
+            return "#" + self.nested_key
         if "#" in manifest.uri:
-            return manifest.uri + "?" + self.key
+            return manifest.uri + "?" + self.nested_key
         else:
-            return manifest.uri + "#" + self.key
+            return manifest.uri + "#" + self.nested_key
 
     @property
     def deployment(self) -> str:

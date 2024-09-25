@@ -1,3 +1,5 @@
+:orphan:
+
 ===============
 Getting Started
 ===============
@@ -6,113 +8,6 @@ Once you've installed `Unfurl`, you are ready to configure it and create your fi
 
 .. tip::
   Before diving in, it is recommended that you read this high-level overview of `How it works`_ section.
-
-
-.. _configure:
-
-1. Configure your home environment
-===================================
-
-Unfurl creates a "home" directory (by default at ``~/.unfurl_home``) that contains the configuration settings and tools that you want shared by all your Unfurl projects. This is a good place to keep an inventory of the various account settings you'll need to connect to your cloud resources. You can group these settings into `environments` and `Unfurl projects` will inherit them -- making it easy for different projects to switch between environments.
-
-The home project can also be used to isolate the  Unfurl runs in, enabling you set different versions of tools, create Python virtual environment or run Unfurl in a Docker container.
-
-Under the hood, Unfurl's home is just a standard `Unfurl` project modeling the local machine it is running on so you can customize it and deploy it like any other `Unfurl` project.
-
-
-You have two options for setting up your Unfurl home:
-
-A) Do nothing and use your system's current environment
--------------------------------------------------------
-
-By default, the first time you create an Unfurl project it will automatically generate a home project if it is missing.
-It will include configurations to the main cloud providers that will look for their standard environment variables
-such as ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY``.
-Individual unfurl projects can filter or set the variables in its environment
-through the `variables` subsection of the `environment` in the project file.
-
-B) Explicitly create and edit your home project
------------------------------------------------
-
-Before you create your first Unfurl project, run ``unfurl home --init`` to create the home project.
-It will be placed in ``~/.unfurl_home`` unless you specify otherwise using the ``--home`` option.
-
-Or if you have an existing home project you can just clone it like any other project and then create a new runtime
-using the ``runtime`` command, for example: ``unfurl runtime --init ~/.unfurl_home``.
-
-Now you can customize your home project, for example:
-
-1. Edit the default environment and create new environments in ``unfurl.yaml``
-
-2. Add secrets or configure secret manager
-
-3. Edit or add the connections in `unfurl.yaml`
-   to use environment variables or using secrets or just hard code the connection's properties.
-
-4. Bootstrap dev tools
-
-5. Deploy local instances, like `Supervisor`.
-
-6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the :tosca_spec:`default directive<_Toc50125217>` to indicate that template should only be used if it wasn't already declared in the main project.
-
-``~/.unfurl_home/ensemble.yaml`` contains a template (``asdfBootstrap``) that will install
-local versions of the tools Unfurl's :ref:`configurators<configurators>` need (eg. asdf, Terraform, gcloud, and Helm)
-It install these tools, run ``unfurl deploy ~/.unfurl_home``.
-
-.. tip::
-   Don't worry about making mistakes -- as a regular Unfurl project, your :ref:`.unfurl_home<configure>`
-   contains a git repository so you can rollback to previous versions of your config files.
-
-
-2. Create a project
-===================
-
-Now you are ready to create your first Unfurl project.
-
-Run :cli:`unfurl init<unfurl-init>`
-
-This will create a new project and commit it to new git repository unless the
-``--existing`` flag is used. If specified, Unfurl will search the current directory and its parents looking for the nearest existing git repository. It will then add the new project to that repository if one is found.
-
-:cli:`unfurl init<unfurl-init>` will also create an ensemble in the project unless the ``--empty`` flag used.
-By default, a separate, local git repository will be created for the ensemble. Use the ``--mono`` flag to add the ensemble to the project's git repository or use the ``--submodule`` flag to add the ensemble's git repository as a submodule of the project's git repository.
-
-Keeping the ensemble repository separate from the project repository is useful
-if the resources the ensemble creates are transitory or if you want to restrict access to them.
-Using the ``--submodule`` option allows those repositories to be easily packaged and shared with the project repository
-but still maintain separate access control and git history for each ensemble.
-
-Once created, the project directory will look like:
-
-| ├── .git
-| │   └── info/exclude
-| │   └── ... (other git stuff)
-| ├── .gitignore
-| ├── .gitattributes
-| ├── unfurl.yaml
-| ├── secrets
-| │   └── secrets.yaml
-| ├── local
-| │   └── unfurl.yaml
-| ├── .unfurl-local-template.yaml
-| ├── ensemble-template.yaml
-| ├── ensemble
-| │   └── ensemble.yaml
-
-In the folder structure above:
-
-- ``unfurl.yaml`` is the Unfurl project configuration file.
-- Any files in ``secrets`` is automatically encrypted before committed.
-- ``secrets/secrets.yaml`` is included by ``unfurl.yaml``.
-- ``ensemble-template.yaml`` is a template that is shared across ensembles in this project.
-- Any files in``local`` is excluded from the git repository
-- ``local/unfurl.yaml`` is included by the parent ``unfurl.yaml``
-  and is where you'll put local or private settings you don't want to commit.
-- ``.unfurl-local-template.yaml`` is the template used generate a new ``local/unfurl.yaml`` when the project is cloned.
-- ``ensemble`` is the folder that contains the default ensemble
-  (use the ``--empty`` flag to skip creating this).
-- ``ensemble/ensemble.yaml`` is the manifest file for this ensemble. It includes ``ensemble-template.yaml``.
-- Private repository folders (like ``ensemble``) are listed in ``.git/info/exclude``
 
 .. _create_servicetemplate:
 
@@ -276,26 +171,6 @@ https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html
 1. Run deploy
 2. Commit your changes
 
-.. _publish_project:
 
-6. Publish your project
-=======================
-
-You can publish and share your projects like any git repository.
-If you want to publish local git repositories on a git hosting service like github.com
-(e.g. ones created by ``unfurl init`` or ``unfurl clone``) follow these steps:
-
-1. Create corresponding empty remote git repositories.
-2. Set the new repositories as the remote origins for your local repositories
-   with this command:
-
-   ``git remote set-url origin <remote-url>``
-
-   Or, if the repository is a git submodule set the URL use:
-
-   ``git submodule set-url <path> <remote-url>``
-
-3. Commit any needed changes in the repositories.
-4. Running ``unfurl git push`` will push all the repositories in the project.
 
 .. _How it works: https://unfurl.run/howitworks.html

@@ -7,7 +7,6 @@ Unfurl's configuration files are validated according to the JSON schemas describ
 Files
 -----
 
-.. _ensemble_yaml:
 
 ensemble.yaml
 ~~~~~~~~~~~~~
@@ -16,6 +15,8 @@ Example:
 
 .. include:: examples/ensemble.yaml
    :code: YAML
+
+.. _ensemble_yaml:
 
 JSON Schema:
 
@@ -110,6 +111,8 @@ JSON Schema:
 
 Sections
 ---------
+
+.. _environment_schema:
 
 .. jsonschema:: manifest-schema.json#/definitions/environment
 

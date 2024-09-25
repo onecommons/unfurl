@@ -8,9 +8,60 @@
 
 # Introduction
 
-Unfurl is a command line tool for managing your DevOps infrastructure. Unfurl lets you easily track configuration, secrets, software and code dependencies, and deployment history all in git.
+Unfurl is a command line tool for deploying services and applications.
 
-Unfurl can integrate with the DevOps tools you are already using -- like Terraform, Ansible, and Helm -- allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.
+Use Unfurl to describe your application architecture in terms high level resources (e.g. compute) and services. Then Unfurl creates a deployment plan adapted to your deployment environment (e.g your cloud provider, or Kubernetes), using artifacts such as shell scripts, Terraform modules or Ansible playbooks.
+
+After deployment, Unfurl records in git all the info you need for a reproducible deployment: the configuration, the artifacts used in deployment, their versions and code dependencies, and deploy, records history, as well the state of the deployment resources. This enables intelligent updates as your dependencies or environment changes.
+
+The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfurl.cloud), our open-source platform for collaboratively developing cloud applications.
+
+## Why use Unfurl?
+
+* You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can manage that complexity without complicated DevOps processes -- see https://www.unfurl.cloud/blog/why-unfurl for more.
+
+* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Just publish blueprint in an `.unfurl` folder or web UI on unfurl.cloud, our open-source deployment platform.
+
+* Collaborative, open without depending on server infrastructure. Use git workflow, pull requests, while provide secret management and limiting admin access.
+
+## How it works
+
+1. Create a project to manage your deployments. 
+
+Unfurl projects provide an easy way to track and organize all that goes into deploying an application, including configuration, secrets, and artifacts -- and track them in git. The goal is to provide isolation and reproducibility while maintaining human-scale, application-centric view of your resources.
+
+2. Create an application blueprint
+
+A blueprint that describe your cloud application's architecture in terms its resources it consumes (e.g. compute instances), the services it requires (e.g. a database) and the artifacts it consists of (e.g. a Docker container image or a software package).
+
+Avoid tedious and error prone low-level configuration by higher-level components with a blueprint.
+
+python, yaml, or UI described using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard.
+
+3. Instantiate your blueprint: adapt plan render
+
+Unfurl instantiates a blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into.
+For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.
+Or if you need to define your own implementations, its easy use the tools you already use and encapsulate the scripts you already have. Operations that invoke Terraform, Ansible, or other command-line tools. 
+
+And Unfurl can automatically install missing dependencies.
+
+Unfurl will generate a plan and render (e.g Terraform modules or ansible playbooks) that you can review or even create a pull request.
+
+4. Deploy and manage. Deploy Use `unfurl deploy` to deploy the infrastructure.  It will commit to git the latest configuration and a history of changes to your cloud accounts.
+
+After the initial deployment, subsequent deployment plans take into account the current state of its resources.
+
+This way you can reduce errors by automatically reconfiguring as dependencies and environments change. 
+
+You can also create custom operations or run ad-hoc commands in the ensemble's environment.
+
+5. Share and Collaborate
+
+Unfurl stores everything in git so git is all you need to share projects and collaboratively manage deployments.  Unfurl can use git lfs to provide locking during deployment and automatically encrypts secrets. Or for ease of use and more advanced needs you can use [unfurl cloud](https://unfurl.cloud) to host and deploy.
+
+For complex applications and to enable open-source development and the integration of 3rd-party providers, Unfurl supports design patterns for 
+for integrating components and services that can be developed and deployed independently, such as encapsulation (imports), composition (substitute mapping), loosely-coupled components (dsl constraints), dependency injection (deployment blueprint / substitution mapping), modular architectures (std), semantic versioning (packaging), and component catalogs (cloudmaps).
 
 ## Our Vision
 
@@ -19,25 +70,6 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live clo
 - Fully-functional and reproducible archives of web applications.
 - Location independence to decentralize cloud infrastructure.
 - Cooperatively build and run cloud services the same way we build open source software.
-
-## How it works
-
-1\. Use `unfurl init` to create an Unfurl-managed git repository. Or use `unfurl clone` to clone an existing one.
-
-2\. The repository will contain a few YAML files that you can edit. They will describe everything you'll need to deploy your application, such as:
-
-- Cloud provider and SaaS services account credentials and other secrets organized into environments.
-- Code repositories and container image registries.
-- A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard.
-- Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).
-
-3\. Use `unfurl deploy` to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.
-
-4\. Now you have a reproducible description of your cloud infrastructure stored in git! So you can:
-
-- Push your repository to a git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.
-- Pull incoming changes and review and approve pull requests before deploying.
-- Clone the repository and deploy to new environments even if they use different services -- because your model is adaptable, manual changes are minimized.
 
 ## Features
 
@@ -104,7 +136,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 pip install unfurl
 ```
 
- Running `unfurl home --init` creates a virtual Python environment to run unfurl in so by default unfurl only installs the minimal requirements needed to run the command line. If you want to run unfurl using your system Python install it with the "full" option:
+Running `unfurl home --init` creates a virtual Python environment to run unfurl in so by default unfurl only installs the minimal requirements needed to run the command line. If you want to run unfurl using your system Python install it with the "full" option:
 
 ```
 pip install unfurl[full]
@@ -116,7 +148,9 @@ You can also install `unfurl` directly from this repository to get the latest co
 pip3 install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
 ```
 
-Alternatively, you can use the [Unfurl container on Docker Hub](https://hub.docker.com/r/onecommons/unfurl):
+Alternatively, you can get the Unfurl container image from [GitHub](https://github.com/onecommons/unfurl/pkgs/container/unfurl) or [Docker Hub](https://hub.docker.com/r/onecommons
+/unfurl) and run Unfurl from the image:
+
 
 ```
 docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
@@ -148,7 +182,9 @@ Use the table below to activate shell autocompletion for the `unfurl`:
 ## Developing
 
 ```
-git clone --recurse-submodules https://github.com/onecommons/unfurl
+git clone --recurse-submodules https://github.com/onecommons/unfurl /path/to/unfurl/
+
+pip3 install -U -e git+file:///path/to/unfurl/
 ```
 
 To build documentation: Run `tox -e docs`.

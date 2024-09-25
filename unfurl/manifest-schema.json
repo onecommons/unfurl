@@ -246,29 +246,6 @@
             },
             "imported": {
               "type": "string"
-            },
-            "protected": {
-              "type": "boolean"
-            },
-            "created": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "string"
-                }
-              ]
-            },
-            "customized": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "string"
-                }
-              ]
             }
           }
         },
@@ -368,7 +345,8 @@
           "enum": [
             "ignore",
             "optional",
-            "required"
+            "required",
+            "critical"
           ]
         },
         "lastStateChange": {
@@ -376,6 +354,32 @@
         },
         "lastConfigChange": {
           "$ref": "#/definitions/changeId"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "created": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/changeId"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "customized": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/changeId"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
         }
       }
     },
@@ -705,13 +709,14 @@
       ]
     },
     "environment": {
+      "description": "Environment defaults",
       "$ref": "#/definitions/environment"
     },
     "spec": {
       "type": "object",
       "properties": {
         "service_template": {
-          "description": "a TOSCA service template",
+          "description": "A TOSCA service template",
           "type": "object"
         },
         "inputs": {
@@ -724,6 +729,10 @@
           "$ref": "#/definitions/namedObjects"
         },
         "resource_templates": {
+          "$ref": "#/definitions/namedObjects"
+        },
+        "discovered": {
+          "description": "Discovered Node Templates",
           "$ref": "#/definitions/namedObjects"
         }
       }
@@ -757,6 +766,7 @@
       "type": "string"
     },
     "changes": {
+      "description": "Optional list of changes. If missing, changes are saved as separate `files<job.yaml>`",
       "$ref": "#/definitions/changes"
     },
     "lock": {

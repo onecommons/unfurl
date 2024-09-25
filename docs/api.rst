@@ -113,6 +113,13 @@ API for writing configurators
 .. automodule:: unfurl.result
   :members: ChangeRecord, ChangeAware
 
+Project folders
+~~~~~~~~~~~~~~~
+
+.. automodule:: unfurl.projectpaths
+  :members: WorkFolder, _get_base_dir
+  :undoc-members:
+
 Runtime module
 ~~~~~~~~~~~~~~
 .. automodule:: unfurl.runtime

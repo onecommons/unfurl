@@ -5,6 +5,7 @@ TOSCA
 =====
 
 .. contents::
+   :local:
 
 Introduction
 ^^^^^^^^^^^^
@@ -15,11 +16,11 @@ The TOSCA specification allows the user to define a `service template` which des
 
 * *Node templates* describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.
 * *Relationship templates* can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.
-* *Interfaces* that define operations on nodes that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management (deploying, starting, stopping and destroying resources) and the user can define additional interfaces for "Day Two" operations, such as maintainence tasks.
+* *Interfaces* are a collections of user-defined *operations* that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management operations (creating, starting, stopping and destroying resources) and the user can define additional interfaces for "Day Two" operations, such as maintenance tasks.
 * *Artifacts* such as container images, software packages, or files that need to be deployed or used as an implementation for an operation. 
 * *Policies* which define a condition or a set of actions for a Node. The orchestrator evaluates the conditions within the Policy against events that trigger. The required actions are then performed against the corresponding Interfaces.
 * *Workflows* allows you to define a set of manually defined tasks to run in a sequential order.
-* *Type definitons* TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types.
+* *Type definitions* TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types that provide validation for properties and parameters.
 
 .. seealso:: For more information, see the full `TOSCA Language Reference`.
 

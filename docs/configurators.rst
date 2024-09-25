@@ -170,8 +170,6 @@ Inputs
   :when: If set, only perform the delegated operation if its value evaluates to true.
 
 
-.. _shell:
-
 Shell
 =====
 

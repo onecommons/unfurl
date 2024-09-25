@@ -4,11 +4,11 @@ Managing Secrets
 Unfurl allows you to store secrets separately from the rest for your configuration, either in separate configuration file or in a secrets manager such as HashiCorp Vault. In the project configuration file you specify how those secrets should be managed. You can apply the following strategies:
 
 * Store the secrets in a local configuration file and distribute that file out-of-band if necessary.
-* Encrypt the secrets file using `Ansible Vault <https://docs.ansible.com/ansible/latest/user_guide/vault.html>`_ so they can be safely checked into the ensemble repository.
+* Encrypt the secrets file using `Ansible Vault <https://docs.ansible.com/ansible/latest/user_guide/vault.html>`_ so they can be safely checked into its git repository.
 * Store them in a secrets manager such as HashiCorp Vault or Amazon Secrets Manager or your OS's keyring. You can use any secrets manager that has an `Ansible Lookup Plugin <https://docs.ansible.com/ansible/latest/plugins/lookup.html>`_ available for it.
-* If your ensemble repository is private and the secrets not highly sensitive you can just commit it into the repository in plain text.
+* If your git repository is private and the secrets not highly sensitive you can just commit it into the repository in plain text.
 
-You can apply any of these techniques to different secrets and projects can inherit the secrets configuration from :ref:`unfurl_home<configure>`.
+You can apply any of these techniques to different secrets and projects can inherit the secrets configuration from :ref:`unfurl_home<Unfurl Home>`.
 
 .. code-block:: YAML
 

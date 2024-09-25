@@ -99,11 +99,17 @@ logger = getLogger("unfurl")
 
 class Status(int, Enum):
     unknown = 0
+    "The operational state of the instance is unknown."
     ok = 1
+    "Instance is operational"
     degraded = 2
+    "Instance is operational but in a degraded state."
     error = 3
+    "Instance is not operational."
     pending = 4
+    "Instance is being brought up or hasn't been created yet."
     absent = 5
+    "Instance confirmed to not exist."
 
     @property
     def color(self):
