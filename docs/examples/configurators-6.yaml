@@ -1,0 +1,29 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+    - repository: unfurl
+      file: tosca_plugins/artifacts.yaml
+    topology_template:
+      node_templates:
+
+        terraform-example:
+          type: unfurl.nodes.Installer.Terraform
+          interfaces:
+            defaults:
+              inputs:
+                tfvars:
+                  tag: test
+                main: |
+                  variable "tag" {
+                    type        = string
+                  }
+
+                  output "name" {
+                    value = var.tag
+                  }
+            Standard:
+              operations:
+                configure:
+

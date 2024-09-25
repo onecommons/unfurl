@@ -1,16 +1,28 @@
-class Endpoint(tosca.datatypes.Root):
+import unfurl
+import tosca
+from tosca import DataType
+
+
+class my_datatypes_Endpoint(DataType):
+    """Socket endpoint details"""
+
+    _type_name = "my.datatypes.Endpoint"
     ip: str
+    """the endpoint IP"""
+
     port: int
+    """the endpoint port"""
+
 
 class DatabaseService(tosca.nodes.DBMS):
-    endpoint: Endpoint
+    endpoint: "my_datatypes_Endpoint"
+
 
 my_db_service = DatabaseService(
     "my_db_service",
-    endpoint=Endpoint(
+    endpoint=my_datatypes_Endpoint(
         ip="192.168.15.85",
-        port=2233
-    )
+        port=2233,
+    ),
 )
 
-__all__ = ["Endpoint", "DatabaseService"]

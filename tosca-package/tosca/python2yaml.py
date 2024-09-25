@@ -388,7 +388,7 @@ class PythonToYaml:
                     import_path = module_dir / yaml_path
                 self.imports.add(("", import_path))
                 logger.debug(
-                    f'importing "{module_name}" in "{current_module}": located at "{import_path}", relative to "{module_path}"'
+                    f'"{current_module}" is importing "{module_name}": located at "{import_path}", relative to "{module_path}"'
                 )
             except ValueError:
                 # not a subpath of the current module, add a repository
@@ -396,6 +396,9 @@ class PythonToYaml:
                     module_name, yaml_path
                 )
                 if repo_path:
+                    logger.debug(
+                        f'"{current_module}" is importing "{module_name}" in package "{ns}": located at "{repo_path}""'
+                    )
                     self.imports.add((ns, repo_path))
                 else:
                     if ns:

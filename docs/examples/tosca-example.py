@@ -2,7 +2,7 @@
 
 
 import unfurl
-from typing import Sequence
+from typing import Sequence, Union
 import tosca
 from tosca import Attribute, Eval, GB, MB, Property
 import unfurl.configurators.shell
@@ -19,7 +19,7 @@ class myApplication(tosca.nodes.SoftwareComponent):
     private_address: str = Attribute()
 
     host: Sequence[
-        tosca.relationships.HostedOn | tosca.nodes.Compute | tosca.capabilities.Compute
+        Union[tosca.relationships.HostedOn, tosca.nodes.Compute, tosca.capabilities.Compute]
     ] = ()
     db: "dbconnection"
 

@@ -94,40 +94,10 @@ configures the endpoint properties (i.e. the ``ip`` and ``port``).
 
 .. tab-set-code::
 
-  .. code:: yaml
+  .. literalinclude:: ../examples/data-types-1.yaml
+    :language: yaml
 
-    tosca_definitions_version: tosca_simple_unfurl_1_0_0
-
-    data_types:
-
-      my.datatypes.Endpoint:
-        description: Socket endpoint details
-        properties:
-          ip:
-            description: the endpoint IP
-            type: string
-          port:
-            description: the endpoint port
-            type: integer
-
-    node_types:
-
-      DatabaseService:
-        derived_from: tosca.nodes.DBMS
-        properties:
-          endpoint:
-            type: my.datatypes.Endpoint
-
-    node_templates:
-
-      my_db_service:
-        type: DatabaseService
-        properties:
-          endpoint:
-            ip: 192.168.15.85
-            port: 2233
-
-  .. literalinclude:: ./../examples/data-types-1.py
+  .. literalinclude:: ../examples/data-types-1.py
     :language: python
 
 
@@ -202,15 +172,16 @@ that also includes a user name.
           endpoint:
             type: my.datatypes.ExtendedEndpoint
 
-    node_templates:
+    topology_template:
+      node_templates:
 
-      my_db_service:
-        type: DatabaseService
-        properties:
-          endpoint:
-            ip: 192.168.15.85
-            port: 2233
-            username: jimmy
+          my_db_service:
+            type: DatabaseService
+            properties:
+              endpoint:
+                ip: 192.168.15.85
+                port: 2233
+                username: jimmy
 
   .. literalinclude:: ./../examples/data-types-1.py
     :language: python
@@ -229,7 +200,6 @@ information + authentication details.
   .. code:: yaml
 
     tosca_definitions_version: tosca_simple_unfurl_1_0_0
-
     data_types:
 
       my.datatypes.Endpoint:
@@ -257,18 +227,19 @@ information + authentication details.
           connection:
             type: my.datatypes.Connection
 
-    node_templates:
+    topology_template:
+      node_templates:
 
-      my_db_service:
-        type: DatabaseService
-        properties:
-          connection:
-            endpoint:
-              ip: 192.168.15.85
-              port: 2233
-            auth:
-              username: jimmy
-              password: secret
+        my_db_service:
+          type: DatabaseService
+          properties:
+            connection:
+              endpoint:
+                ip: 192.168.15.85
+                port: 2233
+              auth:
+                username: jimmy
+                password: secret
 
   .. literalinclude:: ./../examples/data-types-3.py
     :language: python
@@ -286,10 +257,8 @@ will be ``admin``.
 
   .. code:: yaml
 
-    tosca_definitions_version: tosca_dsl_1_2
-
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
     data_types:
-
       my.datatypes.Connection:
         properties:
           endpoint:
@@ -318,21 +287,22 @@ will be ``admin``.
     node_types:
 
       DatabaseService:
-        derived_from: cloudify.nodes.DBMS
+        derived_from: nodes.DBMS
         properties:
           connection:
             type: my.datatypes.Connection
 
-    node_templates:
+    topology_template:
+      node_templates:
 
-      my_db_service:
-        type: DatabaseService
-        properties:
-          connection:
-            endpoint:
-              ip: 192.168.15.85
-            auth:
-              password: secret
+        my_db_service:
+          type: DatabaseService
+          properties:
+            connection:
+              endpoint:
+                ip: 192.168.15.85
+              auth:
+                password: secret
 
   .. literalinclude:: ./../examples/data-types-4.py
     :language: python
@@ -384,10 +354,7 @@ property.
 
   .. code:: yaml
 
-    tosca_definitions_version: tosca_simple_unfurl_1_0_0
-
     data_types:
-
       datatypes.Data1:
         properties:
           prop1:
@@ -406,13 +373,14 @@ property.
             default:
               prop2: prop2_override
 
-    node_templates:
-    
-      my_app:
-        type: nodes.MyApp
-        properties:
-          data1:
-            prop3: prop3_override
+    topology_template:
+        node_templates:
+        
+          my_app:
+            type: nodes.MyApp
+            properties:
+              data1:
+                prop3: prop3_override
 
   .. literalinclude:: ./../examples/data-types-5.py
     :language: python
@@ -467,8 +435,7 @@ previously. For example:
 
   .. code:: yaml
 
-    tosca_definitions_version: tosca_dsl_1_2
-
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
     data_types:
 
       datatypes.Data1:
@@ -497,10 +464,11 @@ previously. For example:
             default:
               prop3: prop3_override
 
-    node_templates:
+    topology_template
+      node_templates:
 
-      my_app:
-        type: nodes.DerivedFromMyApp
+        my_app:
+          type: nodes.DerivedFromMyApp
 
   .. literalinclude:: ./../examples/data-types-6.py
     :language: python

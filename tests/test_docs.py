@@ -6,6 +6,7 @@ import glob
 from unfurl.localenv import LocalConfig
 from unfurl.yamlmanifest import YamlManifest, _basepath
 from unfurl.yamlloader import YamlConfig
+from tosca import global_state
 
 basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
 
@@ -33,6 +34,8 @@ class DocsTest(unittest.TestCase):
         # assert ToscaSpec(serviceTemplate.config, path=path)
 
     def test_python_snippets(self):
+        # examples generated like:
+        # UNFURL_EXPORT_PYTHON_STYLE=concise unfurl -vv export --format python docs/examples/configurators-6.yaml
         python_files = glob.glob(os.path.join(basedir, "*.py"))
 
         required_imports = """
@@ -41,6 +44,7 @@ import tosca
 from tosca import Attribute, Eval, Property, operation, GB, MB
 """
 
+        global_state.mode = "spec"
         for py_file in python_files:
             with self.subTest(py_file=py_file):
                 with open(py_file, "r") as f:
