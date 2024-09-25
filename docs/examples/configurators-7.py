@@ -1,9 +1,16 @@
+import unfurl
+import tosca
+from unfurl.configurators.templates.docker import (
+    unfurl_nodes_Container_Application_Docker,
+)
+from unfurl.tosca_plugins.artifacts import *
+
 hello_world_container = unfurl_nodes_Container_Application_Docker(
-"hello-world-container",
-image=tosca.artifacts.DeploymentImageContainerDocker(
-    "image",
-    file="busybox",
-  ),
+    "hello-world-container",
+    image=tosca.artifacts.DeploymentImageContainerDocker(
+        "image",
+        file="busybox",
+    ),
 )
 hello_world_container.host = tosca.find_node("compute")
 
@@ -50,8 +57,3 @@ configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
     version="2.10.3",
     file="ansible.utils",
 )
-
-
-__all__ = ["hello_world_container", "configurator_artifacts"]
-
-

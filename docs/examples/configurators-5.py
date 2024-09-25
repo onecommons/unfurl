@@ -1,4 +1,8 @@
-@operation(name="configure")
+import unfurl
+import tosca
+from unfurl.tosca_plugins.artifacts import *
+
+@tosca.operation(name="configure")
 def terraform_example_configure(**kw):
     return unfurl.configurators.shell.ShellConfigurator(
         command=["ripgrep"],
@@ -58,7 +62,4 @@ configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
     version="2.10.3",
     file="ansible.utils",
 )
-
-
-__all__ = ["terraform_example", "configurator_artifacts"]
 

@@ -13,5 +13,4 @@ my_db_service = DatabaseService(
     )
 )
 
-__all__ = ["Endpoint", "DatabaseService", "my_db_service"]
-
+__all__ = ["Endpoint", "DatabaseService"]

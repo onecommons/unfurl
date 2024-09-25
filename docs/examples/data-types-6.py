@@ -11,4 +11,4 @@ class DerivedFromMyApp(MyApp):
 
 my_app = DerivedFromMyApp("my_app")
 
-__all__ = ["Data1", "MyApp", "DerivedFromMyApp", "my_app"]
+__all__ = ["Data1", "MyApp", "DerivedFromMyApp"]

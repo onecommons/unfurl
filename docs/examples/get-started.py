@@ -104,6 +104,3 @@ my_server = tosca.nodes.Compute(
 my_server.check = my_server_check
 my_server.delete = my_server_delete
 my_server.create = my_server_create
-
-
-__all__ = ["my_server"]

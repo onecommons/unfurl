@@ -13,5 +13,5 @@ my_app = MyApp(
     )
 )
 
-__all__ = ["Data1", "MyApp", "my_app"]
+__all__ = ["Data1", "MyApp"]
 

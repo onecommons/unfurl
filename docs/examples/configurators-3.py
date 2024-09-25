@@ -9,8 +9,3 @@ test_remote = tosca.nodes.Root(
     "test_remote",
 )
 test_remote.configure = test_remote_configure
-
-
-__all__ = ["test_remote"]
-
-

@@ -25,5 +25,5 @@ my_db_service = DatabaseService(
     )
 )
 
-__all__ = ["Auth", "Endpoint", "Connection", "DatabaseService", "my_db_service"]
+__all__ = ["Auth", "Endpoint", "Connection", "DatabaseService"]
 

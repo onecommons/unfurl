@@ -1,3 +1,6 @@
+import unfurl
+from unfurl.tosca_plugins.artifacts import *
+
 terraform_example = unfurl_nodes_Installer_Terraform(
     "terraform-example",
 )
@@ -45,7 +48,3 @@ configurator_artifacts.ansible_utils = artifact_AnsibleCollection(
     version="2.10.3",
     file="ansible.utils",
 )
-
-
-__all__ = ["terraform_example", "configurator_artifacts"]
-

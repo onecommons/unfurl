@@ -12,7 +12,3 @@ shellscript_example = tosca.nodes.Root(
     "shellscript-example",
 )
 shellscript_example.configure = shellscript_example_configure
-
-
-__all__ = ["shellscript_example"]
-
