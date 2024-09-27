@@ -905,7 +905,7 @@ class Convert:
         class_decl = f"{initial_indent}class {cls_name}({base_names}):\n"
         src = ""
         indent = initial_indent + indent
-        # XXX: 'version', 'artifacts'
+        # XXX: 'version'
         assert toscatype.defs
         src += add_description(toscatype.defs, indent)
         if toscaname != cls_name:
@@ -1473,9 +1473,13 @@ class Convert:
                 if template:
                     localname, src = self.relationship_template2obj(template, indent="")
                     if not localname and src:
-                        # template was inline and unnamed, use the given name as the variable name
-                        localname = tosca_name
-                        src = f"{localname} = {src}"
+                        # template was inline and unnamed,
+                        # use the given name as the variable name if set
+                        if tosca_name:
+                            localname = tosca_name
+                            src = f"{localname} = {src}"
+                        else:  # no given name, include definition inline
+                            return src
                 if not template or not localname:
                     logger.warning(
                         f'Relationship template conversion not found in topology, using find_relationship("{tosca_name}") instead of converting to Python.'
@@ -1706,7 +1710,11 @@ class Convert:
             if isinstance(relationship, str):
                 rel_assignment = self.template_reference(relationship, "relationship")
             else:
-                rel_assignment = None  # XXX support inline relationship templates
+                rel_assignment = self.template_reference(
+                    "",
+                    "relationship",
+                    RelationshipTemplate(relationship, "", self.custom_defs),
+                )
             if rel_assignment:
                 if req_assignment:
                     req_assignment = f"{rel_assignment}[{req_assignment}]"
