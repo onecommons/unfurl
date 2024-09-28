@@ -169,6 +169,9 @@ def test_hosted_on():
 
 def test_expressions():
     tosca.global_state.mode = "spec"
+    class Inputs(tosca.TopologyInputs):
+        domain: str
+
     class Test(tosca.nodes.Root):
         url: str = expr.uri()
         path1: str = expr.get_dir(None, "src")
@@ -177,6 +180,8 @@ def test_expressions():
     class test(tosca.Namespace):
         service = Service()
         test_node = Test()
+
+    assert Inputs.domain == tosca.EvalData({'get_input': 'domain'})
 
     topology = runtime_test(test)
     assert expr.get_env("MISSING", "default") == "default"

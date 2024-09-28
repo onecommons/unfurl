@@ -1583,10 +1583,12 @@ _EvalDataExpr = Union["EvalData", str, None, Dict[str, Any], List[Any]]
 
 
 class _GetName:
-    def __init__(self, obj):
+    def __init__(self, obj: Union["ToscaType", Type["ToscaType"]]):
         self.obj = obj
 
     def __str__(self) -> str:
+        if self.obj._type_name in ("inputs", "outputs"):
+            return f"root::{self.obj._type_name}"
         return self.obj._name
 
 
@@ -2063,11 +2065,18 @@ class _FieldDescriptor:
         else:  # attribute access on the class
             projection = FieldProjection(self.field, None)
             # XXX add validation key to eval to assert one result only
-            projection._path = [
-                "",
-                f"[.type={obj_type.tosca_type_name()}]",
-                self.field.as_ref_expr(),
-            ]
+            if obj_type._type_name == "inputs":
+                projection._expr = dict(get_input=self.field.tosca_name)
+            else:
+                if obj_type._type_name == "outputs":
+                    selector = "root::outputs"
+                else:
+                    selector = f"[.type={obj_type.tosca_type_name()}]"
+                projection._path = [
+                    "",
+                    selector,
+                    self.field.as_ref_expr(),
+                ]
             return projection
 
 
