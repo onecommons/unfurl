@@ -6,6 +6,11 @@ from typing import Sequence, Union
 import tosca
 from tosca import Attribute, Eval, GB, MB, Property, TopologyInputs, TopologyOutputs
 import unfurl.configurators.shell
+from unfurl.tosca_plugins.expr import concat
+
+
+class Inputs(TopologyInputs):
+    domain: str
 
 
 class dbconnection(tosca.relationships.ConnectsTo):
@@ -14,12 +19,16 @@ class dbconnection(tosca.relationships.ConnectsTo):
 
 
 class myApplication(tosca.nodes.SoftwareComponent):
-    domain: str = Eval({"get_input": "domain"})
+    domain: str = Inputs.domain
 
     private_address: str = Attribute()
 
     host: Sequence[
-        Union[tosca.relationships.HostedOn, tosca.nodes.Compute, tosca.capabilities.Compute]
+        Union[
+            tosca.relationships.HostedOn,
+            tosca.nodes.Compute,
+            tosca.capabilities.Compute,
+        ]
     ] = ()
     db: "dbconnection"
 
@@ -71,20 +80,5 @@ myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
 )
 
 
-class Inputs(TopologyInputs):
-    domain: str
-
-
 class Outputs(TopologyOutputs):
-    url: str = Eval(
-        {
-          "concat":
-            [
-              "https://",
-              { "get_input": "domain" },
-              ":",
-              { "get_attribute": ["myapp", "portspec", "source"] },
-              "/api/events",
-            ],
-        }
-    )
+    url: str = concat("https://", Inputs.domain)
