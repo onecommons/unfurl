@@ -9,13 +9,14 @@ When called in runtime mode (ie. as a computed property or as operation implemen
 
 These functions can be executed in the safe mode Python sandbox as it always executes in "spec" mode.
 
-Note that some functions are overloaded with two signatures, 
+Note that some functions are overloaded with two signatures,
 One that takes a live ToscaType object as an argument and one that takes ``None`` in its place.
 
 The former variant can only be used in runtime mode as live objects are not available outside that mode.
 In "spec" mode, the None variant must be used and at runtime the eval expression returned by that function
 will be evaluated using the current context's instance.
 """
+
 # put this module is in unfurl/tosca_plugins because modules in this package are whitelisted as safe
 # they are safe because they never be evaluated in safe mode -- just return _Refs
 from typing import (
@@ -90,6 +91,10 @@ __all__ = [
     "negate",
     "as_bool",
     "uri",
+    "concat",
+    "token",
+    # XXX get_property
+    # XXX get_attribute
     # XXX File
     # XXX kubernetes_current_namespace
     # XXX kubectl,
@@ -127,7 +132,18 @@ def as_bool(val) -> bool:
         return cast(bool, EvalData(dict(eval={"not": {"not": val, "map_value": 1}})))
 
 
-def get_input(name: str, default: Any = MISSING):
+TI = TypeVar("TI")
+
+
+@overload
+def get_input(name: str, default: TI) -> TI: ...
+
+
+@overload
+def get_input(name: str) -> Any: ...
+
+
+def get_input(name, default=MISSING):
     # only needs root in context
     if default is not MISSING:
         args: Any = [name, default]
@@ -139,6 +155,31 @@ def get_input(name: str, default: Any = MISSING):
         return EvalData({"get_input": args})
 
 
+def concat(*args: str, sep="") -> str:
+    # evaluate now if in spec mode and no EvalData args
+    if global_state_mode() == "runtime" or not any(
+        map(lambda a: isinstance(a, EvalData), args)
+    ):
+        return sep.join([str(a) for a in args])
+    else:
+        expr: dict = {"concat": list(args)}
+        if sep:
+            expr["sep"] = sep
+        return EvalData(expr)  # type: ignore
+
+
+def token(string: str, token: str, index: int) -> str:
+    # evaluate now if in spec mode and no EvalData args
+    if global_state_mode() == "runtime" or (
+        not isinstance(string, EvalData)
+        and not isinstance(token, EvalData)
+        and not isinstance(index, EvalData)
+    ):
+        return string.split(token)[index]
+    else:
+        return EvalData({"token": [string, token, index]})  # type: ignore
+
+
 def has_env(name: str) -> bool:
     if global_state_mode() == "runtime":
         assert global_state_context()
@@ -148,22 +189,18 @@ def has_env(name: str) -> bool:
 
 
 @overload
-def get_env(name: str, default: str, *, ctx=None) -> str:
-    ...
-
-@overload
-def get_env(name: str, *, ctx=None) -> Optional[str]:
-    ...
+def get_env(name: str, default: str, *, ctx=None) -> str: ...
 
 
 @overload
-def get_env(*, ctx=None) -> Dict[str, str]:
-    ...
+def get_env(name: str, *, ctx=None) -> Optional[str]: ...
 
 
-def get_env(
-    name = None, default = None, *, ctx=None
-):
+@overload
+def get_env(*, ctx=None) -> Dict[str, str]: ...
+
+
+def get_env(name=None, default=None, *, ctx=None):
     # only ctx.environ is used
     if name is None and default is None:
         args = None
@@ -195,7 +232,9 @@ def if_expr(if_cond, then: T, otherwise: U = None) -> Union[T, U]:
             "'if_expr()' can not be valuate in runtime mode, instead just use a Python 'if' statement or expression."
         )
     else:
-        return EvalData({"eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}})  # type: ignore
+        return EvalData(
+            {"eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}}
+        )  # type: ignore
 
 
 def or_expr(left: T, right: U) -> Union[T, U]:
@@ -205,6 +244,7 @@ def or_expr(left: T, right: U) -> Union[T, U]:
         )
     else:
         return EvalData(dict(eval={"or": [left, right], "map_value": 1}))  # type: ignore
+
 
 def fallback(left: Optional[T], right: T) -> T:
     if global_state_mode() == "runtime":
@@ -236,13 +276,11 @@ def to_env(args: Dict[str, str], update_os_environ=False) -> Dict[str, str]:
 
 
 @overload
-def abspath(obj: ToscaType, path: str, relativeTo=None, mkdir=False) -> FilePath:
-    ...
+def abspath(obj: ToscaType, path: str, relativeTo=None, mkdir=False) -> FilePath: ...
 
 
 @overload
-def abspath(obj: None, path: str, relativeTo=None, mkdir=False) -> str:
-    ...
+def abspath(obj: None, path: str, relativeTo=None, mkdir=False) -> str: ...
 
 
 def abspath(
@@ -256,13 +294,11 @@ def abspath(
 
 
 @overload
-def get_dir(obj: ToscaType, relativeTo=None, mkdir=False) -> FilePath:
-    ...
+def get_dir(obj: ToscaType, relativeTo=None, mkdir=False) -> FilePath: ...
 
 
 @overload
-def get_dir(obj: None, relativeTo=None, mkdir=False) -> str:
-    ...
+def get_dir(obj: None, relativeTo=None, mkdir=False) -> str: ...
 
 
 def get_dir(
@@ -319,13 +355,11 @@ def lookup(name: str, *args, **kwargs):
 
 
 @overload
-def get_ensemble_metadata(key: None = None) -> Dict[str, str]:
-    ...
+def get_ensemble_metadata(key: None = None) -> Dict[str, str]: ...
 
 
 @overload
-def get_ensemble_metadata(key: str) -> str:
-    ...
+def get_ensemble_metadata(key: str) -> str: ...
 
 
 def get_ensemble_metadata(key=None):

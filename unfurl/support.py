@@ -701,6 +701,26 @@ set_eval_func("concat", concat, True, True)
 
 
 def token(args, ctx):
+    """
+    The token function is used within a TOSCA service template on a string to
+    parse out (tokenize) substrings separated by one or more token characters
+    within a larger string.
+
+
+    Arguments:
+
+    * The composite string that contains one or more substrings separated by
+      token characters.
+    * The string that contains one or more token characters that separate
+      substrings within the composite string.
+    * The integer indicates the index of the substring to return from the
+      composite string.  Note that the first substring is denoted by using
+      the '0' (zero) integer value.
+
+    Example:
+
+     [ get_attribute: [ my_server, data_endpoint, ip_address ], ':', 1 ]
+    """
     args = map_value(args, ctx)
     return args[0].split(args[1])[args[2]]
 
