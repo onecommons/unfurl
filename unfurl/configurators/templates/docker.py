@@ -54,7 +54,7 @@ class unfurl_datatypes_DockerContainer(OpenDataType):
     ] = None
     network_mode: Union[str, None] = None
     """Use the same values as the docker client --network parameter ("bridge", "host", "none")"""
-
+    deploy: Union[Dict[str, Any], None] = None
 
 class unfurl_nodes_Container_Application_Docker(tosca.nodes.Root):
     _type_name = "unfurl.nodes.Container.Application.Docker"
