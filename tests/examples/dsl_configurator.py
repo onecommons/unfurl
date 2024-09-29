@@ -35,7 +35,7 @@ class Test(Base):
         extra = self.a_requirement.extra  # type: ignore
         self.a_requirement.copy_of_extra = extra  # type: ignore
 
-        self.data_list.append(MyDataType())
+        self.data_list.append(MyDataType().extend(additional=1))
         self.data_list[0].ports.source = port80
         self.data_list[0].ports.target = tosca.datatypes.NetworkPortDef(8080)
         return True

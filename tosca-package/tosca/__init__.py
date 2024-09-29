@@ -89,6 +89,7 @@ __all__ = [
     "Namespace",
     "NodeTemplateDirective",
     "NodeType",
+    "OpenDataType",
     "PolicyType",
     "Property",
     "REQUIRED",

@@ -301,6 +301,7 @@ def test_computed_properties():
                 "source": 80,
                 "source_range": None,
             },
+
             "a_list": [1],
             "data_list": [
                 {
@@ -310,7 +311,8 @@ def test_computed_properties():
                         "target_range": None,
                         "source": 80,
                         "source_range": None,
-                    }
+                    },
+                    "additional": 1
                 }
             ],
             "extra": "extra",

@@ -1925,6 +1925,7 @@ def _make_dataclass(cls):
     # we need _Tosca_Fields not dataclasses.Fields
     # so for any declarations of tosca fields (properties, requirements, etc)
     # missing a _Tosca_Fields, set one before calling _process_class()
+    global_state.mode = "spec"
     global_state._in_process_class = True
     try:
         annotations = cls.__dict__.get("__annotations__")
@@ -3182,6 +3183,11 @@ class OpenDataType(DataType):
             if k[0] != "_":
                 self.__dict__[k] = kw.pop(k)
         super().__init__(_name, **kw)
+
+    def extend(self, **kw) -> Self:
+        "Add undeclared properties to the data type."
+        self.__dict__.update(kw)
+        return self
 
 
 class CapabilityType(_OwnedToscaType):
