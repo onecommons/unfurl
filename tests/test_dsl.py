@@ -782,6 +782,7 @@ def test_envvar_type():
     import tosca
     from tosca import Property, DEFAULT
     import unfurl
+    from unfurl.configurators.templates.docker import unfurl_datatypes_DockerContainer
 
     with tosca.set_evaluation_mode("spec"):
 
@@ -820,8 +821,10 @@ def test_envvar_type():
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
         assert generic_envvars.to_yaml() == {"DBASE": "aaaa", "URL": True}
-        assert OpenDataType(a=1, b="b").to_yaml() == {"a": 1, "b": "b"}
+        assert OpenDataType(a=1, b="b").extend(c="c").to_yaml() == {"a": 1, "b": "b", "c": "c"}
         assert Namespace.MyDataType(name="foo").to_yaml() == {"name": "foo"}
+        # make sure DockerContainer is an OpenDataType
+        unfurl_datatypes_DockerContainer().extend(labels=dict(foo="bar"))
 
 
 test_relationship_yaml = """
