@@ -184,6 +184,15 @@ class PythonToYaml:
         if module_name:
             section[name].setdefault("metadata", {})["module"] = module_name
             obj.register_template(module_name, name)
+            if obj.__class__.__module__ != module_name:
+                if (
+                    obj.__class__.__module__ != "unfurl.tosca_plugins.tosca_ext"
+                    and not obj.__class__.__module__.startswith("tosca.")
+                ):  # skip built-in modules
+                    module_path = self.globals.get("__file__")
+                    self._import_module(
+                        module_name, module_path, obj.__class__.__module__
+                    )
         self.templates.append(obj)
         return name
 
@@ -386,20 +395,22 @@ class PythonToYaml:
                     import_path = yaml_path.relative_to(module_dir)
                 else:
                     import_path = module_dir / yaml_path
-                self.imports.add(("", import_path))
-                logger.debug(
-                    f'"{current_module}" is importing "{module_name}": located at "{import_path}", relative to "{module_path}"'
-                )
+                _key = ("", import_path)
+                if _key not in self.imports:
+                    self.imports.add(_key)
+                    logger.debug(
+                        f'"{current_module}" is importing "{module_name}": located at "{import_path}", relative to "{module_path}"'
+                    )
             except ValueError:
                 # not a subpath of the current module, add a repository
-                ns, repo_path = self._set_repository_for_module(
-                    module_name, yaml_path
-                )
+                ns, repo_path = self._set_repository_for_module(module_name, yaml_path)
                 if repo_path:
-                    logger.debug(
-                        f'"{current_module}" is importing "{module_name}" in package "{ns}": located at "{repo_path}""'
-                    )
-                    self.imports.add((ns, repo_path))
+                    _key = (ns, repo_path)
+                    if _key not in self.imports:
+                        self.imports.add(_key)
+                        logger.debug(
+                            f'"{current_module}" is importing "{module_name}" in package "{ns}": located at "{repo_path}""'
+                        )
                 else:
                     if ns:
                         logger.warning(
