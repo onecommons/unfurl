@@ -14,7 +14,7 @@ Stand-alone functions don't need to be wrapped in an "eval".
   ============================  ========================================================
   Key                           Value
   ============================  ========================================================
-  `concat`                      ``[ string* ]``
+  :std:ref:`concat`             ``[ string* ]``
   `get_artifact`                ``[ template_name, artifact_name]``
   `get_attribute`               ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`get_env`            :regexp:`[ name, default? return ] | name`
@@ -22,9 +22,8 @@ Stand-alone functions don't need to be wrapped in an "eval".
   :std:ref:`get_nodes_of_type`  ``type_name``
   `get_property`                ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`has_env`            ``name``
-  `join`                        ``[ string+, delimiter? ]``
   `q`                           ``any``
-  `token`                       ``[ string, token, index]``
+  :std:ref:`token`               ``[ string, token, index]``
   ============================  ========================================================
 
 concat
@@ -91,11 +90,6 @@ has_env
 ^^^^^^^
 
   The ``has_env`` function returns a boolean indicating whether the given variable is found in the current environment.
-
-join
-^^^^
-
-  The join function is used to join an array of strings into a single string with optional delimiter. See
 
 q
 ^
