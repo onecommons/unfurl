@@ -390,16 +390,17 @@ class _MissingInclude:
         return self.key.key
 
 
-RE_FIRST = re.compile(r"([?]?)(include\d*)?([*]\S+)?([.]+$)?")
+RE_FIRST = re.compile(r"([?]?)(include[\w-]*)?([*]\S+)?([.]+$)?")
 
 MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
 
 
 def parse_merge_key(key: str) -> Optional[MergeKey]:
-    """
+    r"""
     +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
 
-    [include] = "include"[number?]
+    [maybe] = "?"
+    [include] = "include"[\w-]*
     [anchor] = "*"[anchorname]
     relative = '.'+
     """
