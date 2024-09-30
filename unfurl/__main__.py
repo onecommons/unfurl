@@ -382,6 +382,7 @@ allJobOptions = option_group(
         "--use-environment",
         default=None,
         help="Run this job in the given environment.",
+        metavar="NAME",
     ),
     click.option(
         "--var",
@@ -829,6 +830,7 @@ def undeploy(ctx: Context, ensemble=None, **options):
     options.update(ctx.obj)
     return _run(ensemble, options, ctx.info_name)
 
+
 @deploy_cli.command()
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
@@ -841,6 +843,7 @@ def teardown(ctx: Context, ensemble=None, **options):
     """
     options.update(ctx.obj)
     return _run(ensemble, options, "undeploy")
+
 
 @deploy_cli.command()
 @click.pass_context
@@ -1119,7 +1122,10 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     default="",
 )
 @click.option(
-    "--mono", default=False, is_flag=True, help="Don't create a separate ensemble repository."
+    "--mono",
+    default=False,
+    is_flag=True,
+    help="Don't create a separate ensemble repository.",
 )
 @click.option(
     "--existing",
@@ -1278,6 +1284,7 @@ def get_commit_message(committer, default_message):
     "--use-environment",
     default=None,
     help="Use this environment.",
+    metavar="NAME",
 )
 def commit(
     ctx,
@@ -1345,6 +1352,7 @@ def commit(
     "--use-environment",
     default=None,
     help="Use this environment.",
+    metavar="NAME",
 )
 def git_status(ctx, project_or_ensemble_path, dirty, **options):
     "Show the git status for paths relevant to the given project or ensemble."
@@ -1412,9 +1420,10 @@ def _yaml_to_python(
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
         from .yamlloader import ImportResolver
         from .manifest import Manifest
+
         dummy_manifest = Manifest(None)
         dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
-        import_resolver=ImportResolver(dummy_manifest)
+        import_resolver = ImportResolver(dummy_manifest)
         yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
@@ -1440,6 +1449,7 @@ def _yaml_to_python(
     "--use-environment",
     default=None,
     help="Export using this environment.",
+    metavar="NAME",
 )
 @click.option(
     "--file",
@@ -1518,6 +1528,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     "--use-environment",
     default=None,
     help="Use this environment.",
+    metavar="NAME",
 )
 def status(ctx, ensemble, **options):
     """Show the status of deployed resources in the given ensemble.\n
@@ -1545,43 +1556,64 @@ def status(ctx, ensemble, **options):
 
 @info_cli.command()
 @click.pass_context
-@click.argument("ensemble", default=".", type=click.Path(exists=False))
+@click.argument("path", default=".", type=click.Path(exists=False))
 @click.option(
     "--use-environment",
     default="",
     help="Use this environment.",
+    metavar="NAME",
 )
-def validate(ctx, ensemble, **options):
-    """Validate the given Unfurl project, ensemble, or TOSCA file."""
+@click.option(
+    "--as-template",
+    default=False,
+    is_flag=True,
+    help="Treat as an ensemble template.",
+)
+def validate(ctx, path, **options):
+    """Validate the syntax of the given Unfurl project, ensemble, cloud map, or TOSCA file."""
     options.update(ctx.obj)
+    localEnv = None
     try:
         overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
-        if "template" in ensemble:  # hack!
+        if options.get("as_template") or "template" in path:  # hack!
             overrides["format"] = "blueprint"
         localEnv = LocalEnv(
-            ensemble, options.get("home"), overrides=overrides, can_be_empty=True
+            path, options.get("home"), overrides=overrides, can_be_empty=True
         )
         if localEnv.manifestPath:
             localEnv.get_manifest()
+        elif localEnv.project:
+            # found project without an ensemble, try to validate the ensemble-template.yaml
+            template = os.path.join(
+                localEnv.project.projectRoot, DefaultNames.EnsembleTemplate
+            )
+            if not os.path.isfile(template):
+                click.echo(
+                    f"No ensemble or ensemble template found in project at {localEnv.project.projectRoot}"
+                )
+            else:
+                overrides["format"] = "blueprint"
+                localEnv = LocalEnv(template, options.get("home"), overrides=overrides)
+                localEnv.get_manifest()
     except UnfurlBadDocumentError as e:
-        if ensemble.endswith(".py"):
+        if path.endswith(".py"):
             from tosca.python2yaml import python_src_to_yaml_obj
 
-            with open(ensemble) as f:
-                python_src_to_yaml_obj(f.read(), {})
+            with open(path) as f:
+                python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
         elif e.doc and "tosca_definitions_version" in e.doc:
             from .manifest import Manifest
             from .spec import ToscaSpec
 
-            if localEnv.project:
-                m = Manifest(ensemble, localEnv=localEnv)
+            if localEnv and localEnv.project:
+                m = Manifest(path, localEnv=localEnv)
                 m._set_spec(dict(service_template=e.doc))
             else:
-                ToscaSpec(e.doc, path=ensemble)
+                ToscaSpec(e.doc, path=path)
         elif e.doc and e.doc.get("kind") == "CloudMap":
             from .cloudmap import CloudMapDB
 
-            CloudMapDB(ensemble)
+            CloudMapDB(path)
         else:
             raise
 
