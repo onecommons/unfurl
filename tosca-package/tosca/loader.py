@@ -713,9 +713,9 @@ def restricted_exec(
     namespace["__name__"] = full_name
     if base_dir and "__file__" not in namespace:
         # try to guess file path from module name
-        if full_name.startswith("service_template"):
+        if full_name.startswith("service_template."):
             # assume service_template is just our dummy package
-            module_name = full_name[len("service_template"):]
+            module_name = full_name[len("service_template."):]
         else:
             module_name = full_name
         namespace["__file__"] = (
