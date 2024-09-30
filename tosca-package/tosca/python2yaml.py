@@ -256,12 +256,16 @@ class PythonToYaml:
             )
             return yaml_path
 
-        base_dir = "/".join(path.parts[1 : -len(module.__name__.split("."))])
+        # skip leading / and parts corresponding to the module name
+        base_dir = "/".join(
+            path.parts[1 : -len(module.__name__.split("."))]
+        )
         with open(path) as sf:
             src = sf.read()
+        namespace: dict = dict(__file__=str(path))
         yaml_dict = python_src_to_yaml_obj(
             src,
-            None,
+            namespace,
             base_dir,
             module.__name__,
             self.yaml_cls,
@@ -476,15 +480,16 @@ def python_to_yaml(
         return None
     with open(src_path) as f:
         python_src = f.read()
+    src_path = os.path.abspath(src_path)
     base_dir = os.path.dirname(src_path)
     # add to sys.path so relative imports work
     sys.path.insert(0, base_dir)
     try:
-        namespace: dict = {}
+        namespace: dict = dict(__file__=src_path)
         tosca_tpl = python_src_to_yaml_obj(
             python_src,
             namespace,
-            src_path,
+            base_dir,
             write_policy=write_policy,
             safe_mode=safe_mode,
         )
