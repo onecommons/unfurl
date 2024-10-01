@@ -1,5 +1,5 @@
 import os
-from typing import Iterator, List
+from typing import Iterator, List, Optional, Tuple
 import re
 from . import EnvVar
 from ..serve import app
@@ -8,40 +8,53 @@ import urllib.parse
 import gitlab
 from functools import lru_cache
 
-UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
 
-
-@lru_cache
-def _get_context(localenv):
+def find_gitlab_endpoint(localenv: LocalEnv) -> Tuple[Optional[str], Optional[str]]:
+    if not localenv.project:
+        return None, None
     url, _ = localenv.project.localConfig.config.search_includes(
         pathPrefix=app.config["UNFURL_CLOUD_SERVER"]
     )
+    if not url:
+        return url, None
+    project_id_match = re.search(
+        r"/api/v4/projects/(?P<project_id>(\w|%2F|[/\-_])+)/variables", url
+    )
+    if not project_id_match:
+        return url, None
+    project_id = project_id_match.group("project_id").replace("%2F", "/")
+    return url, project_id
+
+
+@lru_cache
+def _get_context(localenv: LocalEnv):
+    url, project_id = find_gitlab_endpoint(localenv)
+    if not url or not project_id:
+        return None
 
     parsed_url = urllib.parse.urlparse(url)
-    query_params = urllib.parse.parse_qs(parsed_url.query)
-    private_token = query_params.get("private_token", [None])[0]
-    project_id_match = re.search(
-        r"projects/(?P<project_id>(\w|%2F|[/\-_])+)/variables", parsed_url.path
-    )
+    if not parsed_url.query:
+        return None
 
-    if project_id_match and private_token:
-        project_id = project_id_match.group("project_id").replace("%2F", "/")
-        origin = f"{parsed_url.scheme}://{parsed_url.hostname}"
+    query_params = urllib.parse.parse_qs(str(parsed_url.query))
+    private_token = query_params.get("private_token", [""])[0]
+    if not private_token:
+        return None
 
-        gl = gitlab.Gitlab(origin, private_token=private_token)
-        gl.auth()
-        gl.enable_debug()
-        project = gl.projects.get(project_id)
+    origin = f"{parsed_url.scheme}://{parsed_url.hostname}"
 
-        return (gl, project)
-    else:
-        raise ValueError(
-            f"Could not access project_id and/or private_token from url '{url}'"
-        )
+    gl = gitlab.Gitlab(origin, private_token=private_token)
+    gl.auth()
+    gl.enable_debug()
+    project = gl.projects.get(project_id)
+
+    return project
 
 
-def set_variables(localenv, env_vars: List[EnvVar]) -> LocalEnv:
-    _, project = _get_context(localenv)
+def set_variables(localenv: LocalEnv, env_vars: List[EnvVar]) -> None:
+    project = _get_context(localenv)
+    if not project:
+        raise ValueError("Could not access project_id and/or private_token from url")
 
     for var in env_vars:
         data = {
@@ -58,11 +71,11 @@ def set_variables(localenv, env_vars: List[EnvVar]) -> LocalEnv:
         else:
             project.variables.create(data)
 
-    return localenv
 
-
-def yield_variables(localenv) -> Iterator[EnvVar]:
-    _, project = _get_context(localenv)
+def yield_variables(localenv: LocalEnv) -> Iterator[EnvVar]:
+    project = _get_context(localenv)
+    if not project:
+        raise ValueError("Could not access project_id and/or private_token from url")
 
     for variable in project.variables.list(get_all=True):
         yield EnvVar(

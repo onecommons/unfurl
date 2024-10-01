@@ -681,7 +681,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = base
             else:
                 # url is a local path
-                assert base or os.path.isabs(file_name), f"{file_name} isn't absolute and base isn't set"
+                assert base or os.path.isabs(
+                    file_name
+                ), f"{file_name} isn't absolute and base isn't set"
                 url = os.path.join(base, file_name)
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:
@@ -1031,7 +1033,7 @@ class YamlConfig:
 
             # schema should include defaults but can't validate because it doesn't understand includes
             # but should work most of time
-            self.config.loadTemplate = self.load_include  # type: ignore
+            setattr(self.config, "loadTemplate", self.load_include)
             self.loadHook = loadHook
             self.baseDirs = [self.get_base_dir()]
             while True:
@@ -1055,6 +1057,18 @@ class YamlConfig:
             raise
         except Exception:
             raise UnfurlBadDocumentError(err_msg, saveStack=True)
+
+    def clone(self, validate: bool = True) -> "YamlConfig":
+        # reloads the config
+        return YamlConfig(
+            self.config,
+            self.path,
+            validate,
+            self.schema,
+            self.loadHook,
+            self.vault,
+            self.readonly,
+        )
 
     def _expand(self) -> Tuple[Mapping, Mapping]:
         find_anchor(self.config, None)  # create _anchorCache
@@ -1160,7 +1174,9 @@ class YamlConfig:
             baseUri = urljoin("file:", urllib.request.pathname2url(path))
         return find_schema_errors(config, self.schema, baseUri)
 
-    def search_includes(self, key: Optional[str]=None, pathPrefix: Optional[str]=None) -> Union[Tuple[None, None], Tuple[str, dict]]:
+    def search_includes(
+        self, key: Optional[str] = None, pathPrefix: Optional[str] = None
+    ) -> Union[Tuple[None, None], Tuple[str, dict]]:
         for k in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[k]
             candidate = True
@@ -1255,7 +1271,7 @@ class YamlConfig:
             msg = f"unable to load document include: {templatePath} (base: {baseDir})"
             if warnWhenNotFound:
                 logger.warning(msg, exc_info=True)
-                template = None
+                return value, None, baseDir
             else:
                 raise UnfurlError(
                     msg,

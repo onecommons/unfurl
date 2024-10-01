@@ -117,6 +117,15 @@ class Project:
         # depends on _set_contexts():
         self.project_repoview.yaml = make_yaml(self.make_vault_lib())
 
+    def reload(self):
+        config = self.localConfig.config
+        self.localConfig = LocalConfig(
+            config.path, yaml_include_hook=config.loadHook, readonly=config.readonly
+        )
+        self._set_contexts()
+        # depends on _set_contexts():
+        self.project_repoview.yaml = make_yaml(self.make_vault_lib())
+
     def _set_project_repoview(self) -> None:
         path = self.projectRoot
         if path in self.workingDirs:

@@ -310,14 +310,13 @@ def create_routes(localenv: LocalEnv):
 
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
     def patch_variables(project_path):
-        nonlocal localenv
         repo = get_repo(project_path)
         if not repo or repo.repo != localrepo.repo:
             return notfound_response(project_path)
 
         body = request.json
         if isinstance(body, dict) and "variables_attributes" in body:
-            localenv = set_variables(localenv, body["variables_attributes"])
+            set_variables(localenv, body["variables_attributes"])
             return {"variables": list(yield_variables(localenv))}
         else:
             return "Bad Request", 400
