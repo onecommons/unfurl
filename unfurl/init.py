@@ -142,7 +142,7 @@ def create_home(
         no_runtime=no_runtime,
         msg="Create the unfurl home repository",
         creating_home=True,
-        **kw
+        **kw,
     )
     if repo:
         repo.repo.git.branch("rendered")  # now create a branch
@@ -369,6 +369,7 @@ def render_project(
         )
         if skeleton_vars:
             extraVars.update(skeleton_vars)
+            extraVars["inputs"] = get_input_vars(skeleton_vars)
         # write ensemble/ensemble.yaml
         write_ensemble_manifest(
             ensembleDir,
@@ -561,6 +562,14 @@ def create_project(
         )
 
     return newHome, projectConfigPath, repo
+
+
+def get_input_vars(skeleton_vars):
+    s = ""
+    for i, v in skeleton_vars.items():
+        if i.startswith("input_"):
+            s += f"{i[len('input_'):]}: {v}\n"
+    return s
 
 
 def clone_local_repos(manifest, sourceProject: Project, targetProject: Project):
@@ -813,13 +822,14 @@ class EnsembleBuilder:
             manifestName = DefaultNames.Ensemble
         return destDir, manifestName
 
-    def _get_inputs_template(self):
+    def _get_inputs_template(self) -> str:
         project = assert_not_none(self.source_project)
         local_template = os.path.join(project.projectRoot, DefaultNames.InputsTemplate)
         if os.path.isfile(local_template):
-            with open(local_template) as s:
-                return s.read()
-        return None
+            with open(local_template) as f:
+                return f.read()
+        else:
+            return get_input_vars(self.skeleton_vars)
 
     def _create_ensemble_from_template(self, project: Project, destDir, manifestName):
         from unfurl import yamlmanifest
@@ -1172,14 +1182,14 @@ def clone(
     Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<file\path>``.
     You can use cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
 
-    If ``source`` can point to an Unfurl project, an ensemble_template, a service_template, an existing ensemble or a folder containing one of those.
+    If ``source`` can point to an Unfurl project, an ensemble template, a service template, an existing ensemble, or a folder containing one of those.
 
     The result of the clone depends on the destination:
 
     ======================= ===============================================
     ``dest``                Result
     ======================= ===============================================
-    Inside source project   New or cloned ensemble (depending on source)
+    Inside source project   New or forked ensemble (depending on source)
     Missing or empty folder Clone project, create new ensemble if missing
     Another project         See below
     Non-empty folder        Error, abort
@@ -1187,9 +1197,9 @@ def clone(
 
     When creating a new ensemble from a source, if the source points to:
 
-    * an ensemble: clone the ensemble
+    * an ensemble: fork the ensemble (clone without status and new uri)
     * an ensemble template or TOSCA service template: a create new ensemble from the template.
-    * a project: If the project includes a ensemble-template.yaml, use that; if missing, clone the project's default ensemble.
+    * a project: If the project includes a ensemble-template.yaml, use that; if missing, fork the project's default ensemble.
 
     When dest is set to another project, clone's behavior depends on source:
 

@@ -244,10 +244,10 @@ class Manifest(AttributeManager):
         if rootResource:
             rootResource.set_attribute_manager(self)
 
-    def get_root_resource(self):
+    def get_root_resource(self) -> Optional[TopologyInstance]:
         return self.rootResource
 
-    def get_base_dir(self):
+    def get_base_dir(self) -> str:
         return "."
 
     @property

@@ -389,6 +389,7 @@ allJobOptions = option_group(
         nargs=2,
         type=click.Tuple([str, str]),
         multiple=True,
+        metavar="NAME VALUE",
         help="name/value pair to pass to job (multiple times ok).",
     ),
     rich_group="Generic Job Options",

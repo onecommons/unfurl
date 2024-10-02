@@ -811,8 +811,11 @@ class TaskView:
     def add_message(self, message: object) -> None:
         self.messages.append(message)
 
-    def find_instance(self, name: str) -> NodeInstance:
-        return self._manifest.get_root_resource().find_instance_or_external(name)
+    def find_instance(self, name: str) -> Optional[NodeInstance]:
+        root = self._manifest.get_root_resource()
+        if root:
+            return cast(Optional[NodeInstance], root.find_instance_or_external(name))
+        return None
 
     # XXX
     # def pending(self, modified=None, sleep=100, waitFor=None, outputs=None):
@@ -1194,10 +1197,10 @@ class TaskView:
             originalResourceSpec = copy.copy(resourceSpec)
             rname = map_value(resourceSpec.get("name", "SELF"), self.inputs.context)
             if rname == ".self" or rname == "SELF":
-                existingResource = self.target
-                rname = existingResource.name
+                existingResource: Optional[EntityInstance] = self.target
+                rname = self.target.name
             elif rname == "HOST":
-                existingResource = self.target.parent or self.target.root
+                existingResource = cast(EntityInstance, self.target.parent or self.target.root)
             else:
                 existingResource = self.find_instance(rname)
 
