@@ -1141,6 +1141,7 @@ def test_sandbox(capsys):
         "import sys; sys.version_info",
         "from tosca import python2yaml",
         "import tosca_repositories.missing_repository",
+        "from tosca_repositories import missing_repository",
         "from tosca._tosca import global_state; foo = global_state; foo.safe_mode",
         """from tosca.python2yaml import ALLOWED_MODULE, missing
 str(ALLOWED_MODULE)
