@@ -359,6 +359,23 @@ class Convert:
 
     def convert_topology(self, topology: TopologyTemplate, indent="") -> str:
         src = ""
+        if topology.inputs:
+            self.imports.from_tosca.add("TopologyInputs")
+            src += indent + "class Inputs(TopologyInputs):\n"
+            input_indent = indent + "    "
+            for input in topology.inputs:
+                name, typedecl, fielddecl = self._prop_decl(input, "properties", False)
+                src += f"{input_indent}{name}: {typedecl} {fielddecl}\n"
+                src += add_description(input.schema, input_indent)
+        if topology.outputs:
+            self.imports.from_tosca.add("TopologyOutputs")
+            src += indent + "class Outputs(TopologyOutputs):\n"
+            input_indent = indent + "    "
+            for output in topology.outputs:
+                name, typedecl, fielddecl = self._prop_decl(output, "properties", False)
+                src += f"{input_indent}{name}: {typedecl} {fielddecl}\n"
+                src += add_description(output.schema, input_indent)
+
         for node_template in topology.nodetemplates:
             localname = self.imports.get_local_ref(node_template.name)
             if not localname or localname not in self.imports.declared:
@@ -779,21 +796,19 @@ class Convert:
         return typename
 
     def _prop_decl(
-        self, propdef: PropertyDef, fieldtype: str, both: bool
+        self, prop: Property, fieldtype: str, both: bool
     ) -> Tuple[str, str, str]:
-        name, toscaname = self._set_name(propdef.name, "property")
+        name, toscaname = self._set_name(prop.name, "property")
         fieldparams = []
         if toscaname:
             fieldparams.append(f'name="{toscaname}"')
-        assert isinstance(propdef.schema, dict)
-        prop = Property(propdef.name, None, propdef.schema, self.custom_defs)
         default_value: Any = MISSING
-        if "default" in propdef.schema:
-            default_value = propdef.schema["default"]
-        elif not propdef.required:
+        if "default" in prop.schema.schema:
+            default_value = prop.schema.schema["default"]
+        elif not prop.required:
             default_value = None
         typename = self._prop_type(prop.schema)
-        if not propdef.required or default_value is None:
+        if not prop.required or default_value is None:
             typename = self._make_union(typename, "None")
 
         if prop.schema.title:
@@ -1084,10 +1099,11 @@ class Convert:
                     continue
                 else:
                     both = True
-            prop = PropertyDef(name, None, schema)
+            propdef = PropertyDef(name, None, schema)
+            prop = Property(propdef.name, None, propdef.schema, self.custom_defs)
             name, typedecl, fielddecl = self._prop_decl(prop, fieldname, both)
             src += f"{indent}{name}: {typedecl} {fielddecl}\n"
-            src += add_description(prop.schema, indent)
+            src += add_description(propdef.schema, indent)
         if src:
             src += "\n"
         return src
