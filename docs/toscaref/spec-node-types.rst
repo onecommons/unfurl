@@ -142,18 +142,6 @@ Examples
   .. literalinclude:: ./../examples/node-types-1.py
     :language: python
 
-An example of how to use this type follows:
-
-.. code:: yaml
-
- node_templates:
-   MongoDB1:
-     type: nodecellar.nodes.MongoDatabase
-   MongoDB2:
-     type: nodecellar.nodes.MongoDatabase
-
-
-Each of these two nodes will now have both the ``port`` property and the three operations defined for the ``nodecellar.nodes.MongoDatabase`` type.
 
 Finally, an example on how to extend an existing type by deriving from it:
 

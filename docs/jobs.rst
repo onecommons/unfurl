@@ -54,7 +54,7 @@ The ``planned`` and ``active`` directories can have the following subdirectories
 :secrets: Sensitive artifacts (e.g. certificates). They are vault encrypted in the repository.
 :tasks: Transient generated configuration files (excluded from repository).
 
-Below is an example showing the directory of a simple ensemble with one resource templates (ec2compute) that has been deployed once (with a job id of A41VNXbB).
+Below is an example showing the directory of a simple ensemble with one resource templates (ec2compute) that has been deployed once (with a `job id<changeids>` of A41VNXbB).
 
 |  ├── ensemble.yaml
 |  ├── changes
