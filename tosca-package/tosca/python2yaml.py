@@ -50,7 +50,8 @@ class PythonToYaml:
         import_resolver=None,
     ):
         self.globals = namespace
-        self.imports: Set[Tuple[str, Path]] = set()
+        # use dict because python sets don't preserve insertion order
+        self.imports: Dict[Tuple[str, Path], bool] = {}
         self.repos: Dict[str, Path] = {}
         self.yaml_cls = yaml_cls
         self.topology_templates = [yaml_cls()]
@@ -346,6 +347,7 @@ class PythonToYaml:
                     (isinstance(obj, NodeType) or obj._name)
                     and not isinstance(obj, InstanceProxy)
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
+                    obj.__class__._globals = self.globals  # type: ignore
                     self.add_template(obj, name, current_module)
                     if name == "__root__":
                         topology_sections.setdefault(
@@ -401,7 +403,7 @@ class PythonToYaml:
                     import_path = module_dir / yaml_path
                 _key = ("", import_path)
                 if _key not in self.imports:
-                    self.imports.add(_key)
+                    self.imports[_key] = True
                     logger.debug(
                         f'"{current_module}" is importing "{module_name}": located at "{import_path}", relative to "{module_path}"'
                     )
@@ -411,7 +413,7 @@ class PythonToYaml:
                 if repo_path:
                     _key = (ns, repo_path)
                     if _key not in self.imports:
-                        self.imports.add(_key)
+                        self.imports[_key] = True
                         logger.debug(
                             f'"{current_module}" is importing "{module_name}" in package "{ns}": located at "{repo_path}""'
                         )
@@ -439,6 +441,7 @@ def python_src_to_yaml_obj(
 ) -> dict:
     if modules is None:
         modules = {}
+    global_state.modules = modules
     if namespace is None:
         namespace = {}
     result = restricted_exec(
