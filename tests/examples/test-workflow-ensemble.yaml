@@ -3,7 +3,7 @@ kind: Ensemble
 spec:
   service_template:
     imports:
-      - file: spec/service_template.yaml
+      - file: import/spec/service_template.yaml
       - repository: unfurl
         file: tosca_plugins/k8s.yaml
       
