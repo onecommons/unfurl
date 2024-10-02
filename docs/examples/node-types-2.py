@@ -1,5 +1,6 @@
-class MongoDatabaseExtended(tosca.nodes.DBMS):
+class MongoDatabaseExtended(MongoDatabase):
   enable_replication: bool = False
+  "MongoDB replication enabling flag"
 
   def create(self, **kw):
       return unfurl.configurators.shell.ShellConfigurator(
@@ -10,8 +11,4 @@ class MongoDatabaseExtended(tosca.nodes.DBMS):
       return unfurl.congifurators.shell.ShellConfigurator(
         command=["scripts/mongo/configure-mongo-extended.sh"]
       )
-
-mongo_database_extended = MongoDatabaseExtended("mongo_database_extended")
-
-__all__ = ["MongoDatabaseExtended", "mongo_database_extended"]
 

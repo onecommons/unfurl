@@ -710,12 +710,13 @@ def filter_env(
 
     Rules applied in the order they are declared in the ``rules`` dictionary. The following examples show the different patterns for the rules:
 
-        :foo \: bar: Add ``foo=bar``
-        :+foo:  Copy ``foo`` from the current environment
-        :+foo \: bar: Copy ``foo``, or add ``foo=bar`` if it is not present
-        :+!foo*: Copy all name from the current environment except those matching ``foo*``
-        :-!foo:  Remove all names except for ``foo``
-        :^foo \: /bar/bin: Treat ``foo`` like ``PATH`` and prepend ``/bar/bin:$foo``
+      :foo\: bar: Add ``foo=bar``
+      :+foo:  Copy ``foo`` from the current environment
+      :+foo\: bar: Copy ``foo``, or add ``foo=bar`` if it is not present
+      :+foo*: Copy all name from the current environment that match ``foo*``
+      :+!foo*: Copy all name from the current environment except those matching ``foo*``
+      :-!foo:  Remove all names except for ``foo``
+      :^foo\: /bar/bin: Treat ``foo`` like ``PATH`` and prepend ``/bar/bin:$foo``
     """
     if env is None:
         env = os.environ

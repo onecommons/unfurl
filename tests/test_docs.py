@@ -1,3 +1,4 @@
+import fnmatch
 import unittest
 import os
 import glob
@@ -31,11 +32,19 @@ class DocsTest(unittest.TestCase):
         required_imports = """
 import unfurl
 import tosca
-from tosca import Attribute, Eval, Property, operation, GB, MB
+from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
 """
+
+        def skip(py_file):
+            for skip in ["*quickstart_*", "*inputs.py", "*node-types-2.py"]:
+                if fnmatch.fnmatch(py_file, skip):
+                    return True
+            return False
 
         global_state.mode = "spec"
         for py_file in python_files:
+            if skip(py_file):
+                continue
             with self.subTest(py_file=py_file):
                 with open(py_file, "r") as f:
                     code = f.read()

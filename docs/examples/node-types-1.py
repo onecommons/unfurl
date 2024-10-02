@@ -1,5 +1,6 @@
 class MongoDatabase(tosca.nodes.DBMS):
   port: int
+  "MongoDB port"
 
   def create(self, **kw):
       return unfurl.configurators.shell.ShellConfigurator(
@@ -15,8 +16,4 @@ class MongoDatabase(tosca.nodes.DBMS):
       return unfurl.configurators.shell.ShellConfigurator(
         command=["scripts/mongo/stop-mongo.sh"]
       )
-
-mongo_database = MongoDatabase("mongo_database")
-
-__all__ = ["MongoDatabase", "mongo_database"]
 
