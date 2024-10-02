@@ -4,6 +4,7 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
+from unfurl.projectpaths import rmtree
 from unfurl.repo import (
     split_git_url,
     is_url_or_git_path,
@@ -471,7 +472,7 @@ unfurl.yaml
             # test that invoking an ensemble will cause the project it is in to registered in the home project
             # we use this ensemble because it is in a repository with a non-local origin set:
             project = os.path.join(
-                os.path.dirname(__file__), "examples/testimport-ensemble.yaml"
+                os.path.dirname(__file__), "examples/import/testimport-ensemble.yaml"
             )
             # set starttime to suppress job logging to file
             result = runner.invoke(
@@ -519,6 +520,7 @@ unfurl.yaml
                 ]:
                     self.assertIn(line, contents)
                 self.assertNotIn("origin:", contents)
+            rmtree(os.path.join(os.path.dirname(project), "jobs"))
 
             externalProjectManifest = """
 apiVersion: unfurl/v1alpha1
@@ -527,7 +529,7 @@ environment:
  external:
   test:
     manifest:
-      file: testimport-ensemble.yaml
+      file: import/testimport-ensemble.yaml
       project: examples
 spec:
   service_template:
@@ -544,7 +546,7 @@ spec:
                 f.write(externalProjectManifest)
 
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "plan", "externalproject.yaml"]
+                cli, ["--home", "./unfurl_home", "plan",  "--starttime=1", "externalproject.yaml"]
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(

@@ -1,4 +1,5 @@
 import logging
+import shutil
 import unittest
 import os
 
@@ -270,10 +271,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         """
         Tests nested imports and url fragment resolution.
         """
-        path = __file__ + "/../examples/testimport-ensemble.yaml"
+        path = __file__ + "/../examples/import/testimport-ensemble.yaml"
         local_env = LocalEnv(path)
         manifest = local_env.get_manifest()
-
         self.assertEqual(
             2,
             len(manifest.tosca.template.nested_tosca_tpls),
@@ -356,9 +356,6 @@ class ToscaSyntaxTest(unittest.TestCase):
         unfurlRepoPath = _get_base_dir(ctx, "unfurl")
         self.assertEqual(unfurl.manifest._basepath, os.path.normpath(unfurlRepoPath))
 
-        spec = _get_base_dir(ctx, "spec")
-        self.assertEqual(os.path.normpath(spec), base)
-
         selfPath = _get_base_dir(ctx, "self")
         self.assertEqual(os.path.normpath(selfPath), base)
 
@@ -368,6 +365,10 @@ class ToscaSyntaxTest(unittest.TestCase):
             base,
             f"{repoPath} vs {base} vs {os.path.abspath('./')}",
         )
+
+        # look for spec repo which will be the project root in "examples"
+        spec = _get_base_dir(ctx, "spec") 
+        self.assertEqual(os.path.normpath(spec), os.path.dirname(base))
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_workflows(self):
