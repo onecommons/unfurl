@@ -402,7 +402,7 @@ def _find_project_repo(projectdir):
     return repo
 
 
-def _find_ensemble_repo(projectdir, shared, ensemble_name, kw):
+def _find_or_create_ensemble_repo(projectdir, shared, ensemble_name, kw):
     if shared:
         ensembleRepo = Repo.find_containing_repo(shared)
         if not ensembleRepo:
@@ -513,7 +513,7 @@ def create_project(
     elif empty:
         ensembleRepo = None
     else:
-        ensembleRepo = _find_ensemble_repo(
+        ensembleRepo = _find_or_create_ensemble_repo(
             projectdir, shared, names.EnsembleDirectory, kw
         )
 
@@ -710,7 +710,7 @@ def _get_context_and_shared_repo(project: Project, options):
 
 
 class EnsembleBuilder:
-    def __init__(self, source: str, ensemble_name: str, options: dict):
+    def __init__(self, source: str, ensemble_name: str, options: Dict[str, Any]):
         # user specified url or path
         self.input_source = source
         self.options = options
@@ -723,9 +723,9 @@ class EnsembleBuilder:
         self.source_path: Optional[str] = None  # step 1 relative path in source_project
         self.source_revision: Optional[str] = None  # step 1
 
-        self.template_vars: Any = None  # step 2
-        self.environment: Any = None  # step 2 environment name
-        self.shared_repo: Any = None  # step 2
+        self.template_vars: Optional[Dict[str, Any]] = None  # step 2
+        self.environment: Optional[str] = None  # step 2 environment name
+        self.shared_repo: Optional[GitRepo] = None  # step 2
 
         self.dest_project: Optional[Project] = None  # step 3
         self.dest_path: Optional[str] = None  # step 3 relative path in dest_project
@@ -798,14 +798,11 @@ class EnsembleBuilder:
             f"creating ensemble from {'remote' if remote_source else 'local'} {'' if source_has_ensembles else 'blueprint '}repo at {source_path} with %s",
             self.template_vars,
         )
+        assert self.template_vars is not None
         if self.options.get("use_deployment_blueprint"):
             self.template_vars["deployment_blueprint"] = self.options[
                 "use_deployment_blueprint"
             ]
-        assert self.dest_project
-        (self.environment, self.shared_repo) = _get_context_and_shared_repo(
-            self.dest_project, self.options
-        )
 
     @staticmethod
     def _get_ensemble_dir(targetPath):
@@ -836,6 +833,7 @@ class EnsembleBuilder:
 
         specProject = assert_not_none(self.dest_project)
         source_project = assert_not_none(self.source_project)
+        assert self.template_vars is not None
         sourceDir = os.path.normpath(
             os.path.join(source_project.projectRoot, self.template_vars["sourceDir"])
         )
@@ -1060,8 +1058,9 @@ class EnsembleBuilder:
                     self.dest_project.projectRoot, self.home_path
                 )
 
+        assert self.dest_project
         if os.path.isabs(dest):
-            relDestDir = assert_not_none(self.dest_project).get_relative_path(dest)
+            relDestDir = self.dest_project.get_relative_path(dest)
             assert not relDestDir.startswith(".."), relDestDir
         else:
             relDestDir = dest.lstrip("./")
@@ -1073,9 +1072,20 @@ class EnsembleBuilder:
         ):
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
+        (self.environment, self.shared_repo) = _get_context_and_shared_repo(
+            self.dest_project, self.options
+        )
+        if (
+            existingDestProject
+            and not self.shared_repo
+            and (self.options.get("empty") or self.mono)
+        ):
+            # ensemble will be created in the same repo as existingDestProject, add environment too
+            self.add_missing_environment(existingDestProject)
 
     def has_existing_ensemble(self, sourceProject: Optional[Project]) -> bool:
         if self.source_project is not sourceProject and not self.shared_repo:
+            assert self.template_vars is not None
             if "localEnv" in self.template_vars and os.path.exists(
                 Path(assert_not_none(self.dest_project).projectRoot)
                 / assert_not_none(self.dest_path)
@@ -1091,9 +1101,9 @@ class EnsembleBuilder:
         assert not source_path.startswith("..")
         self.source_path = source_path
 
-    def add_missing_environment(self, existing_project: Project) -> None:
+    def add_missing_environment(self, existing_project: Project) -> bool:
         kw = self.options
-        use_context = kw.get("use_environment")
+        use_context = cast(Optional[str], kw.get("use_environment"))
         if use_context and use_context not in existing_project.contexts:
             skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
             skeleton_vars["default_context"] = use_context
@@ -1112,12 +1122,13 @@ class EnsembleBuilder:
             )
             if not self.mono:  # save now, not gonna be saved later
                 existing_project.localConfig.config.save()
+            return True
+        return False
 
     def set_ensemble(
         self,
         isRemote: bool,
         existingSourceProject: Optional[Project],
-        existingDestProject: Optional[Project],
     ) -> str:
         sourceWasCloned = self.source_project is not existingSourceProject
         assert self.dest_project
@@ -1133,8 +1144,6 @@ class EnsembleBuilder:
                 # source wasn't pointing to an ensemble to clone
                 return "Cloned empty project to " + self.dest_project.projectRoot
 
-        if existingDestProject:
-            self.add_missing_environment(existingDestProject)
         destDir = self.create_new_ensemble()
         if not isRemote and sourceWasCloned and existingSourceProject:
             # we need to clone the referenced local repos so the new project has access to them
@@ -1254,13 +1263,15 @@ def clone(
 
     assert builder.source_project
 
-    ##### step 2: create destination project if necessary
+    ##### step 2: create destination project if necessary and determine shared project
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
     if options.get("empty") and not options.get("design"):
         # don't create an ensemble
+        if builder.source_project is sourceProject:
+            return "Project already exists."
         return "Cloned project to " + assert_not_none(builder.dest_project).projectRoot
 
-    ##### step 3: examine source for template details and determine shared project
+    ##### step 3: examine source for template details
     builder.configure(isRemote)
 
     if options.get("design"):
@@ -1269,7 +1280,7 @@ def clone(
         return builder.load_ensemble_template()
 
     ##### step 4 create ensemble in destination project if needed
-    return builder.set_ensemble(isRemote, sourceProject, currentProject)
+    return builder.set_ensemble(isRemote, sourceProject)
 
 
 def _create_local_config(clonedProject, logger, vars):
