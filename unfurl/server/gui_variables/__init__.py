@@ -6,10 +6,6 @@ from typing_extensions import TypedDict, Required
 from ...localenv import LocalEnv
 from ..serve import app
 
-from . import local_secrets
-from . import ufcloud_secrets
-
-
 class EnvVar(TypedDict, total=False):
     # see https://docs.gitlab.com/ee/api/project_level_variables.html
     id: Union[int, str]  # ID or URL-encoded path of the project
@@ -26,6 +22,10 @@ class EnvVar(TypedDict, total=False):
 
 @lru_cache
 def _get_secrets_manager(localenv: LocalEnv):
+    # avoid circular dependencies
+    from . import local_secrets
+    from . import ufcloud_secrets
+
     url, project_id = ufcloud_secrets.find_gitlab_endpoint(localenv)
     if project_id:
         return ufcloud_secrets
