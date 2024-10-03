@@ -8,9 +8,6 @@ from ruamel.yaml.comments import CommentedMap
 
 from . import EnvVar
 
-UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-
-
 logger = getLogger("unfurl.gui")
 
 
