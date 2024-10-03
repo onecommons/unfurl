@@ -32,23 +32,7 @@ import git
 logger = getLogger("unfurl.gui")
 
 TAG = "v0.1.0.alpha.1"
-RELEASE = os.getenv(
-    "UNFURL_GUI_DIST",
-    f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz",
-)
-
 local_dir = os.path.dirname(os.path.abspath(__file__))
-
-# (development only) should be set to the unfurl_gui directory
-UFGUI_DIR = os.getenv("UNFURL_GUI_DIR", local_dir)
-# (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
-WEBPACK_ORIGIN = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN")
-DIST = os.path.join(UFGUI_DIR, "dist")
-PUBLIC = os.path.join(UFGUI_DIR, "public")
-UNFURL_SERVE_PATH = os.getenv("UNFURL_SERVE_PATH", "")
-IMPLIED_DEVELOPMENT_MODE = (
-    "UNFURL_GUI_DIR" in os.environ or "UNFURL_GUI_WEBPACK_ORIGIN" in os.environ
-)
 
 env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
 blueprint_template = env.get_template("project.j2.html")
@@ -72,9 +56,9 @@ def get_head_contents(f) -> str:
             return ""
 
 
-def get_project_head():
+def get_head(html_src: str, WEBPACK_ORIGIN: str, PUBLIC: str, DIST: str) -> str:
     if WEBPACK_ORIGIN:
-        project_head = f"""
+        head = f"""
         <head>
           {get_head_contents(os.path.join(PUBLIC, "index.html"))}
 
@@ -84,38 +68,13 @@ def get_project_head():
         </head>
         """
     else:
-        project_head = (
-            f"<head>{get_head_contents(os.path.join(DIST, 'project.html'))}</head>"
-        )
-    return project_head
+        head = f"<head>{get_head_contents(os.path.join(DIST, html_src))}</head>"
+    return head
 
 
-def get_dashboard_head():
-    if WEBPACK_ORIGIN:
-        dashboard_head = f"""
-        <head>
-          {get_head_contents(os.path.join(PUBLIC, "index.html"))}
-
-          <script defer src="/js/chunk-vendors.js"></script>
-          <script defer src="/js/chunk-common.js"></script>
-          <script defer src="/js/dashboard.js"></script>
-        </head>
-
-        """
-    else:
-        dashboard_head = (
-            f"<head>{get_head_contents(os.path.join(DIST, 'dashboard.html'))}</head>"
-        )
-    return dashboard_head
-
-
-def notfound_response(projectPath):
-    # 404 page is not currently a template, but could become one
-    location = PUBLIC if WEBPACK_ORIGIN else DIST
-    return send_file(os.path.join(location, "404.html"))
-
-
-def serve_document(path, localenv: LocalEnv):
+def serve_document(
+    path, localenv: LocalEnv, WEBPACK_ORIGIN: str, PUBLIC: str, DIST: str
+):
     assert localenv.project
     localrepo = localenv.project.project_repoview.repo
     assert localrepo
@@ -138,7 +97,8 @@ def serve_document(path, localenv: LocalEnv):
     repo = _get_repo(projectPath, localenv)
 
     if not repo:
-        return notfound_response(projectPath)
+        location = PUBLIC if WEBPACK_ORIGIN else DIST
+        return send_file(os.path.join(location, "404.html"))
     format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
@@ -153,15 +113,17 @@ def serve_document(path, localenv: LocalEnv):
 
     if format == "blueprint":
         template = blueprint_template
+        head = get_head("project.html", WEBPACK_ORIGIN, PUBLIC, DIST)
     else:
         template = dashboard_template
+        head = get_head("dashboard.html", WEBPACK_ORIGIN, PUBLIC, DIST)
 
     return template.render(
         name=project_name,
         readme=get_project_readme(repo),
         user=user,
         origin=origin,
-        head=(get_project_head() if format == "blueprint" else get_dashboard_head()),
+        head=head,
         project_path=project_path,
         namespace=os.path.dirname(project_path),
         home_project=home_project,
@@ -199,7 +161,7 @@ def proxy_webpack(url):
     return Response(res.content, res.status_code, headers)
 
 
-def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:
+def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:
     if not project_path or project_path == "local:":
         return localenv.project.project_repoview.repo if localenv.project else None
 
@@ -212,7 +174,7 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
 
     if project_path.startswith("local:"):
         # it's not a cloud server project
-        repo_info = localenv.find_path_in_repos(project_path[len("local:"):])
+        repo_info = localenv.find_path_in_repos(project_path[len("local:") :])
         if repo_info[0]:
             return repo_info[0]
         logger.error(f"Can't find project {project_path} in {list(local_projects)}")
@@ -242,7 +204,7 @@ def _get_repo(project_path, localenv: LocalEnv, branch=None) -> Optional[GitRepo
     return repo_view and repo_view.repo or None
 
 
-def fetch(download_dir):
+def fetch_release(download_dir, release):
     TAG_FILE = os.path.join(download_dir, "unfurl_gui", "current_tag.txt")
     dist_dir = os.path.join(download_dir, "unfurl_gui", "dist")
 
@@ -260,13 +222,13 @@ def fetch(download_dir):
         shutil.rmtree(dist_dir)
         logger.debug("Removed existing dist directory")
 
-    logger.debug(f"Downloading {RELEASE}")
+    logger.debug(f"Downloading {release}")
     os.makedirs(dist_dir, exist_ok=True)
     tar_path = os.path.join(dist_dir, "unfurl-gui-dist.tar.gz")
-    urllib.request.urlretrieve(RELEASE, tar_path)
+    urllib.request.urlretrieve(release, tar_path)
 
     with tarfile.open(tar_path, "r:gz") as tar:
-        logger.debug(f"Extracting {RELEASE} to {dist_dir}")
+        logger.debug(f"Extracting {release} to {dist_dir}")
         tar.extractall(path=os.path.dirname(dist_dir))
 
     os.remove(tar_path)
@@ -286,20 +248,34 @@ def create_routes(localenv: LocalEnv):
     )
     assert localrepo
 
-    if IMPLIED_DEVELOPMENT_MODE:
+    development_mode = os.getenv("UNFURL_GUI_DIR") or os.getenv("UNFURL_GUI_WEBPACK_ORIGIN")
+    if development_mode:
         logger.debug("Development mode detected, not downloading compiled assets.")
+        UFGUI_DIR = os.getenv("UNFURL_GUI_DIR", local_dir)
+        # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
+        WEBPACK_ORIGIN = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN", "")
+        DIST = os.path.join(UFGUI_DIR, "dist")
+        PUBLIC = os.path.join(UFGUI_DIR, "public")
     else:
+        WEBPACK_ORIGIN = ""
         home_project = localenv.homeProject or localenv.project
         assert home_project
         download_dir = os.path.join(home_project.projectRoot, ".cache")
-        global DIST
         DIST = os.path.join(download_dir, "unfurl_gui", "dist")
-        global PUBLIC
         PUBLIC = os.path.join(download_dir, "unfurl_gui", "public")
-        fetch(download_dir)
+        RELEASE = os.getenv(
+            "UNFURL_GUI_DIST",
+            f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz",
+        )
+        fetch_release(download_dir, RELEASE)
 
-    def get_repo(project_path, branch=None):
+    def get_repo(project_path: str, branch=None):
         return _get_repo(project_path, localenv, branch)
+
+    def notfound_response(projectPath):
+        # 404 page is not currently a template, but could become one
+        location = PUBLIC if WEBPACK_ORIGIN else DIST
+        return send_file(os.path.join(location, "404.html"))
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
@@ -344,7 +320,7 @@ def create_routes(localenv: LocalEnv):
     @app.route("/<path:path>")
     def serve_path(path):
         if "accept" in request.headers and "text/html" in request.headers["accept"]:
-            return serve_document(path, localenv)
+            return serve_document(path, localenv, WEBPACK_ORIGIN, PUBLIC, DIST)
 
         if request.headers.get("sec-fetch-dest") == "iframe":
             return "Bad Request", 400
@@ -360,9 +336,9 @@ def create_routes(localenv: LocalEnv):
             local_path = os.path.join(DIST, path)
             if os.path.isfile(local_path):
                 response = make_response(send_file(local_path))
-                if not IMPLIED_DEVELOPMENT_MODE:
+                if not development_mode:
                     response.headers["Cache-Control"] = (
                         "public, max-age=31536000"  # 1 year
                     )
                 return response
-            return serve_document(path, localenv)
+            return serve_document(path, localenv, WEBPACK_ORIGIN, PUBLIC, DIST)
