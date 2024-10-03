@@ -10,9 +10,9 @@
 
 Unfurl is a command line tool for deploying services and applications.
 
-Use Unfurl to describe your application architecture in terms high level resources (e.g. compute) and services. Then Unfurl creates a deployment plan adapted to your deployment environment (e.g your cloud provider, or Kubernetes), using artifacts such as shell scripts, Terraform modules or Ansible playbooks.
+Describe your application architecture at a high-level using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) standard and Unfurl creates a plan adapted to your deployment environment (e.g. your cloud provider, Kubernetes, or self-hosted machines), using artifacts such as shell scripts, Terraform modules or Ansible playbooks.
 
-After deployment, Unfurl records in git all the info you need for a reproducible deployment: the configuration, the artifacts used in deployment, their versions and code dependencies, and deploy, records history, as well the state of the deployment resources. This enables intelligent updates as your dependencies or environment changes.
+After deployment, Unfurl records in git all the information needed for a reproducible deployment: the configuration, the artifacts and source repositories used in deployment, as well the state of the deployed resources. This enables intelligent updates as your configuration, dependencies, or environment changes.
 
 The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfurl.cloud), our open-source platform for collaboratively developing cloud applications.
 
@@ -20,7 +20,7 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 * You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can manage that complexity without complicated DevOps processes -- see https://www.unfurl.cloud/blog/why-unfurl for more.
 
-* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Just publish blueprint in an `.unfurl` folder or web UI on unfurl.cloud, our open-source deployment platform.
+* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Just publish blueprint in an `.unfurl` folder or web UI on [Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
 
 * Collaborative, open without depending on server infrastructure. Use git workflow, pull requests, while provide secret management and limiting admin access.
 
@@ -30,35 +30,26 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 Unfurl projects provide an easy way to track and organize all that goes into deploying an application, including configuration, secrets, and artifacts -- and track them in git. The goal is to provide isolation and reproducibility while maintaining human-scale, application-centric view of your resources.
 
-2. Create an application blueprint
+2. Create a cloud blueprint
 
-A blueprint that describe your cloud application's architecture in terms its resources it consumes (e.g. compute instances), the services it requires (e.g. a database) and the artifacts it consists of (e.g. a Docker container image or a software package).
+Avoid tedious and error prone low-level configuration by creating a cloud blueprint that describes your cloud application's architecture at a high-level in Python or YAML using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard. Blueprints includes the resources (e.g. compute instances), the services (e.g. a database) and the artifacts (e.g. a Docker container image or a software package).
 
-Avoid tedious and error prone low-level configuration by higher-level components with a blueprint.
+3. Instantiate your blueprint
 
-python, yaml, or UI described using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard.
-
-3. Instantiate your blueprint: adapt plan render
-
-Unfurl instantiates a blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into.
-For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.
+Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into.  For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.
 Or if you need to define your own implementations, its easy use the tools you already use and encapsulate the scripts you already have. Operations that invoke Terraform, Ansible, or other command-line tools. 
-
-And Unfurl can automatically install missing dependencies.
-
 Unfurl will generate a plan and render (e.g Terraform modules or ansible playbooks) that you can review or even create a pull request.
 
-4. Deploy and manage. Deploy Use `unfurl deploy` to deploy the infrastructure.  It will commit to git the latest configuration and a history of changes to your cloud accounts.
+4. Deploy and manage. 
 
-After the initial deployment, subsequent deployment plans take into account the current state of its resources.
+Unfurl can automatically install missing dependencies.
+Deploy Use `unfurl deploy` to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.
 
-This way you can reduce errors by automatically reconfiguring as dependencies and environments change. 
-
-You can also create custom operations or run ad-hoc commands in the ensemble's environment.
+After the initial deployment, subsequent deployment plans take into account the current state of its resources. This way you can reduce errors by automatically reconfiguring as dependencies and environments change. You can also create custom operations or run ad-hoc commands in the ensemble's environment.
 
 5. Share and Collaborate
 
-Unfurl stores everything in git so git is all you need to share projects and collaboratively manage deployments.  Unfurl can use git lfs to provide locking during deployment and automatically encrypts secrets. Or for ease of use and more advanced needs you can use [unfurl cloud](https://unfurl.cloud) to host and deploy.
+Unfurl stores everything in git so git is all you need to share projects and collaboratively manage deployments.  Unfurl can use git lfs to provide locking during deployment and can automatically encrypts secrets. Or for ease of use and more advanced needs you can use [unfurl cloud](https://unfurl.cloud) to host and deploy.
 
 For complex applications and to enable open-source development and the integration of 3rd-party providers, Unfurl supports design patterns for 
 for integrating components and services that can be developed and deployed independently, such as encapsulation (imports), composition (substitute mapping), loosely-coupled components (dsl constraints), dependency injection (deployment blueprint / substitution mapping), modular architectures (std), semantic versioning (packaging), and component catalogs (cloudmaps).

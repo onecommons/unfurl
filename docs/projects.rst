@@ -321,7 +321,7 @@ If you want to publish local git repositories on a git hosting service like gith
 
    ``git submodule set-url <submodule-path> <remote-url>``
 
-3. Commit any needed changes in the repositories.
+3. Commit any needed changes in the repositories with ``unfurl commit``.  (Use ``unfurl git-status`` to see the uncommitted files across the project's repositories.)
 
 4. Running ``unfurl git push`` will push all the repositories in the project.
 
@@ -352,15 +352,22 @@ If ``<source>`` points to a project, the project will be cloned.
 
 If the source project is a blueprint project (i.e. it doesn't contain any ensembles) a new ensemble will also be created (see below) in the cloned project -- use the ``--empty`` option to skip creating the new ensemble.
 
-The exception to this is when source is an local file path and ``<dest>`` is an existing project, in that case the source project will just be registered with the destination project instead of cloned, and a new ensemble created (see below). Use an URL like ``file:path/to/project`` as the source to force cloning.
+The exception to this is when source is also a local file path and ``<dest>`` is an existing project, in that case the source project will just be registered with the destination project instead of cloned, and a new ensemble will be created (see below). Use an URL like ``file:path/to/project`` as the source to force cloning.
 
 Clone an ensemble
 -----------------
 
-To clone a ensemble into another existing project, set the ``<source>`` to the repository that the ensemble appears in. 
+To clone a ensemble, set the ``<source>`` to the repository that the ensemble appears in. 
 
-The effective environment of an ensemble that is part of a project that was cloned inside another project is the merger of the environment of the ensemble's project and the outer project's, as described in :ref:`Inheritance and precedence` above. 
-This allows you to put local overrides in the outer project without having to modify the shared ensemble.
+If ``<dest>`` is an existing project, the ensemble's project will be cloned inside the existing project and the effective environment of an ensemble will be the merger of the environment of the ensemble's project and the outer project's, as described in :ref:`Inheritance and precedence` above. 
+
+If ``<dest>`` is empty the ensemble will be registered with the `unfurl home project<unfurl home>` (if present) and you can use the ``--use-environment`` option to specify which environment in the home project to to use.  
+
+Either scenario allows you to put local specific settings in a local or home project without having to modify the shared ensemble.
+
+.. tip::
+
+  Shared ensembles should configure a `remote lock<Locking>` to prevent simultaneous deployments.
 
 Create a new ensemble from source
 ----------------------------------

@@ -213,6 +213,9 @@ As these settings are `environment` settings, they will be merged with the curre
 
 Use ``git lfs locks`` to see existing locks in a git repository and ``git lfs unlock`` to manually remove a lock. 
 
+In additional to locking, to ensure local deployments are in sync with each, when Unfurl starts and loads an ensemble it checks the project and ensemble's upstream repositories for changes. The :cli:`--skip-upstream-check<unfurl>` global option and the ``UNFURL_SKIP_UPSTREAM_CHECK`` environment variable disables this behavior.
+
+
 .. _git lfs: https://git-lfs.com/
 
 Operational status and state
