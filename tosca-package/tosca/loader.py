@@ -338,7 +338,13 @@ def __safe_import__(
         if name in modules and not (is_allowed_package and fromlist):
             # we need to skip the second check to allow the fromlist to includes sub-packages
             module = modules[name]
-            _check_fromlist(module, fromlist)
+            if parts[0] != "tosca_repositories":
+                _check_fromlist(module, fromlist)
+            elif fromlist:
+                for from_name in fromlist:
+                    if not hasattr(module, from_name):
+                        # e.g. from tosca_repositories.repo import module
+                        load_private_module(base_dir, modules, name+"."+from_name)
             return module if fromlist else modules[parts[0]]
         if name in ALLOWED_MODULES:
             if len(parts) > 1:
@@ -357,7 +363,7 @@ def __safe_import__(
                 module = ImmutableModule(name, **vars(module))
                 modules[name] = module
                 return module
-        elif not is_allowed_package and parts[0] not in ["tosca_repositories"]:
+        elif not is_allowed_package and parts[0] != "tosca_repositories":
             # these modules fall through to load_private_module():
             package_name, sep, module_name = name.rpartition(".")
             if package_name not in ALLOWED_PRIVATE_PACKAGES:
@@ -652,7 +658,7 @@ def restricted_exec(
             )
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
-        modules = {} if safe_mode else sys.modules
+        modules = global_state.modules if safe_mode else sys.modules
 
     if namespace is None:
         namespace = {}

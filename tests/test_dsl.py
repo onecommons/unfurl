@@ -352,7 +352,7 @@ example_wordpress_python_alt = _example_wordpress_python.format(
 
 def test_example_wordpress():
     src, src_tpl = _to_python(example_wordpress_yaml)
-    pprint(src_tpl)
+    # pprint(src_tpl)
     tosca_tpl = _to_yaml(src, True)
     assert src_tpl["node_types"] == tosca_tpl["node_types"]
 
@@ -470,7 +470,12 @@ topology_template:
 
 example_template_python = """
 import tosca
-from tosca import Eval
+from tosca import Eval, TopologyInputs
+
+class Inputs(TopologyInputs):
+    wordpress_db_name: str
+    wordpress_db_user: str
+    wordpress_db_password: str
 
 mysql = tosca.nodes.DBMS(
     "mysql",
@@ -499,7 +504,6 @@ wordpress_db.create = create
 def test_example_template():
     src, src_tpl = _to_python(example_template_yaml)
     tosca_tpl = _to_yaml(src, True)
-    del src_tpl["topology_template"]["inputs"]
     assert src_tpl == tosca_tpl
     tosca_tpl2 = _to_yaml(example_template_python, True)
     assert src_tpl == tosca_tpl2
@@ -1137,6 +1141,7 @@ def test_sandbox(capsys):
         "import sys; sys.version_info",
         "from tosca import python2yaml",
         "import tosca_repositories.missing_repository",
+        "from tosca_repositories import missing_repository",
         "from tosca._tosca import global_state; foo = global_state; foo.safe_mode",
         """from tosca.python2yaml import ALLOWED_MODULE, missing
 str(ALLOWED_MODULE)

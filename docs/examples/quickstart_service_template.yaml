@@ -1,0 +1,52 @@
+# add this to ensemble-template.yaml under
+# spec: 
+#   service_template:
+      topology_template:
+        inputs:
+          disk_size:
+            type: scalar-unit.size
+            default: 10 GB
+          mem_size:
+            type: scalar-unit.size
+            default: 2048 MB
+        node_templates:
+          db:
+            type: PostgresDB
+            metadata:
+              module: service_template
+          host:
+            type: ContainerHost
+            metadata:
+              module: service_template
+          container:
+            type: ContainerService
+            requirements:
+            - host: host
+            properties:
+              environment:
+                DBASE:
+                  eval: ::db::url
+                url:
+                  eval: ::[.type=SQLWebApp]::url
+              container:
+                image: registry.gitlab.com/gitlab-org/project-templates/express/main:latest
+                ports:
+                - 5000:5000
+                deploy:
+                  resources:
+                    limits:
+                      memory:
+                        get_input: mem_size
+          __root__:
+            type: SQLWebApp
+            requirements:
+            - container: container
+            - db: db
+            properties:
+              subdomain: myapp
+        root:
+          node: __root__
+      imports:
+      - file: configurators/templates/docker.yaml
+        repository: unfurl
+      - file: tosca_repositories/std/generic_types.yaml

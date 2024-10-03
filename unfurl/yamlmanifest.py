@@ -32,7 +32,7 @@ except ImportError:
 from . import DefaultNames
 from .util import UnfurlError, get_base_dir, substitute_env, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
-from .yamlloader import YamlConfig, make_yaml
+from .yamlloader import YamlConfig, load_yaml, make_yaml
 from .result import serialize_value
 from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
@@ -43,6 +43,7 @@ from .runtime import EntityInstance, NodeInstance, TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
+from .init import get_input_vars
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from ansible.parsing.dataloader import DataLoader
@@ -278,14 +279,25 @@ class ReadOnlyManifest(Manifest):
         self.context = manifest.get("environment", CommentedMap())
         if localEnv:
             self.context = localEnv.get_context(self.context)
+        self._update_inputs(spec)
+        # _update_repositories might not have been called while parsing
+        # call it now to make sure we set up the built-in repositories
+        self._update_repositories(manifest)
+
+    def _update_inputs(self, spec: dict) -> None:
         inputs = spec.get("inputs") or {}
         context_inputs = self.context.get("inputs")
         if context_inputs:
             inputs.update(context_inputs)
+        if self.localEnv:
+            # overrides is set by job from --var options
+            s = get_input_vars(self.localEnv.overrides)
+            if s:
+                job_inputs = load_yaml(
+                    self.manifest.yaml, io.StringIO(s), None, self.manifest.readonly
+                )
+                inputs.update(job_inputs)
         spec["inputs"] = inputs
-        # _update_repositories might not have been called while parsing
-        # call it now to make sure we set up the built-in repositories
-        self._update_repositories(manifest)
 
     @property
     def uris(self) -> List[str]:
@@ -548,7 +560,9 @@ class YamlManifest(ReadOnlyManifest):
         try:
             for rel in root.requirements:
                 rules.update(rel.merge_props(find_env_vars, True))
-            rules = serialize_value(map_value(rules, root), resolveExternal=True)
+            rules = cast(
+                dict, serialize_value(map_value(rules, root), resolveExternal=True)
+            )
             root._environ = filter_env(rules, os.environ)
         finally:
             self.validate = _previous_validate
@@ -632,7 +646,7 @@ class YamlManifest(ReadOnlyManifest):
             tosca["imports"] = imports
         return tosca
 
-    def load_external_ensemble(self, name, value):
+    def load_external_ensemble(self, name: str, value: Dict[str, Any]) -> None:
         """
         :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
@@ -654,6 +668,7 @@ class YamlManifest(ReadOnlyManifest):
                 raise UnfurlError(
                     f"Can not import external ensemble '{name}': can't find project '{location['project']}'"
                 )
+            path = importedManifest.path
         else:
             # ensemble is in the same project
             baseDir = getattr(location, "base_dir", self.get_base_dir())
@@ -690,8 +705,8 @@ class YamlManifest(ReadOnlyManifest):
         # use find_instance_or_external() not find_resource() to handle export instances transitively
         # e.g. to allow us to layer localhost manifests
         root = importedManifest.get_root_resource()
-        resource = root.find_instance_or_external(rname)
-        if not resource:
+        resource = root and root.find_instance_or_external(rname)
+        if not root or not resource:
             raise UnfurlError(
                 f"Can not import external ensemble '{name}': instance '{rname}' not found"
             )
@@ -960,22 +975,19 @@ class YamlManifest(ReadOnlyManifest):
     def save_root_resource(
         self, root: TopologyInstance, discovered: Dict[str, Any]
     ) -> CommentedMap:
-        resource = root
-        assert resource
         status = CommentedMap()
-
         # record the input and output values
-        status["inputs"] = serialize_value(resource.attributes["inputs"])
-        status["outputs"] = serialize_value(resource.attributes["outputs"])
+        status["inputs"] = serialize_value(root.attributes["inputs"])
+        status["outputs"] = serialize_value(root.attributes["outputs"])
 
-        save_status(resource, status)
+        save_status(root, status)
         status["instances"] = CommentedMap(
             filter(
                 None,
                 map(
                     lambda r: self.save_resource(r, discovered),
                     cast(
-                        Iterable[NodeInstance], resource.get_operational_dependencies()
+                        Iterable[NodeInstance], root.get_operational_dependencies()
                     ),
                 ),
             )

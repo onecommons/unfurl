@@ -45,7 +45,7 @@ import shutil
 import codecs
 from collections.abc import MutableSequence
 import typing
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, cast
 
 from .eval import set_eval_func, map_value
 from .result import ExternalValue
@@ -63,6 +63,7 @@ logger = getLogger("unfurl")
 if typing.TYPE_CHECKING:
     from .manifest import Manifest
     from .configurator import TaskView, TaskLoggerAdapter
+    from .spec import EntitySpec, ToscaSpec
 
 
 class Folders:
@@ -82,7 +83,9 @@ for r in Folders.Persistent + Folders.Job:
     setattr(Folders, r, r)
 
 
-def rename_dir(src: str, dst: str, logger: Union["TaskLoggerAdapter", UnfurlLogger]=logger):
+def rename_dir(
+    src: str, dst: str, logger: Union["TaskLoggerAdapter", UnfurlLogger] = logger
+):
     try:
         dir = os.path.dirname(dst)
         if not os.path.exists(dir):
@@ -97,7 +100,7 @@ def rename_dir(src: str, dst: str, logger: Union["TaskLoggerAdapter", UnfurlLogg
         logger.trace("renamed %s to %s", src, dst)
 
 
-def rmtree(path: str, logger: Union["TaskLoggerAdapter", UnfurlLogger]=logger):
+def rmtree(path: str, logger: Union["TaskLoggerAdapter", UnfurlLogger] = logger):
     errors = []
     if not os.path.exists(path):
         return False
@@ -636,21 +639,20 @@ def _get_base_dir(ctx, name=None):
                 _get_instance_dir_name(instance),
             )
         else:
-            assert (
-                False
-            ), f"cant get_path {name}, {ctx.task and ctx.task.target.name} is not {instance.name}"
+            assert False, f"cant get_path {name}, {ctx.task and ctx.task.target.name} is not {instance.name}"
     elif name == "project":
         return spec and spec._get_project_dir() or instance.base_dir
     elif name == "unfurl.home":
         return spec and spec._get_project_dir(True) or instance.base_dir
     else:
-        template = instance.template
+        template = cast("EntitySpec", instance.template)
         assert template
-        assert template.spec
+        spec = cast("ToscaSpec", instance.template.spec)
+        assert spec
         start, sep, rest = name.partition(".")
         if sep:
             if start == "spec":
-                specHome = os.path.join(template.spec.base_dir, "spec", template.name)
+                specHome = os.path.join(spec.base_dir, "spec", template.name)
                 if rest == "src":
                     return template.base_dir
                 if rest == "home":
@@ -658,4 +660,4 @@ def _get_base_dir(ctx, name=None):
                 elif rest == "local":
                     return os.path.join(specHome, "local")
             # XXX elif start == 'project' and rest == 'local'
-        return template.spec.get_repository_path(name)
+        return spec.get_repository_path(name)

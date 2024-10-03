@@ -2,6 +2,8 @@
 apiVersion: unfurl/v1alpha1
 kind: Project
 [%include | default("") %]
+[% ensemble_repository_config | default("") %]
+
 {%- if default_context | default("") %}
 default_environment: [%default_context%]
 {% endif %}

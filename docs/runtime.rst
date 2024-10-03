@@ -84,6 +84,7 @@ into the new one. In that case "*" and "?" are treated like filename wildcards a
   name: value    # add name=value
   +name:         # copy name into the enviroment
   +name: default # copy value, set it to "default" if not present
+  +prefix*:      # copy all variables matching "prefix*"
   +!prefix*:     # copy all except variables matching "prefix*"
   -!name:        # remove all except name
   -!prefix*:     # remove all except variables matching "prefix*"
@@ -106,3 +107,39 @@ The following environment variables will always be copied from the parent enviro
 
 If the ``ASDF_DATA_DIR`` environment variable is set or the ``https://github.com/asdf-vm/asdf.git`` repository is part of a current project
 and a ``.tool-versions`` file exists (or ``$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME``) in the root of a current project, then ``PATH`` environment variable will be configured to include the paths to the tools listed in that file.
+
+Topology Inputs
+===============
+
+Topology :std:ref:`Inputs` are parameters passed to a service template when it is instantiated. They made available at runtime via the :ref:`get_input` expression function.
+
+Inputs can come from any of the following sources, and are merged together:
+
+* The `spec/inputs<ensemble_yaml>` section of the ensemble's manifest. For example:
+
+  .. code-block:: yaml
+
+    spec:
+      inputs:
+        foo: 0
+      service_template:
+        ...
+
+* When creating or cloning an ensemble, the default `project skeleton<project skeletons>` will write inputs into this section using skeleton variables that start with ``input_``, for example, this command will render the yaml in the example above:
+
+  .. code-block:: shell
+
+      unfurl init --var input_foo 0
+
+* The :std:ref:`Inputs section<environment_inputs>` of the current environment.
+
+* From the command line:
+
+You can add or override inputs when a job is run from the command line by passing job vars that start with ``input_``. For example, deploying with this command:
+
+.. code-block:: shell
+
+    unfurl deploy --var input_foo 1
+
+will set ``foo`` to 1, overriding ``spec\inputs``.
+
