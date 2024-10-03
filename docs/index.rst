@@ -32,6 +32,8 @@ Table of Contents
 
    TOSCA as Python <dsl.md>
 
+   toscaref.rst
+
    packages.rst
 
    secrets.rst
@@ -49,8 +51,6 @@ Table of Contents
    cli.rst
 
    jsonschema.rst
-
-   toscaref.rst
 
    glossary.rst
 
