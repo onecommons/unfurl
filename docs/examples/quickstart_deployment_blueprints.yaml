@@ -1,0 +1,42 @@
+deployment_blueprints:
+  production:
+    cloud: unfurl.relationships.ConnectsTo.AWSAccount
+    node_templates:
+      host:
+        type: ContainerComputeHost
+        requirements:
+        - host: host_host
+      host_host:
+        type: EC2Compute
+        properties:
+          num_cpus: 2
+          mem_size:
+            get_input: mem_size
+          disk_size:
+            get_input: disk_size
+      db:
+        type: AwsRdsPostgres
+  dev:
+    cloud: unfurl.relationships.ConnectsTo.K8sCluster
+    node_templates:
+      host:
+        type: PublicK8sContainerHost
+        properties:
+          labels:
+            kompose.volume.size:
+              get_input: disk_size
+      db:
+        type: PostgresDBInstance
+        requirements:
+        - host: db_host_requirement
+        properties:
+          database_name: my_db
+      db_host_requirement:
+        type: PrivateK8sContainerHost
+imports:
+- file: aws/db.yaml
+  repository: std
+- file: k8s.yaml
+  repository: std
+- file: aws/compute.yaml
+  repository: std

@@ -111,7 +111,7 @@ and a ``.tool-versions`` file exists (or ``$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME`
 Topology Inputs
 ===============
 
-Topology :std:ref:`Inputs` are parameters passed to a service template when it is instantiated. 
+Topology :std:ref:`Inputs` are parameters passed to a service template when it is instantiated. They made available at runtime via the :ref:`get_input` expression function.
 
 Inputs can come from any of the following sources, and are merged together:
 
