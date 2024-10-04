@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from collections.abc import Mapping, MutableSequence, MutableMapping
+from collections.abc import Mapping, MutableSequence
+from typing_extensions import MutableMapping
 from abc import ABC, abstractmethod, ABCMeta
 import datetime
 import io
@@ -27,6 +28,7 @@ from toscaparser.properties import Property
 if TYPE_CHECKING:
     from .spec import EntitySpec
     from .support import Templar
+    from .runtime import EntityInstance
 
 from .merge import diff_dicts
 from .util import (
@@ -98,7 +100,7 @@ def serialize_value(value, **kw):
 
 
 class ResourceRef(ABC):
-    parent = None  # must be defined by subclass
+    parent: Optional["EntityInstance"] = None  # must be defined by subclass
     template: Optional["EntitySpec"] = None
     name = ""
 
@@ -176,7 +178,7 @@ class AnyRef(ResourceRef):
         if name == ".":
             return self
         elif name == "..":
-            return self.parent
+            return cast(AnyRef, self.parent)
         return AnyRef(name, self)
 
     def _resolve(self, key):
@@ -227,7 +229,7 @@ class ChangeRecord:
         elif isinstance(startTime, datetime.datetime):
             self.startTime = startTime
         else:
-            try:
+            try:  # type: ignore[unreachable]
                 startTime = int(startTime)  # helper for deterministic testing
                 self.startTime = self.EpochStartTime.replace(hour=startTime)
             except ValueError:
@@ -520,7 +522,11 @@ class _Sentinel:
 
 _Missing = _Sentinel("_Missing")
 _RecursionGuard = _Sentinel("_RecursionGuard")
-MAX_CHANGE_COUNT = 0xFFFFFFFFFFFF
+# concrete value read first
+MAX_CHANGE_COUNT = 0xFFFFFFFFFFFE
+# concrete value set before read
+MAX_CHANGE_COUNT_SET = 0xFFFFFFFFFFFF
+# anything < MAX_CHANGE_COUNT is computed
 
 
 class ResultsItem(Result):
@@ -558,9 +564,14 @@ class ResultsItem(Result):
         return self.last_computed < MAX_CHANGE_COUNT
 
     def update_value(self, newvalue):
-        # replace with a concrete value
-        self.last_computed = MAX_CHANGE_COUNT
+        # replace computed with a concrete value
+        # (and don't change MAX_CHANGE_COUNT)
+        if self.last_computed < MAX_CHANGE_COUNT:
+            self.last_computed = MAX_CHANGE_COUNT_SET
         self.resolved = newvalue
+
+    def get_before_set(self) -> bool:
+        return self.last_computed != MAX_CHANGE_COUNT_SET
 
     def has_diff(self):
         "Was the item modified?"
@@ -670,6 +681,11 @@ class Results(ABC, metaclass=ProxyableType):
         except (KeyError, IndexError):
             return default
 
+    def map_all(self):
+        from .eval import map_value
+
+        return map_value(self, self.context)
+
     @property
     def change_count(self) -> int:
         # change_count is at least shared across _map_values()
@@ -757,6 +773,8 @@ class Results(ABC, metaclass=ProxyableType):
                         # need to re-evaluate
                         result = self.resolve(key, val.original, validate)
                         val.set_resolved(result, self.change_count)
+                    elif val.last_computed == MAX_CHANGE_COUNT_SET:
+                        val.last_computed = MAX_CHANGE_COUNT
                 else:
                     assert not isinstance(val, Result), val
                     result = self.resolve(key, val, validate)
@@ -779,15 +797,15 @@ class Results(ABC, metaclass=ProxyableType):
 
         assert not isinstance(value, Result), value
         if key not in self._attributes:
-            self._attributes[key] = ResultsItem(value, _Missing)
+            self._attributes[key] = ResultsItem(value, _Missing, MAX_CHANGE_COUNT_SET)
         else:
             old_val = self._attributes[key]
             if isinstance(old_val, ResultsItem):
                 if old_val.resolved != value:  # only set if values are different
                     if self.validate:
                         self._validate(key, value)
-                    old_val.update_value(value)
                     self.bump_change_count()
+                    old_val.update_value(value)
             else:
                 # hasn't been evaluate yet
                 if value != old_val:
@@ -795,7 +813,9 @@ class Results(ABC, metaclass=ProxyableType):
                     # but don't bother with that, the caller can compare the resolved item if they care
                     if self.validate:
                         self._validate(key, value)
-                    self._attributes[key] = ResultsItem(value, old_val)
+                self._attributes[key] = ResultsItem(
+                    value, old_val, MAX_CHANGE_COUNT_SET
+                )
 
         # remove from deleted if it's there
         self._deleted.pop(key, None)
@@ -940,7 +960,7 @@ class Results(ABC, metaclass=ProxyableType):
         return "Results(%r)" % self._attributes
 
 
-class ResultsMap(Results, MutableMapping):
+class ResultsMap(Results, MutableMapping[str, Any]):
     def __iter__(self):
         return iter(self._attributes)
 

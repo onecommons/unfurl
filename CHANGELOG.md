@@ -359,7 +359,7 @@ You can now see local changes to a blueprint project under development on [Unfur
 
 Support for TOSCA substitution mapping has been stabilized and integrated into Unfurl Cloud.
 
-One new feature level enhancement an extension to TOSCA's requirements mapping to that enables you to essentially parameterize an embedded template by letting the outer (the embedding template) substitute node templates in the embedded template.
+Support includes an extension to TOSCA's requirements mapping that enables you to essentially parameterize an embedded template by letting the outer (the embedding template) substitute node templates in the embedded template.
 
 When substituted node template (in the outer topologies) declares requirements with whose name matches the name of a node template in the substituted (inner) topology then that node template will be replaced by the node template targeted by the requirement.
 

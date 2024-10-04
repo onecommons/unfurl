@@ -27,7 +27,6 @@ Declaration
   ...
 
 
-
 Definition
 ++++++++++++
 
@@ -123,50 +122,48 @@ node templates.
 Examples
 *********
 
-.. code:: yaml
+.. tab-set-code::
 
- node_types:
-   nodecellar.nodes.MongoDatabase:
-     derived_from: tosca.nodes.DBMS
-     properties:
-       port:
-         description: MongoDB port
-         type: integer
-     interfaces:
-       Standard:
-         create: scripts/mongo/install-mongo.sh
-         start: scripts/mongo/start-mongo.sh
-         stop: scripts/mongo/stop-mongo.sh
+  .. code:: yaml
 
-An example of how to use this type follows:
+    node_types:
+      nodecellar.nodes.MongoDatabase:
+        derived_from: tosca.nodes.DBMS
+        properties:
+          port:
+            description: MongoDB port
+            type: integer
+        interfaces:
+          Standard:
+            create: scripts/mongo/install-mongo.sh
+            start: scripts/mongo/start-mongo.sh
+            stop: scripts/mongo/stop-mongo.sh
 
-.. code:: yaml
+  .. literalinclude:: ./../examples/node-types-1.py
+    :language: python
 
- node_templates:
-   MongoDB1:
-     type: nodecellar.nodes.MongoDatabase
-   MongoDB2:
-     type: nodecellar.nodes.MongoDatabase
-
-
-Each of these two nodes will now have both the ``port`` property and the three operations defined for the ``nodecellar.nodes.MongoDatabase`` type.
 
 Finally, an example on how to extend an existing type by deriving from it:
 
-.. code:: yaml
+.. tab-set-code::
 
- node_types:
-   nodecellar.nodes.MongoDatabaseExtended:
-     derived_from: nodecellar.nodes.MongoDatabase
-     properties:
-       enable_replication:
-         description: MongoDB replication enabling flag
-         type: boolean
-         default: false
-     interfaces:
-       Standard:
-         create: scripts/mongo/install-mongo-extended.sh
-         configure: scripts/mongo/configure-mongo-extended.sh
+  .. code:: yaml
+
+    node_types:
+      nodecellar.nodes.MongoDatabaseExtended:
+        derived_from: nodecellar.nodes.MongoDatabase
+        properties:
+          enable_replication:
+            description: MongoDB replication enabling flag
+            type: boolean
+            default: false
+        interfaces:
+          Standard:
+            create: scripts/mongo/install-mongo-extended.sh
+            configure: scripts/mongo/configure-mongo-extended.sh
+
+  .. literalinclude:: ./../examples/node-types-2.py
+    :language: python
 
 
 The ``nodecellar.nodes.MongoDatabaseExtended`` type derives from the ``nodecellar.nodes.MongoDatabase`` type which was defined in the previous example; As such, it derives its properties and interfaces definitions, which get either merged or overridden by the ones it defines itself.

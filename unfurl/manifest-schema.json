@@ -4,7 +4,7 @@
   "definitions": {
     "state": {
       "title": "state",
-      "description": "the operational state of the instance",
+      "description": "the `node state` of the instance",
       "type": "string",
       "enum": [
         "initial",
@@ -122,7 +122,15 @@
           "description": ":ref:`TOSCA repositories<tosca_repositories>`"
         },
         "cloudmaps": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "repositories": {
+              "type": "object"
+            },
+            "hosts": {
+              "type": "object"
+            }
+          }
         },
         "imports": {
           "type": "array"
@@ -139,6 +147,32 @@
               }
             }
           ]
+        },
+        "lfs_lock": {
+          "type": "object",
+          "$$target": "#/definitions/environment/lfs_lock",
+          "description": "Configure the global git lfs lock for jobs. See Job `locking`",
+          "properties": {
+            "lock": {
+              "type": "string",
+              "enum": [
+                "no",
+                "try",
+                "require"
+              ],
+              "default": "no",
+              "description": "Whether to use git lfs when locking an ensemble. 'try' use locking if lfs is available; 'require' means error if unable to lock"
+            },
+            "name": {
+              "type": "string",
+              "description": "Name of the lock file"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Git LFS server url; if missing, use the ensemble's git repository"
+            }
+          }
         }
       }
     },
@@ -212,19 +246,6 @@
             },
             "imported": {
               "type": "string"
-            },
-            "protected": {
-              "type": "boolean"
-            },
-            "created": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "string"
-                }
-              ]
             }
           }
         },
@@ -324,7 +345,8 @@
           "enum": [
             "ignore",
             "optional",
-            "required"
+            "required",
+            "critical"
           ]
         },
         "lastStateChange": {
@@ -332,6 +354,32 @@
         },
         "lastConfigChange": {
           "$ref": "#/definitions/changeId"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "created": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/changeId"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "customized": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/changeId"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
         }
       }
     },
@@ -471,6 +519,9 @@
             "implementation": {
               "$ref": "#/definitions/configurationSpec"
             },
+            "reason": {
+              "type": "string"
+            },
             "inputs": {
               "$ref": "#/definitions/attributes"
             },
@@ -503,6 +554,9 @@
                     "$ref": "#/definitions/schema"
                   },
                   "required": {
+                    "type": "boolean"
+                  },
+                  "writeOnly": {
                     "type": "boolean"
                   }
                 }
@@ -655,13 +709,14 @@
       ]
     },
     "environment": {
+      "description": "Environment defaults",
       "$ref": "#/definitions/environment"
     },
     "spec": {
       "type": "object",
       "properties": {
         "service_template": {
-          "description": "a TOSCA service template",
+          "description": "A TOSCA service template",
           "type": "object"
         },
         "inputs": {
@@ -674,6 +729,10 @@
           "$ref": "#/definitions/namedObjects"
         },
         "resource_templates": {
+          "$ref": "#/definitions/namedObjects"
+        },
+        "discovered": {
+          "description": "Discovered Node Templates",
           "$ref": "#/definitions/namedObjects"
         }
       }
@@ -706,10 +765,8 @@
     "jobsLog": {
       "type": "string"
     },
-    "jobsFolder": {
-      "type": "string"
-    },
     "changes": {
+      "description": "Optional list of changes. If missing, changes are saved as separate `files<job.yaml>`",
       "$ref": "#/definitions/changes"
     },
     "lock": {

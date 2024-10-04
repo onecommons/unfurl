@@ -34,7 +34,8 @@ from .support import (
     AttributeManager,
     Reason,
     NodeState,
-    AttributeChanges,
+    AttributesChanges,
+    _Dependencies,
 )
 from .result import ResourceRef, ResultsItem, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
@@ -112,13 +113,10 @@ class ConfigChange(OperationalInstance, ChangeRecord):
         else:  # generate a new job id and use the given startTime
             ChangeRecord.__init__(self, startTime=startTime, previousId=previousId)
 
+
 class JobOptions:
     """
     Options available to select which tasks are run, e.g. read-only
-
-    does the config apply to the operation?
-    is it out of date?
-    is it in a ok state?
     """
 
     global_defaults = dict(
@@ -131,7 +129,7 @@ class JobOptions:
         dryrun=False,
         planOnly=False,
         readonly=False,  # only run configurations that won't alter the system
-        requiredOnly=False,  # XXX not implemented
+        # requiredOnly=False,  # XXX not implemented
         commit=False,
         dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
@@ -176,7 +174,7 @@ class JobOptions:
         repair="error",  # or 'degraded' or "none", run configurations that are not operational and/or degraded
         upgrade=False,  # run configurations with major version changes or whose spec has changed
         force=False,  # (re)run operation regardless of instance's status or state
-        verify=False,  # XXX3 discover first and set status if it differs from expected state
+        # verify=False,  # XXX3 discover first and set status if it differs from expected state
         check=False,  # if new instances exist before deploying
         prune=False,
         destroyunmanaged=False,
@@ -195,6 +193,14 @@ class JobOptions:
             options["update"] = False
         if "skip_save" not in kw and os.getenv("UNFURL_SKIP_SAVE"):
             kw["skip_save"] = os.getenv("UNFURL_SKIP_SAVE")
+        instance = kw.get("instance")
+        if instance:
+            if isinstance(instance, tuple):
+                instances = kw.pop("instance")
+                if instances:
+                    kw["instances"] = list(instances)
+            elif "instances" not in kw:
+                kw["instances"] = [instance]
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
@@ -223,7 +229,13 @@ class ConfigTask(TaskView, ConfigChange):
     updates Configurator's target's status and lastConfigChange
     """
 
-    def __init__(self, job: "Job", configSpec: ConfigurationSpec, target: EntityInstance, reason: Optional[str]=None):
+    def __init__(
+        self,
+        job: "Job",
+        configSpec: ConfigurationSpec,
+        target: EntityInstance,
+        reason: Optional[str] = None,
+    ):
         ConfigChange.__init__(self, job)
         TaskView.__init__(self, job.manifest, configSpec, target, reason)
         self.dry_run = job.dry_run
@@ -231,7 +243,7 @@ class ConfigTask(TaskView, ConfigChange):
         self._configurator: Optional[Configurator] = None
         self.generator: Optional[Generator] = None
         self.job = job
-        self.changeList: List[AttributeChanges] = []
+        self.change_list: List[AttributesChanges] = []
         self.result: Any = None
         self.outputs: Optional[dict] = None
         # for summary:
@@ -368,6 +380,7 @@ class ConfigTask(TaskView, ConfigChange):
         return False
 
     def _finished_workflow(self, successStatus, workflow):
+        # non-readonly workflow finished successfully
         instance = self.target
         self.modified_target = True
         instance.local_status = successStatus
@@ -400,12 +413,12 @@ class ConfigTask(TaskView, ConfigChange):
         # XXX2 if attributes changed validate using attributesSchema
         # XXX2 Check that configuration provided the metadata that it declared (check postCondition)
 
-        if self.changeList:
+        if self.change_list:
             # merge changes together (will be saved with changeset)
-            changes = self.changeList
+            changes = self.change_list
             accum = changes.pop(0)
             while changes:
-                accum = cast(AttributeChanges, merge_dicts(accum, changes.pop(0)))
+                accum = cast(AttributesChanges, merge_dicts(accum, changes.pop(0)))
 
             # note: this might set _lastConfigChange on instances other than this target
             self._resourceChanges.update_changes(
@@ -421,9 +434,37 @@ class ConfigTask(TaskView, ConfigChange):
         self.result = result
         self.local_status = Status.ok if result.success else Status.error
         self.modified_target = targetChanged or self.target_status != self.target.status
+        if targetChanged:
+            self._set_customized()
         self.target_status = self.target.status
         self.target_state = self.target.state
         return self
+
+    def _set_customized(self) -> bool:
+        # If non-Standard operation has modified attribute which overlaps with attributes
+        # that the last config operation depended on or modified, then mark the target as customized
+        if (
+            self.configSpec.interface != "Standard"
+            and self.configSpec.operation != "check"
+            and self.target.customized is None
+        ):
+            changeset = cast("YamlManifest", self._manifest).find_last_operation(
+                self.target.key, "configure"
+            )
+            if changeset:
+                for expr in self._resourceChanges.get_changes_as_expr():
+                    if expr in changeset.digestKeys or expr in changeset.digestPut:
+                        self.target.customized = self.changeId
+                        self.logger.debug("setting customized to %s", self.changeId)
+                        return True
+        elif (
+            self.reason == Reason.reconfigure
+            and self.local_status == Status.ok
+            and self.target.customized is not None
+        ):
+            self.logger.debug("clearing customized")
+            self.target.customized = None
+        return False
 
     @property
     def completed(self) -> bool:
@@ -434,13 +475,13 @@ class ConfigTask(TaskView, ConfigChange):
         self._environ = None
         self._attributeManager._reset()
 
-    def commit_changes(self):
+    def commit_changes(self) -> Tuple[AttributesChanges, _Dependencies]:
         """
         This can be called multiple times if the configurator yields multiple times.
         Save the changes made each time.
         """
         changes, dependencies = self._attributeManager.commit_changes()
-        self.changeList.append(changes)
+        self.change_list.append(changes)
 
         if self._inputs is not None:
             self._resolved_inputs.update(self.inputs.get_resolved())
@@ -453,12 +494,15 @@ class ConfigTask(TaskView, ConfigChange):
             if key.startswith("::.requirements"):
                 # hackish: exclude default connections (which are represented as root relationships)
                 continue
-            for name, (live, value) in attributes.items():
+            for name, (live, value, accessed) in attributes.items():
                 # hackish: we only want the status of a dependency to reflect its target instance's status
                 # when the attribute is live (as opposed to a static property set in the spec)
                 # so don't set its target unless the attribute is live
                 self.add_dependency(
-                    key + "::" + name, value, target=target if live else None
+                    key + "::" + name,
+                    value,
+                    target=target if live else None,
+                    write_only=not accessed,
                 )
         return changes, dependencies
 
@@ -494,7 +538,6 @@ class ConfigTask(TaskView, ConfigChange):
                 self.configSpec.operation,
             )
             return False
-
         return self.configurator.check_digest(self, changeset)
 
     def has_dependencies_changed(self):
@@ -576,7 +619,9 @@ class ConfigTask(TaskView, ConfigChange):
                 if os.path.exists(path)
             ]
             if self.result and self.result.result:
-                summary["output"] = serialize_value(SensitiveFilter.redact(self.result.result))
+                summary["output"] = serialize_value(
+                    SensitiveFilter.redact(self.result.result)
+                )
 
         if asJson:
             return summary
@@ -634,11 +679,13 @@ def _dependency_check(
                     # don't mark it as missing, instead assume this instance should go first.
                     missing.append(dep)
     if missing:
+
         def dep_message(dep):
             if dep.status == Status.pending:
                 return f"{dep.name} is not {'set' if isinstance(dep, Dependency) else 'created'} yet"
             else:
                 return f"{dep.name} is {dep.status.name}"
+
         ready = "operational" if operational else state.name if state else "ready"
         reason = f"required dependencies not {ready}: %s" % ", ".join(
             [dep_message(dep) for dep in missing]
@@ -646,6 +693,7 @@ def _dependency_check(
     else:
         reason = ""
     return missing, reason
+
 
 class Job(ConfigChange):
     """
@@ -751,9 +799,7 @@ class Job(ConfigChange):
 
     def _run_requests(
         self,
-        rendered_requests: Optional[
-            RenderRequests
-        ] = None,
+        rendered_requests: Optional[RenderRequests] = None,
     ) -> ResourceRef:
         if rendered_requests:
             ready, notReady, failed = rendered_requests
@@ -866,9 +912,7 @@ class Job(ConfigChange):
             )
         self._apply_workfolders()
 
-    def run(
-        self, rendered: RenderRequests
-    ) -> None:
+    def run(self, rendered: RenderRequests) -> None:
         manifest = self.manifest
         startTime = perf_counter()
         jobOptions = self.jobOptions
@@ -1014,7 +1058,11 @@ class Job(ConfigChange):
                             f"Critical task failed: {task.name} for {task.target.name}"
                         )
                 # task won't be returned from _run_operation if it doesn't run, so use req
-                if _final_req and _final_req.is_final_for_workflow and _final_req.completed:
+                if (
+                    _final_req
+                    and _final_req.is_final_for_workflow
+                    and _final_req.completed
+                ):
                     _final_req.finish_workflow()
 
         return task  # return the last task executed
@@ -1064,7 +1112,7 @@ class Job(ConfigChange):
 
     def should_run_task(self, task: ConfigTask) -> Tuple[bool, str]:
         """
-        Checked at runtime right before each task is run
+        Checked before rendering the task.
         """
         try:
             if task._configurator:
@@ -1185,9 +1233,10 @@ class Job(ConfigChange):
             missing, reason = _dependency_check(resource, operational=True)
             if missing:
                 return False, reason
-            if not workflow:
+            if not workflow:  # XXX redundant: "check" never has workflow set (see _generate_configurations)
                 if (
                     resource.parent
+                    and resource.parent.created
                     and self.is_change_id(resource.parent.created)
                     and self.get_job_id(resource.parent.created) == self.changeId
                 ):
@@ -1204,7 +1253,7 @@ class Job(ConfigChange):
         if self.jobOptions.force:  # always run
             return True, "passed"
 
-        # Note: workflow is only set when request is a child of a TaskGroupRequest generated by the plan
+        # Note: workflow is only set when request is a child of a TaskRequestGroup generated by the plan
         if get_success_status(workflow) == resource.status:
             return False, "instance already has desired status"
 
@@ -1267,8 +1316,8 @@ class Job(ConfigChange):
             self.add_work(task)
             self.run_task(task, not_ready, depth)
 
-            # if # task succeeded but didn't update nodestate
             if task.result and task.result.success and resource.state == startingState:
+                # task succeeded but didn't update nodestate
                 if req.startState is not None:
                     # advance the state if a startState was set in the TaskRequest
                     resource.state = NodeState(req.startState + 1)
@@ -1276,22 +1325,8 @@ class Job(ConfigChange):
                     req.configSpec.operation == "check"
                     and startingStatus != resource._localStatus
                 ):
-                    # if check operation set status but didn't update state, set a default state
-                    state_map = {
-                        Status.ok: NodeState.started,
-                        Status.error: NodeState.error,
-                        Status.absent: NodeState.deleted,
-                        Status.pending: NodeState.initial,
-                    }
-                    if not resource.state or resource.state == NodeState.initial:
-                        # it is a resource we didn't create
-                        state_map[Status.absent] = NodeState.initial
-                    else:
-                        state_map[Status.absent] = NodeState.deleted
-                    if resource._localStatus is None:
-                        state = None
-                    else:
-                        state = state_map.get(resource._localStatus)
+                    # if check operation explicitly set status, set a default state
+                    state = self._nodestate_from_status(resource)
                     if state is not None:
                         resource.state = state
                 task.target_state = resource.state
@@ -1326,6 +1361,23 @@ class Job(ConfigChange):
                 )
             return task, task_success
         return None, False
+
+    @staticmethod
+    def _nodestate_from_status(resource: EntityInstance) -> Optional[NodeState]:
+        if resource._localStatus is None:
+            return None
+        state_map = {
+            Status.ok: NodeState.started,
+            Status.error: NodeState.error,
+            Status.absent: NodeState.deleted,
+            Status.pending: NodeState.initial,
+        }
+        if not resource.state or resource.state == NodeState.initial:
+            # it is a resource we didn't create
+            state_map[Status.absent] = NodeState.initial
+        else:
+            state_map[Status.absent] = NodeState.deleted
+        return state_map.get(resource._localStatus)
 
     def run_task(
         self, task: ConfigTask, not_ready: Sequence[PlanRequest], depth: int = 0
@@ -1395,23 +1447,20 @@ class Job(ConfigChange):
             self.task_count += 1
         return self.task_count
 
-    @property
-    def log_path(self) -> str:
+    def log_path(self, folder="jobs", ext=".log") -> str:
         log_name = (
             self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
         )
-        return self.manifest.get_job_log_path(log_name, ".log")
+        return self.manifest.get_job_log_path(log_name, folder, ext)
 
     ###########################################################################
     # Job Reporting methods
     ###########################################################################
     @overload
-    def stats(self) -> Dict[str, int]:
-        ...
+    def stats(self) -> Dict[str, int]: ...
 
     @overload
-    def stats(self, asMessage: bool) -> Union[Dict[str, int], str]:
-        ...
+    def stats(self, asMessage: bool) -> Union[Dict[str, int], str]: ...
 
     def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
         return JobReporter.stats(self.workDone.values(), asMessage)
@@ -1441,18 +1490,15 @@ class Job(ConfigChange):
         return JobReporter.json_plan_summary(self, pretty, include_rendered)
 
     @overload
-    def json_summary(self) -> Dict[str, int]:
-        ...
+    def json_summary(self) -> Dict[str, Any]: ...
 
     @overload
-    def json_summary(self, pretty: Literal[True]) -> str:
-        ...
+    def json_summary(self, pretty: Literal[True]) -> str: ...
 
     @overload
     def json_summary(
         self, pretty: bool = False, external: bool = False, add_rendered: bool = False
-    ) -> Union[str, Dict[str, Any]]:
-        ...
+    ) -> Union[str, Dict[str, Any]]: ...
 
     def json_summary(
         self, pretty: bool = False, external: bool = False, add_rendered: bool = False
@@ -1547,13 +1593,15 @@ def _render(job: Job):
     return (ready, notReady, errors), count
 
 
-def start_job(manifestPath=None, _opts=None) -> Tuple[Optional[Job], Optional[RenderRequests], bool]:
+def start_job(
+    manifestPath=None, _opts=None
+) -> Tuple[Optional[Job], Optional[RenderRequests], bool]:
     _opts = _opts or {}
     localEnv = LocalEnv(
         manifestPath,
         _opts.get("home"),
         override_context=_opts.get("use_environment") or "",
-        overrides=dict((n, v) for n, v in _opts.get("var", []))
+        overrides=dict((n, v) for n, v in _opts.get("var", [])),
         # XXX readonly=_opts.get("planOnly")
     )
     opts = JobOptions(**_opts)
@@ -1589,7 +1637,9 @@ def start_job(manifestPath=None, _opts=None) -> Tuple[Optional[Job], Optional[Re
     return job, rendered, bool(count and not errors)
 
 
-def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) -> Optional["Job"]:
+def run_job(
+    manifestPath: Optional[str] = None, _opts: Optional[dict] = None
+) -> Optional["Job"]:
     """
     Loads the given Ensemble and creates and runs a job.
 

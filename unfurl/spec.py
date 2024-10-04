@@ -91,11 +91,11 @@ def validate_unfurl_identifier(name):
     return re.match(r"^[A-Za-z._][A-Za-z0-9._:\-]*$", name) is not None
 
 
-def encode_unfurl_identifier(name):
+def encode_unfurl_identifier(name, escape=r"[^A-Za-z0-9._:-]"):
     def encode(match):
         return f"-{ord(match.group(0))}-"
 
-    return re.sub(r"[^A-Za-z0-9._:\-]", encode, name)
+    return re.sub(escape, encode, name)
 
 
 def decode_unfurl_identifier(name):
@@ -572,7 +572,8 @@ class ToscaSpec:
         for nodespec in self.topology.node_templates.values():
             ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
-            nodespec.toscaEntityTemplate.revalidate_properties()
+            if nodespec.abstract != "select":
+                nodespec.toscaEntityTemplate.revalidate_properties()
 
     def apply_node_filters(
         self, target: NodeTemplate, req_def: dict, source: NodeTemplate
@@ -741,7 +742,7 @@ class EntitySpec(ResourceRef):
         # XXX user should be able to declare default attribute values on templates
         self.propertyDefs: Dict[str, Property] = toscaNodeTemplate.get_properties()
         self.attributeDefs: Dict[str, Property] = {}
-        self.properties = CommentedMap(
+        self.properties: CommentedMap = CommentedMap(
             [(prop.name, prop.value) for prop in self.propertyDefs.values()]
         )
         if toscaNodeTemplate.type_definition:

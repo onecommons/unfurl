@@ -1,0 +1,32 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+    - repository: unfurl
+      file: configurators/templates/dns.yaml
+    topology_template:
+      node_templates:
+        example_com_zone:
+          type: unfurl.nodes.DNSZone
+          properties:
+            name: example.com.
+            provider:
+              # Amazon Route53 (Note: this provider requires that the zone already exists.)
+              class: octodns.provider.route53.Route53Provider
+
+        test_app:
+          type: tosca.nodes.WebServer
+          requirements:
+            - host: compute
+            - dns:
+                node: example_com_zone
+                relationship:
+                  type: unfurl.relationships.DNSRecords
+                  properties:
+                    records:
+                      www:
+                        type: A
+                        value:
+                          # get the ip address of the Compute instance that this is hosted on
+                          eval: .source::.requirements::[.name=host]::.target::public_address

@@ -1,24 +1,26 @@
-.. _inputs_spec:
-
 Inputs
 ======
 
-``inputs`` are parameters injected into the service template upon deployment creation/initiation. These parameters can be referenced by using the :ref:`get_input<get_input>` TOSCA function.
+`inputs<Topology Inputs>` are parameters passed to a service template when it is instantiated. These parameters can be referenced by using the :ref:`get_input<get_input>` TOSCA function.
 
-Inputs are useful when there's a need to inject parameters to the service template which were unknown when the service template was created and can be used for distinction between different deployments of the same service template.
+Inputs are useful when there's a need to inject parameters to the service template which were unknown when the service template was created and can vary across different deployments of the same service template.
 
+See `Topology Inputs` on how to pass inputs to a service template.
 
 Declaration
 +++++++++++
 
 .. code:: yaml
 
- inputs:
+  topology_template:
+    inputs:
 
-   input1:
-     ...
-   input2:
-     ...
+      input1:
+        type:
+        ...
+      input2:
+        type:
+        ...
 
 
 Definition
@@ -39,32 +41,23 @@ Definition
    * - type
      - no
      - string
-     - Represents the required data type of the input. Not specifying a data type means the type can be anything. Valid types: string, integer, boolean
+     - Represents the required data type of the input. Not specifying a data type means the type can be anything.
    * - default
      - no
      - <any>
      - An optional default value for the input.
 
+.. seealso:: For the full specification, see the :tosca_spec2:`TOSCA Input section <_Toc50125461>`.
 
 Example
 +++++++
 
-.. code:: yaml
+.. tab-set-code::
 
-  inputs:
+  .. literalinclude:: ../examples/inputs.yaml
+    :language: yaml
 
-    image_name:
-      description: The image name of the server
-      type: string
-      default: "Ubuntu 12.04"
-
-  node_templates:
-
-    vm:
-      type: tosca.openstack.nodes.Server
-      properties:
-        server:
-          image_name: { get_input: image_name }
+  .. literalinclude:: ../examples/inputs.py
+    :language: python
 
 
-.. seealso:: :ref:`get_input<get_input>` is a TOSCA function which allows the user to use inputs throughout the service templates. For more information, refer to the :tosca_spec2:`TOSCA Input section <_Toc50125461>`

@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from functools import partial
 from typing import (
     Any,
     Callable,
@@ -10,6 +11,7 @@ from typing import (
     Optional,
     TYPE_CHECKING,
     Set,
+    Tuple,
     Union,
     cast,
 )
@@ -49,7 +51,7 @@ from .spec import (
     ToscaSpec,
 )
 from .logs import getLogger
-
+from toscaparser.nodetemplate import NodeTemplate
 
 logger = getLogger("unfurl")
 
@@ -65,6 +67,12 @@ def is_external_template_compatible(
             return False
     else:
         t_name = template.name
+
+    node_filter = template.tpl.get("node_filter")
+    if node_filter:
+        return isinstance(
+            external.toscaEntityTemplate, NodeTemplate
+        ) and external.toscaEntityTemplate.match_nodefilter(node_filter)
 
     if external.name == t_name:
         if not external.is_compatible_type(template.type):
@@ -175,7 +183,6 @@ class Plan:
         self, template: NodeSpec
     ) -> Iterator[NodeInstance]:
         if template.abstract == "select":
-            # XXX also match node_filter if present
             shadowInstance = self.find_shadow_instance(template)
             if shadowInstance:
                 logger.debug('found imported instance "%s"', shadowInstance.name)
@@ -215,9 +222,7 @@ class Plan:
             assert nested_root, f"{nested_root_name} should already have been created"
             name = template.substitution.substitution_node.name
             inner = nested_root.find_instance(name)
-            assert (
-                inner
-            ), f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            assert inner, f"{name} in {nested_root_name} should have already been created before {instance.name}"
             assert inner is not instance
             instance.imported = (
                 ":" + template.substitution.substitution_node.nested_name
@@ -399,10 +404,11 @@ class Plan:
                         reason,
                     )
 
+        # note: filter logic should have already been applied by generate_delete_configurations()
         if resource.created or self.jobOptions.destroyunmanaged:
             nodeState = NodeState.deleting
             op = "Standard.delete"
-        else:
+        else:  # XXX filter logic filters out this case so this never happens
             nodeState = None
             op = "Install.revert"
 
@@ -457,43 +463,83 @@ class Plan:
                             yield req
 
     def generate_delete_configurations(
-        self, include: Callable
+        self, include_test: Callable[[EntityInstance], Optional[str]]
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
-        for resource in get_operational_dependents(self.root):
-            # reverse to teardown leaf nodes first
-            skip = None
-            if resource.shadow or resource.template.abstract:
-                skip = "read-only instance"
-            elif not resource.created and not self.jobOptions.destroyunmanaged:
-                skip = "instance wasn't created by this ensemble"
-            elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
-                resource.created
-            ):
-                skip = "creation and deletion is managed by another instance"
-            elif "protected" in resource.template.directives:
-                skip = 'instance with "protected" directive'
-            elif resource.protected:
-                skip = "protected instance"
-            elif "virtual" in resource.template.directives:
-                skip = 'instance with "virtual" directive'
-            elif resource.local_status in [Status.absent, Status.pending]:
-                skip = "instance doesn't exist"
+        # called by prune and the undeploy plan
+        seen: Set[int] = set()
+        test = partial(self.should_delete, include_test)
+        for child, reason in select_dependents(self.root, test, seen):
+            if reason != "cancelled" and id(child) not in seen:
+                seen.add(id(child))
+                # eventually calls execute_default_undeploy() unless custom workflow
+                yield from self._generate_delete_configurations(child, reason)
 
-            if skip:
-                logger.verbose("skip instance %s for removal: %s", resource.name, skip)
-                continue
+    def should_delete(
+        self,
+        include: Callable[[EntityInstance], Optional[str]],
+        resource: EntityInstance,
+    ) -> Optional[str]:
+        # If the resource
+        """
+        If the resource should be deleted, return the reason.
+        Otherwise, return None or "cancelled" if its dependencies' deletions should be cancelled.
+        """
+        skip = None
+        if resource is self.root:
+            return None
+        # NB: the order of these tests is important!
+        virtual = False
+        if resource.shadow or resource.template.abstract:
+            skip = "read-only instance"
+        elif "protected" in resource.template.directives:
+            skip = 'instance with "protected" directive'
+        elif resource.protected:
+            skip = "protected instance"
+        elif (
+            resource.template.aggregate_only()
+            or "virtual" in resource.template.directives
+        ):
+            skip = "virtual instance"
+            virtual = True
+        elif not resource.created and not self.jobOptions.destroyunmanaged:
+            skip = "instance wasn't created by this ensemble"
+        elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
+            resource.created
+        ):
+            skip = f"creation and deletion is managed by another instance {resource.created}"
+        elif resource.local_status in [Status.absent, Status.pending]:
+            skip = "instance doesn't exist"
 
-            reason = include(resource)
-            if reason:
-                # if the resource doesn't instantiate itself just mark it as absent because otherwise will be in error
-                # (because it will remain with status ok while its dependendents are absent)
-                if resource.template.aggregate_only():
-                    resource._localStatus = Status.absent
+        reason = include(resource)  # returns a Reason to include
+        if not reason:
+            skip = "didn't meet removal criteria"
+        if skip:
+            cancelling = (
+                not virtual  # instance doesn't need to be preserved
+                and not self.jobOptions.force
+                and resource.operational
+                and resource.required
+            )
+            logger.verbose(
+                "skip instance '%s' for removal: '%s' %s",
+                resource.name,
+                skip,
+                "(cancelling)" if cancelling else "",
+            )
+            if cancelling:
+                return "cancelled"
+            else:
+                return None
+        return reason
 
-                logger.debug("%s instance %s", reason, resource.name)
-                if isinstance(resource, NodeInstance):
-                    workflow = "undeploy" if reason == Reason.prune else self.workflow
-                    yield from self._generate_configurations(resource, reason, workflow)
+    def _generate_delete_configurations(self, resource: EntityInstance, reason: str):
+        # if the resource doesn't instantiate itself just mark it as absent because otherwise will be in error
+        # (because it will remain with status ok while its dependents are absent)
+        if resource.template.aggregate_only():
+            resource._localStatus = Status.absent
+        if isinstance(resource, NodeInstance):
+            workflow = "undeploy" if reason == Reason.prune else self.workflow
+            yield from self._generate_configurations(resource, reason, workflow)
 
     def _get_default_generator(
         self,
@@ -523,7 +569,7 @@ class Plan:
                 assert False, self.root.requirements
 
     def _generate_configurations(
-        self, resource: "NodeInstance", reason: str, workflow: Optional[str] = None
+        self, resource: "NodeInstance", reason: Optional[str], workflow: Optional[str] = None
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
@@ -713,7 +759,7 @@ class Plan:
         if opts.prune:
             # XXX warn or error if prune used with a filter option
             test = lambda resource: (
-                Reason.prune if id(resource) not in visited else False
+                Reason.prune if id(resource) not in visited else None
             )
             yield from self.generate_delete_configurations(test)
 
@@ -726,7 +772,7 @@ class DeployPlan(Plan):
             return Reason.add
         return None
 
-    def include_instance(self, template: EntitySpec, instance: EntityInstance):
+    def include_instance(self, template: EntitySpec, instance: EntityInstance) -> Optional[str]:
         """Return whether or not the given instance should be included in the current plan,
         based on the current job's options and whether the template changed or the instance in need of repair?
 
@@ -750,28 +796,31 @@ class DeployPlan(Plan):
                 return Reason.missing
 
         # if the specification changed:
-        oldTemplate = instance.template
+        old_template = instance.template
         if jobOptions.change_detection != "skip" or jobOptions.upgrade:
-            if template != oldTemplate:
-                # XXX currently oldTemplate is the same as version as template
+            # XXX currently old_template is the same as template (we don't load the instance's version)
+            if template != old_template:
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return Reason.update
-                elif jobOptions.upgrade:  # type: ignore
+                elif jobOptions.upgrade:
                     return Reason.upgrade
 
         reason = self.check_for_repair(instance)
         # there isn't a new config to run, see if the last applied config needs to be re-run
         if not reason:
             if "check" in instance.template.directives:
+                # always triggers "check" operation if set
                 instance.local_status = Status.unknown
-                return Reason.check
-            if jobOptions.change_detection != "skip" and instance.last_change:
-                # XXX distinguish between "spec" and "evaluate" change_detection
-                return Reason.reconfigure
+            if jobOptions.change_detection != "skip" and instance.last_config_change:
+                # customized is only set if created first!
+                # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
+                # discover would have to calculate digest for configure!
+                if not instance.customized or jobOptions.change_detection == "always":
+                    return Reason.reconfigure
         return reason
 
-    def check_for_repair(self, instance):
+    def check_for_repair(self, instance) -> Optional[str]:
         jobOptions = self.jobOptions
         assert instance
         if jobOptions.repair == "none":
@@ -805,10 +854,10 @@ class DeployPlan(Plan):
     def _generate_workflow_configurations(
         self, instance: NodeInstance, oldTemplate: Optional[NodeSpec]
     ):
-        # if oldTemplate is not None this is an existing instance, so check if we should include
         if instance.shadow:
-            reason = "connect"
+            reason: Optional[str] = Reason.connect
         elif oldTemplate:
+            # this is an existing instance, so check if we should include it
             reason = self.include_instance(oldTemplate, instance)
             if not reason:
                 logger.debug(
@@ -836,25 +885,28 @@ class DeployPlan(Plan):
             if self.is_instance_read_only(instance):
                 return  # we're done
 
-        if reason == Reason.reconfigure:
-            # XXX generate configurations: may need to stop, start, etc.
-            if "discover" in instance.template.directives:
-                op = "Install.discover"
-                startState = None
-            else:
-                op = "Standard.configure"
-                startState = NodeState.configuring
-            req = create_task_request(
-                self.jobOptions,
-                op,
-                instance,
-                reason,
-                startState=startState,
-            )
-            if req:
-                yield req
+        if reason in (Reason.reconfigure, Reason.update, Reason.upgrade):
+            yield from self._generate_reconfigure(instance, reason)
         else:
             yield from self._generate_configurations(instance, reason)
+
+    def _generate_reconfigure(self, instance, reason):
+        # XXX generate configurations: may need to stop, start, etc.
+        if "discover" in instance.template.directives:
+            op = "Install.discover"
+            startState = None
+        else:
+            op = "Standard.configure"
+            startState = NodeState.configuring
+        req = create_task_request(
+            self.jobOptions,
+            op,
+            instance,
+            reason,
+            startState=startState,
+        )
+        if req:
+            yield req
 
     def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
         interface = taskrequest.configSpec.interface
@@ -888,7 +940,7 @@ class UndeployPlan(Plan):
         """
         yield from self.generate_delete_configurations(self.include_for_deletion)
 
-    def include_for_deletion(self, instance):
+    def include_for_deletion(self, instance) -> Optional[str]:
         if self.filterTemplate and instance.template != self.filterTemplate:
             return None
 
@@ -962,10 +1014,11 @@ class RunNowPlan(Plan):
             className = "unfurl.configurators.ansible.AnsibleConfigurator"
             module = args.get("module") or "command"
             module_args = " ".join(args["cmdline"])
+            # creates a playbook with a single ansible task:
             params = dict(playbook=[{module: module_args}])
         else:
             className = "unfurl.configurators.shell.ShellConfigurator"
-            params = dict(command=args["cmdline"])
+            params = dict(command=list(args["cmdline"]))
 
         if inputs:
             params.update(inputs)
@@ -980,35 +1033,47 @@ class RunNowPlan(Plan):
         )
 
     def execute_plan(self) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
-        instanceFilter = self.jobOptions.instance
-        if instanceFilter:
-            resource = self.root.find_resource(instanceFilter)
-            if not resource:
-                # see if there's a template with the same name and create the resource
-                template = self.tosca.get_template(instanceFilter)
-                if template:
-                    assert isinstance(template, NodeSpec)
-                    resource = self.create_resource(template)
-                else:
-                    raise UnfurlError(f"specified instance not found: {instanceFilter}")
-            resources = [resource]
-        else:
-            resources = [self.root]
+        instances = self.jobOptions.instances
+        if instances:
+            resources = []
+            for instance_name in instances:
+                assert isinstance(instance_name, str)
+                resource = self.root.find_resource(instance_name)
+                if not resource:
+                    # see if there's a template with the same name and create the resource
+                    template = self.tosca.get_template(instance_name)
+                    if template:
+                        assert isinstance(template, NodeSpec)
+                        resource = self.create_resource(template)
+                    else:
+                        raise UnfurlError(
+                            f"specified instance not found: {instance_name}"
+                        )
+                resources.append(resource)
 
         # userConfig has the job options explicitly set by the user
         operation = cast(Optional[str], self.jobOptions.userConfig.get("operation"))
         operation_host = self.jobOptions.userConfig.get("host")
         if not operation:
             configSpec = self._create_configurator(self.jobOptions.userConfig, "run")
+            if not instances:
+                resources = [self.root]
         else:
             configSpec = None
             interface, sep, action = operation.rpartition(".")
             if not interface and find_standard_interface(operation):  # shortcut
                 operation = find_standard_interface(operation) + "." + operation
+            if not instances:
+                resources = [
+                    r
+                    for t in self._get_templates()
+                    for r in self.find_resources_from_template(t)
+                ]
+
         for resource in resources:
             if configSpec:
                 req = filter_task_request(
-                    self.jobOptions, TaskRequest(configSpec, resource, "run")
+                    self.jobOptions, TaskRequest(configSpec, resource, Reason.run)
                 )
                 if req:
                     yield req
@@ -1123,7 +1188,7 @@ def get_ancestor_templates(
 
 
 def get_operational_dependents(
-    resource: EntityInstance, seen=None
+    resource: EntityInstance, seen: Set[int]
 ) -> Iterator[EntityInstance]:
     if seen is None:
         seen = set()
@@ -1136,47 +1201,28 @@ def get_operational_dependents(
             yield dep
 
 
-# XXX!:
-# def buildDependencyGraph():
-#     """
-#   We need to find each executed configuration that is affected by a configuration change
-#   and re-execute them
-#
-#   dependencies map to inbound edges
-#   lastConfigChange filters ConfigTasks
-#   ConfigTasks.configurationResource dependencies are inbound
-#   keys in ConfigTasks.changes map to a outbound edges to resources
-#
-#   Need to distinguish between runtime dependencies and configuration dependencies?
-#   """
-#
-#
-# def buildConfigChangedExecutionPlan():
-#     """
-#   graph = buildDependencyGraph()
-#
-#   We follow the edges if a resource's attributes or dependencies have changed
-#   First we validate that we can execute the plan by validating configurationResource in the graph
-#   If it validates, add to plan
-#
-#   After executing a task, only follow the dependent outputs that changed no need to follow those dependencies
-#   """
-#
-#
-# def validateNode(resource, expectedTemplateOrType):
-#     """
-#   First make sure the resource conforms to the expected template (type, properties, attributes, capabilities, requirements, etc.)
-#   Then for each dependency that corresponds to a required relationship, call validateNode() on those resources with the declared type or template for the relationship
-#   """
-#
-#
-# def buildUpdateExecutionPlan():
-#     """
-#   Only apply updates that don't change the currently applied spec,
-#   Starting with the start resource compare deployed artifacts and software nodes associate with it with current template
-#   and if diffence is no more than a minor version bump,
-#   retreive the old version of the topology that is associated with the appropriate configuredBy
-#   and with it try to find and queue a configurator that can apply those changes.
-#
-#   For each resource dependency, call buildUpdateExecutionPlan().
-#   """
+def select_dependents(
+    resource: EntityInstance, include_test, seen: Set[int]
+) -> Iterator[Tuple[EntityInstance, str]]:
+    # yields resource, include_reason
+    cancelled = []
+    root_include_reason = include_test(resource)
+    for dep in resource.get_operational_dependents():
+        assert isinstance(dep, EntityInstance)
+        for child, include_reason in select_dependents(dep, include_test, seen):
+            if include_reason != "cancelled":
+                yield child, include_reason
+            else:
+                cancelled.append(child)
+    if cancelled:
+        # this resource has a dependent we don't want to delete, so cancel deleting the resource
+        if root_include_reason and root_include_reason != "cancelled":
+            logger.verbose(
+                "skip instance '%s' for removal: required instances depend on it: %s",
+                resource.name,
+                [c.nested_name for c in cancelled],
+            )
+        yield resource, "cancelled"
+    elif root_include_reason:
+        yield resource, root_include_reason
+    # otherwise don't yield this resource

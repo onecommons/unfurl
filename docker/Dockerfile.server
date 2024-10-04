@@ -21,4 +21,4 @@ EXPOSE 5000
 
 ARG NUM_WORKERS=4
 ENV NUM_WORKERS=${NUM_WORKERS}
-ENTRYPOINT gunicorn -b=0.0.0.0:5000 -w=${NUM_WORKERS} unfurl.server:app
+ENTRYPOINT gunicorn -b=0.0.0.0:5000 -w=${NUM_WORKERS} unfurl.server.serve:app

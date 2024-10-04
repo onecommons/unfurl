@@ -3,7 +3,7 @@ kind: Ensemble
 spec:
   service_template:
     imports:
-      - file: spec/decorators-import-template.yaml
+      - file: import/spec/decorators-import-template.yaml
 
     decorators:
       missing:

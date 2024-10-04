@@ -4,7 +4,7 @@ import json
 import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
-from unfurl.configurator import Configurator
+from unfurl.configurator import Configurator, TaskView
 from unfurl.plan import DeployPlan
 from .utils import init_project, run_job_cmd
 
@@ -63,6 +63,11 @@ class SpecChangeConfigurator(Configurator):
         yield task.done(True, outputs=dict(prop=prop))
 
 
+class DiscoverConfigurator(Configurator):
+    def run(self, task: TaskView):
+        task.target.attributes["testProperty"] = "changed"
+        return True
+
 spec = """\
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
@@ -78,6 +83,11 @@ node_types:
           configure:
             implementation:
               className: SpecChange
+      Install:
+        operations:
+          discover:
+            implementation:
+              className: Discover
 """
 
 specChangeManifest = """\
@@ -361,6 +371,29 @@ class ConfigChangeTest(unittest.TestCase):
             assert changes["outputs"]["prop"] == "B"
             assert changes["digestKeys"] == "::node1::testProperty"
             assert changes["digestValue"] == "ae4f281df5a5d0ff3cad6371f76d5c29b6d953ec"
+
+            discover_args = [
+                #  "-vvv",
+                "--home",
+                "./unfurl_home",
+                "discover",
+            ]
+            result, job, summary = run_job_cmd(runner, discover_args, starttime=2)
+            assert job.manifest.manifest.config["changes"][2]['digestPut'] == '::node1::testProperty'
+            assert job.manifest.rootResource.find_instance("node1").customized == 'A01120000001'
+            # print("ddd", job.manifest.manifest.config["status"])
+
+            # shouldn't run reconfigure because customized is set now
+            result, job, summary = run_job_cmd(runner, args, starttime=3)
+            assert job.manifest.rootResource.find_instance("node1").customized == 'A01120000001'
+            summary = job.json_summary()
+            assert summary["job"]["total"] == 0
+
+            # use --change-detection=always to ignore "customized" setting
+            result, job, summary = run_job_cmd(runner, args + ['--change-detection', 'always'], starttime=4)
+            summary = job.json_summary()
+            assert summary["job"]["total"] == 1
+            assert "reconfigure" == summary["tasks"][0]["reason"]
 
 
 def test_topology_input_change():

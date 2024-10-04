@@ -7,6 +7,7 @@ ruamel.yaml==0.17.21
 ansible-core >= 2.11.12, <= 2.15.9 # gpl 3
 GitPython==3.1.41; python_version>='3.7' # BSD
 rich==12.4.4  # MIT
+rich-click>=1.8.0 # MIT
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
 itsdangerous==2.0.1 # newer version broken with moto (using old flask)
 MarkupSafe<=2.1.1 # newer version broken with jinja2
@@ -19,3 +20,4 @@ werkzeug==2.2.3 # needed by flask 2.1 (which is needed by moto) (later versions 
 uvicorn<=0.18.2 # BSD 3-clause
 python-gitlab==3.13.0
 tosca>=0.0.8
+tenacity>=6.1.0 # Apache-2.0

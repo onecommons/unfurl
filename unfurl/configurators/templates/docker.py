@@ -22,15 +22,15 @@ from tosca import (
     ToscaOutputs,
     operation,
     valid_values,
+    OpenDataType
 )
 import tosca
 import unfurl.configurators.ansible
 from unfurl.tosca_plugins.artifacts import *
 
 
-class unfurl_datatypes_DockerContainer(DataType):
+class unfurl_datatypes_DockerContainer(OpenDataType):
     _type_name = "unfurl.datatypes.DockerContainer"
-    _type_metadata = {"additionalProperties": True}
     environment: Union["unfurl.datatypes.EnvironmentVariables", None] = Property(
         factory=lambda: (unfurl.datatypes.EnvironmentVariables())
     )
@@ -54,7 +54,7 @@ class unfurl_datatypes_DockerContainer(DataType):
     ] = None
     network_mode: Union[str, None] = None
     """Use the same values as the docker client --network parameter ("bridge", "host", "none")"""
-
+    deploy: Union[Dict[str, Any], None] = None
 
 class unfurl_nodes_Container_Application_Docker(tosca.nodes.Root):
     _type_name = "unfurl.nodes.Container.Application.Docker"

@@ -22,7 +22,6 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       cloud: ResourceType
       environmentVariableNames: [String!]
       source: String
-      projectPath: String!
       branch: String
       commitTime: String
     }
@@ -137,6 +136,8 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       primary: ResourceType!
       primaryDeploymentBlueprint: String
       deploymentTemplates: [DeploymentTemplate!]
+      projectPath: String
+      blueprintPath: String
 
       livePreview: String
       sourceCodeUrl: String
@@ -144,6 +145,7 @@ These objects are exported as JSON by the `export` command and by unfurl server 
       projectIcon: String
     }
 """
+
 import datetime
 import re
 from typing import (
@@ -224,6 +226,8 @@ class ApplicationBlueprint(GraphqlObject, total=False):
     sourceCodeUrl: Optional[str]
     image: Optional[str]
     projectIcon: Optional[str]
+    projectPath: NotRequired[Optional[str]]
+    blueprintPath: NotRequired[Optional[str]]
 
 
 class DeploymentTemplate(GraphqlObject, total=False):
@@ -234,7 +238,6 @@ class DeploymentTemplate(GraphqlObject, total=False):
     cloud: TypeName
     environmentVariableNames: List[str]
     source: NotRequired[Optional[str]]
-    projectPath: str
     branch: NotRequired[Optional[str]]
     commitTime: str
     ResourceTemplate: "ResourceTemplatesByName"
@@ -506,7 +509,9 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
 
     @staticmethod
     def get_deployment_paths(
-        project: "Project", existing: Optional[str] = None
+        project: "Project",
+        existing: Optional[str] = None,
+        include_default: bool = False,
     ) -> "DeploymentPaths":
         """
         Deployments identified by their file path.
@@ -514,25 +519,33 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
         db = cast(DeploymentPaths, GraphqlDB.load_db(existing))
         deployment_paths = db.setdefault("DeploymentPath", {})
         for ensemble_info in project.localConfig.ensembles:
-            if "environment" in ensemble_info and "project" not in ensemble_info:
+            if (
+                include_default or "environment" in ensemble_info
+            ) and "project" not in ensemble_info:
                 # exclude external ensembles
-                path = os.path.dirname(ensemble_info["file"])
-                if os.path.isabs(path):
-                    path = project.get_relative_path(path)
-                obj = DeploymentPath(
-                    __typename="DeploymentPath",
-                    name=path,
-                    project_id=ensemble_info.get("project_id"),
-                    pipelines=ensemble_info.get("pipelines", []),
-                    environment=ensemble_info["environment"],
-                    incremental_deploy=ensemble_info.get("incremental_deploy", False),
-                )
+                path, obj = GraphqlDB.get_deployment_path(project, ensemble_info)
                 if path in deployment_paths:
                     # merge duplicate entries
                     deployment_paths[path].update(obj)  # type: ignore # python 3.7 needs this
                 else:
                     deployment_paths[path] = obj
         return db
+
+    @staticmethod
+    def get_deployment_path(project, ensemble_info):
+        path = os.path.dirname(ensemble_info["file"])
+        if os.path.isabs(path):
+            path = project.get_relative_path(path)
+        obj = DeploymentPath(
+            __typename="DeploymentPath",
+            name=path,
+            project_id=ensemble_info.get("project_id"),
+            pipelines=ensemble_info.get("pipelines", []),
+            environment=ensemble_info.get("environment", "defaults"),
+            incremental_deploy=ensemble_info.get("incremental_deploy", False),
+        )
+
+        return path, obj
 
     def add_graphql_deployment(
         self,
@@ -584,7 +597,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
                 # old version of lock section YAML, set missing to True
                 version = "(MISSING)"
             if version:
-                packages[_project_path(repo_dict["url"])] = dict(version=version)
+                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = dict(version=version)
         if packages:
             deployment["packages"] = packages
 
@@ -592,11 +605,11 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
         return deployment
 
 
-def _project_path(url):
-    pp = urlparse(url).path.lstrip("/")
-    if pp.endswith(".git"):
-        return pp[:-4]
-    return pp
+def project_id_from_urlresult(urlparse_result) -> str:
+    project_id = urlparse_result.path.strip("/")
+    if project_id.endswith(".git"):
+        project_id = project_id[:-4]
+    return project_id
 
 
 def js_timestamp(ts: datetime.datetime) -> str:
@@ -925,7 +938,10 @@ def to_graphql_resource(
             status = instance.status
     except:
         status = Status.error
-        logger.error(f"Error getting live status for resource {instance.nested_name}", exc_info=True)
+        logger.error(
+            f"Error getting live status for resource {instance.nested_name}",
+            exc_info=True,
+        )
 
     pending = not status or status == Status.pending
     if not template:

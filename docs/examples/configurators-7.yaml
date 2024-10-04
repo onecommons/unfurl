@@ -1,0 +1,22 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+    - repository: unfurl
+      file: configurators/templates/docker.yaml
+    topology_template:
+      node_templates:
+        hello-world-container:
+          type: unfurl.nodes.Container.Application.Docker
+          artifacts:
+            image:
+              type: tosca.artifacts.Deployment.Image.Container.Docker
+              file: busybox
+          interfaces:
+            Standard:
+              inputs:
+                configuration:
+                  command: ["echo", "hello world"]
+                  detach: no
+                  output_logs: yes

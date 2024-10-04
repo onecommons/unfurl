@@ -3,9 +3,8 @@
 Outputs
 =======
 
-``outputs`` provide a way of exposing global aspects of a deployment.
-When deployed, a service template can expose specific outputs of that
-deployment - for instance, an endpoint of a server or any other runtime
+When deployed, a service template can expose specific ``outputs`` of that
+deployment - for instance, an ip address of a server or any other runtime
 or static information of a specific resource.
 
 Declaration
@@ -34,7 +33,7 @@ Definition
      - no
      - string
      - An optional description for the output.
-   * - values
+   * - value
      - yes
      - <any>
      - The output value. May be anything from a simple value (e.g. port) to a complex value (e.g. hash with values). Output values can contain hard-coded values, inputs, properties and attributes.
@@ -45,44 +44,26 @@ Example
 
 .. code:: yaml
 
- tosca_definitions_version: tosca_dsl_1_3
+ topology_template:
+    node_templates:
+      webserver_vm:
+        type: tosca.nodes.Compute
+      webserver:
+        type: tosca.nodes.WebServer
+        properties:
+            port: 8080
 
- imports:
-   - http://<example URL>/types.yaml
+    outputs:
+        webapp_endpoint:
+            description: ip and port of the web application
+            value:
+                ip: { get_attribute: [webserver_vm, ip] }
+                port: { get_property: [webserver, port] }
 
- node_templates:
-   webserver_vm:
-     type: tosca.nodes.Compute
-   webserver:
-     type: tosca.nodes.WebServer
-     properties:
-         port: 8080
+Job Status
+++++++++++
 
- outputs:
-     webapp_endpoint:
-         description: ip and port of the web application
-         value:
-             ip: { get_attribute: [webserver_vm, ip] }
-             port: { get_property: [webserver, port] }
-
-Outputs
-+++++++
-
-Outputs are recorded in the :ref:`ensemble.yaml<ensemble_yaml>` and is printed in the console after a job has completed as part of the job summary.
-
-.. code:: yaml
-
- status:
-   outputs:
-     url: https://demo.example.com
-   webapp_endpoint:
-        description: ip and port of the web application
-        value:
-            ip: { get_attribute: [webserver_vm, ip] }
-            port
- 
-Example
--------
+Outputs are printed in the console after a job has completed as part of the job summary and recorded in the :ref:`ensemble.yaml<ensemble_yaml>`'s status section:
 
 .. code:: yaml
 

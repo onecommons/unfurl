@@ -180,7 +180,7 @@ topology_template:
           type: artifact.AnsibleCollection
           file: community.docker
           properties:
-            version: "1.10.2"
+            version: "3.12.1"
 
         ansible.utils:
           type: artifact.AnsibleCollection

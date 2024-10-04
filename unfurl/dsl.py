@@ -91,7 +91,8 @@ def convert_to_yaml(
 ) -> dict:
     from .yamlloader import yaml_dict_type
 
-    namespace: Dict[str, Any] = {}
+    path = os.path.abspath(path)
+    namespace: Dict[str, Any] = dict(__file__=path)
     logger.trace(
         f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"
     )

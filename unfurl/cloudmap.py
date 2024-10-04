@@ -1,12 +1,12 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-A cloud map is document containing metadata on collections of repositories include the artifacts and blueprints they contain.
+A cloud map is document containing metadata on collections of repositories including the artifacts and blueprints they contain.
 
 You can use a cloud map to manage servers that host git repositories and synchronize mirrors of git repositories.
 Three types of repository hosts are currently supported: local, gitlab, and unfurl.cloud.
 
-You can use the cloud map to maintain mirrors of git repositories or use it to synchronize multiple instances of the same repository host by setting the "canonical_url" key in the repository host configuration.
+You can synchronize multiple instances of the same repository host by setting the "canonical_url" key in the repository host configuration.
 
 For example, given this configuration snippet:
 
@@ -41,7 +41,7 @@ unfurl cloudmap --sync production --namespace onecommons/blueprints
 ```
 
 These commands commit any changes to cloudmap.yaml to its local clone of the cloudmap git repository.
-It will also create branches for each repository to host record their last known state and the 
+It will also create branches for each repository to host record their last known state and the
 "main" branch serves as the "source of truth" for the cloud map.
 
 Currently you need manually push updates to cloudmap to the upstream cloudmap repository, for example:
@@ -51,7 +51,6 @@ Currently you need manually push updates to cloudmap to the upstream cloudmap re
 
 import collections
 from dataclasses import dataclass, field, asdict
-from io import StringIO
 from operator import attrgetter
 from pathlib import Path
 import tempfile
@@ -102,6 +101,8 @@ from . import DefaultNames
 logger = getLogger("unfurl")
 
 DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
+
+_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 # Data classes
@@ -371,11 +372,11 @@ class UnfurlNotable(Notable):
             self.fragment = spec.fragment
             metadata = cast(dict, spec.template.tpl).get("metadata") or {}
             self.metadata.update(
-                dict(
+                filter_dict(dict(
                     name=metadata.get("template_name"),
                     version=metadata.get("template_version"),
                     description=spec.template.description,
-                )
+                ))
             )
             node = self._get_root_node(spec)
             schema_repo = manifest.repositories.get("types")
@@ -593,20 +594,21 @@ class CloudMapDB:
     """
     Loads the cloudmap yaml file
     """
+
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(self, path=".") -> None:
         self._load(path)
 
-    def _load(self, path: str):
+    def _load(self, path: str, contents=None):
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
         default_db = dict(apiVersion="unfurl/v1alpha1", kind="CloudMap")
         self.config = YamlConfig(
-            default_db,
+            contents or default_db,
             path,
             # validate,
-            # os.path.join(_basepath, "cloudmap-schema.json"),
+            schema=os.path.join(_basepath, "cloudmap-schema.json"),
         )
         db = self.config.config
         assert isinstance(db, dict)
@@ -624,7 +626,6 @@ class CloudMapDB:
     def save(self):
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
-        self.db["schema"] = EntitySchema.Schema
         self.db["repositories"] = {
             k: self.repositories[k].asdict() for k in sorted(self.repositories)
         }
@@ -634,6 +635,7 @@ class CloudMapDB:
                 a: self.artifacts[a] for a in sorted(self.artifacts)
             }
         self.config.save()
+
 
 class Directory(_LocalGitRepos):
     """
@@ -1355,7 +1357,7 @@ class CloudMap:
         skip_analysis: bool,
     ) -> "CloudMap":
         url, path, revision, repository = cls.get_config(local_env, name)
-        local_repo_root = repository.get("clone_root", clone_root)
+        local_repo_root = clone_root or repository.get("clone_root") or ""
 
         # what if branch only exists locally?
         if not host_name:
@@ -1389,7 +1391,8 @@ class CloudMap:
         return CloudMap(repo, branch, local_repo_root, path, skip_analysis)
 
     @classmethod
-    def get_config(cls, local_env, name) -> Tuple[str, str, str, dict]:
+    def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
+        # name is a cloudmap url or a named cloudmap repository
         environment = local_env.get_context().get("cloudmaps", {})
         # for now name is just the name of repository
         repository = environment.get("repositories", {}).get(name)
@@ -1434,7 +1437,7 @@ class CloudMap:
                 raise UnfurlError(f"no repository host named {name} found")
         if host_config["type"] == "local":
             return LocalRepositoryHost(
-                name, host_config.get("clone_root", clone_root), namespace, repo_filter
+                name, clone_root or host_config.get("clone_root") or "", namespace, repo_filter
             )
 
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]

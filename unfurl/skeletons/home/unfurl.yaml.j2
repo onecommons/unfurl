@@ -7,6 +7,9 @@ kind: Project
 default_environment: [%default_context%]
 {% endif %}
 
+{%- if ensemble_repository_config | default("") %}
+[% ensemble_repository_config | default("") %]
+{% else %}
 environments:
   # This is the home project so the environment settings defined here are inherited
   # whenever UNFURL_HOME is set to this project.
@@ -22,7 +25,6 @@ environments:
         instance: localhost
 
   home:
-
     # Below we define a few connections for the most common cloud providers.
     # Connections will use the appropriate environment variables but they are typed
     # and allow Unfurl to reason about them compared to just setting the variables directly.
@@ -80,3 +82,4 @@ environments:
       #   type: unfurl.relationships.ConnectsTo.Packet
       #   properties:
       #     project: # required property, need to set this
+{% endif %}

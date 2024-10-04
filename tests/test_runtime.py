@@ -6,10 +6,12 @@ import unittest
 
 import io
 from click.testing import CliRunner
+import pytest
 from ruamel.yaml.comments import CommentedMap
 
 from unfurl.configurator import Configurator, ConfigurationSpec
 from unfurl.job import JobOptions, Runner
+from unfurl.localenv import LocalEnv
 from unfurl.merge import (
     expand_doc,
     restore_includes,
@@ -474,12 +476,17 @@ class FileTest(unittest.TestCase):
         task = list(job.workDone.values())[0]
         self.assertEqual(task.result.result, "foo.txt")
 
-    def test_template_includes(self):
+@pytest.mark.parametrize(
+    "readonly",
+    [False, True],
+)
+def test_template_includes(readonly):
         template = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 dsl:
-  bar: &bar
+  bar:
+    +&: bar
     c: 4
 spec:
   a: 1
@@ -495,7 +502,8 @@ status: {}
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 dsl:
-  foo: &foo
+  foo:
+    +&: foo
     d: 5
   +./bar:
   +./foo:
@@ -511,7 +519,10 @@ spec:
   b: 3
       """
 
-            manifest = YamlManifest(instanceYaml)
+            with open("ensemble.yaml", "w") as f:
+                f.write(instanceYaml)
+
+            manifest = YamlManifest(localEnv=LocalEnv(readonly=readonly))
             assert manifest.manifest.expanded["dsl"]["c"] == 4
             assert manifest.manifest.expanded["dsl"]["d"] == 5
             assert manifest.manifest.expanded["spec"]["a"] == 1
@@ -521,17 +532,18 @@ spec:
             # XXX these shouldn't be in expanded:
             # assert "+include" not in manifest.manifest.expanded
             # assert "+?include" not in manifest.manifest.expanded
-            assert manifest.manifest.config["dsl"]["foo"].anchor.value == "foo"
-            assert manifest.manifest.config["dsl"]["foo"].anchor.always_dump
+            # assert manifest.manifest.config["dsl"]["foo"].anchor.value == "foo"
+            # assert manifest.manifest.config["dsl"]["foo"].anchor.always_dump
 
-            output = io.StringIO()
-            manifest.dump(output)
-            config = YamlConfig(output.getvalue())
-            assert config.config["+include"] == {"file": "template.yaml"}
-            assert config.config["+include2"] == {"file": "template.yaml"}
-            assert config.config["+?include"] == "missing.yaml"
-            assert config.config["+?include2"] == "missing.yaml"
-            assert "a" not in config.config["spec"]
+            if not readonly:
+                output = io.StringIO()
+                manifest.dump(output)
+                config = YamlConfig(output.getvalue())
+                assert config.config["+include"] == {"file": "template.yaml"}
+                assert config.config["+include2"] == {"file": "template.yaml"}
+                assert config.config["+?include"] == "missing.yaml"
+                assert config.config["+?include2"] == "missing.yaml"
+                assert "a" not in config.config["spec"]
 
             configYaml = """
 kind: Project
@@ -539,7 +551,7 @@ kind: Project
 a:
   b: 1
 """
-            config = YamlConfig(configYaml)
+            config = YamlConfig(configYaml, readonly=readonly)
             assert config.expanded.base_dir == "."
             assert config.expanded["a"].base_dir == "."
 

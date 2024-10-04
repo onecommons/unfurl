@@ -197,7 +197,7 @@ setattr(
     "community_docker",
     artifact_AnsibleCollection(
         "community.docker",
-        version="1.10.2",
+        version="3.12.1",
         file="community.docker",
     ),
 )

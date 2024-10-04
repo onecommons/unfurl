@@ -15,6 +15,7 @@ from typing import (
     Iterable,
     Iterator,
     List,
+    Literal,
     Optional,
     Union,
     TYPE_CHECKING,
@@ -90,7 +91,7 @@ class Operational(ChangeAware):
             return True
         if self.state is None:
             # self.state is sometimes None even though it shouldn't be
-            return False  # type: ignore
+            return False  # type: ignore[unreachable]
         if state == NodeState.error or self.state == NodeState.error:
             return self.state == state
         if state < NodeState.stopping:
@@ -114,12 +115,15 @@ class Operational(ChangeAware):
 
     def get_operational_dependencies(self) -> Iterable["Operational"]:
         """
-        Return an iterator of `Operational` object that this instance depends on to be operational.
+        Return an iterator of `Operational` objects that this instance directly depends on to be operational.
         """
-        return ()  # type: ignore  # mypy doesn't like empty tuples
+        return ()
 
-    def get_operational_dependents(self) -> List["Operational"]:  # type: ignore
-        return ()  # type: ignore  # mypy doesn't like empty tuples
+    def get_operational_dependents(self) -> Iterable["Operational"]:
+        """
+        Return an iterator of `Operational` objects that directly depend on this instance to be operational.
+        """
+        return ()
 
     @property
     def manual_override_status(self) -> Optional[Status]:
@@ -393,8 +397,9 @@ class _ChildResources(Mapping):
 
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
-    created: Optional[Union[bool, str]] = None
+    created: Optional[Union[Literal[False], str]] = None
     protected: Optional[bool] = None
+    customized: Optional[Union[bool, str]] = None
     imports: Optional[Imports] = None
     imported: Optional[str] = None
     _baseDir = ""
@@ -415,7 +420,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         OperationalInstance.__init__(self, status)
         self.name = name
         self._attributes = attributes or {}
-        self.parent = parent  # type: ignore
+        self.parent = parent
         if parent and self.parentRelation:
             p = getattr(parent, self.parentRelation)
             p.append(self)
@@ -446,6 +451,27 @@ class EntityInstance(OperationalInstance, ResourceRef):
         from .eval import Ref, RefContext
 
         return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
+
+    def out_of_sync(self):
+        instance_keys = set(self._properties)
+        template_keys = set(self.template.properties)
+        if instance_keys - template_keys:
+            # deleted properties (missing in template)
+            return instance_keys - template_keys
+        template_props = ResultsMap(self.template.properties, self)
+        instance_props = ResultsMap(self._properties, self) # serialized values
+        instance_attrs = ResultsMap(self._attributes, self) # serialized values
+        overridden = set(self._attributes) & template_keys
+        for key in overridden:
+            # attribute overrides property and is different
+            if instance_attrs[key] != template_props[key]: # evaluates
+                return key
+        # check if previously evaluated, non-overridden properties have changed
+        for key in instance_keys - overridden:
+            if instance_props[key] != template_props[key]: # evaluates
+                # property changed since last save
+                return key
+        return False
 
     def __priority():  # type: ignore
         doc = "The priority property."
@@ -481,7 +507,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
-    def get_operational_dependencies(self) -> Iterator[Operational]:
+    def get_operational_dependencies(self) -> Iterable[Operational]:
         if self.parent and self.parent is not self.root:
             yield self.parent
 
@@ -531,11 +557,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def uri(self) -> str:
         manifest = self._manifest
         if not manifest:
-            return "#" + self.key
+            return "#" + self.nested_key
         if "#" in manifest.uri:
-            return manifest.uri + "?" + self.key
+            return manifest.uri + "?" + self.nested_key
         else:
-            return manifest.uri + "#" + self.key
+            return manifest.uri + "#" + self.nested_key
 
     @property
     def deployment(self) -> str:
@@ -799,8 +825,8 @@ class RelationshipInstance(EntityInstance):
     @property
     def target(self) -> Optional["NodeInstance"]:
         # parent is a capability, return it's parent (a Node)
-        if self.parent:
-            return self.parent.parent
+        if self.parent and self.parent.parent:
+            return cast(NodeInstance, self.parent.parent)
         else:
             return None
 
@@ -817,7 +843,7 @@ class RelationshipInstance(EntityInstance):
 
     @property
     def capability(self) -> Optional[CapabilityInstance]:
-        return self.parent
+        return cast(Optional[CapabilityInstance], self.parent)
 
     @property
     def key(self) -> InstanceKey:
@@ -918,7 +944,7 @@ class ArtifactInstance(EntityInstance):
     def as_import_spec(self):
         return self.template.as_import_spec()
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         # skip dependency on the parent
         for d in self.dependencies:
             yield d
@@ -1172,7 +1198,7 @@ class NodeInstance(HasInstancesInstance):
                 else:
                     raise
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         yield from super().get_operational_dependencies()
 
         for instance in self.requirements:
@@ -1277,7 +1303,7 @@ class TopologyInstance(HasInstancesInstance):
             if rel.template.is_compatible_type(relation)
         ]
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         for instance in self.instances:
             yield instance
 

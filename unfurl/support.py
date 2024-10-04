@@ -3,6 +3,7 @@
 """
 Internal classes supporting the runtime.
 """
+
 import base64
 import collections
 from collections.abc import MutableSequence, Mapping
@@ -18,6 +19,7 @@ import ast
 import time
 from typing import (
     TYPE_CHECKING,
+    Iterable,
     Iterator,
     List,
     MutableMapping,
@@ -28,6 +30,7 @@ from typing import (
     Optional,
     Any,
     NewType,
+    OrderedDict,
 )
 from typing_extensions import Protocol, NoReturn, TypedDict, Unpack
 from enum import Enum
@@ -80,6 +83,7 @@ from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsaf
 from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
+from toscaparser.nodetemplate import NodeTemplate
 
 from .tosca_plugins.functions import (
     urljoin,
@@ -95,11 +99,17 @@ logger = getLogger("unfurl")
 
 class Status(int, Enum):
     unknown = 0
+    "The operational state of the instance is unknown."
     ok = 1
+    "Instance is operational"
     degraded = 2
+    "Instance is operational but in a degraded state."
     error = 3
+    "Instance is not operational."
     pending = 4
+    "Instance is being brought up or hasn't been created yet."
     absent = 5
+    "Instance confirmed to not exist."
 
     @property
     def color(self):
@@ -153,6 +163,9 @@ class Reason(str, Enum):
     prune = "prune"
     run = "run"
     check = "check"
+    undeploy = "undeploy"
+    stop = "stop"
+    connect = "connect"
 
     def __str__(self) -> str:
         return self.value
@@ -219,12 +232,16 @@ set_eval_func(
     "portspec", lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
+
 def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
     import ansible.utils.collection_loader._collection_finder
     import ansible.template
     import ansible.plugins.loader
-    AnsibleCollectionConfig = ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
+
+    AnsibleCollectionConfig = (
+        ansible.utils.collection_loader._collection_finder.AnsibleCollectionConfig
+    )
     AnsibleCollectionConfig._collection_finder = None
     if hasattr(ansible.plugins.loader, "init_plugin_loader"):
         collection_path_var = os.getenv("ANSIBLE_COLLECTIONS_PATH")
@@ -235,14 +252,18 @@ def reload_collections(ctx=None):
         ansible.plugins.loader.init_plugin_loader(collection_path)
     else:
         ansible.plugins.loader._configure_collection_loader()
-    for pkg in ['ansible_collections', 'ansible_collections.ansible']:
+    for pkg in ["ansible_collections", "ansible_collections.ansible"]:
         AnsibleCollectionConfig._collection_finder._reload_hack(pkg)  # type: ignore
     if hasattr(ansible.template, "_get_collection_metadata"):
         # jinja2 templates won't get the updated collection finder without this:
-        ansible.template._get_collection_metadata = ansible.utils.collection_loader._collection_finder._get_collection_metadata
+        ansible.template._get_collection_metadata = (
+            ansible.utils.collection_loader._collection_finder._get_collection_metadata
+        )
     logger.trace("reloaded ansible collections finder")
 
+
 reload_collections()
+
 
 class Templar(ansible.template.Templar):
     def template(self, variable, **kw):
@@ -384,7 +405,7 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined)
 
 def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Result]:
     if not isinstance(value, str):
-        msg = f"Error rendering template: source must be a string, not {type(value)}"
+        msg = f"Error rendering template: source must be a string, not {type(value)}"  # type: ignore[unreachable]
         if ctx.strict:
             raise UnfurlError(msg)
         else:
@@ -637,7 +658,7 @@ def lookup_func(arg, ctx):
             name = key
             args = value
         else:
-            kwargs[key] = value
+            kwargs[key] = value  # type: ignore[unreachable]
 
     if not isinstance(args, MutableSequence):
         args = [args]
@@ -680,6 +701,26 @@ set_eval_func("concat", concat, True, True)
 
 
 def token(args, ctx):
+    """
+    The token function is used within a TOSCA service template on a string to
+    parse out (tokenize) substrings separated by one or more token characters
+    within a larger string.
+
+
+    Arguments:
+
+    * The composite string that contains one or more substrings separated by
+      token characters.
+    * The string that contains one or more token characters that separate
+      substrings within the composite string.
+    * The integer indicates the index of the substring to return from the
+      composite string.  Note that the first substring is denoted by using
+      the '0' (zero) integer value.
+
+    Example:
+
+     [ get_attribute: [ my_server, data_endpoint, ip_address ], ':', 1 ]
+    """
     args = map_value(args, ctx)
     return args[0].split(args[1])[args[2]]
 
@@ -755,7 +796,7 @@ def set_context_vars(vars, resource: "EntityInstance"):
                 outputs=root._attributes["outputs"],
             )
         )
-    app_template = root.template.topology.substitution_node  # type: ignore
+    app_template = root.template.topology.substitution_node
     if app_template:
         app = root.find_instance(app_template.name)
         if app:
@@ -763,7 +804,7 @@ def set_context_vars(vars, resource: "EntityInstance"):
         for name, req in app_template.requirements.items():
             if req.relationship and req.relationship.target:
                 target = root.get_root_instance(
-                    req.relationship.target.toscaEntityTemplate  # type: ignore
+                    cast(NodeTemplate, req.relationship.target.toscaEntityTemplate)
                 ).find_instance(req.relationship.target.name)
                 if target:
                     ROOT[name] = target.attributes
@@ -1031,9 +1072,10 @@ class ContainerImage(ExternalValue):
             name = artifact_name
 
         tag = None
+        digest: Optional[str]
         name, sep, digest = name.partition("@")
         if not sep:
-            digest = None  # type: ignore
+            digest = None
             name, sep, qualifier = artifact_name.partition(":")
             if sep:
                 tag = qualifier
@@ -1131,7 +1173,13 @@ def _get_container_image_from_repository(
     )
 
 
-def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], artifact_name: str, location=None, remove=None):
+def get_artifact(
+    ctx: RefContext,
+    entity: Union[None, str, "EntityInstance"],
+    artifact_name: str,
+    location=None,
+    remove=None,
+) -> Optional[ExternalValue]:
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
@@ -1148,7 +1196,7 @@ def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], ar
             artifact_name
         )  # XXX this assumes its a container image
     if isinstance(entity, ArtifactInstance):
-        return entity.template.as_value()
+        return cast(ArtifactSpec, entity.template).as_value()
     if isinstance(entity, str):
         instances = _get_instances_from_keyname(ctx, entity)
     elif isinstance(entity, NodeInstance):
@@ -1176,7 +1224,9 @@ def get_artifact(ctx: RefContext, entity: Union[None, str, "EntityInstance"], ar
     #     # if location == 'LOCAL_FILE':
 
 
-set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True)  # type: ignore
+set_eval_func(
+    "get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True
+)  # type: ignore
 
 
 def get_import(arg: RefContext, ctx):
@@ -1226,10 +1276,7 @@ class _Import:
         self.local_instance = local_instance
 
 
-if TYPE_CHECKING:  # for python 3.7
-    ImportsBase = collections.OrderedDict[str, _Import]
-else:
-    ImportsBase = collections.OrderedDict
+ImportsBase = OrderedDict[str, _Import]
 
 
 class Imports(ImportsBase):
@@ -1385,21 +1432,29 @@ class DelegateAttributes:
                 return result
 
 
-AttributeChanges = NewType(
-    "AttributeChanges", Dict["InstanceKey", MutableMapping[str, Any]]
-)
+AttributeChange = MutableMapping[str, Any]
+AttributesChanges = NewType("AttributesChanges", Dict["InstanceKey", AttributeChange])
+
+ResourceChange = List[
+    Union[
+        Optional[Status], Optional[MutableMapping[str, Any]], Optional[AttributeChange]
+    ]
+]
+
+StatusMap = Dict["InstanceKey", List[Optional[Status]]]
 
 
-class ResourceChanges(collections.OrderedDict):
+class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
     """
     Records changes made by configurations.
-    Serialized as the "modifications" properties
+    Serialized as the "changes" property on change records.
 
     changes:
       resource1:
         attribute1: newvalue
         attribute2: %delete # if deleted
-        .added: # set if resource was added
+        # special keys:
+        .added: # resource spec if this resource was added by the task
         .status: # set when status changes, including when removed (Status.absent)
     """
 
@@ -1407,19 +1462,21 @@ class ResourceChanges(collections.OrderedDict):
     addedIndex = 1
     attributesIndex = 2
 
-    def get_attribute_changes(self, key: "InstanceKey"):
+    def get_attribute_changes(self, key: "InstanceKey") -> Optional[AttributeChange]:
         record = self.get(key)
         if record:
-            return record[self.attributesIndex]
-        return {}
+            return cast(Optional[AttributeChange], record[self.attributesIndex])
+        return None
 
     def get_changes_as_expr(self) -> Iterator[str]:
         for key, record in self.items():
-            attribute_changes = record[self.attributesIndex]
+            attribute_changes = cast(
+                Optional[AttributeChange], record[self.attributesIndex]
+            )
             if attribute_changes:
                 yield from (key + "::" + attr for attr in attribute_changes)
 
-    def sync(self, resource: "EntityInstance", changeId=None):
+    def sync(self, resource: "EntityInstance", changeId=None) -> None:
         """Update self to only include changes that are still live"""
         for k, v in list(self.items()):
             current = cast(
@@ -1439,17 +1496,18 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 del self[k]
 
-    def add_changes(self, changes: AttributeChanges):
+    def add_changes(self, changes: AttributesChanges) -> None:
         for name, change in changes.items():
             old = self.get(name)
             if old:
-                old[self.attributesIndex] = merge_dicts(
-                    old[self.attributesIndex], change
+                old_change = cast(AttributesChanges, old[self.attributesIndex])
+                old[self.attributesIndex] = cast(
+                    AttributeChange, merge_dicts(old_change, change)
                 )
             else:
                 self[name] = [None, None, change]
 
-    def add_statuses(self, changes):
+    def add_statuses(self, changes: StatusMap) -> None:
         for name, change in changes.items():
             assert not isinstance(change[1], str)
             old = self.get(name)
@@ -1458,12 +1516,12 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 self[name] = [change[1], None, {}]
 
-    def add_resources(self, resources):
+    def add_resources(self, resources: Iterable[Dict[str, Any]]) -> None:
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
     def update_changes(
-        self, changes: AttributeChanges, statuses, resource, changeId=None
+        self, changes: AttributesChanges, statuses, resource, changeId=None
     ):
         self.add_changes(changes)
         self.add_statuses(statuses)
@@ -1497,11 +1555,12 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendants()))
 
 
-LiveDependencies = NewType(
-    "LiveDependencies",
+AttributeInfo = Tuple[bool, Union[ResultsItem, Any], bool]  # live, value, accessed
+_Dependencies = NewType(
+    "_Dependencies",
     Dict[
         "InstanceKey",
-        Tuple["EntityInstance", Dict[str, Tuple[bool, Union[ResultsItem, Any]]]],
+        Tuple["EntityInstance", Dict[str, AttributeInfo]],
     ],
 )
 
@@ -1527,7 +1586,7 @@ class AttributeManager:
     # XXX2 tests for the above behavior
     def __init__(self, yaml=None, task=None):
         self.attributes: Dict[str, Tuple[EntityInstance, ResultsMap]] = {}
-        self.statuses = {}
+        self.statuses: StatusMap = {}
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
         self._context_vars = None
@@ -1543,13 +1602,14 @@ class AttributeManager:
         state["tracker"] = _Tracker()
         return state
 
-    def get_status(self, resource):
+    def get_status(self, resource: "EntityInstance") -> List[Optional[Status]]:
         if resource.key not in self.statuses:
-            return resource._localStatus, resource._localStatus
+            return [resource._localStatus, resource._localStatus]
         return self.statuses[resource.key]
 
-    def set_status(self, resource, newvalue):
-        assert newvalue is None or isinstance(newvalue, Status)
+    def set_status(
+        self, resource: "EntityInstance", newvalue: Optional[Status]
+    ) -> None:
         if resource.key not in self.statuses:
             self.statuses[resource.key] = [resource._localStatus, newvalue]
         else:
@@ -1582,7 +1642,7 @@ class AttributeManager:
 
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
-                properties = resource.template.properties  # type: ignore
+                properties = resource.template.properties
                 _attributes = ChainMap(
                     resource._attributes,
                     properties,
@@ -1632,18 +1692,20 @@ class AttributeManager:
             or key not in specd  # not declared as a property
             or key in instance._attributes  # previously modified
         )
-        return changed, live
+        return changed, live, value.get_before_set()
 
     def find_live_dependencies(self) -> Dict["InstanceKey", List["Dependency"]]:
         from .configurator import Dependency
 
         dependencies: Dict[InstanceKey, List["Dependency"]] = {}
         for resource, attributes in self.attributes.values():
-            overrides, specd = attributes._attributes.split()
-            # items in overrides of type ResultsItem have been accessed during this transaction
+            overrides, specd = cast(ChainMap, attributes._attributes).split()
+            # items in overrides with type ResultsItem imply they have been accessed during this transaction
             for key, value in overrides.items():
                 if isinstance(value, ResultsItem):
-                    changed, isLive = self._check_attribute(specd, key, value, resource)
+                    changed, isLive, accessed = self._check_attribute(
+                        specd, key, value, resource
+                    )
                     if isLive:
                         dep = Dependency(
                             resource.key + "::" + key, value, target=resource
@@ -1651,9 +1713,9 @@ class AttributeManager:
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
 
-    def commit_changes(self) -> Tuple[AttributeChanges, LiveDependencies]:
-        changes: AttributeChanges = cast(AttributeChanges, {})
-        liveDependencies = cast(LiveDependencies, {})
+    def commit_changes(self) -> Tuple[AttributesChanges, _Dependencies]:
+        changes: AttributesChanges = cast(AttributesChanges, {})
+        _dependencies = cast(_Dependencies, {})
         for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
             # overrides will only contain:
@@ -1662,18 +1724,24 @@ class AttributeManager:
             _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
-            live: Dict[str, Any] = {}
+            touched: Dict[str, Any] = {}
             # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in list(overrides.items()):
                 if not isinstance(value, ResultsItem):
                     # hasn't been accessed so keep it as is
                     _attributes[key] = value
                 else:
-                    changed, isLive = self._check_attribute(specd, key, value, resource)
+                    changed, isLive, accessed = self._check_attribute(
+                        specd, key, value, resource
+                    )
                     savedValue = self._save_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
-                    live[key] = (isLive, savedValue if is_sensitive else value)
+                    touched[key] = (
+                        isLive,
+                        savedValue if is_sensitive else value,
+                        accessed,
+                    )
                     if not isLive:
                         resource._properties[key] = savedValue
                         assert not changed  # changed implies isLive
@@ -1688,8 +1756,8 @@ class AttributeManager:
                     _attributes[key] = savedValue
             resource._attributes = _attributes
 
-            if live:
-                liveDependencies[resource.key] = (resource, live)
+            if touched:
+                _dependencies[resource.key] = (resource, touched)
             # save changes
             diff = attributes.get_diff()
             if not diff:
@@ -1700,4 +1768,4 @@ class AttributeManager:
             changes[resource.key] = diff
 
         self._reset()
-        return changes, liveDependencies
+        return changes, _dependencies
