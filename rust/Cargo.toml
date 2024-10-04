@@ -18,11 +18,11 @@ name = "tosca_solver"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.21.1", features = ["extension-module", "hashbrown"] }
-pyo3-log = "0.10.0"
-ascent-byods-rels = "0.6.0"
+pyo3 = { version = "0.21.2", features = ["extension-module", "hashbrown"] }
+pyo3-log = "0.11.0"
 ascent = "0.6.0"
-log = "0.4.21"
+log = "0.4.22"
+# ascent-byods-rels = "0.6.0"
 
 # [target.x86_64-apple-darwin]
 # rustflags = [
