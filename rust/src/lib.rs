@@ -345,7 +345,6 @@ pub fn solve(
 }
 
 /// A Python module implemented in Rust.
-#[allow(deprecated)]
 #[pymodule]
 fn tosca_solver(_py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
