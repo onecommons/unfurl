@@ -1,15 +1,25 @@
 import sys
-from unfurl.yamlloader import load_yaml, yaml
-from unfurl.solver import solve_topology, tosca_to_rust, Node, solve, Field, FieldValue, ToscaValue, SimpleValue
+import os
+from unfurl.yamlloader import load_yaml, yaml, ImportResolver
+from unfurl.solver import (
+    solve_topology,
+    tosca_to_rust,
+    Node,
+    solve,
+    Field,
+    FieldValue,
+    ToscaValue,
+    SimpleValue,
+)
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.portspectype import PortSpec
+from toscaparser.common import exception
 from ruamel.yaml.comments import CommentedMap
 
+
 def make_tpl(yaml_str: str):
-    tosca_yaml = load_yaml(
-        yaml, yaml_str, readonly=True
-    )  # export uses readonly yaml parser
+    tosca_yaml = load_yaml(yaml, yaml_str, readonly=True)
     tosca_yaml["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
     if "topology_template" not in tosca_yaml:
         tosca_yaml["topology_template"] = dict(
@@ -17,8 +27,9 @@ def make_tpl(yaml_str: str):
         )
     return ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml)
 
+
 example_helloworld_yaml = """
-description: Template for deploying a single server with predefined properties.
+tosca_definitions_version: tosca_simple_unfurl_1_0_0"
 node_types:
   Example:
     derived_from: tosca.nodes.Root
@@ -29,6 +40,7 @@ node_types:
     - host:
         capability: tosca.capabilities.Compute
         node: tosca.nodes.Compute
+        occurrences: [1, 1]
 
 topology_template:
   substitution_mappings:
@@ -66,12 +78,13 @@ topology_template:
             version: "6.5"
 """
 
+
 def test_convert():
     for val, toscatype in [
         (80, "PortDef"),
         (CommentedMap(), "map"),
         (PortSpec.make("80:80"), "tosca.datatypes.network.PortSpec"),
-        ]:
+    ]:
         prop = Property(
             toscatype,
             val,
@@ -79,8 +92,9 @@ def test_convert():
         )
         assert tosca_to_rust(prop)
 
+
 def test_solve():
-    f = Field('f', FieldValue.Property(ToscaValue(SimpleValue.integer(0))))
+    f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0))))
     na = Node("a", "Foo", fields=[f])
     assert na.name == "a"
     assert na.tosca_type == "Foo"
@@ -89,7 +103,7 @@ def test_solve():
     types = dict(a=["a", "Root"])
     solved = solve(nodes, types)
     assert not solved
-    
+
     tosca = make_tpl(example_helloworld_yaml)
     assert tosca.topology_template
 
@@ -107,6 +121,16 @@ def test_solve():
     # test requirement match for each type of CriteriaTerm and Constraint
     # test restrictions
 
+def test_multiple():
+    tosca_yaml = load_yaml(yaml, example_helloworld_yaml, readonly=True)
+    tosca_yaml["topology_template"]["node_templates"]["db_server2"] = tosca_yaml["topology_template"]["node_templates"]["db_server"].copy()
+    t = ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml, import_resolver=ImportResolver(None), verify=False)
+    exception.ExceptionCollector.start()
+    t.validate_relationships()
+    assert str(exception.ExceptionCollector.exceptions[-1]) == 'requirement "host" of node "app" found 2 targets more than max occurrences 1'
+    # t.topology_template.node_templates["app"]._relationships = None
+    # print(t.topology_template.node_templates["app"].requirements)
+    assert len(t.topology_template.node_templates["app"].relationships) == 2
 
 def test_node_filter():
     tosca_tpl = (
