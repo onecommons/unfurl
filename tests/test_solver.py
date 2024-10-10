@@ -98,9 +98,37 @@ def test_solve():
     assert solved == {("app", "host"): [("db_server", "host")]}
     app = tosca.topology_template.node_templates["app"]
     assert not app.missing_requirements
-    for (rel_template, original_tpl, requires_tpl_dict) in app.relationships:
-        assert rel_template.target == tosca.topology_template.node_templates["db_server"]
+    for rel_template, original_tpl, requires_tpl_dict in app.relationships:
+        assert (
+            rel_template.target == tosca.topology_template.node_templates["db_server"]
+        )
 
-    # XXX 
-    # test requirement match for each CriteriaTerm and Constraint
-    # test multiple matches
+    # XXX
+    # test requirement match for each type of CriteriaTerm and Constraint
+    # test restrictions
+
+
+def test_node_filter():
+    tosca_tpl = (
+        os.path.dirname(__file__)
+        + "/../tosca-parser/samples/tests/data/node_filter/test_node_filter.yaml"
+    )
+    t = ToscaTemplate(tosca_tpl, import_resolver=ImportResolver(None))
+    filter_match = (
+        t.topology_template.node_templates["test"].relationships[0][0].target.name
+    )
+    assert filter_match == "server_large", filter_match
+
+    # delete match
+    del t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
+        "node"
+    ]
+    # add an unsupported pattern, match should be skipped
+    t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
+        "node_filter"
+    ]["capabilities"][0]["host"]["properties"].append(
+        {"distribution": {"pattern": "u*"}}
+    )
+
+    t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
+    assert not t2.topology_template.node_templates["test"].relationships

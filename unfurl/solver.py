@@ -11,9 +11,8 @@ from .tosca_solver import (  # type: ignore
     QueryType,
 )
 from tosca.yaml2python import has_function
-from toscaparser.dataentity import DataEntity
 from toscaparser.elements.relationshiptype import RelationshipType
-from toscaparser.elements.scalarunit import get_scalarunit_class
+from toscaparser.elements.scalarunit import get_scalarunit_class, ScalarUnit
 from toscaparser.elements.constraints import Schema, Constraint as ToscaConstraint
 from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
@@ -113,7 +112,7 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
         upper = (
             sys.maxsize if value[1] == "UNBOUNDED" else value[1]
         )  # note: sys.maxsize == size_t
-        return ToscaValue(ctor((value[0], upper), typename))
+        return ToscaValue(ctor((value[0], upper)), typename)
     elif tosca_type == "list":
         if not schema.entry_schema:
             schema.schema["entry_schema"] = dict(type="any")
@@ -158,21 +157,41 @@ def prop2field(prop: Property) -> Field:
     )
 
 
-def filter2term(terms, node_filter, cap_name):
+def filter2term(
+    terms: List[CriteriaTerm], node_filter, cap_name: Optional[str]
+) -> bool:
     for condition in NodeTemplate.get_filters(node_filter):
         constraints = []
         for constraint in condition.conditions:
             assert isinstance(constraint, ToscaConstraint), constraint
 
             # convert to ToscaValue (assumes constraint value is always a simple value)
+            if constraint.constraint_key == "in_range":
+                ctype = "range"
+            else:
+                ctype = constraint.property_type
+            if ctype in ScalarUnit.SCALAR_UNIT_TYPES:
+                cvalue = constraint.constraint_value_msg
+            else:
+                cvalue = constraint.constraint_value
             prop = Property(
                 constraint.property_name,
-                constraint.constraint_value,
-                dict(type=constraint.property_type),
+                cvalue,
+                dict(type=ctype),
             )
             value = tosca_to_rust(prop)
-            constraints.append(getattr(Constraint, constraint.constraint_key)(value))
+            c_ctor = getattr(Constraint, constraint.constraint_key, None)
+            if not c_ctor:
+                # unsupported constraint type (currently unsupported: pattern, schema)
+                # we don't want a false positive, so we need to skip solving for this requirement
+                logger.warning(
+                    f"solver doesn't support this node_filter constraint: {constraint.constraint_key}"
+                )
+                # XXX node_filter needs to be evaluated in ToscaSpec.find_matching_node()
+                return False
+            constraints.append(c_ctor(value))
         terms.append(CriteriaTerm.PropFilter(condition.name, cap_name, constraints))
+    return True
 
 
 def convert(
@@ -272,7 +291,7 @@ def add_match(terms, match):
 
 
 def get_req_terms(
-    nt: NodeTemplate,
+    node_template: NodeTemplate,
     types: Dict[str, List[str]],
     topology_template: TopologyTemplate,
     name: str,
@@ -294,7 +313,7 @@ def get_req_terms(
     rel_type = None
     relationship = req_dict.get("relationship")
     if relationship:
-        relname = nt.get_rel_typename(name, req_dict)
+        relname = node_template.get_rel_typename(name, req_dict)
         # print("!relname", name, relationship, relname)
         if relname:
             rel = cast(
@@ -314,7 +333,7 @@ def get_req_terms(
     node = req_dict.get("node")
     if node:
         if node in topology_template.node_templates:
-            # XXX if nt.substitution: nt.substitution.add_relationship(name, node)  # replacement nested node template with this outer one
+            # XXX if node_template.substitution: node_template.substitution.add_relationship(name, node)  # replacement nested node template with this outer one
             terms.append(CriteriaTerm.NodeName(node))
         elif match_type:
             # only match by type if the template declared the requirement
@@ -325,15 +344,16 @@ def get_req_terms(
             match = node_filter.get("match")
             if match:
                 add_match(terms, match)
-            filter2term(terms, node_filter, None)
+            if not filter2term(terms, node_filter, None):
+                return None, False
             for cap_filters in node_filter.get("capabilities", []):
                 cap_name, cap_filter = list(cap_filters.items())[0]
-                # print("cap", cap_name, cap_filter)
-                filter2term(terms, cap_filter, cap_name)
+                if not filter2term(terms, cap_filter, cap_name):
+                    return None, False
             for req_req in node_filter.get("requirements") or []:
                 req_req_name = list(req_req)[0]
                 req_field, _ = get_req_terms(
-                    nt,
+                    node_template,
                     types,
                     topology_template,
                     req_req_name,
