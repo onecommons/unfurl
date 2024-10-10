@@ -29,7 +29,7 @@ def _get_connection_config(instance):
         # the parent of a relationship will be the capability it connects to
         # or root if relationship is a default connection
         if instance.parent and instance.parent is not instance.root:
-            endpoint = instance.parent.attributes  # type: ignore  # unreachable
+            endpoint: Mapping = instance.parent.attributes
         else:
             endpoint = {}
     else:  # assume it's an endpoint capability

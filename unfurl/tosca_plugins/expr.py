@@ -90,6 +90,7 @@ __all__ = [
     "negate",
     "as_bool",
     "uri",
+    # XXX File
     # XXX kubernetes_current_namespace
     # XXX kubectl,
     # XXX get_artifact

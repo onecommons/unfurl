@@ -1,11 +1,11 @@
 import json
+import os
 from click.testing import CliRunner
-
 from unfurl.job import JobOptions, Runner
 from unfurl.to_json import to_deployment
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
-from .utils import init_project, run_job_cmd
+from .utils import init_project, run_job_cmd, run_cmd
 
 #### Behavior notes ###
 ## properties on the substituted template in the outer topology set/override the inner template's properties
@@ -138,8 +138,11 @@ topology_template:
   node_templates:
     nested:
       type: Nested
+      properties:
+        foo: ""
       requirements:
         - dependency: inner
+        - host: inner
 
     inner:
       type: nodes.Test
@@ -151,6 +154,14 @@ topology_template:
 """
 )
 
+ensemble_template_dsl="""\
+apiVersion: unfurl/v1alpha1
+spec:
+  service_template:
+    # Declare your TOSCA types and topology here.
+    # This include allows you to also declare your TOSCA as Python code:
+    +?include: ensemble_template.py
+"""
 
 def test_substitution_with_type():
     cli_runner = CliRunner()
@@ -288,6 +299,12 @@ def test_substitution_with_node():
 
         with open("nested1.yaml", "w") as f:
             f.write(nested_node_import)
+
+        # convert to python so we can test that too
+        run_cmd(cli_runner, ["export", "--format", "python", "ensemble-template.yaml"], True,
+                dict(UNFURL_EXPORT_PYTHON_STYLE = "concise", UNFURL_LOGGING="trace") )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(ensemble_template_dsl)
 
         manifest = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
         node1 = manifest.tosca.get_template("nested1")

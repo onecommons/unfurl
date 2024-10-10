@@ -261,7 +261,7 @@ def set_console_log_level(log_level: int) -> None:
 
 
 def get_console_log_level() -> Levels:
-    return LOGGING["handlers"]["console"]["level"]  # type: ignore
+    return Levels(LOGGING["handlers"]["console"]["level"])  # type: ignore
 
 
 def get_tmplog_path() -> str:

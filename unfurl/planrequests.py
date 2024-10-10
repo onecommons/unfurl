@@ -323,7 +323,10 @@ class PlanRequest:
         if self.dependencies:
             not_operational, invalid_deps = [], []
             for dep in self.dependencies:
-                if dep.target and dep.target.local_status not in [Status.ok, Status.degraded]:
+                if dep.target and dep.target.local_status not in [
+                    Status.ok,
+                    Status.degraded,
+                ]:
                     not_operational.append(dep.name)
                 else:
                     invalid_deps.append(dep.name)
@@ -439,9 +442,10 @@ class TaskRequest(PlanRequest):
             name = "__artifact__" + artifact.get_name_from_artifact_spec(
                 artifact.as_import_spec()
             )
-            operation_host = (
+            operation_host = cast(
+                HasInstancesInstance,
                 find_operation_host(self.target, self.configSpec.operation_host)
-                or self.target.apex
+                or self.target.apex,
             )
             existing = operation_host.root.find_instance(name)
             if existing:
@@ -450,6 +454,7 @@ class TaskRequest(PlanRequest):
                 else:
                     return JobRequest([existing])
             else:
+                assert operation_host.template
                 # XXX what if there's another artifact with the same name?
                 if not operation_host.template.get_template(name):
                     # template isn't defined, define inline
@@ -665,7 +670,9 @@ class JobRequest:
         return f"JobRequest({self.name})"
 
 
-def find_operation_host(target, operation_host: Optional[str]) -> Optional[HasInstancesInstance]:
+def find_operation_host(
+    target, operation_host: Optional[str]
+) -> Optional[HasInstancesInstance]:
     # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
     if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
         return target.root.find_instance_or_external("localhost")
@@ -844,6 +851,7 @@ def _render_request(
     task._attributeManager.mark_referenced_templates(task.target.template)
 
     workflow = req.group and req.group.workflow
+    dependent_refs: Optional[Sequence[Union[str, UnfurlTaskError]]] = None
     if workflow != "undeploy":
         # when removing an instance don't worry about depending values changing in the future
         # key => (instance, list<attribute name>)
@@ -853,15 +861,22 @@ def _render_request(
         req._set_dependencies(liveDependencies, requests)
         dependent_refs = [dep.name for dep in req.get_unfulfilled_refs(check_target)]
     else:
-        dependent_refs = req.render_errors  # type: ignore
+        dependent_refs = req.render_errors
     if dependent_refs:
-        task.logger.debug(
-            "%s:%s can not render yet, depends on %s",
-            task.target.name,
-            req.name,
-            dependent_refs,
-            exc_info=error_info,
-        )
+        if req.dependencies:
+            task.logger.info(
+                "Cannot render yet, depends on %s",
+                dependent_refs,
+            )
+        elif dependent_refs is not req.render_errors and error:
+            task.logger.info(
+                f"Cannot render yet, errors while evaluating the following static dependencies (probable configuration error):\n  {dependent_refs}:\nErrors include:\n   {error}",
+            )
+        else:
+            task.logger.info(
+                "Can not render yet, found errors %s",
+                req.render_errors,
+            )
         # rollback changes:
         task._errors = []
         task._reset()
@@ -896,7 +911,9 @@ def _reevaluate_not_required(
             new_not_required.append(request)
     return new_not_required
 
+
 RenderRequests = Tuple[List[PlanRequest], List[PlanRequest], List[PlanRequest]]
+
 
 def do_render_requests(
     job,

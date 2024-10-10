@@ -78,9 +78,9 @@ def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str,
     if localEnv:
         project = localEnv.project or localEnv.homeProject
         if project:
-            environments = project.contexts  # type: ignore
+            environments = project.contexts
 
-    # handle items like newname : oldname to rename merged connections
+    # handle items like newname : oldname to alias merged connections
     def follow_alias(v):
         if isinstance(v, str):
             env, sep, name = v.partition(":")
@@ -99,6 +99,8 @@ class ChangeRecordRecord(ChangeRecord, OperationalInstance):
     target: str = ""
     operation: str = ""
     digestValue: str = ""
+    digestKeys: str = ""
+    digestPut: str = ""
 
 
 class Manifest(AttributeManager):
@@ -144,9 +146,11 @@ class Manifest(AttributeManager):
                 )
             else:
                 repositories[key] = value
-        env_package_spec = context.get("variables", {}).get(
+        env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
             "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
         )
+        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
+            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 self.package_specs.append(PackageSpec(key, value, None))
@@ -359,6 +363,7 @@ class Manifest(AttributeManager):
                     val.get("name"),
                     val.get("required"),
                     val.get("wantList", False),
+                    val.get("writeOnly"),
                 )
             )
 
@@ -493,7 +498,7 @@ class Manifest(AttributeManager):
 
         return resource
 
-    def _get_last_change(self, operational):
+    def _get_last_config_changeset(self, operational):
         if not operational.last_config_change:
             return None
         if not self.changeSets:  # XXX load changesets if None
@@ -517,7 +522,7 @@ class Manifest(AttributeManager):
             imported_status = dict(
                 readyState=dict(
                     local=imported.local_status,
-                    effective=imported._lastStatus, 
+                    effective=imported._lastStatus,
                 )
             )
             operational = self.load_status(imported_status)
@@ -534,7 +539,8 @@ class Manifest(AttributeManager):
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:
-                changerecord = self._get_last_change(operational)
+                changerecord = self._get_last_config_changeset(operational)
+                # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
         if template is None:
             return self.load_error(
@@ -548,11 +554,15 @@ class Manifest(AttributeManager):
             for k, v in status.get("attributes", {}).items()
             if v != sensitive_str.redacted_str
         }
-        instance = ctor(name, attributes, parent, template, operational)
+        instance = cast(
+            EntityInstance, ctor(name, attributes, parent, template, operational)
+        )
         if "created" in status:
             instance.created = status["created"]
         if "protected" in status:
             instance.protected = status["protected"]
+        if "customized" in status:
+            instance.customized = status["customized"]
         if imported:
             instance.imported = importName
             self.imports.set_shadow(importName, instance, imported)
@@ -736,9 +746,9 @@ class Manifest(AttributeManager):
                 if isinstance(repository, dict):
                     repository = resolver.get_repository(name, repository)
                 inline_repoview = self.add_repository(repository, "")
-                inline_repoview.repository.tpl.setdefault("metadata", {})[
-                    "inline"
-                ] = True
+                inline_repoview.repository.tpl.setdefault("metadata", {})["inline"] = (
+                    True
+                )
         self._set_builtin_repositories()
 
     def _set_repository_links(self):
@@ -810,7 +820,9 @@ class Manifest(AttributeManager):
         inProject = False
         if self.localEnv and self.localEnv.project:
             if self.localEnv.project is self.localEnv.homeProject:
-                inProject = self.localEnv.project.projectRoot in self.path  # type: ignore
+                inProject = bool(
+                    self.path and self.localEnv.project.projectRoot in self.path
+                )
             else:
                 inProject = True
         if inProject and "project" not in repositories:
@@ -820,7 +832,6 @@ class Manifest(AttributeManager):
         if "spec" not in repositories:
             # if not found assume it points the project root or self if not in a project
             if inProject:
-                assert self.localEnv and self.localEnv.project
                 repositories["spec"] = self.localEnv.project.project_repoview  # type: ignore
             else:
                 repositories["spec"] = repositories["self"]
@@ -883,6 +894,8 @@ class Manifest(AttributeManager):
         self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
+        for path, included in yamlConfig._cachedDocIncludes.values():
+            self._update_repositories(included, None, resolver)
         repositories = self.repositories_as_tpl()
         base_dir = get_base_dir(baseDir)
         if repository_root is None:
@@ -926,6 +939,24 @@ class Manifest(AttributeManager):
         if self.localEnv and self.localEnv.make_resolver:
             return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
+
+    def find_or_clone_from_url(self, url) -> Optional[RepoView]:
+        if self.localEnv and self.localEnv.project:
+            base = self.localEnv.project.projectRoot
+        else:
+            base = self.get_base_dir()
+        loader = toscaparser.imports.ImportsLoader(
+            None, base, repositories={}, resolver=self
+        )
+        resolver = self.get_import_resolver()
+        url, ctx = resolver.resolve_url(loader, url, "", None)
+        if ctx:
+            (is_file, repo_view, base, file_name) = ctx
+            if repo_view:
+                # this will clone the repo if needed
+                resolver._resolve_repo_to_path(repo_view, base, "")
+                return repo_view
+        return None
 
 
 # unused

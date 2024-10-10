@@ -6,53 +6,51 @@ metadata: # the following metadata keys are defined in the TOSCA specification:
   template_version: 1.0.0
 
 repositories:
-  tosca-community-contributions:
-    url: https://github.com/oasis-open/tosca-community-contributions.git
-
   docker_hub:
     url: https://registry.hub.docker.com/
     credential:
-        user: user1
-        token:
-          eval: # eval is an Unfurl extension
-            secret:
-              dockerhub_user1_pw
+      user: user1
+      token:
+        eval: # eval is an Unfurl extension
+          secret: dockerhub_user1_pw
 
-imports:
-
-- file: my-shared-types.yaml
-  namespace_prefix: base # optional
-- file: profiles/orchestration/1.0/profile.yaml
-  repository: tosca-community-contributions
+relationship_types:
+  DatabaseConnection:
+    derived_from: tosca.relationships.ConnectsTo
+    properties:
+      username:
+        type: string
+      password:
+        type: string
+        metadata:
+          sensitive: true
 
 node_types:
-      myApplication:
-        derived_from: tosca.nodes.SoftwareComponent
-        attributes:
-          private_address:
-            type: string
-        properties:
-         domain:
-          type: string
-          default: { get_input: domain }
-          ports:
-            type: tosca.datatypes.network.PortSpec
-        requirements:
-          - host:
-              capabilities: tosca.capabilities.Compute
-              relationship: tosca.relationships.HostedOn
-          - db:
-              capabilities: base:capabilities.postgresdb
-              relationship: tosca.relationships.ConnectsTo
-        interfaces:
-          # TOSCA defines Standard interface for lifecycle management but you can define your own too
-          Standard:
-            create: create.sh
-            configure: configure.sh
-            delete: delete.sh
+  MyApplication:
+    derived_from: tosca.nodes.SoftwareComponent
+    attributes:
+      private_address:
+        type: string
+    properties:
+      domain:
+        type: string
+        default: { get_input: domain }
+        ports:
+          type: tosca.datatypes.network.PortSpec
+    requirements:
+      - host:
+          capability: tosca.capabilities.Compute
+          relationship: tosca.relationships.HostedOn
+      - db:
+          relationship: DatabaseConnection
+    interfaces:
+      # TOSCA defines Standard interface for lifecycle management but you can define your own too
+      Standard:
+        create: create.sh
+        configure: configure.sh
+        delete: delete.sh
 
 topology_template:
-
   inputs:
     domain:
       type: string
@@ -60,14 +58,23 @@ topology_template:
   outputs:
     url:
       type: string
-      value: { concat: [ https://, { get_input: domain }, ':',  { get_attribute: [ myapp, portspec, source ] }, '/api/events'] }
+      value:
+        {
+          concat:
+            [
+              https://,
+              { get_input: domain },
+              ":",
+              { get_attribute: [myapp, portspec, source] },
+              "/api/events",
+            ],
+        }
       # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:
       # value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events
 
   node_templates:
-
     myApp:
-      type: myApplication
+      type: MyApplication
       artifacts:
         image:
           type: tosca.artifacts.Deployment.Image.Container.Docker
@@ -80,12 +87,14 @@ topology_template:
             relationship: mydb_connection
 
     mydb:
-      type: base:postgresdb
+      type: tosca.nodes.Database
       properties:
         name: mydb
+      requirements:
+        - host: compute
 
     compute:
-      type: unfurl.nodes.Compute
+      type: tosca.nodes.Compute
       capabilities:
         host:
           properties:
@@ -93,12 +102,11 @@ topology_template:
             disk_size: 200GB
             mem_size: 512MB
 
-relationship_templates:
-  mydb_connection:
-    type: base:relationships.dbconnection
-    properties:
-      username: myapp
-      password:
-        eval:
-          secret:
-            myapp_db_pw
+  relationship_templates:
+    mydb_connection:
+      type: DatabaseConnection
+      properties:
+        username: myapp
+        password:
+          eval:
+            secret: myapp_db_pw

@@ -1,3 +1,7 @@
+html, p {
+  font-size: 18px;
+}
+
 table.align-default {
     margin-left: inherit;
     margin-right: inherit;

@@ -517,6 +517,8 @@ class AbstractTemplateTest(unittest.TestCase):
                 required: false
                 metadata:
                   sensitive: true
+              filter_prop: 
+                type: string
             interfaces:
                Install:
                 operations:
@@ -528,6 +530,8 @@ class AbstractTemplateTest(unittest.TestCase):
         anInstance:
           template:
             type: test.nodes.AbstractTest
+            properties:
+              filter_prop: match
     """
             % API_VERSION
         )
@@ -569,7 +573,10 @@ spec:
         anInstance:
           type: test.nodes.AbstractTest
           directives:
-             - select
+            - select
+          node_filter:
+            properties:
+            - filter_prop: match
   """
             % API_VERSION
         )

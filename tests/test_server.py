@@ -11,7 +11,7 @@ from multiprocessing import Process, set_start_method
 import requests
 from click.testing import CliRunner
 from git import Repo
-from unfurl import server
+from unfurl.server import serve as server
 
 import pytest
 from tests.utils import init_project, run_cmd
@@ -163,7 +163,7 @@ def set_up_deployment(runner, deployment):
     # configure the server to clone into "server" and push into "remote.git"
     init_project(
         runner,
-        args=["init", "--mono", "--var", "vaultpass", "", "remote"],
+        args=["init", "--mono", "--var", "VAULT_PASSWORD", "", "remote"],
         env=dict(UNFURL_HOME=""),
     )
     # Create a mock deployment

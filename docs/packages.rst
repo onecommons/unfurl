@@ -26,6 +26,35 @@ The contents of a `repository <tosca_repositories>` can be referenced in the fol
 * In the `+include YAML merge directive <YAML Merge directives>`.
 * In runtime expressions such as :std:ref:`abspath` and :std:ref:`get_dir`.
 
+File paths in configuration files (e.g. include directives, imports, and external file references) are relative to the project and Unfurl will raise error if a file path would escapes outside the project.
+To access file outside a project, declare a `repository<repositories>` with an absolute file URL and use it in the file reference.
+
+
+Predefined Repositories
+-----------------------
+
+There are three predefined repositories:
+
+"self", which represents the location the ensemble lives in -- it will be a "git-local:" URL if no git remote has been set, or a "file:" URL if the ensemble is not part of a git repository at all.
+
+"spec" which, unless explicitly declared, defaults to the project root or the ensemble itself if it is not part of a project.
+
+"unfurl" which points to the Python package of the unfurl process -- this can be used to load configurators and templates
+that ship with Unfurl.
+
+* Allow service templates to declare the unfurl version they are compatible with.
+
+They can do this be declaring a repository for the unfurl package like so:
+
+.. code-block:: yaml
+
+        repositories:
+          unfurl:
+            url: https://github.com/onecommons/unfurl
+            revision: v0.9.1
+
+Unfurl will still resolve imports in the unfurl package using the local installed version of unfurl but it will raise an error if it isn't compatible with the version declared here.
+
 Packages
 ========
 

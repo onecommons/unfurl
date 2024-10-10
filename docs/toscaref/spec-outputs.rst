@@ -3,9 +3,8 @@
 Outputs
 =======
 
-``outputs`` provide a way of exposing global aspects of a deployment.
-When deployed, a service template can expose specific outputs of that
-deployment - for instance, an endpoint of a server or any other runtime
+When deployed, a service template can expose specific ``outputs`` of that
+deployment - for instance, an ip address of a server or any other runtime
 or static information of a specific resource.
 
 Declaration

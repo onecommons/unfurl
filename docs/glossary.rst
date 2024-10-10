@@ -95,6 +95,11 @@ Installers
 
   A node template represents the software that creates and manages installations. Installers allow implementations to be reified as first-class instances so they can be instantiated and configured themselves, enabling the local client environment to be bootstrapped as well.
 
+Deployment blueprint
+++++++++++++++++++++
+
+A deployment blueprint is a blueprint that is only applied when its criteria matches the deployment environment. It inherits from a service template and includes node templates that override the service template's.
+
 Eval expressions
 ++++++++++++++++
 
@@ -103,19 +108,19 @@ Eval expressions
 Job
 +++
 
-  A jobs executes a *workflow* by instantiating a plan of tasks to run.
+  A jobs executes a `workflow` by instantiating a plan of tasks to run.
 
 .. _tasks:
 
 Tasks
 +++++
 
-  Instantiates a configurator to carry out the given *operation*.
+  Instantiates a `configurator` to carry out the given :std:ref:`operation`.
 
 Config Change
 +++++++++++++
 
-  A persistent record of the changes made by a task.
+  A persistent record of the changes made by a `task<tasks>`.
 
 Changelog
 +++++++++

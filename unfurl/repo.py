@@ -15,7 +15,7 @@ from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse
-from .util import UnfurlError, assert_not_none, is_relative_to, save_to_file
+from .util import UnfurlError, assert_not_none, change_cwd, is_relative_to, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
@@ -103,7 +103,7 @@ def is_url_or_git_path(url):
     if "@" in url:
         return True
     candidate, sep, frag = url.partition("#")
-    if frag or candidate.rstrip("/").endswith(".git"):
+    if sep or candidate.rstrip("/").endswith(".git"):
         return True
     return False
 
@@ -181,7 +181,7 @@ class Repo(abc.ABC):
     url: str = ""
 
     @staticmethod
-    def find_containing_repo(rootDir, gitDir=".git"):
+    def find_containing_repo(rootDir, gitDir=".git") -> Optional["GitRepo"]:
         """
         Walk parents looking for a git repository.
         """
@@ -233,13 +233,11 @@ class Repo(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def working_dir(self) -> str:
-        ...
+    def working_dir(self) -> str: ...
 
     @property
     @abc.abstractmethod
-    def revision(self) -> str:
-        ...
+    def revision(self) -> str: ...
 
     @property
     def safe_url(self):
@@ -299,7 +297,14 @@ class Repo(abc.ABC):
 
     @classmethod
     def create_working_dir(
-        cls, gitUrl, localRepoPath, revision=None, depth=1, shallow_since=None, username=None, password=None
+        cls,
+        gitUrl,
+        localRepoPath,
+        revision=None,
+        depth=1,
+        shallow_since=None,
+        username=None,
+        password=None,
     ):
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
@@ -580,7 +585,11 @@ class RepoView:
                 ("commit", self.get_current_commit()),
             ]
         )
-        initial = self.repo and self.repo.resolve_rev_spec("INITIAL") or self.get_initial_revision()
+        initial = (
+            self.repo
+            and self.repo.resolve_rev_spec("INITIAL")
+            or self.get_initial_revision()
+        )
         if initial:
             record["initial"] = initial
         record["discovered_revision"] = ""  # default: no search occurred
@@ -640,8 +649,8 @@ class RepoView:
                 raise UnfurlError(
                     f"Can not create symlink at {symlink}: it already exists but is not a symlink"
                 )
-            target = os.path.abspath(os.readlink(symlink))
-            if target == self.working_dir:  # already exists
+            target = os.path.join(os.path.dirname(symlink), os.readlink(symlink))
+            if Path(target) == Path(self.working_dir):  # already exists
                 return name, self.working_dir
             symlink.unlink()
 
@@ -794,7 +803,7 @@ class GitRepo(Repo):
             path = os.path.join(self.working_dir, file)
             yield path
 
-    def is_path_excluded(self, localPath):
+    def is_path_excluded(self, localPath: str) -> bool:
         # XXX cache and test
         # excluded = list(self.findExcludedDirs(self.working_dir))
         # success error code means it's ignored
@@ -803,10 +812,12 @@ class GitRepo(Repo):
     def reset(self, args: str = "--hard HEAD~1") -> bool:
         return not self.run_cmd(("reset " + args).split())[0]
 
-    def run_cmd(self, args, with_exceptions=False, **kw):
+    def run_cmd(
+        self, args, with_exceptions: bool = False, **kw
+    ) -> Tuple[int, str, str]:
         """
         :return:
-          tuple(int(status), str(stdout), str(stderr))
+          tuple(status, stdout, stderr)
         """
         gitcmd = self.repo.git
         call: List[str] = [gitcmd.GIT_PYTHON_GIT_EXECUTABLE or "git"]
@@ -815,10 +826,13 @@ class GitRepo(Repo):
         call.extend(list(args))
         call.extend(gitcmd.transform_kwargs(**kw))
 
-        # note: sets cwd to working_dir
-        return gitcmd.execute(  # type: ignore
-            call, with_exceptions=with_exceptions, with_extended_output=True
-        )
+        # execute() sets cwd to working_dir, so use change_cwd() to restore it
+        with change_cwd():
+            return gitcmd.execute(  # type: ignore
+                call,
+                with_extended_output=True,
+                with_exceptions=with_exceptions,
+            )
 
     def add_to_local_git_ignore(self, rule):
         path = os.path.join(self.repo.git_dir, "info")
@@ -963,6 +977,50 @@ class GitRepo(Repo):
         self.repo.index.remove(os.path.abspath(path), r=True, working_tree=True)
         if commit:
             self.repo.index.commit(commit)
+
+    def is_lfs_enabled(self, url=None) -> bool:
+        if self.repo.remotes:
+            status, out, err = self.run_cmd(["lfs", "locks"], remote=url)
+            if status:
+                logger.warning(
+                    "git lfs on %s not available, `git lfs locks` says: %s",
+                    self.safe_url,
+                    err,
+                )
+            else:
+                logger.debug(
+                    "git lfs on %s available, `git lfs locks` says: %s",
+                    self.safe_url,
+                    out,
+                )
+                return True
+        return False
+
+    def lock_lfs(self, lockfilepath: str, url=None) -> bool:
+        try:
+            # note: file doesn't have to exist or added to the repo or have its .gitattributes set
+            self.run_cmd(
+                ["lfs", "lock", lockfilepath], remote=url, with_exceptions=True
+            )
+        except git.exc.GitCommandError as e:
+            if "already locked" in e.stderr:
+                return False
+            else:
+                raise
+        return True
+
+    def unlock_lfs(self, lockfilepath: str, url=None) -> bool:
+        try:
+            # note: file doesn't have to exist or added to the repo or have its .gitattributes set
+            self.run_cmd(
+                ["lfs", "unlock", lockfilepath], remote=url, with_exceptions=True
+            )
+        except git.exc.GitCommandError as e:
+            if "no matching locks found" in e.stderr:
+                return False
+            else:
+                raise
+        return True
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()

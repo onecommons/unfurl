@@ -2,7 +2,7 @@
 Ensembles
 =========
 
-The core concept of Unfurl is that of a ``Ensemble``, a representation of an isolated collections of resources. An ensemble's identity is independent of the location or implementation of the resources it entails. Ensembles maintain an ordered set of `ChangeRecords <Config Change>` that represent the current operational state of those resources -- both their configuration and their internal state. For example, if an ensemble contained a database, its `ChangeRecord` might be tied to changes to the data in that database.
+The core concept of Unfurl is that of a ``Ensemble``, a representation of an isolated collection of resources. An ensemble's identity is independent of the location or implementation of the resources it entails. Ensembles maintain an ordered set of `ChangeRecords <Config Change>` that represent the current operational state of those resources -- both their configuration and their internal state. For example, if an ensemble contained a database, its `ChangeRecord` might be tied to changes to the data in that database.
 
 Like objects in a computer program, ensembles expose abstract, typed interfaces that encapsulates an internal implementation. They can create, delete, and modify resources and, with proper configuration, act as a secure gateway for managing those resources.
 
@@ -12,6 +12,24 @@ Crucial semantics such as versioning or capability between components,
 persistent and historical state, public URLs and identifiers that need to be maintained or propagated are cross-cutting concerns. Indeed an analysis of postmortems of failed deployments will show that a majority of stem from configuration mismatches like this.
 
 By encapsulating ad-hoc processes with a uniform interface built around widely used and understood development tools such as git, it becomes dramatically easier to integrate and manage applications and services across organizational boundaries, whether engineering teams or business entities.
+
+Anatomy of a Manifest
+=====================
+
+At the core of Unfurl is an :ref:`Ensemble<ensemble_yaml>` manifest, a YAML file that whose main sections are:
+
+* ``metadata``: User defined metadata along with the ``uri`` and ``aliases`` fields `discussed below<uris>`.
+* ``spec``: Contains the `TOSCA` service template, as well as the template's :std:ref:`inputs` and any predefined resource instances.
+* ``status``: A record of the operational status of the resource instances created or discovered during deployment.
+* ``lock``: A record of the state of the repositories, artifacts, and runtime environment that were used during deployment. See `Locked ensembles`.
+
+Ensembles can be part of an Unfurl project that manages one or more git repositories which contain code, artifacts, configuration and operational history.
+
+The main job of Unfurl is apply the workflows in the Ensemble and record the results. It creates a change log tracking which operations were applied to which resources and how those resources where changed. These changes can be committed to `git` automatically so that each commit represents an update to the state of the system.
+
+While the implementation of operations can be specified natively in Unfurl, it is primarily intended as a coordinator of existing build and deployments tools, and in particular `Terraform` and `Ansible`. As such, Unfurl lets you mix and match both declarative and imperative approaches in the same project, and carefully designed, fine-grained models can live alongside course-grained objects  with ad-hoc metadata and dynamically generated configuration.
+
+The status is presented as a hierarchy of the operational status and attributes of the live resources that were created, modified or observed while running a job.
 
 Repositories and History
 ========================
@@ -45,24 +63,6 @@ This enables ensembles to be renamed while still maintaining compatibility with 
 If you change an ensemble's :ref:`uri<ensemble_yaml>` along with any :ref:`aliases<ensemble_yaml>` it you are essentially forking
 that ensemble because it will now be treated as a different ensemble.
 
-Ensemble URI don't need to be resolvable or memorable but it is useful if they are. When you create a new ensemble Unfurl will autogenerate a URL that is the path to itself in the git repository it appears in. :ref`Aliases<ensemble_yaml>` can point to alternative locations or capabilities for the ensemble, for example a ``ssh`` URL to the git repository for clients with access for committing to the repository.
+Ensemble URI don't need to be resolvable or memorable but it is useful if they are. When you create a new ensemble Unfurl will autogenerate a URL that is the path to itself in the git repository it appears in. :ref:`Aliases<ensemble_yaml>` can point to alternative locations or capabilities for the ensemble, for example a ``ssh`` URL to the git repository for clients with access for committing to the repository.
 
 If you clone an ensemble into the same project or if the ensemble is in a standalone local repository (an ensemble that isn't in a project repository or in a repository that is a git submodule of a project repository) Unfurl will generate a new URI and remove any aliases. Otherwise, it won't change the URI and so the cloned ensemble will be treated as a copy of the source ensemble.
-
-Anatomy of a Manifest
-=====================
-
-At the core of Unfurl is an :ref:`Ensemble<ensemble_yaml>` manifest, a YAML file that includes:
-
-* A model of the cloud resources it manages (using the OASIS's `TOSCA` 1.3 ("Topology and Orchestration Specification for Cloud Applications") standard)
-* Implementations of operations and workflows that can be applied to those resources (via :ref:`configurators<configurators>`)
-* A record of the operational status of those resources.
-* A record of the state of the repositories, artifacts, and runtime environment that were used during deployment.
-
-Ensembles can be part of an Unfurl project that manages one or more git repositories which contain code, artifacts, configuration and operational history.
-
-The main job of Unfurl is apply the workflows in the Ensemble and record the results. It creates a change log tracking which operations were applied to which resources and how those resources where changed. These changes can be committed to `git` automatically so that each commit represents an update to the state of the system.
-
-While the implementation of operations can be specified natively in Unfurl, it is primarily intended as a coordinator of existing build and deployments tools, and in particular `Terraform` and `Ansible`. As such, Unfurl lets you mix and match both declarative and imperative approaches in the same project, and carefully designed, fine-grained models can live alongside course-grained objects  with ad-hoc metadata and dynamically generated configuration.
-
-The status is presented as a hierarchy of the operational status and attributes of the live resources that were created, modified or observed while running a job.

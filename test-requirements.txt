@@ -7,5 +7,5 @@ pytest==7.4.4
 pytest-cov
 pytest-xdist[psutil]
 pytest-profiling
-mypy <= 1.9.0
+mypy
 types-PyYAML

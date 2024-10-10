@@ -238,6 +238,7 @@ class Configurator(metaclass=AutoRegisterClass):
             If ``run`` is not defined as a generator it must return either a :py:class:`~unfurl.support.Status`, a ``bool`` or a :class:`ConfiguratorResult` to indicate if the task succeeded and any changes to the target's state.
         """
         yield task.done(False)
+        return False
 
     def can_dry_run(self, task: "TaskView") -> bool:
         """
@@ -300,9 +301,14 @@ class Configurator(metaclass=AutoRegisterClass):
         ]
         values: List[Any] = [inputs[key] for key in keys]
 
+        changed = set(task._resourceChanges.get_changes_as_expr())
         for dep in task.dependencies:
             assert isinstance(dep, Dependency)
-            if not isinstance(dep.expected, sensitive):
+            if (
+                dep.write_only
+            ):  # include values that were set but might not have changed
+                changed.add(str(dep.expr))
+            elif not isinstance(dep.expected, sensitive):
                 keys.append(str(dep.expr))
                 values.append(dep.expected)
 
@@ -311,10 +317,18 @@ class Configurator(metaclass=AutoRegisterClass):
         else:
             inputdigest = ""
 
-        digest = dict(digestKeys=",".join(keys), digestValue=inputdigest)
+        digest = dict(
+            digestKeys=",".join(keys),
+            digestValue=inputdigest,
+            digestPut=",".join(changed),
+        )
         task.logger.debug(
             "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
         )
+        if changed:
+            task.logger.debug(
+                "digestPut for %s: %s", task.target.name, digest["digestPut"]
+            )
         return digest
 
     def check_digest(self, task: "TaskView", changeset: "ChangeRecordRecord") -> bool:
@@ -332,41 +346,53 @@ class Configurator(metaclass=AutoRegisterClass):
         Returns:
             bool: True if configuration's digest has changed, False if it is the same.
         """
-        _parameters = getattr(changeset, "digestKeys", "")
-        newKeys = {k for k in task.inputs.keys() if k not in self.exclude_from_digest}
+        _parameters: str = getattr(changeset, "digestKeys", "")
+        current_inputs = {
+            k for k in task.inputs.keys() if k not in self.exclude_from_digest
+        }
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
-            if newKeys:
+            if current_inputs:
                 task.logger.verbose(
                     "digest keys for %s was previously empty, now found %s",
                     task.target.name,
-                    newKeys,
+                    current_inputs,
                 )
                 return True
             else:
                 return False
         else:
-            keys = _parameters.split(",")
-        oldInputs = {key for key in keys if "::" not in key}
-        # XXX this check is incomplete because this isn't considering new inputs because we don't know if they will be resolved or not
-        # we could fix this by having digest keys include unresolved inputs
-        if oldInputs - newKeys:
+            old_keys = _parameters.split(",")
+        old_inputs = {key for key in old_keys if "::" not in key}
+        if old_inputs - current_inputs:
+            # an old input was removed
             task.logger.verbose(
                 "digest keys changed for %s: old %s, new %s",
                 task.target.name,
-                oldInputs,
-                newKeys,
+                old_inputs,
+                current_inputs,
             )
-            return True  # an old input was removed
-
+            return True
         # only resolve the inputs and dependencies that were resolved before
+        # inputs should be lazily resolved by the task, so we need to avoid resolving them all now
+        # (we also won't know if there are new dependencies until the task runs)
         results: List[Result] = []
-        for key in keys:
+        for key in old_keys:
             if "::" in key:
                 results.extend(Ref(key).resolve(task.inputs.context, wantList="result"))
             else:
                 results.append(task.inputs._getresult(key))
-
+        new_inputs = current_inputs - old_inputs
+        if new_inputs and new_inputs.intersection(task.inputs.get_resolved()):
+            # a new input was added and accessed while resolving old inputs and dependencies
+            # XXX this check is incomplete if another new input is accessed while the task runs
+            task.logger.verbose(
+                "digest keys changed for %s: old %s, new %s",
+                task.target.name,
+                old_inputs,
+                current_inputs,
+            )
+            return True
         newDigest = get_digest(results, manifest=task._manifest)
         # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest
@@ -479,9 +505,9 @@ class TaskView:
         self.dry_run: Optional[bool] = None
         self.verbose = 0  # set by ConfigView
         # private:
-        self._errors: List[UnfurlTaskError] = (
-            []
-        )  # UnfurlTaskError objects appends themselves to this list
+        self._errors: List[
+            UnfurlTaskError
+        ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._manifest = manifest
         self.messages: List[Any] = []
@@ -924,6 +950,7 @@ class TaskView:
         required: bool = True,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
+        write_only: Optional[bool] = None,
     ) -> "Dependency":
         getter = getattr(expr, "as_ref", None)
         if getter:
@@ -931,7 +958,7 @@ class TaskView:
             expr = Ref(getter()).source
 
         dependency = Dependency(
-            expr, expected, schema, name, required, wantList, target
+            expr, expected, schema, name, required, wantList, target, write_only
         )
         for i, dep in enumerate(self.dependencies):
             assert isinstance(dep, Dependency)
@@ -1025,13 +1052,21 @@ class TaskView:
             operational = Manifest.load_status(resourceSpec)
             if operational.local_status is not None:
                 existingResource.local_status = operational.local_status
+                updated = True
             if operational.state is not None:
                 existingResource.state = operational.state
-            updated = True
+                updated = True
 
         protected = resourceSpec.get("protected")
-        if protected is not None:
+        if protected is not None and existingResource.protected != bool(protected):
             existingResource.protected = bool(protected)
+            updated = True
+
+        if (
+            "customized" in resourceSpec
+            and existingResource.customized != resourceSpec["customized"]
+        ):
+            existingResource.customized = resourceSpec["customized"]
             updated = True
 
         attributes = resourceSpec.get("attributes")
@@ -1102,31 +1137,44 @@ class TaskView:
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
     def update_instances(
-        self, instances: Union[str, List]
+        self, instances: Union[str, List[Dict[str, Any]]]
     ) -> Tuple[Optional[JobRequest], List[UnfurlTaskError]]:
-        """Notify Unfurl of new or changes to instances made while the configurator was running.
+        """Notify Unfurl of new or changed instances made while the task is running.
 
-        Operational status indicates if the instance currently exists or not.
-        This will queue a new child job if needed.
+        This will queue a new child job if needed. To immediately run the child job based on the supplied spec, yield the returned JobRequest.
 
-        To run the job based on the supplied spec immediately, yield the returned JobRequest.
+        Args:
+          instances: Either a list or a string that is parsed as YAML.
+
+        For example, this snipped creates a new instance and modifies the current target instance.
 
         .. code-block:: YAML
 
-          - name:     aNewInstance
+          # create a new instance:
+          - name:     name-of-new-instance
+            parent:   HOST # or SELF or <instance name>
+            # all other fields should match the YAML in an ensemble's status section
             template: aNodeTemplate
-            parent:   HOST
             attributes:
                anAttribute: aValue
             readyState:
               local: ok
-              state: state
-          - name:     SELF
+              state: started
+          # modify an existing instance:
+          - name: SELF
+            # the following fields are supported (all are optional):
+            template: aNodeTemplate
             attributes:
                 anAttribute: aNewValue
-
-        Args:
-          instances (list or str): Either a list or string that is parsed as YAML.
+                ...
+            artifacts:
+                artifact1: 
+                  ...
+            readyState:
+              local: ok
+              state: started
+            protected: true
+            customized: true
 
         """
         instances, err = self._parse_instances_tpl(instances)  # type: ignore
@@ -1270,6 +1318,7 @@ class Dependency(Operational):
         required: bool = False,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
+        write_only: Optional[bool] = None,
     ) -> None:
         """
         if schema is not None, validate the result using schema
@@ -1292,6 +1341,7 @@ class Dependency(Operational):
             self.name = f"{dict(expr)}"
         self.wantList = wantList
         self.target = target
+        self.write_only = write_only
 
     def __repr__(self) -> str:
         return f"Dependency('{self.name}')"

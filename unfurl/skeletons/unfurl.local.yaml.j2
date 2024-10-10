@@ -16,12 +16,12 @@ environments:
     #   FOO: bar  # set FOO
     variables: {}
 
-    {%- if vaultpass %}
+    {%- if VAULT_PASSWORD %}
     # make sure you keep this password in a safe place as this file isn't committed to the repository.
     secrets:
       vault_secrets:
         +%: merge # directive to merge this with other "vault_secrets" (by default secrets will be replaced)
-        [% vaultid | default("default") %]: "[% vaultpass %]"
+        [% vaultid | default("default") %]: "[% VAULT_PASSWORD %]"
       # Note: The UNFURL_VAULT_[% vaultid | default("default") | upper %]_PASSWORD environment variable overrides this.
     {% endif %}
 
