@@ -295,7 +295,24 @@ impl Hash for SimpleValue {
     }
 }
 
-#[pyclass]
+macro_rules! sv_from {
+    ($type:ty, $variant:ident) => {
+        impl From<$type> for SimpleValue {
+            fn from(item: $type) -> Self {
+                SimpleValue::$variant { v: item }
+            }
+        }
+    };
+}
+
+sv_from!(i128, integer);
+sv_from!(f64, float);
+sv_from!(bool, boolean);
+sv_from!(String, string);
+sv_from!((i128, i128), range);
+sv_from!(Vec<ToscaValue>, list);
+sv_from!(BTreeMap<String, ToscaValue>, map);
+
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct ToscaValue {
     #[pyo3(get, set)]
@@ -322,7 +339,26 @@ impl ToscaValue {
     }
 }
 
-#[pyclass]
+macro_rules! tv_from {
+    ($type:ty) => {
+        impl From<$type> for ToscaValue {
+            fn from(item: $type) -> Self {
+                ToscaValue {
+                    type_name: None,
+                    v: SimpleValue::from(item),
+                }
+            }
+        }
+    };
+}
+
+tv_from!(i128);
+tv_from!(f64);
+tv_from!(bool);
+tv_from!(String);
+tv_from!((i128, i128));
+tv_from!(Vec<ToscaValue>);
+tv_from!(BTreeMap<String, ToscaValue>);
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub enum FieldValue {
     Property {
