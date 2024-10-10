@@ -74,6 +74,11 @@ jobs:
           tox -c tosca-parser/tox.ini -v -e $PY_V
           tox -e $PY_V -v -- -vv -n auto --dist loadfile
           .tox/$PY_V/bin/mypy unfurl
+      - name: Run cargo clippy and cargo test
+        if: matrix.python == 3.9
+        run: |
+          cargo clippy --manifest-path rust/Cargo.toml
+          cargo test --no-default-features --manifest-path rust/Cargo.toml
       - name: build docs
         if: matrix.python == 3.9
         run: tox -e docs -- -W --keep-going
