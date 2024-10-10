@@ -1,11 +1,18 @@
+// Copyright (c) 2024 Adam Souzis
+// SPDX-License-Identifier: MIT
 #![allow(clippy::let_unit_value)] // ignore for ascent!
 #![allow(clippy::collapsible_if)] // ignore for ascent!
 #![allow(clippy::clone_on_copy)] // ignore for ascent!
 #![allow(clippy::unused_enumerate_index)] // ignore for ascent!
-
-use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
+#![allow(clippy::type_complexity)] // ignore for ascent!
 
 use ascent::{ascent, lattice::set::Set};
+use std::convert::{From, Into};
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 pub type Symbol = String;
 
 type EntityName = Symbol;
@@ -18,14 +25,16 @@ pub type TypeName = Symbol;
 type QueryId = usize;
 
 #[inline]
-pub fn sym(s: &str) -> Symbol {
+pub(crate) fn sym(s: &str) -> Symbol {
     // XXX make Symbol a real symbol, e.g. maybe use https://github.com/CAD97/strena/blob/main/src/lib.rs#L329C12-L329C25
     s.to_string()
 }
 
-use pyo3::prelude::*;
-
-#[pyclass]
+/// Represents the match criteria for a requirement.
+///
+/// Corresponds to "node", "capability", and "node_filter"
+/// fields on a TOSCA requirement and "valid_target_types" on relationship types.
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
 
 pub enum CriteriaTerm {
@@ -68,9 +77,7 @@ impl CriteriaTerm {
         match self {
             CriteriaTerm::PropFilter { constraints, .. } => {
                 !constraints.is_empty()
-                    && constraints
-                        .iter()
-                        .all(|i| i.clone().matches(t.clone()).is_some_and(|s| s))
+                    && constraints.iter().all(|i| i.matches(t).is_some_and(|s| s))
             }
             _ => false, // always false if we're not a CriteriaTerm::PropFilter
                         // CriteriaTerm::NodeName { n } => match (t.v) { TValue::string { v,} => v == *n, _ => false },
@@ -80,7 +87,7 @@ impl CriteriaTerm {
     }
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
 pub enum QueryType {
     TransitiveRelation,
@@ -92,8 +99,9 @@ pub enum QueryType {
     PropSource,
 }
 
+/// Constraints used in node filters
 #[allow(non_camel_case_types)]
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Constraint {
     equal { v: ToscaValue },
@@ -126,7 +134,7 @@ impl Constraint {
         }
     }
 
-    fn matches(self, t: ToscaValue) -> Option<bool> {
+    fn matches(&self, t: &ToscaValue) -> Option<bool> {
         // XXX validate self.v is compatibility with v
         // let v = self.get_value();
         // let t = tc.v;
@@ -152,7 +160,7 @@ impl Constraint {
                         ..
                     },
             } => {
-                let found = sv.iter().position(|x| *x == t);
+                let found = sv.iter().position(|x| *x == *t);
                 Some(found.is_some())
             }
             Constraint::length {
@@ -163,7 +171,7 @@ impl Constraint {
                     },
             } => {
                 let len = t.v.len()?;
-                Some(vv == len as i128)
+                Some(*vv == len as i128)
             }
             Constraint::min_length {
                 v:
@@ -173,7 +181,7 @@ impl Constraint {
                     },
             } => {
                 let len = t.v.len()?;
-                Some(vv >= len as i128)
+                Some(*vv >= len as i128)
             }
             Constraint::max_length {
                 v:
@@ -183,7 +191,7 @@ impl Constraint {
                     },
             } => {
                 let len = t.v.len()?;
-                Some(vv <= len as i128)
+                Some(*vv <= len as i128)
             }
             _ => None, // type mismatch
         }
@@ -211,15 +219,18 @@ impl Ord for Constraint {
     }
 }
 
+/// Set of CriteriaTerms
 pub type Criteria = Set<CriteriaTerm>;
+pub type Restrictions = Vec<Field>;
 
 #[inline]
 fn match_criteria(full: &Criteria, current: &Criteria) -> bool {
     full == current
 }
 
+/// Simple TOSCA value
 #[allow(non_camel_case_types)]
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum SimpleValue {
     // tosca simple values
@@ -313,21 +324,33 @@ sv_from!((i128, i128), range);
 sv_from!(Vec<ToscaValue>, list);
 sv_from!(BTreeMap<String, ToscaValue>, map);
 
+/// A TOSCA value. If a complex value or typed scalar, type_name will be set.
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct ToscaValue {
+    #[cfg(feature = "python")]
     #[pyo3(get, set)]
-    pub t: Option<Symbol>,
+    pub type_name: Option<Symbol>,
 
+    #[cfg(not(feature = "python"))]
+    pub type_name: Option<Symbol>,
+
+    #[cfg(feature = "python")]
     #[pyo3(get)]
+    pub v: SimpleValue,
+
+    #[cfg(not(feature = "python"))]
     pub v: SimpleValue,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl ToscaValue {
     #[new]
+    #[pyo3(signature = (value, name=None))]
     fn new(value: SimpleValue, name: Option<String>) -> Self {
         ToscaValue {
-            t: name.map(|n| sym(&n)),
+            type_name: name.map(|n| sym(&n)),
             v: value,
         }
     }
@@ -359,6 +382,9 @@ tv_from!(String);
 tv_from!((i128, i128));
 tv_from!(Vec<ToscaValue>);
 tv_from!(BTreeMap<String, ToscaValue>);
+
+/// Value of a [Node](crate::Node) field.
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub enum FieldValue {
     Property {
@@ -376,15 +402,24 @@ pub enum FieldValue {
     },
 }
 
-#[pyclass]
+/// [Node](crate::Node) field.
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct Field {
+    #[cfg(feature = "python")]
     #[pyo3(get, set)]
     pub name: String,
+    #[cfg(not(feature = "python"))]
+    pub name: String,
+
+    #[cfg(feature = "python")]
     #[pyo3(get)]
+    pub value: FieldValue,
+    #[cfg(not(feature = "python"))]
     pub value: FieldValue,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl Field {
     #[new]
@@ -426,7 +461,7 @@ fn choose_cap(a: Option<CapabilityName>, b: Option<CapabilityName>) -> Option<Ca
 }
 
 ascent! {
-    pub struct Topology;
+    pub(crate) struct Topology;
 
     relation entity(EntityRef, TypeName);
     relation node(NodeName, TypeName);
@@ -437,7 +472,7 @@ ascent! {
 
     // node_template definition
     relation capability (NodeName, CapabilityName, EntityRef);
-    relation requirement(NodeName, ReqName, Criteria, Vec<Field>);
+    relation requirement(NodeName, ReqName, Criteria, Restrictions);
     relation relationship(NodeName, ReqName, TypeName);
     relation req_term_node_name(NodeName, ReqName, CriteriaTerm, NodeName);
     relation req_term_node_type(NodeName, ReqName, CriteriaTerm, TypeName);

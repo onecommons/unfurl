@@ -2,41 +2,25 @@
 name = "tosca-solver"
 version = "0.1.0"
 edition = "2021"
-# XXX
-# authors = ["Adam Souzis <adam@souzis.com>"]
-# license = "MIT OR Apache-2.0"
-# description = "Helper crate to build custom gitlab runners"
-# homepage = "https://github.com/collabora/gitlab-runner-rs"
-# repository = "https://github.com/collabora/gitlab-runner-rs"
-# readme = "README.md"
+authors = ["Adam Souzis <adam@souzis.com>"]
+license = "MIT"
+description = "Build a TOSCA topology from a set of TOSCA types and requirements."
+homepage = "https://github.com/onecommons/unfurl/tree/main/rust"
+repository = "https://github.com/onecommons/unfurl"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-# name = "_lib"  # private module to be nested into Python package,
-#                # needs to match the name of the function with the `[#pymodule]` attribute
 name = "tosca_solver"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.21.2", features = ["extension-module", "hashbrown"] }
+pyo3 = { version = "0.22.3", features = ["hashbrown"] }
 pyo3-log = "0.11.0"
 ascent = "0.6.0"
 log = "0.4.22"
 # ascent-byods-rels = "0.6.0"
 
-# [target.x86_64-apple-darwin]
-# rustflags = [
-#   "-C", "link-arg=-undefined",
-#   "-C", "link-arg=dynamic_lookup",
-# ]
-
-# [target.aarch64-apple-darwin]
-# rustflags = [
-#   "-C", "link-arg=-undefined",
-#   "-C", "link-arg=dynamic_lookup",
-# ]
-
-# [build]
-# rustflags = [
-#   "-C", "link-args=-Wl,-rpath,/Library/Developer/CommandLineTools/Library/Frameworks",
-# ]
+[features]
+python = ["pyo3/extension-module"]
+default = ["python"]
