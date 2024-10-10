@@ -1,19 +1,32 @@
 # TOSCA-Solver
 
-Given a TOSCA topology of node templates this library will attempt to infer based on the constraints 
-This library infers missing requirements.
+This crate infers the relationships between [TOSCA](https://docs.unfurl.run/tosca.html) node templates when given a set of node templates and their requirements.
+
+Each TOSCA requirement is encoded as a set of constraints including:
 
 * node and capability types
-* the relationship's required_source_types
+* the relationship's valid_target_types
 * node_filter constraints
+* node_filter match expressions
 
+``solve()`` will return the nodes that match the requirements associated with a given set of nodes.
 
-It use by Unfurl but can be used by any TOSCA 1.3 processor 
+By default this crate is exposed as a Python extension module and is used by [Unfurl](https://github.com/onecommons/unfurl), but it could be used by any TOSCA 1.3 processor.
 
-# readme
-<https://www.maturin.rs/>
+## Usage
 
-## ascent
-<https://github.com/s-arash/ascent/blob/master/README.MD>
-<https://blogit.michelin.io/an-introduction-to-datalog/>
-<https://s-arash.github.io/ascent/cc22main-p95-seamless-deductive-inference-via-macros.pdf>
+By default, this crate is built as a Python extension, to disable this feature, set ``default-features = false``. The ``solve`` function is its main entry point and can invoked from the Rust or Python. Your TOSCA topology will have to be encoded as a HashMap of Nodes -- see ``https://github.com/onecommons/unfurl/blob/main/unfurl/solver.py`` for an example.
+
+## Design notes
+
+Finding the match for a TOSCA requirement with a node_filter can't be determined with a simple algorithm. For example, a node_filter's match can depends on a property value that is computed from a requirement itself (e.g. via TOSCA's ``get_property`` function). So finding a node filter match might change a property's value, which in turn could affect the node_filter match.
+
+In addition to this basic functionality, one of Unfurl's goal is to enable adaptable blueprints and so supports using type inference to resolve requirements.
+
+Luckily TOSCA's constraints are simple enough that we can avoid needing a full SAT solver and instead we encode the inference rules as [Datalog](https://blogit.michelin.io/an-introduction-to-datalog/)-like query rules using [Ascent](https://github.com/s-arash/ascent/).
+
+## Tests
+
+Cargo tests should be invoked with ``cargo test --no-default-features`` because the "pyo3/extension-module" feature doesn't work with cargo test.
+
+Unfurl's Python unit tests have more extensive tests in https://github.com/onecommons/unfurl/blob/main/tests/test_solver.py.
