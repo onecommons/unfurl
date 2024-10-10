@@ -488,19 +488,15 @@ ascent! {
     requirement_match(name, req_name, target, fcn.clone().unwrap_or("feature".into())) <--
         filtered(name, req_name, target, fcn, criteria, filter) if match_criteria(filter, criteria);
 
-    // node_filter/requirements
-    // filtered  <-- for (target_criteria, target_req) in criteria.node_filter_match_requirements.iter(),
-    //               requirement_match(criteria);
-
     // graph navigation
     relation required_by(NodeName, ReqName, NodeName);
     relation transitive_match(NodeName, ReqName, NodeName);
 
     required_by(y, r, x) <-- requirement_match(x, r, y, c);
-    required_by(x, r, z) <-- requirement_match(y, r, x, c), required_by(y, r2, z);
+    required_by(x, r, z) <-- requirement_match(y, r, x, c), required_by(y, r, z);
 
     transitive_match(x, r, y) <-- requirement_match(x, r, y, c);
-    transitive_match(x, r, z) <-- requirement_match(x, r, y, c), transitive_match(y, r2, z);
+    transitive_match(x, r, z) <-- requirement_match(x, r, y, c), transitive_match(y, r, z);
 
     // querying
     relation query(NodeName, ReqName, QueryId, QueryType, ReqName, bool);
@@ -568,13 +564,31 @@ mod tests {
         assert!(tvalue_lessthan(
             SimpleValue::integer { v: 1 },
             SimpleValue::integer { v: 2 }
-        ))
+        ));
+
+        let range = Constraint::in_range {
+            v: ToscaValue::from((1, 4)),
+        };
+        assert!(range.matches(&ToscaValue::from(1)).unwrap());
+        assert!(!range.matches(&ToscaValue::from(6)).unwrap());
     }
 
     #[test]
     fn test_make_topology() {
         let prog = make_topology();
 
+        // test transitive closure by relationship
+        assert_eq!(
+            prog.transitive_match,
+            [
+                (sym("n1"), sym("host"), sym("n2")),
+                (sym("n2"), sym("host"), sym("n3")),
+                (sym("n3"), sym("connect"), sym("n4")),
+                (sym("n1"), sym("host"), sym("n3")),
+            ]
+        );
+
+        // test reverse transitive closure by relationship
         assert_eq!(
             prog.required_by,
             [
