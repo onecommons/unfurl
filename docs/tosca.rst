@@ -223,7 +223,120 @@ Complete Example
 
 Combining the above examples into one file, we have a complete service template:
 
-.. include:: examples/service-template.yaml
-   :literal:
-   :code: YAML
+.. tab-set-code::
 
+  .. code-block:: yaml
+    
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0 # or use the standard tosca_simple_yaml_1_3
+    description: An illustrative TOSCA service template
+    metadata: # the following metadata keys are defined in the TOSCA specification:
+      template_name: hello world
+      template_author: onecommons
+      template_version: 1.0.0
+
+    repositories:
+      docker_hub:
+        url: https://registry.hub.docker.com/
+        credential:
+          user: user1
+          token:
+            eval: # eval is an Unfurl extension
+              secret: dockerhub_user1_pw
+
+    relationship_types:
+      DatabaseConnection:
+        derived_from: tosca.relationships.ConnectsTo
+        properties:
+          username:
+            type: string
+          password:
+            type: string
+            metadata:
+              sensitive: true
+
+    node_types:
+      MyApplication:
+        derived_from: tosca.nodes.SoftwareComponent
+        attributes:
+          private_address:
+            type: string
+        properties:
+          domain:
+            type: string
+            default: { get_input: domain }
+            ports:
+              type: tosca.datatypes.network.PortSpec
+        requirements:
+          - host:
+              capability: tosca.capabilities.Compute
+              relationship: tosca.relationships.HostedOn
+          - db:
+              relationship: DatabaseConnection
+        interfaces:
+          # TOSCA defines Standard interface for lifecycle management but you can define your own too
+          Standard:
+            create: create.sh
+            configure: configure.sh
+            delete: delete.sh
+
+    topology_template:
+      inputs:
+        domain:
+          type: string
+
+      outputs:
+        url:
+          type: string
+          value:
+            {
+              concat:
+                [
+                  https://,
+                  { get_input: domain },
+                  ":",
+                  { get_attribute: [myapp, portspec, source] },
+                  "/api/events",
+                ],
+            }
+          # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:
+          # value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events
+
+      node_templates:
+        myApp:
+          type: MyApplication
+          artifacts:
+            image:
+              type: tosca.artifacts.Deployment.Image.Container.Docker
+              file: myapp:latest
+              repository: docker_hub
+          requirements:
+            - host: compute
+            - db:
+                node: mydb
+                relationship: mydb_connection
+
+        mydb:
+          type: tosca.nodes.Database
+          properties:
+            name: mydb
+
+        compute:
+          type: tosca.nodes.Compute
+          capabilities:
+            host:
+              properties:
+                num_cpus: 1
+                disk_size: 200GB
+                mem_size: 512MB
+
+      relationship_templates:
+        mydb_connection:
+          type: DatabaseConnection
+          properties:
+            username: myapp
+            password:
+              eval:
+                secret: myapp_db_pw
+                
+  .. literalinclude:: ./examples/tosca-example.py
+    :language: python
