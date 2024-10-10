@@ -27,6 +27,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           check-latest: true
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+            toolchain: stable
+            components: clippy
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -69,12 +74,17 @@ jobs:
           tox -c tosca-parser/tox.ini -v -e $PY_V
           tox -e $PY_V -v -- -vv -n auto --dist loadfile
           .tox/$PY_V/bin/mypy unfurl --install-types --non-interactive
+      - name: Run cargo clippy and cargo test
+        if: matrix.python == 3.9
+        run: |
+          cargo clippy --manifest-path rust/Cargo.toml
+          cargo test --no-default-features --manifest-path rust/Cargo.toml
       - name: build docs
         if: matrix.python == 3.9
         run: tox -e docs -- -W --keep-going
       - name: upload docs
         if: matrix.python == 3.9
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: DocumentationHTML
           path: .tox/docs/html/
@@ -287,6 +297,139 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  build:
+    name: >
+      build py3.${{ matrix.python-version }} on ${{ matrix.platform || matrix.os }}
+      (${{ matrix.alt_arch_name || matrix.arch }})
+    needs:
+      - test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, macos]
+        python-version: ['8']
+        arch: [main, alt]
+        include:
+          - os: ubuntu
+            platform: linux
+          - os: ubuntu
+            arch: alt
+            alt_arch_name: aarch64
+          - os: macos
+            arch: alt
+            alt_arch_name: arm64
+          # - os: macos
+          #   arch: main
+
+    runs-on: ${{ format('{0}-latest', matrix.os) }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+    - name: set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: set up rust
+      if: matrix.os != 'ubuntu'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: nightly
+
+    - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      if: matrix.os == 'macos'
+
+    - run: rustup toolchain install stable-i686-pc-windows-msvc
+      if: matrix.os == 'windows'
+
+    - run: rustup target add i686-pc-windows-msvc
+      if: matrix.os == 'windows'
+
+    - name: install python dependencies
+      run: pip install -U setuptools wheel twine cibuildwheel pbr
+
+    - name: build sdist
+      if: matrix.os == 'ubuntu' && matrix.python-version == '8'
+      run: |
+        pip install -U setuptools-rust
+        python setup.py sdist
+
+    - name: Set up QEMU
+      if: matrix.os == 'ubuntu'
+      uses: docker/setup-qemu-action@v3
+      with:
+         platforms: all
+
+    - name: build ${{ matrix.platform || matrix.os }} binaries
+      run: cibuildwheel --output-dir dist
+      env:
+        CIBW_BUILD_FRONTEND: "build"
+        CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
+        # rust doesn't seem to be available for musl linux on i686
+        # and skip rare archs to speed up builds
+        CIBW_SKIP: '*-musllinux_i686 *ppc* *s390x'
+        # we build for "alt_arch_name" if it exists, else 'auto
+        CIBW_ARCHS: ${{ matrix.alt_arch_name || 'auto' }}
+        # see https://cibuildwheel.readthedocs.io/en/stable/faq/#universal2, tests can run on cross-compiled binaries
+        # CIBW_TEST_SKIP: '*-macosx_arm64'
+        # CIBW_TEST_REQUIRES: pytest
+        # CIBW_TEST_COMMAND: 'pytest {project}/tests -s'
+        CIBW_ENVIRONMENT: 'PATH="$HOME/.cargo/bin:$PATH" MACOSX_DEPLOYMENT_TARGET=10.12'
+        CIBW_ENVIRONMENT_WINDOWS: 'PATH="$UserProfile\.cargo\bin;$PATH"'
+        CIBW_ARCHS_MACOS: "universal2"
+        CIBW_MANYLINUX_I686_IMAGE: manylinux2014
+        CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+        CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_1
+        CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64:latest
+        CIBW_MUSLLINUX_AARCH64_IMAGE: musllinux_1_1
+        CIBW_BEFORE_BUILD: rustup show
+        CIBW_BEFORE_BUILD_LINUX: >
+          curl https://sh.rustup.rs -sSf | sh -s -- --profile=minimal -y &&
+          rustup show
+
+    - run: ${{ matrix.ls || 'ls -lh' }} dist/
+
+    - run: twine check dist/*
+
+    - uses: actions/upload-artifact@v3  # v4 doesn't allow same filename to be reloaded, see https://github.com/actions/upload-artifact/blob/main/docs/MIGRATION.md#merging-multiple-artifacts
+      with:
+        name: pypi_files
+        path: dist
+
+  inspect-pypi-assets:
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: get dist artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: pypi_files
+          path: dist
+
+      - name: list dist files
+        run: |
+          ls -lh dist/
+          echo "`ls dist | wc -l` files"
+
+      - name: extract and list sdist file
+        run: |
+          mkdir sdist-files
+          tar -xvf dist/*.tar.gz -C sdist-files
+          tree -a sdist-files
+
+      - name: extract and list wheel file
+        run: |
+          ls dist/*cp3*-manylinux*x86_64.whl | head -n 1
+          python -m zipfile --list `ls dist/*cp3*-manylinux*x86_64.whl | head -n 1`
+
+      - run: pip install twine
+      - run: twine check dist/*
 
   publish_pypi:
     needs: publish_dockerhub

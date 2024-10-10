@@ -399,6 +399,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[Literal[False], str]] = None
     protected: Optional[bool] = None
+    customized: Optional[Union[bool, str]] = None
     imports: Optional[Imports] = None
     imported: Optional[str] = None
     _baseDir = ""
@@ -451,6 +452,27 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
 
+    def out_of_sync(self):
+        instance_keys = set(self._properties)
+        template_keys = set(self.template.properties)
+        if instance_keys - template_keys:
+            # deleted properties (missing in template)
+            return instance_keys - template_keys
+        template_props = ResultsMap(self.template.properties, self)
+        instance_props = ResultsMap(self._properties, self) # serialized values
+        instance_attrs = ResultsMap(self._attributes, self) # serialized values
+        overridden = set(self._attributes) & template_keys
+        for key in overridden:
+            # attribute overrides property and is different
+            if instance_attrs[key] != template_props[key]: # evaluates
+                return key
+        # check if previously evaluated, non-overridden properties have changed
+        for key in instance_keys - overridden:
+            if instance_props[key] != template_props[key]: # evaluates
+                # property changed since last save
+                return key
+        return False
+
     def __priority():  # type: ignore
         doc = "The priority property."
 
@@ -485,7 +507,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
-    def get_operational_dependencies(self) -> Iterator[Operational]:
+    def get_operational_dependencies(self) -> Iterable[Operational]:
         if self.parent and self.parent is not self.root:
             yield self.parent
 
@@ -535,11 +557,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def uri(self) -> str:
         manifest = self._manifest
         if not manifest:
-            return "#" + self.key
+            return "#" + self.nested_key
         if "#" in manifest.uri:
-            return manifest.uri + "?" + self.key
+            return manifest.uri + "?" + self.nested_key
         else:
-            return manifest.uri + "#" + self.key
+            return manifest.uri + "#" + self.nested_key
 
     @property
     def deployment(self) -> str:
@@ -922,7 +944,7 @@ class ArtifactInstance(EntityInstance):
     def as_import_spec(self):
         return self.template.as_import_spec()
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         # skip dependency on the parent
         for d in self.dependencies:
             yield d
@@ -1176,7 +1198,7 @@ class NodeInstance(HasInstancesInstance):
                 else:
                     raise
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         yield from super().get_operational_dependencies()
 
         for instance in self.requirements:
@@ -1281,7 +1303,7 @@ class TopologyInstance(HasInstancesInstance):
             if rel.template.is_compatible_type(relation)
         ]
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         for instance in self.instances:
             yield instance
 

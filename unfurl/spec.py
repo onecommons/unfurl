@@ -91,11 +91,11 @@ def validate_unfurl_identifier(name):
     return re.match(r"^[A-Za-z._][A-Za-z0-9._:\-]*$", name) is not None
 
 
-def encode_unfurl_identifier(name):
+def encode_unfurl_identifier(name, escape=r"[^A-Za-z0-9._:-]"):
     def encode(match):
         return f"-{ord(match.group(0))}-"
 
-    return re.sub(r"[^A-Za-z0-9._:\-]", encode, name)
+    return re.sub(escape, encode, name)
 
 
 def decode_unfurl_identifier(name):
@@ -259,7 +259,9 @@ class ToscaSpec:
             p.name: PolicySpec(p, self.topology)
             for p in self.template.topology_template.policies
         }
-        # this ToscaSpec is now ready, now we can call validate_relationships() which may invoke the find_matching_node callback
+
+        # this ToscaSpec is now ready, now we can call validate_relationships()
+        # which calls relationships() and may invoke the find_matching_node callback
         self.template.validate_relationships()
         self._post_node_filter_validation()
         ExceptionCollector.collecting = False
@@ -570,7 +572,8 @@ class ToscaSpec:
         for nodespec in self.topology.node_templates.values():
             ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
-            nodespec.toscaEntityTemplate.revalidate_properties()
+            if nodespec.abstract != "select":
+                nodespec.toscaEntityTemplate.revalidate_properties()
 
     def apply_node_filters(
         self, target: NodeTemplate, req_def: dict, source: NodeTemplate
@@ -668,7 +671,7 @@ def find_env_vars(props_iter):
                     yield name, env_var_value(value)
 
 
-def find_props(attributes, propertyDefs, flatten=False):
+def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
     if not attributes:
         return
     for propdef in propertyDefs.values():
@@ -1911,7 +1914,9 @@ class ArtifactSpec(EntitySpec):
     def as_value(self) -> Optional[ExternalValue]:
         if self.is_compatible_type("tosca.artifacts.Deployment.Image.Container.Docker"):
             artifactDef = self.toscaEntityTemplate
-            assert not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
+            assert (
+                not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
+            )
             kw = dict(tag=self.properties.get("tag"), digest=artifactDef.checksum)
             if self.repository:
                 kw["registry_host"] = self.repository.hostname

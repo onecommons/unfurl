@@ -19,6 +19,7 @@ import ast
 import time
 from typing import (
     TYPE_CHECKING,
+    Iterable,
     Iterator,
     List,
     MutableMapping,
@@ -98,11 +99,17 @@ logger = getLogger("unfurl")
 
 class Status(int, Enum):
     unknown = 0
+    "The operational state of the instance is unknown."
     ok = 1
+    "Instance is operational"
     degraded = 2
+    "Instance is operational but in a degraded state."
     error = 3
+    "Instance is not operational."
     pending = 4
+    "Instance is being brought up or hasn't been created yet."
     absent = 5
+    "Instance confirmed to not exist."
 
     @property
     def color(self):
@@ -156,6 +163,9 @@ class Reason(str, Enum):
     prune = "prune"
     run = "run"
     check = "check"
+    undeploy = "undeploy"
+    stop = "stop"
+    connect = "connect"
 
     def __str__(self) -> str:
         return self.value
@@ -1426,7 +1436,6 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
         # special keys:
         .added: # resource spec if this resource was added by the task
         .status: # set when status changes, including when removed (Status.absent)
-        .accessed: list of accessed attributes
     """
 
     statusIndex = 0
@@ -1487,7 +1496,7 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
             else:
                 self[name] = [change[1], None, {}]
 
-    def add_resources(self, resources: List[MutableMapping[str, Any]]) -> None:
+    def add_resources(self, resources: Iterable[Dict[str, Any]]) -> None:
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
@@ -1527,8 +1536,8 @@ class TopologyMap(dict):
 
 
 AttributeInfo = Tuple[bool, Union[ResultsItem, Any], bool]  # live, value, accessed
-LiveDependencies = NewType(
-    "LiveDependencies",
+_Dependencies = NewType(
+    "_Dependencies",
     Dict[
         "InstanceKey",
         Tuple["EntityInstance", Dict[str, AttributeInfo]],
@@ -1684,9 +1693,9 @@ class AttributeManager:
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
 
-    def commit_changes(self) -> Tuple[AttributesChanges, LiveDependencies]:
+    def commit_changes(self) -> Tuple[AttributesChanges, _Dependencies]:
         changes: AttributesChanges = cast(AttributesChanges, {})
-        liveDependencies = cast(LiveDependencies, {})
+        _dependencies = cast(_Dependencies, {})
         for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
             # overrides will only contain:
@@ -1695,7 +1704,7 @@ class AttributeManager:
             _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
-            live: Dict[str, Any] = {}
+            touched: Dict[str, Any] = {}
             # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in list(overrides.items()):
                 if not isinstance(value, ResultsItem):
@@ -1708,7 +1717,7 @@ class AttributeManager:
                     savedValue = self._save_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
-                    live[key] = (
+                    touched[key] = (
                         isLive,
                         savedValue if is_sensitive else value,
                         accessed,
@@ -1727,8 +1736,8 @@ class AttributeManager:
                     _attributes[key] = savedValue
             resource._attributes = _attributes
 
-            if live:
-                liveDependencies[resource.key] = (resource, live)
+            if touched:
+                _dependencies[resource.key] = (resource, touched)
             # save changes
             diff = attributes.get_diff()
             if not diff:
@@ -1739,4 +1748,4 @@ class AttributeManager:
             changes[resource.key] = diff
 
         self._reset()
-        return changes, liveDependencies
+        return changes, _dependencies

@@ -40,6 +40,7 @@ from .lock import Lock
 from .util import (
     UnfurlBadDocumentError,
     UnfurlSchemaError,
+    is_relative_to,
     to_bytes,
     to_text,
     sensitive_str,
@@ -95,6 +96,12 @@ if TYPE_CHECKING:
     from .manifest import Manifest
 
 logger = getLogger("unfurl")
+
+try:
+    from .solver import solve_topology
+except ImportError:
+    solve_topology = None  # type: ignore
+    logger.warning("Failed to import tosca_solver extension, topology inference is disabled.")
 
 yaml_perf = 0.0
 
@@ -305,6 +312,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+        self.solve_topology = solve_topology
 
     GLOBAL_NAMESPACE_PACKAGES = os.getenv(
         "UNFURL_GLOBAL_NAMESPACE_PACKAGES",
@@ -458,7 +466,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     self.config.get("environment")
                 )
                 tpl["credential"] = self.manifest.localEnv.map_value(
-                    credential, context.get("variables")
+                    credential, cast(dict, context.get("variables"))
                 )
 
         return Repository(name, tpl)
@@ -469,47 +477,54 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         repository_name,
         source_info: Optional[toscaparser.imports.SourceInfo] = None,
     ) -> str:
-        from .graphql import get_namespace_id
-
         if repository_name:
             url = super().get_repository_url(importsLoader, repository_name)
-        elif self.manifest and self.manifest.path:
-            if self.manifest.repo:
-                url = self.manifest.repo.get_url_with_path(
-                    self.manifest.get_base_dir(), True
-                )
-            else:
-                url = self.manifest.path
         else:
-            url = ""
-        if source_info:
-            path_is_url = toscaparser.imports.is_url(source_info["path"])
-            if toscaparser.imports.is_url(source_info["root"]) and not path_is_url:
-                repository_root = self._find_repository_root(source_info["path"])
+            if self.manifest:
+                if self.manifest.repo:
+                    url = self.manifest.repo.get_url_with_path(
+                        self.manifest.get_base_dir(), True
+                    )
+                else:
+                    url = self.manifest.path or ""
             else:
-                repository_root = source_info["root"]
-            if repository_root and source_info["path"] and not path_is_url:
+                url = ""
+        if source_info:
+            return self._get_namespace_from_source_info(url, source_info)
+        else:
+            return url
+
+    def _get_namespace_from_source_info(
+        self, url, source_info: toscaparser.imports.SourceInfo
+    ) -> str:
+        from .graphql import get_namespace_id
+
+        path = source_info["path"]
+        if path and not toscaparser.imports.is_url(path):
+            # handle case were type was ?include-d not imported
+            repo_view = self._find_repoview_from_path(path)
+            if repo_view:
+                url = repo_view.url
                 relfile = os.path.normpath(
-                    Path(source_info["path"]).relative_to(repository_root)
+                    Path(source_info["path"]).relative_to(repo_view.working_dir)
                 )
                 if relfile != ".":
                     source_info["file"] = relfile
-            namespace_id = get_namespace_id(url, source_info)
-            if self.manifest and self.manifest.package_specs:
-                canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
-                if canonical:
-                    namespace_id = find_canonical(
-                        self.manifest.package_specs, canonical, namespace_id
-                    )
+        namespace_id = get_namespace_id(url, source_info)
+        if self.manifest and self.manifest.package_specs:
+            canonical = urlparse(DEFAULT_CLOUD_SERVER).hostname
+            if canonical:
+                namespace_id = find_canonical(
+                    self.manifest.package_specs, canonical, namespace_id
+                )
 
-            explicit_namespace = match_namespace(
-                self.GLOBAL_NAMESPACE_PACKAGES, namespace_id
-            )
-            if explicit_namespace:
-                namespace_id = explicit_namespace
-                source_info["namespace_uri"] = explicit_namespace
-            return namespace_id
-        return url
+        explicit_namespace = match_namespace(
+            self.GLOBAL_NAMESPACE_PACKAGES, namespace_id
+        )
+        if explicit_namespace:
+            namespace_id = explicit_namespace
+            source_info["namespace_uri"] = explicit_namespace
+        return namespace_id
 
     confine_user_paths = True
 
@@ -623,24 +638,31 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = add_user_to_url(url, candidate_parts.username, password)
         return memoized_remote_tags(url, pattern="*")
 
-    def _find_repository_root(self, base):
+    def _find_repository_root(self, base: str):
         assert base
-        nearest = ""
-        # if repository is nested in another choose the most nested
-        for repo_view in self.manifest.repositories.values():
-            try:
-                candidate = str(Path(base).relative_to(repo_view.working_dir))
-                if not nearest or len(candidate) < len(nearest):
-                    nearest = candidate
-            except ValueError:
-                continue
-        if nearest:
-            return base[: -len(nearest) - 1]
         try:
             repo = git.Repo(base, search_parent_directories=True)
             return repo.working_dir
         except Exception:
             return base
+
+    def _find_repoview_from_path(self, base: str) -> Optional[RepoView]:
+        assert base
+        nearest = ""
+        candidate = None
+        if self.manifest:
+            # if repository is nested in another choose the most nested
+            for repo_view in self.manifest.repositories.values():
+                if not repo_view.repo:
+                    if self.manifest.localEnv:
+                        repo_view.repo = self.manifest.localEnv.find_git_repo(
+                            repo_view.url
+                        )
+                if is_relative_to(base, repo_view.working_dir):
+                    if len(repo_view.working_dir) > len(nearest):
+                        nearest = repo_view.working_dir
+                        candidate = repo_view
+        return candidate
 
     def resolve_url(
         self,
@@ -987,6 +1009,7 @@ class YamlConfig:
             self.schema = schema
             self.readonly = bool(readonly)
             self.file_size = None
+            self.saved = False
             if path:
                 self.path = os.path.abspath(path)
                 err_msg = f"Unable to load yaml config at {self.path}"
@@ -1115,6 +1138,7 @@ class YamlConfig:
                 f.write(output.getvalue())
             statinfo = os.stat(self.path)
             self.file_size = statinfo.st_size
+            self.saved = True
         return output
 
     @property
@@ -1143,7 +1167,7 @@ class YamlConfig:
             baseUri = urljoin("file:", urllib.request.pathname2url(path))
         return find_schema_errors(config, self.schema, baseUri)
 
-    def search_includes(self, key=None, pathPrefix=None):
+    def search_includes(self, key: Optional[str]=None, pathPrefix: Optional[str]=None) -> Union[Tuple[None, None], Tuple[str, dict]]:
         for k in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[k]
             candidate = True
@@ -1170,9 +1194,9 @@ class YamlConfig:
             f.write(output.getvalue())
 
     def load_include(
-        self, templatePath, warnWhenNotFound=False, expanded=None, check=False
+        self, templatePath, warnWhenNotFound=False, expanded=None, check_or_path=False
     ):
-        if check and isinstance(check, bool):
+        if check_or_path and isinstance(check_or_path, bool):
             # called by merge.has_template
             if self.loadHook:
                 return self.loadHook(

@@ -163,7 +163,7 @@ def set_up_deployment(runner, deployment):
     # configure the server to clone into "server" and push into "remote.git"
     init_project(
         runner,
-        args=["init", "--mono", "--var", "vaultpass", "", "remote"],
+        args=["init", "--mono", "--var", "VAULT_PASSWORD", "", "remote"],
         env=dict(UNFURL_HOME=""),
     )
     # Create a mock deployment

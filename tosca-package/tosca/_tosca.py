@@ -96,9 +96,9 @@ def global_state_context() -> Any:
 
 yaml_cls = dict
 
-JsonObject: TypeAlias = Dict[str, Any]
+JsonObject: TypeAlias = Dict[str, "JsonType"]
 JsonType: TypeAlias = Union[
-    None, int, float, str, bool, Sequence["JsonType"], Mapping[str, "JsonType"]
+    None, int, float, str, bool, Sequence["JsonType"], Dict[str, "JsonType"]
 ]
 
 
@@ -266,6 +266,8 @@ class DeploymentBlueprint(Namespace):
         for fieldname in cls._fields:
             field = cls.__dict__.get(fieldname)
             if field:
+                if fieldname == "_cloud" and hasattr(field, "tosca_type_name"):
+                    field = field.tosca_type_name()
                 blueprint[fieldname[1:]] = field
         converter.topology_templates.append(blueprint)
         converter._namespace2yaml(cls.get_defs())
@@ -338,7 +340,7 @@ def operation(
 
 
 class NodeTemplateDirective(str, Enum):
-    "Node Template directives."
+    "Node Template :tosca_spec:`directives<_Toc50125217>`."
 
     select = "select"
     "Match with instance in external ensemble"
@@ -347,7 +349,7 @@ class NodeTemplateDirective(str, Enum):
     "Create a nested topology"
 
     default = "default"
-    "Only use this template if one with the same name isn't already defined in primary topology."
+    "Only use this template if one with the same name isn't already defined in the root topology."
 
     dependent = "dependent"
     "Exclude from plan generation"
@@ -1056,9 +1058,9 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             and self.default is not CONSTRAINED
             and self.default is not REQUIRED
         ):
-            return self.default.to_template_yaml(converter)  # type: ignore
+            return self.default.to_template_yaml(converter)
         elif self.default_factory and self.default_factory is not dataclasses.MISSING:
-            return self.default_factory().to_template_yaml(converter)  # type: ignore
+            return self.default_factory().to_template_yaml(converter)
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
@@ -1131,8 +1133,9 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             prop_def.setdefault("constraints", []).extend(
                 c.to_yaml() for c in self.constraints
             )
+        default_field = self.owner._default_key if self.owner else "default"
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
-            prop_def["default"] = to_tosca_value(self.default_factory())
+            prop_def[default_field] = to_tosca_value(self.default_factory())
         elif (
             self.default is not dataclasses.MISSING
             and self.default is not REQUIRED
@@ -1140,7 +1143,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         ):
             if self.default is not None or not optional:
                 # only set the default to null when if property is required
-                prop_def["default"] = to_tosca_value(self.default)
+                prop_def[default_field] = to_tosca_value(self.default)
         if self.title:
             prop_def["title"] = self.title
         if self.status:
@@ -1719,6 +1722,7 @@ def find_relationship(name: str) -> Any:
 
 class FieldProjection(EvalData):
     "A reference to a tosca field or projection off a tosca field"
+
     # created by _DataclassTypeProxy, invoked via _class_init
 
     def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
@@ -2185,6 +2189,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     _docstrings: Optional[Dict[str, str]] = dataclasses.field(
         default=None, init=False, repr=False
     )
+    _default_key: ClassVar[str] = "default"
 
     @classmethod
     def _resolve_class(cls, _type):
@@ -2234,15 +2239,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             if obj is None:
                 raise AttributeError(f"can't find {name} in {qname}")
         return obj
-
-    @classmethod
-    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
-        for c in cls.__bases__:
-            # only include classes of the same tosca type as this class
-            # and exclude the base class defined in this module
-            if issubclass(c, ToscaType):
-                if c._type_section == (section or cls._type_section) and c.__module__ != __name__:  # type: ignore
-                    yield c
 
 
 class ToscaInputs(_ToscaType):
@@ -2392,6 +2388,7 @@ def find_hosted_on(
 
 class ToscaType(_ToscaType):
     "Base class for TOSCA type definitions."
+
     # NB: _name needs to come first for python < 3.10
     _name: str = field(default="", kw_only=False)
     _type_name: ClassVar[str] = ""
@@ -2411,14 +2408,18 @@ class ToscaType(_ToscaType):
         for field in fields.values():
             val = object.__getattribute__(self, field.name)
             if val is REQUIRED:
-                # on Python < 3.10 we set this to workaround the lack of keyword only fields
-                raise ValueError(
-                    f'Keyword argument was missing: {field.name} on "{self}".'
-                )
+                if self._enforce_required_fields():
+                    # on Python < 3.10 we set this to workaround the lack of keyword only fields
+                    raise ValueError(
+                        f'Keyword argument was missing: {field.name} on "{self}".'
+                    )
             elif getattr(field, "deferred_property_assignments", None):
                 for name, value in field.deferred_property_assignments.items():
                     setattr(val, name, value)
         self._initialized = True
+
+    def _enforce_required_fields(self):
+        return True
 
     # XXX version (type and template?)
 
@@ -2426,6 +2427,18 @@ class ToscaType(_ToscaType):
         self._all_templates.setdefault(self._template_section, {})[
             (current_module, self._name or name)
         ] = self
+
+    @classmethod
+    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
+        for c in cls.__bases__:
+            # only include classes of the same tosca type as this class
+            # and exclude the base class defined in this module
+            if issubclass(c, ToscaType):
+                if (
+                    c._type_section == (section or cls._type_section)
+                    and c.__module__ != __name__
+                ):
+                    yield c
 
     def __set_name__(self, owner, name):
         # called when a template is declared as a default value or inside a Namespace (owner will be class)
@@ -2770,7 +2783,9 @@ class ToscaType(_ToscaType):
                         default_value = field.default
                     if value._local_name:
                         compare = dataclasses.replace(
-                            value, _local_name=None, _node=None  # type: ignore
+                            value,
+                            _local_name=None,
+                            _node=None,  # type: ignore
                         )
                     else:
                         compare = value
@@ -2810,7 +2825,48 @@ class ToscaType(_ToscaType):
         return getattr(loaded, class_name)
 
 
+class _TopologyParameter(ToscaType):
+    _type_section: ClassVar[str] = "topology_template"
+
+    @classmethod
+    def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
+        dict_cls = converter and converter.yaml_cls or yaml_cls
+        body: Dict[str, Any] = dict_cls()
+        for field in cls.explicit_tosca_fields:
+            assert field.name, field
+            item = field.to_yaml(converter)
+            body.update(item)
+        return {cls._type_name: body}
+
+
+class TopologyInputs(_TopologyParameter):
+    "Base class for defining topology template inputs."
+
+    _type_name: ClassVar[str] = "inputs"
+
+
+class TopologyOutputs(_TopologyParameter):
+    "Base class for defining topology template outputs."
+
+    _type_name: ClassVar[str] = "outputs"
+    _default_key: ClassVar[str] = "value"
+
+
 _TT = TypeVar("_TT", bound="NodeType")
+
+
+def substitute_node(node_type: Type[_TT], _name: str = "", **kw) -> _TT:
+    directives = kw.pop("_directives", [])
+    if NodeTemplateDirective.substitute not in directives:
+        directives.append(NodeTemplateDirective.substitute)
+    return node_type(_name, _directives=directives, **kw)
+
+
+def select_node(node_type: Type[_TT], _name: str = "", **kw) -> _TT:
+    directives = kw.pop("_directives", [])
+    if NodeTemplateDirective.select not in directives:
+        directives.append(NodeTemplateDirective.select)
+    return node_type(_name, _directives=directives, **kw)
 
 
 # set requirement_name to the types the type checker will see,
@@ -2928,7 +2984,7 @@ def _get_field_from_prop_ref(requirement_name) -> Tuple[Optional[_Tosca_Field], 
 
 
 def _get_expr_prefix(
-    cls_or_obj: Union[None, ToscaType, Type[ToscaType]]
+    cls_or_obj: Union[None, ToscaType, Type[ToscaType]],
 ) -> List[Union[str, _GetName]]:
     if cls_or_obj:
         if cls_or_obj._name:
@@ -2964,26 +3020,52 @@ def find_all_required_by(
 
 class NodeType(ToscaType):
     "NodeType"
+
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
 
     _directives: List[str] = field(default_factory=list)
     "List of this node template's TOSCA directives"
 
+    _node_filter: Optional[Dict[str, Any]] = None
+    "Optional node_filter to use with 'select' directive"
+
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         yaml = cls._shared_cls_to_yaml(converter)
         return yaml
 
+    def _enforce_required_fields(self):
+        for directive in self._directives:
+            for name in ("select", "substitute"):
+                return False
+        return True
+
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
         if self._directives:
             tpl["directives"] = self._directives
+        if self._node_filter:
+            tpl["node_filter"] = self._node_filter
         return tpl
 
     def find_artifact(self, name_or_tpl) -> Optional["ArtifactType"]:
         # XXX
         return None
+
+    def substitute(self, _name: str = "", **overrides) -> Self:
+        """
+        Create a new node template with a "substitute" directive.
+
+        For example:
+
+        .. code-block:: python
+
+          from tosca_repositories import nested
+
+          substitution_node = nested.__root__.substitute(property="override", db=DB())
+        """
+        return substitute_node(type(self), _name=_name, **overrides)
 
     if typing.TYPE_CHECKING:
         # trick the type checker to support both class and instance method calls

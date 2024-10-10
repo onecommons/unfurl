@@ -11,7 +11,7 @@ VERSION = unfurl.__version__()
 # -- Project information -----------------------------------------------------
 
 project = "Unfurl"
-copyright = "2023, OneCommons Co."
+copyright = "2025, OneCommons Co."
 author = "Adam Souzis"
 release = VERSION
 
@@ -48,7 +48,8 @@ myst_enable_extensions = [
 extlinks = {
     "onecommons": ("https://onecommons.org/%s", None),
     "unfurl_site": ("https://unfurl.run/%s", None),
-    "unfurl_github": ("https://github.com/onecommons/unfurl/tree/main/", None),
+    "unfurl_github_tree": ("https://github.com/onecommons/unfurl/tree/main/", None),
+    "unfurl_github_file": ("https://github.com/onecommons/unfurl/blob/main/", None),
     "tosca_spec": (
         "_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
         "TOSCA 1.3 Specification: %",
@@ -59,14 +60,16 @@ extlinks = {
     ),
     "cli": (
         "cli.html#%s",
-        "Command Line: %s",
+        "%s",
     ),
 }
 
+# usage: |stdlib|_
 rst_epilog = """
-.. _How it works: https://unfurl.run/howitworks.html
+.. |stdlib| replace:: Unfurl Cloud Standard TOSCA library
+.. _stdlib: https://unfurl.cloud/onecommons/std
+.. _Unfurl Cloud: https://unfurl.cloud/
 """
-
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

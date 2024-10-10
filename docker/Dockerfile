@@ -1,14 +1,14 @@
 FROM python:3.11-slim
 
 RUN apt-get -qq update && \
-    apt-get -qq install -y --no-install-recommends git curl unzip wget expect && \
+    apt-get -qq install -y --no-install-recommends git curl unzip wget expect build-essential && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 ARG TERRAFORM_VERSION=1.1.4
 ARG HELM_VERSION=3.7.1
 ARG GCLOUD_VERSION=398.0.0
 ARG KOMPOSE_VERSION=v1.26.1
-ENV PATH="${PATH}:/google-cloud-sdk/bin" \
+ENV PATH="${PATH}:/google-cloud-sdk/bin:$HOME/.cargo/bin" \
     PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1
 
@@ -37,11 +37,15 @@ RUN echo "Installing Terraform" && \
     chmod +x /usr/local/bin/kompose && \
     \
     echo "Installing Kubectl and GKE auth plugin" && \
-    gcloud components install --quiet kubectl gke-gcloud-auth-plugin
+    gcloud components install --quiet kubectl gke-gcloud-auth-plugin && \
+    \
+    echo "Installing Rust" && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 COPY . /unfurl
 
-RUN pip install --no-cache-dir --upgrade pip pipenv && \
+RUN . "$HOME/.cargo/env" && \
+    pip install --no-cache-dir --upgrade pip pipenv setuptools-rust && \
     cd /unfurl/unfurl/templates/python3.11 && \
     pipenv install --system --deploy && \
     pip install --no-deps /unfurl && \

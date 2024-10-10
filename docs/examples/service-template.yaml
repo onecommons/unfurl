@@ -90,6 +90,8 @@ topology_template:
       type: tosca.nodes.Database
       properties:
         name: mydb
+      requirements:
+        - host: compute
 
     compute:
       type: tosca.nodes.Compute

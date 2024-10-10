@@ -1,4 +1,5 @@
 # Use this to create a Pipfile.lock for all dependencies
 # pipenv --no-site-packages install --ignore-pipfile -r ../../all-requirements.txt
+-r tosca-parser/requirements.txt
 -r requirements.txt
 -r full-requirements.txt

@@ -278,7 +278,7 @@ class PythonToYaml:
         current_module = self.globals.get(
             "__name__", "builtins"
         )  # exec() adds to builtins
-        path = self.globals.get("__file__")
+        module_path = self.globals.get("__file__")
         description = self.globals.get("__doc__")
         if description and description.strip():
             self.sections["description"] = description.strip()
@@ -308,15 +308,15 @@ class PythonToYaml:
             module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):
                 if module_name and module_name != current_module:
-                    self._import_module(current_module, path, module_name)
+                    self._import_module(current_module, module_path, module_name)
                     continue
                 # this is a class not an instance
+                section = obj._type_section  # type: ignore
                 if id(obj) in seen:
                     # name is a alias referenced, treat as subtype in TOSCA
                     as_yaml = self.add_alias(name, obj)
                 else:
                     seen.add(id(obj))
-                    section = obj._type_section  # type: ignore
                     obj._globals = self.globals  # type: ignore
                     _docstrings = self.docstrings.get(name)
                     if isinstance(_docstrings, dict):
@@ -329,8 +329,9 @@ class PythonToYaml:
                     ).update(dict(node_type=obj.tosca_type_name()))
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
-                if (isinstance(obj, NodeType) or obj._name) and not isinstance(
-                    obj, InstanceProxy
+                if (
+                    (isinstance(obj, NodeType) or obj._name)
+                    and not isinstance(obj, InstanceProxy)
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                     self.add_template(obj, name, current_module)
                     if name == "__root__":
@@ -342,7 +343,7 @@ class PythonToYaml:
                 to_yaml = getattr(obj, "to_yaml", None)
                 if section:
                     if module_name and module_name != current_module:
-                        self._import_module(current_module, path, module_name)
+                        self._import_module(current_module, module_path, module_name)
                         continue
                     if isinstance(obj, type) and issubclass(obj, ValueType):
                         as_yaml = obj._cls_to_yaml(self)
@@ -358,44 +359,53 @@ class PythonToYaml:
                             to_yaml(self.yaml_cls)
                         )
 
-    def _import_module(self, current_module, path, module_name) -> None:
+    def _import_module(
+        self, current_module: str, module_path: Optional[str], module_name: str
+    ) -> None:
         # note: should only be called for modules with tosca objects we need to convert to yaml
-        if not module_name.startswith("tosca."):
-            if not path:
-                logger.warning(
-                    f"can't import {module_name}: current module {current_module} doesn't have a path"
+        if module_name.startswith("tosca."):
+            return
+        if not module_path:
+            logger.warning(
+                f"can't import {module_name}: current module {current_module} doesn't have a path"
+            )
+            return
+        # logger.debug(
+        #     f"adding import statement to {current_module} in {module_name} at {path}"
+        # )
+        # this type was imported from another module
+        # instead of converting the type, add an import if missing
+        module, yaml_path = self.find_yaml_import(module_name)
+        if not yaml_path and module:
+            #  its a TOSCA object but no yaml file found, convert to yaml now
+            yaml_path = self._imported_module2yaml(module)
+        if yaml_path:
+            try:
+                module_dir = Path(os.path.dirname(module_path))
+                if yaml_path.is_absolute():
+                    import_path = yaml_path.relative_to(module_dir)
+                else:
+                    import_path = module_dir / yaml_path
+                self.imports.add(("", import_path))
+                logger.debug(
+                    f'importing "{module_name}" in "{current_module}": located at "{import_path}", relative to "{module_path}"'
                 )
-                return
-            # logger.debug(
-            #     f"adding import statement to {current_module} in {module_name} at {path}"
-            # )
-            # this type was imported from another module
-            # instead of converting the type, add an import if missing
-            module, yaml_path = self.find_yaml_import(module_name)
-            if not yaml_path and module:
-                #  its a TOSCA object but no yaml file found, convert to yaml now
-                yaml_path = self._imported_module2yaml(module)
-            if yaml_path and path:
-                try:
-                    import_path = yaml_path.relative_to(path)
-                    self.imports.add(("", import_path))
-                    logger.debug(
-                        f'importing "{module_name}" in "{current_module}": located at "{import_path}", relative to "{path}"'
-                    )
-                except ValueError:
-                    # not a subpath of the current module, add a repository
-                    ns, path = self._set_repository_for_module(module_name, yaml_path)
-                    if path:
-                        self.imports.add((ns, path))
+            except ValueError:
+                # not a subpath of the current module, add a repository
+                ns, repo_path = self._set_repository_for_module(
+                    module_name, yaml_path
+                )
+                if repo_path:
+                    self.imports.add((ns, repo_path))
+                else:
+                    if ns:
+                        logger.warning(
+                            f"import look up in {current_module} failed, {yaml_path} is not in the subpath of {module_path} for {module_name} in package {ns}",
+                        )
                     else:
-                        if ns:
-                            logger.warning(
-                                f"import look up in {current_module} failed, {module_name} in package {ns} isn't relative to {yaml_path}",
-                            )
-                        else:
-                            logger.warning(
-                                f"import look up in {current_module} failed, can't find {module_name}",
-                            )
+                        logger.warning(
+                            f"import look up in {current_module} failed, can't find {module_name}",
+                        )
 
 
 def python_src_to_yaml_obj(

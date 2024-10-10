@@ -73,6 +73,10 @@ Other
   .. autoclass:: ToscaInputs
   .. autoclass:: ToscaOutputs
 
+.. autoclass:: TopologyInputs
+
+.. autoclass:: TopologyOutputs
+
 .. autofunction:: set_evaluation_mode
 
 .. autofunction:: safe_mode
@@ -108,6 +112,13 @@ API for writing configurators
 
 .. automodule:: unfurl.result
   :members: ChangeRecord, ChangeAware
+
+Project folders
+~~~~~~~~~~~~~~~
+
+.. automodule:: unfurl.projectpaths
+  :members: WorkFolder, _get_base_dir
+  :undoc-members:
 
 Runtime module
 ~~~~~~~~~~~~~~

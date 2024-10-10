@@ -4,7 +4,18 @@
 
 import io
 import json
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TYPE_CHECKING,
+    TypedDict,
+    cast,
+)
+from typing_extensions import NotRequired
 import sys
 from collections.abc import MutableSequence, Mapping
 import numbers
@@ -19,7 +30,7 @@ except ImportError:
     from functools import lru_cache as cache
 
 from . import DefaultNames
-from .util import UnfurlError, get_base_dir, to_yaml_text, filter_env
+from .util import UnfurlError, get_base_dir, substitute_env, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig, make_yaml
 from .result import serialize_value
@@ -27,7 +38,7 @@ from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .spec import ArtifactSpec, NodeSpec, find_env_vars
+from .spec import ArtifactSpec, NodeSpec, encode_unfurl_identifier, find_env_vars
 from .runtime import EntityInstance, NodeInstance, TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
@@ -97,7 +108,7 @@ def has_status(operational):
     return operational.last_change or operational.status
 
 
-def save_status(operational, status=None):
+def save_status(operational, status: Optional[CommentedMap] = None) -> CommentedMap:
     if status is None:
         status = CommentedMap()
     if not has_status(operational):
@@ -140,7 +151,7 @@ def save_result(value):
         return value
 
 
-def save_task(task: "ConfigTask", skip_result=False):
+def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
     """
     Convert dictionary suitable for serializing as yaml
       or creating a Changeset.
@@ -165,6 +176,8 @@ def save_task(task: "ConfigTask", skip_result=False):
         output["target"] = task.target.key
     save_status(task, output)
     output["implementation"] = save_config_spec(task.configSpec)
+    if task.reason:
+        output["reason"] = str(task.reason)
     try:
         if task._resolved_inputs:  # only serialize resolved inputs
             output["inputs"] = serialize_value(task._resolved_inputs)
@@ -195,6 +208,22 @@ def save_task(task: "ConfigTask", skip_result=False):
     return output
 
 
+def split_changes(
+    changes: List[CommentedMap],
+) -> Tuple[List[CommentedMap], List[CommentedMap]]:
+    local_changes = []
+    committed_changes = []
+    for change in changes:
+        local_change = change.copy()
+        local_change.pop("dependencies", None)
+        local_change.pop("change", None)
+        local_changes.append(local_change)
+        if "result" in change and change["result"] != "skipped":
+            change.pop("result")
+        committed_changes.append(change)
+    return local_changes, committed_changes
+
+
 @cache
 def get_manifest_schema(format: str) -> dict:
     path = os.path.join(_basepath, "manifest-schema.json")
@@ -203,6 +232,12 @@ def get_manifest_schema(format: str) -> dict:
     if format == "blueprint":
         schema["required"].remove("kind")
     return schema
+
+
+class LfsSettings(TypedDict):
+    lock: NotRequired[str]  # require, no, try
+    name: NotRequired[str]  # name of the lock $ensemble or $environment
+    url: NotRequired[str]  # otherwise use the ensemble's git repository
 
 
 class ReadOnlyManifest(Manifest):
@@ -225,7 +260,7 @@ class ReadOnlyManifest(Manifest):
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
         schema = get_manifest_schema(
-          localEnv and localEnv.overrides.get("format") or ""
+            localEnv and localEnv.overrides.get("format") or ""
         )
         self.manifest = YamlConfig(
             manifest,
@@ -255,7 +290,7 @@ class ReadOnlyManifest(Manifest):
     @property
     def uris(self) -> List[str]:
         uris: List[str] = []
-        if "metadata" in self.manifest.config:
+        if self.manifest.config and "metadata" in self.manifest.config:
             uri = self.metadata.get("uri")
             uris = self.metadata.get("aliases") or []
             if uri:
@@ -333,6 +368,8 @@ class YamlManifest(ReadOnlyManifest):
     _operationIndex: Optional[Dict[Tuple[str, str], str]] = None
     lockfilepath = None
     lockfile = None
+    lfs_locked: Optional[str] = None
+    lfs_url: Optional[str] = None
 
     def __init__(
         self,
@@ -351,6 +388,8 @@ class YamlManifest(ReadOnlyManifest):
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
         spec = manifest.get("spec", {})
+        # load_env_instances is only set when exporting environments
+        # otherwise don't include environment instances in the environment
         load_env_instances = self.localEnv and self.localEnv.overrides.get(
             "load_env_instances"
         )
@@ -395,7 +434,6 @@ class YamlManifest(ReadOnlyManifest):
 
         status = manifest.get("status", {})
         self.changeLogPath: str = manifest.get("jobsLog") or ""
-        self.jobsFolder: str = manifest.get("jobsFolder", "jobs")
         if not self.changeLogPath and localEnv and manifest.get("changes") is None:
             # save changes to a separate file if we're in a local environment
             self.changeLogPath = DefaultNames.JobsLog
@@ -681,8 +719,58 @@ class YamlManifest(ReadOnlyManifest):
                     }
         return self.changeSets is not None
 
-    def lock(self):
+    def lfs_settings(self) -> Tuple[bool, bool, str, Optional[str]]:
+        local = self.manifest.expanded.get("environment", {}).get("lfs_lock")
+        env = self.context.get("lfs_lock", {}).copy()
+        # give ensemble priority:
+        if local:
+            env.update(local)
+        lock = cast(LfsSettings, env)
+        enable = lock.get("lock", "no")
+        assert enable in ("require", "no", "try")
+        if not lock or enable == "no":
+            return False, False, "", None
+        else:
+            lfs_try = True
+            lfs_required = enable == "require"
+            lfs_url = lock.get("url", "")
+        lfs_lock_path = lock.get("name")
+        if lfs_lock_path and self.localEnv:
+            lock_vars = dict(
+                environment=self.localEnv.manifest_context_name, ensemble_uri=self.uri
+            )
+            if self.repo:
+                lock_vars["local_lock_path"] = os.path.relpath(
+                    self.lockfilepath or "", self.repo.working_dir
+                )
+            lfs_lock_path = substitute_env(lfs_lock_path, lock_vars)
+        elif self.lockfilepath and self.repo:
+            lfs_lock_path = os.path.relpath(self.lockfilepath, self.repo.working_dir)
+        else:
+            lfs_lock_path = self.uri
+        escaped_lfs_lock_path = encode_unfurl_identifier(lfs_lock_path, r"[^\w/-]")
+        return lfs_try, lfs_required, escaped_lfs_lock_path, lfs_url
+
+    def _lock_lfs(self) -> bool:
+        lfs_try, lfs_required, lfs_lock_path, lfs_url = self.lfs_settings()
+        if lfs_try:
+            if self.repo and self.repo.is_lfs_enabled(lfs_url):
+                if self.repo.lock_lfs(lfs_lock_path, lfs_url):
+                    self.lfs_locked = lfs_lock_path
+                    self.lfs_url = lfs_url
+                    logger.debug(f"git lfs locked {self.lockfilepath}")
+                    return True
+                else:
+                    msg = f"Ensemble {self.path} is remotely locked at {lfs_lock_path}"
+                    raise UnfurlError(msg)
+            elif lfs_required:
+                msg = "git lfs is not available but is required to use this ensemble"
+                raise UnfurlError(msg)
+        return False
+
+    def lock(self) -> bool:
         # implement simple local file locking -- no waiting on the lock
+        # lock() should never be called when already holding a lock, raise error if it does
         msg = f"Ensemble {self.path} was already locked -- is there a circular reference between external ensembles?"
         if self.lockfile:
             raise UnfurlError(msg)
@@ -698,12 +786,20 @@ class YamlManifest(ReadOnlyManifest):
                         f"Lockfile '{self.lockfilepath}' already created by another process {pid} "
                     )
         else:
-            # ok if we race here, we'll just raise an error
+            # open exclusively, ok if we race here, we'll just raise an error
             self.lockfile = open(self.lockfilepath, "xb", buffering=0)
             self.lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
+            try:
+                self._lock_lfs()
+            except Exception:
+                self.unlock()
+                raise
             return True
 
     def unlock(self):
+        if self.repo and self.lfs_locked:
+            self.repo.unlock_lfs(self.lfs_locked, self.lfs_url)
+            self.lfs_locked = None
         if self.lockfile and self.lockfilepath:
             # unlink first to avoid race (this will fail on Windows)
             os.unlink(self.lockfilepath)
@@ -760,6 +856,8 @@ class YamlManifest(ReadOnlyManifest):
             status["created"] = resource.created
         if resource.protected is not None:
             status["protected"] = resource.protected
+        if resource.customized is not None:
+            status["customized"] = resource.customized
         return (resource.name, status)
 
     def save_artifact(self, resource: EntityInstance) -> Optional[Tuple[str, Dict]]:
@@ -792,7 +890,9 @@ class YamlManifest(ReadOnlyManifest):
             return None
         return self.save_entity_instance(resource)
 
-    def save_resource(self, resource: NodeInstance, discovered):
+    def save_resource(
+        self, resource: NodeInstance, discovered: Dict[str, Any]
+    ) -> Optional[Tuple[str, Dict]]:
         # XXX checkstatus break unit tests so skip mostly
         checkstatus = (
             resource.template.type == "unfurl.nodes.LocalRepository"
@@ -857,7 +957,9 @@ class YamlManifest(ReadOnlyManifest):
             )
         return (name, status)
 
-    def save_root_resource(self, root: TopologyInstance, discovered):
+    def save_root_resource(
+        self, root: TopologyInstance, discovered: Dict[str, Any]
+    ) -> CommentedMap:
         resource = root
         assert resource
         status = CommentedMap()
@@ -872,13 +974,15 @@ class YamlManifest(ReadOnlyManifest):
                 None,
                 map(
                     lambda r: self.save_resource(r, discovered),
-                    resource.get_operational_dependencies(),
+                    cast(
+                        Iterable[NodeInstance], resource.get_operational_dependencies()
+                    ),
                 ),
             )
         )
         return status
 
-    def save_job_record(self, job: "Job"):
+    def save_job_record(self, job: "Job") -> CommentedMap:
         """
         .. code-block:: YAML
 
@@ -915,7 +1019,7 @@ class YamlManifest(ReadOnlyManifest):
         output["specDigest"] = self.specDigest
         return save_status(job, output)
 
-    def save_job(self, job):
+    def save_job(self, job: "Job") -> Tuple[CommentedMap, List[CommentedMap]]:
         discovered = CommentedMap()
         assert self.rootResource
         changed = self.save_root_resource(self.rootResource, discovered)
@@ -949,15 +1053,15 @@ class YamlManifest(ReadOnlyManifest):
         jobRecord = self.save_job_record(job)
         if job.workDone:
             self.manifest.config["lastJob"] = jobRecord
-            exclude_result = not self.changeLogPath
             # don't save result.results into this yaml, it might contain sensitive data
+            exclude_result = not self.changeLogPath and not job.dry_run
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
             if self.changeLogPath and self.path is not None:
-                self.manifest.config["jobsLog"] = self.changeLogPath
+                self.manifest.config["jobsLog"] = self.changeLogPath  # jobs.tsv
 
-                jobLogPath = self.get_job_log_path(jobRecord["startTime"])
+                jobLogPath = job.log_path("changes", ".yaml")
                 jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(self.path))
                 jobRecord["changelog"] = jobLogRelPath
             else:
@@ -966,15 +1070,16 @@ class YamlManifest(ReadOnlyManifest):
             # no work was done
             changes = []
 
-        if job.out or job.jobOptions.out:
+        output = job.out or job.jobOptions.out  # type: ignore
+        if output:
             if job.dry_run:
                 logger.info("printing results from dry run")
-            self.dump(job.out or job.jobOptions.out)
+            self.dump(output)
         else:
-            job.out = self.manifest.save()
+            job.out = self.manifest.save()  # type: ignore
         return jobRecord, changes
 
-    def commit_job(self, job: "Job"):
+    def commit_job(self, job: "Job") -> None:
         if job.jobOptions.planOnly:
             return
         if job.dry_run and job.jobOptions.skip_save != "never":
@@ -986,7 +1091,10 @@ class YamlManifest(ReadOnlyManifest):
             return
 
         if self.changeLogPath:
-            jobLogPath = self.save_change_log(jobRecord, changes)
+            local_changes, committed_changes = split_changes(changes)
+            self.save_change_log(job.log_path(ext=".yaml"), jobRecord, local_changes)
+            jobLogPath = job.log_path("changes", ".yaml")
+            self.save_change_log(jobLogPath, jobRecord, committed_changes)
             if not job.dry_run:
                 self._append_log(job, jobRecord, changes, jobLogPath)
 
@@ -1047,19 +1155,20 @@ class YamlManifest(ReadOnlyManifest):
 
         return committed
 
-    def get_change_log_path(self):
+    def get_change_log_path(self) -> str:
+        # jobs.tsv
         return os.path.join(
             self.get_base_dir(), self.changeLogPath or DefaultNames.JobsLog
         )
 
-    def get_job_log_path(self, startTime, ext=".yaml"):
+    def get_job_log_path(self, startTime, folder_name, ext=".yaml") -> str:
         name = os.path.basename(self.get_change_log_path())
         # try to figure out any custom name pattern from changelogPath:
         defaultName = os.path.splitext(DefaultNames.JobsLog)[0]
         currentName = os.path.splitext(name)[0]
         prefix, _, suffix = currentName.partition(defaultName)
         fileName = prefix + "job" + startTime + suffix + ext
-        return os.path.join(self.get_base_dir(), self.jobsFolder, fileName)
+        return os.path.join(self.get_base_dir(), folder_name, fileName)
 
     def _append_log(self, job, jobRecord, changes, jobLogPath):
         logPath = self.get_change_log_path()
@@ -1104,10 +1213,9 @@ class YamlManifest(ReadOnlyManifest):
                 line = ChangeRecordRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
-    def save_change_log(self, jobRecord, newChanges):
+    def save_change_log(self, fullPath, jobRecord, newChanges) -> None:
         try:
             changelog = CommentedMap()
-            fullPath = self.get_job_log_path(jobRecord["startTime"])
             if self.manifest.path is not None:
                 changelog["manifest"] = os.path.relpath(
                     self.manifest.path, os.path.dirname(fullPath)
@@ -1121,6 +1229,5 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("saving job changes to %s", fullPath)
             with open(fullPath, "w") as f:
                 f.write(output.getvalue())
-            return fullPath
-        except:
+        except Exception:
             raise UnfurlError(f"Error saving changelog {self.changeLogPath}", True)

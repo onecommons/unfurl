@@ -2,6 +2,10 @@
 Expression Functions
 ====================
 
+.. contents::
+   :local:
+   :depth: 1
+
 TOSCA functions and other stand-alone functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -122,19 +126,20 @@ token
 Expression Functions
 ~~~~~~~~~~~~~~~~~~~~
 
-  ===============================  ==================================================
+  ================================ ==================================================
   Key                              Value
-  ===============================  ==================================================
+  ================================ ==================================================
   :std:ref:`abspath`               path | [path, location, mkdir?]
   `and`                            [test+]
   `eq`                             [a, b]
   external                         name
   `file`                           (see below)
   foreach                          {key?, value?}
+  :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
   `is_function_defined`            function name
   `if`                             (see below)
-  local                            name
+  `local`                          name
   :std:ref:`lookup`                (see below)
   `or`                             [test+]
   `not`                            expr
@@ -149,7 +154,7 @@ Expression Functions
   :std:ref:`to_label`              string or map or list
   :std:ref:`urljoin`               [scheme, host, port?, path?, query?, fragment?]
   `validate`                       [contents, schema]
-  ===============================  ==================================================
+  ================================ ==================================================
 
 abspath
 ^^^^^^^
@@ -180,8 +185,7 @@ external
 file
 ^^^^
 
-  Read or write a file. If the ``contents`` keyword argument is present, a file will be written
-  upon evaluation of this function, otherwise it will be read.
+  Read or write a file.
 
   .. code-block:: YAML
 
@@ -200,23 +204,58 @@ file
   ========= ===============================
   Key       Value
   ========= ===============================
-  file:     path
-  dir?:     path
+  file      path
+  dir?      directory path
   encoding? "binary" | "vault" | "json" | "yaml" | "env" | python_text_encoding
   contents? any
   ========= ===============================
 
+  Optional keyword arguments:
+
+  ``dir`` Base dir for ``file``
+
   ``encoding`` can be "binary", "vault", "json", "yaml", "env" or an encoding registered with the Python codec registry
 
-  The ``select`` clause can evaluate the following keys:
+  ``contents`` If present, the contents will be written to the file, if missing the file will be read.
 
-  ========= ===============================
-  Key       Returns
-  ========= ===============================
-  path:     absolute path of the file
-  encoding  encoding of the file
-  contents? file contents (None if it doesn't exist)
-  ========= ===============================
+  The `select<expression function syntax>` clause can evaluate the following keys:
+
+  =============  ========================================
+  Key            Returns
+  =============  ========================================
+  path           Absolute path of the file
+  encoding       Encoding of the file
+  contents       File contents (Null if it doesn't exist)
+  artifact_keys  Dict with "file" and "repository" keys
+  =============  ========================================
+
+get_ensemble_metadata
+^^^^^^^^^^^^^^^^^^^^^
+
+  Return metadata about the current ensemble and job.
+
+  If one of the keys below if given as an argument, return its value;
+  if no argument is given, return a map with all the metadata.
+
+  ============= ===============================
+  Key           Value
+  ============= ===============================
+  deployment    Name of the ensemble
+  job           `Change Id<ChangeIds>` of the current job
+  revision      Current git commit of the ensemble
+  environment   Name of the current environment
+  unfurlproject Name of the project
+  ============= ===============================
+
+  This example evaluates to a map of strings that conform to DNS name syntax.
+
+  .. code-block:: YAML
+
+        eval:
+          to_dns_label:
+            eval:
+              get_ensemble_metadata:
+
 
 foreach
 ^^^^^^^
@@ -318,6 +357,8 @@ lookup
 local
 ^^^^^
 
+  Return the value of the given `local <locals>` declared in the current environment.
+
 or
 ^^
 
@@ -363,7 +404,7 @@ python
 secret
 ^^^^^^
 
-  Return the value of the given secret. It will be marked as sensitive.
+  Return the value of the given :std:ref:`secret <secrets>` declared in the current environment. It will be marked as sensitive.
 
 sensitive
 ^^^^^^^^^
@@ -538,5 +579,8 @@ Built-in keys start with a leading **.**:
 .hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
 .configured_by Follow .sources, filtering by the ``Configures`` relationship
 .descendants   (including self)
-.all           dictionary of child resources with their names as keys
+.all           Dictionary of child resources with their names as keys
+.uri           Unique URI for this instance (`URI<uris>` plus the tosca_id)
+.deployment    Name of the ensemble
+.apex          Root ancestor of the outermost topology
 ============== ========================================================

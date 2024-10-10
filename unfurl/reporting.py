@@ -325,9 +325,14 @@ class JobReporter:
                             for wf in request.task._workFolders.values():
                                 output.append(" " * indent + f"   rendered at {wf.cwd}")
                         if request.not_ready:
+                            # don't report error if waiting
+                            if request.dependencies:
+                                msg = "render waiting for dependents"
+                            else:
+                                msg = "render deferred due to errors"
                             if verbose:
                                 output.append(
-                                    " " * indent + "   render waiting for dependents:"
+                                    " " * indent + f"   {msg}:"
                                 )
                                 output.append(
                                     " " * indent
@@ -335,9 +340,9 @@ class JobReporter:
                                 )
                             else:
                                 output.append(
-                                    " " * indent + "   (render waiting for dependents)"
+                                    " " * indent + f"   ({msg})"
                                 )
-                        elif request.task._errors:  # don't report error if waiting
+                        elif request.task._errors or request.render_errors:
                             output.append(" " * indent + "   (errors while rendering)")
 
         opts = job.jobOptions.get_user_settings()
@@ -408,13 +413,13 @@ class JobReporter:
             if task.result and task.result.result:
                 output = task.result.result
                 if isinstance(output, Mapping):
-                    # sort dict so that the longest values are last if a string otherwise preserve key order
+                    # sort dict so that the longest values are last if a string, list, or dict otherwise preserve key order
                     output = {
                         k: v.map_all() if isinstance(v, Results) else v
                         for i, (k, v) in sorted(
                             enumerate(output.items()),
                             key=lambda x: (
-                                len(x[1][1]) if isinstance(x[1][1], str) else x[0]
+                                len(x[1][1]) if isinstance(x[1][1], (str, list, dict)) else x[0]
                             ),
                         )
                     }
