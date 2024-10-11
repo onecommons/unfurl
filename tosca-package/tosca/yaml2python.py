@@ -352,6 +352,7 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
+        self.assign_attr = True
         self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
 
     def value2python_repr(self, value, quote=False) -> str:
@@ -1513,8 +1514,8 @@ class Convert:
     def template2obj(
         self,
         entity_template: EntityTemplate,
-        indent="",
-        declare=True,
+        indent: str,
+        declare: str,
     ) -> Tuple[Optional[Type[_tosca.ToscaType]], str, str, Dict[str, str]]:
         self.local_names = {}
         skipped: Dict[str, str] = {}
@@ -1545,7 +1546,8 @@ class Convert:
             # don't include templates in __all__
             name = self.add_declaration(entity_template.name, None, False)
             logger.info("converting template %s to python", name)
-            src = f"{indent}{name} = {decl}"
+            src = f"{indent}{name}: {declare} = {decl}"
+            self.imports.from_tosca.add(declare)
         else:
             name, _ = self._get_name(entity_template.name)
             src = decl
@@ -1575,7 +1577,7 @@ class Convert:
         return cls, name, src, skipped
 
     def artifact2obj(self, artifact: Artifact, indent="") -> Tuple[str, str]:
-        cls, name, src, skipped = self.template2obj(artifact, indent, False)
+        cls, name, src, skipped = self.template2obj(artifact, indent, "")
         if not cls:
             return "", ""
         src += "file=" + self.value2python_repr(artifact.file) + ", "  # type: ignore
@@ -1591,7 +1593,7 @@ class Convert:
     def relationship_template2obj(
         self, template: RelationshipTemplate, indent=""
     ) -> Tuple[str, str]:
-        cls, name, src, skipped = self.template2obj(template, indent)
+        cls, name, src, skipped = self.template2obj(template, indent, "RelationshipType")
         if not cls:
             return "", ""
         src += ")"  # close ctor
@@ -1603,7 +1605,7 @@ class Convert:
     def node_template2obj(
         self, node_template: NodeTemplate, indent=""
     ) -> Tuple[str, str]:
-        cls, name, src, skipped = self.template2obj(node_template, indent)
+        cls, name, src, skipped = self.template2obj(node_template, indent, "NodeType")
         if not cls:
             return "", ""
         # note: the toscaparser doesn't support declared attributes currently
@@ -1661,13 +1663,15 @@ class Convert:
         # add these as attribute statements
         # (use setattr to avoid mypy complaints about attribute not defined)
         for artifact_name, artifact_src in artifacts:
-            if self.concise:
-                src += f"{indent}{name}.{artifact_name} = {artifact_src}\n"
+            if self.assign_attr:
+                src += f"{indent}__{name}_{artifact_name}: ArtifactType = {artifact_src}\n"
+                src += f"{indent}{name}.{artifact_name} = __{name}_{artifact_name}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
+            self.imports.from_tosca.add("ArtifactType")
         for req_name, req_assignment in template_reqs:
-            if self.concise:
-                src += f"{indent}{name}.{req_name} = {req_assignment}\n"
+            if self.assign_attr:
+                src += f"{indent}{name}.{req_name} = {req_assignment}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
         src += self.add_template_interfaces(node_template, indent, name)
@@ -1676,8 +1680,8 @@ class Convert:
     def add_additional_properties(self, indent, name, skipped) -> str:
         src = ""
         for prop_name, prop_value in skipped.items():
-            if self.concise:
-                src += f"{indent}{name}.{prop_name} = {prop_value}\n"
+            if self.assign_attr:
+                src += f"{indent}{name}.{prop_name} = {prop_value}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{prop_name}', {prop_value})\n"
         return src
@@ -1697,8 +1701,8 @@ class Convert:
         if names:
             self._pending_defs.append(ops_src)
             for op_name in names:
-                if self.concise:
-                    src += f"{indent}{name}.{op_name} = {name}_{op_name}\n"
+                if self.assign_attr:
+                    src += f"{indent}{name}.{op_name} = {name}_{op_name}  # type: ignore[attr-defined]\n"
                 else:
                     src += f"{indent}setattr({name}, '{op_name}', {name}_{op_name})\n"
         return src
