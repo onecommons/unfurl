@@ -50,7 +50,7 @@ class Test(Base):
         return TemplateConfigurator(TemplateInputs(run="test me", done=done))
 
 
-class MyDataType(tosca.OpenDataType):
+class MyDataType(tosca.OpenDataEntity):
     ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
         factory=lambda: tosca.datatypes.NetworkPortSpec(source=port80, target=port80)
     )

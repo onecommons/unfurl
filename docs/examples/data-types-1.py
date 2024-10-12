@@ -1,9 +1,9 @@
 import unfurl
 import tosca
-from tosca import DataType
+from tosca import DataEntity
 
 
-class my_datatypes_Endpoint(DataType):
+class my_datatypes_Endpoint(DataEntity):
     """Socket endpoint details"""
 
     _type_name = "my.datatypes.Endpoint"

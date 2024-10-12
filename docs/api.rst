@@ -17,7 +17,7 @@ The follow are functions that are used as field specified when declaring attribu
 
 .. code-block:: python
 
-    class MyNodeType(tosca.nodes.Root):
+    class MyNode(tosca.nodes.Root):
         a_tosca_property: str = Property(name="a-tosca-property", default=None, metadata={"foo": "bar"})
 
 
@@ -39,25 +39,25 @@ TOSCA Types
 
   .. automethod:: set_to_property_source
 
-.. autoclass:: NodeType
+.. autoclass:: Node
   
   .. automethod:: find_required_by
 
   .. automethod:: find_all_required_by
 
-.. autoclass:: RelationshipType
+.. autoclass:: Relationship
 
-.. autoclass:: CapabilityType
+.. autoclass:: CapabilityEntity
 
-.. autoclass:: DataType
+.. autoclass:: DataEntity
 
-.. autoclass:: ArtifactType
+.. autoclass:: ArtifactEntity
 
-.. autoclass:: InterfaceType
+.. autoclass:: Interface
 
-.. autoclass:: GroupType
+.. autoclass:: Group
 
-.. autoclass:: PolicyType
+.. autoclass:: Policy
 
 Other
 ~~~~~~~~~~~~~~~~~~~~~~

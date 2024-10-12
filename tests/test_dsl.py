@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
 import unfurl  # must be before tosca imports
-from tosca import OpenDataType
+from tosca import OpenDataEntity
 from unfurl.merge import diff_dicts
 import sys
 from click.testing import CliRunner
@@ -825,9 +825,9 @@ def test_envvar_type():
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
         assert generic_envvars.to_yaml() == {"DBASE": "aaaa", "URL": True}
-        assert OpenDataType(a=1, b="b").extend(c="c").to_yaml() == {"a": 1, "b": "b", "c": "c"}
+        assert OpenDataEntity(a=1, b="b").extend(c="c").to_yaml() == {"a": 1, "b": "b", "c": "c"}
         assert Namespace.MyDataType(name="foo").to_yaml() == {"name": "foo"}
-        # make sure DockerContainer is an OpenDataType
+        # make sure DockerContainer is an OpenDataEntity
         unfurl_datatypes_DockerContainer().extend(labels=dict(foo="bar"))
 
 
@@ -1013,8 +1013,8 @@ class dev(tosca.DeploymentBlueprint):
 
 def test_deployment_blueprints():
     python_src, parsed_yaml = _to_python(test_deploymentblueprint_yaml)
-    # print(python_src)
-    # pprint(parsed_yaml)
+    print(python_src)
+    pprint(parsed_yaml)
     test_yaml = _to_yaml(python_src, True)
     # yaml.dump(test_yaml, sys.stdout)
     assert parsed_yaml == test_yaml

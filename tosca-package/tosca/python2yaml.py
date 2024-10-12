@@ -24,8 +24,8 @@ from toscaparser import topology_template
 from ._tosca import (
     _DataclassType,
     ToscaType,
-    RelationshipType,
-    NodeType,
+    Relationship,
+    Node,
     CapabilityType,
     global_state,
     WritePolicy,
@@ -201,7 +201,7 @@ class PythonToYaml:
         self, req: dict, field: _Tosca_Field, value, default_node_name: str
     ):
         node = None
-        if isinstance(value, NodeType):
+        if isinstance(value, Node):
             node = value
         elif isinstance(value, CapabilityType):
             if value._local_name:
@@ -209,13 +209,13 @@ class PythonToYaml:
                 req["capability"] = value._local_name
             else:
                 req["capability"] = value.tosca_type_name()
-        elif isinstance(value, RelationshipType):
+        elif isinstance(value, Relationship):
             if value._name:  # named, not inline
                 rel: Union[str, dict] = self.add_template(value)
             else:  # inline
                 rel = value.to_template_yaml(self)
             req["relationship"] = rel
-            if isinstance(value._target, NodeType):
+            if isinstance(value._target, Node):
                 node = value._target
             elif isinstance(value._target, CapabilityType):  # type: ignore  # XXX
                 node = value._target._node
@@ -309,7 +309,7 @@ class PythonToYaml:
                 continue
             if (
                 not isinstance(obj, InstanceProxy)
-                and isinstance(obj, NodeType)
+                and isinstance(obj, Node)
                 and not obj._name
             ):
                 obj._name = name
@@ -344,7 +344,7 @@ class PythonToYaml:
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
                 if (
-                    (isinstance(obj, NodeType) or obj._name)
+                    (isinstance(obj, Node) or obj._name)
                     and not isinstance(obj, InstanceProxy)
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                     obj.__class__._globals = self.globals  # type: ignore

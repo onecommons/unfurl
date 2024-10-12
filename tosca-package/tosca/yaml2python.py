@@ -191,7 +191,11 @@ def encode_identifier(name):
 
 
 def section2typename(section: str) -> str:
-    return string.capwords(section, "_").replace("_", "")[:-1]
+    name, sep, suffix = section.partition("_")
+    if name in ("capability", "artifact", "data"):
+        return string.capwords(name) + "Entity"
+    else:
+        return string.capwords(name)
 
 
 Scope = Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]]
@@ -852,6 +856,10 @@ class Convert:
         parents = entity_type.parent_types()
         if not parents:
             base_names = baseclass_name
+            if baseclass_name == "DataEntity" and entity_type.defs:
+                metadata = entity_type.defs.get("metadata")
+                if metadata and metadata.get("additionalProperties"):
+                    baseclass_name = "OpenDataEntity"
         else:
             base_names = ", ".join(
                 [self.python_name_from_type(p.type, True) for p in parents]
@@ -906,8 +914,10 @@ class Convert:
         self.init_names(toscatype)
         # XXX list of imports
         toscaname = toscatype.type
-        cls_name = self.python_name_from_type(toscaname, True)
-        if not self._builtin_prefix:
+        if self._builtin_prefix:
+            cls_name = self.python_name_from_type(toscaname, True)
+        else:
+            cls_name = self._get_name(toscaname, True)[0]
             cls_name = self.add_declaration(toscaname, cls_name)
         base_names = self._get_baseclass_names(toscatype, baseclass_name)
         metadata = toscatype.defs and toscatype.defs.get("metadata")
@@ -978,7 +988,7 @@ class Convert:
                     else:
                         src += f"{indent}{field_name}: {self._make_union(cls_name, 'None')} = None\n"
 
-        if baseclass_name == "InterfaceType":
+        if baseclass_name == "Interface":
             # inputs and operations are defined directly on the body of the type
             for op in _create_operations({toscaname: toscatype.defs}, toscatype, None):
                 _, op_src = self.operation2func(op, indent, [])
@@ -1581,7 +1591,7 @@ class Convert:
         if not cls:
             return "", ""
         src += "file=" + self.value2python_repr(artifact.file) + ", "  # type: ignore
-        for field in _tosca.ArtifactType._builtin_fields[1:]:
+        for field in _tosca.ArtifactEntity._builtin_fields[1:]:
             val = getattr(artifact, field)
             if val:
                 src += f"{field}={self.value2python_repr(val)},\n"
@@ -1593,7 +1603,7 @@ class Convert:
     def relationship_template2obj(
         self, template: RelationshipTemplate, indent=""
     ) -> Tuple[str, str]:
-        cls, name, src, skipped = self.template2obj(template, indent, "RelationshipType")
+        cls, name, src, skipped = self.template2obj(template, indent, "Relationship")
         if not cls:
             return "", ""
         src += ")"  # close ctor
@@ -1605,7 +1615,7 @@ class Convert:
     def node_template2obj(
         self, node_template: NodeTemplate, indent=""
     ) -> Tuple[str, str]:
-        cls, name, src, skipped = self.template2obj(node_template, indent, "NodeType")
+        cls, name, src, skipped = self.template2obj(node_template, indent, "Node")
         if not cls:
             return "", ""
         # note: the toscaparser doesn't support declared attributes currently
@@ -1664,11 +1674,11 @@ class Convert:
         # (use setattr to avoid mypy complaints about attribute not defined)
         for artifact_name, artifact_src in artifacts:
             if self.assign_attr:
-                src += f"{indent}__{name}_{artifact_name}: ArtifactType = {artifact_src}\n"
+                src += f"{indent}__{name}_{artifact_name}: ArtifactEntity = {artifact_src}\n"
                 src += f"{indent}{name}.{artifact_name} = __{name}_{artifact_name}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
-            self.imports.from_tosca.add("ArtifactType")
+            self.imports.from_tosca.add("ArtifactEntity")
         for req_name, req_assignment in template_reqs:
             if self.assign_attr:
                 src += f"{indent}{name}.{req_name} = {req_assignment}  # type: ignore[attr-defined]\n"

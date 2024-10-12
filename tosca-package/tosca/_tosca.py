@@ -662,9 +662,9 @@ _T = TypeVar("_T")
 
 class _Tosca_Field(dataclasses.Field, Generic[_T]):
     title = None
-    relationship: Union[str, Type["RelationshipType"], None] = None
+    relationship: Union[str, Type["Relationship"], None] = None
     capability: Union[str, Type["CapabilityType"], None] = None
-    node: Union[str, Type["NodeType"], None] = None
+    node: Union[str, Type["Node"], None] = None
     node_filter: Optional[Dict[str, Any]] = None
     valid_source_types: Optional[List[str]] = None
 
@@ -900,7 +900,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         for _type in type_info.types:
             if not isinstance(_type, type):
                 continue
-            if issubclass(_type, NodeType) or issubclass(_type, RelationshipType):
+            if issubclass(_type, Node) or issubclass(_type, Relationship):
                 field_type = ToscaFieldType.requirement
                 break
             elif issubclass(_type, ArtifactType):
@@ -997,7 +997,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             return req_def
         target_typeinfo = None
         for _type in info.types:
-            if issubclass(_type, RelationshipType):
+            if issubclass(_type, Relationship):
                 req_def["relationship"] = _type.tosca_type_name()
                 target_field = _type.__dataclass_fields__.get("_target")
                 target_typeinfo = cast(
@@ -1005,7 +1005,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 ).get_type_info_checked()
             elif issubclass(_type, CapabilityType):
                 req_def["capability"] = _type.tosca_type_name()
-            elif issubclass(_type, NodeType):
+            elif issubclass(_type, Node):
                 req_def["node"] = _type.tosca_type_name()
         if "node" not in req_def and target_typeinfo:
             req_def["node"] = target_typeinfo.types[0].tosca_type_name()
@@ -1400,9 +1400,9 @@ def Requirement(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-    relationship: Union[str, Type["RelationshipType"], None] = None,
+    relationship: Union[str, Type["Relationship"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
-    node: Union[str, Type["NodeType"], None] = None,
+    node: Union[str, Type["Node"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> _T: ...
 
@@ -1414,9 +1414,9 @@ def Requirement(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-    relationship: Union[str, Type["RelationshipType"], None] = None,
+    relationship: Union[str, Type["Relationship"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
-    node: Union[str, Type["NodeType"], None] = None,
+    node: Union[str, Type["Node"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> _T: ...
 
@@ -1427,9 +1427,9 @@ def Requirement(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-    relationship: Union[str, Type["RelationshipType"], None] = None,
+    relationship: Union[str, Type["Relationship"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
-    node: Union[str, Type["NodeType"], None] = None,
+    node: Union[str, Type["Node"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> Any: ...
 
@@ -1441,9 +1441,9 @@ def Requirement(
     name: str = "",
     metadata: Optional[Dict[str, JsonType]] = None,
     options: Optional["Options"] = None,
-    relationship: Union[str, Type["RelationshipType"], None] = None,
+    relationship: Union[str, Type["Relationship"], None] = None,
     capability: Union[str, Type["CapabilityType"], None] = None,
-    node: Union[str, Type["NodeType"], None] = None,
+    node: Union[str, Type["Node"], None] = None,
     node_filter: Optional[Dict[str, Any]] = None,
 ) -> Any:
     field: Any = _Tosca_Field(
@@ -1465,9 +1465,9 @@ _make_field_doc(
     Requirement,
     False,
     [
-        "relationship (str | Type[RelationshipType], optional): The requirement's ``relationship`` specified by TOSCA type name or RelationshipType class.",
+        "relationship (str | Type[Relationship], optional): The requirement's ``relationship`` specified by TOSCA type name or Relationship class.",
         "capability (str | Type[CapabilityType], optional): The requirement's ``capability`` specified by TOSCA type name or CapabilityType class.",
-        "node (str, | Type[NodeType], optional): The requirement's ``node`` specified by TOSCA type name or NodeType class.",
+        "node (str, | Type[Node], optional): The requirement's ``node`` specified by TOSCA type name or Node class.",
         "node_filter (Dict[str, Any], optional): The TOSCA node_filter for this requirement.",
     ],
 )
@@ -2336,10 +2336,10 @@ def find_configured_by(
 
     .. code-block:: python
 
-        class A(NodeType):
+        class A(Node):
           pass
 
-        class B(NodeType):
+        class B(Node):
           url: str
           connects_to: A = tosca.Requirement(relationship=unfurl.relationships.Configures)
 
@@ -2372,10 +2372,10 @@ def find_hosted_on(
 
     .. code-block:: python
 
-        class A(NodeType):
+        class A(Node):
           url: str
 
-        class B(NodeType):
+        class B(Node):
           host: A = tosca.Requirement(relationship=tosca.relationships.HostedOn)
 
         a = A(url="https://example.com")
@@ -2862,7 +2862,7 @@ class TopologyOutputs(_TopologyParameter):
     _default_key: ClassVar[str] = "value"
 
 
-_TT = TypeVar("_TT", bound="NodeType")
+_TT = TypeVar("_TT", bound="Node")
 
 
 def substitute_node(node_type: Type[_TT], _name: str = "", **kw) -> _TT:
@@ -2882,12 +2882,12 @@ def select_node(node_type: Type[_TT], _name: str = "", **kw) -> _TT:
 # set requirement_name to the types the type checker will see,
 # e.g. Foo.my_requirement: T
 def find_required_by(
-    requirement_name: Union[str, "CapabilityType", "NodeType", "RelationshipType"],
+    requirement_name: Union[str, "CapabilityType", "Node", "Relationship"],
     expected_type: Union[Type[_TT], None] = None,
     cls_or_obj=None,
 ) -> _TT:
     """
-    find_required_by(requirement_name: str | FieldProjection, expected_type: Type[NodeType] | None = None)
+    find_required_by(requirement_name: str | FieldProjection, expected_type: Type[Node] | None = None)
 
     Finds the node template with a requirement named ``requirement_name`` whose value is this template.
 
@@ -2895,10 +2895,10 @@ def find_required_by(
 
     .. code-block:: python
 
-        class A(NodeType):
+        class A(Node):
           pass
 
-        class B(NodeType):
+        class B(Node):
           connects_to: A
 
         a = A()
@@ -2917,17 +2917,17 @@ def find_required_by(
 
     .. code-block:: python
 
-      class A(NodeType):
+      class A(Node):
         parent: B = find_required_by(B.connects_to, B)
 
     ``parent`` will default to an eval expression.
 
     Args:
         requirement_name (str | FieldProjection): Either the name of the req, or for a more type safety, a reference to the requirement (e.g. ``B.connects_to`` in the example above).
-        expected_type (NodeType, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
+        expected_type (Node, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
 
     Returns:
-        NodeType: The node template that is targeting this template via the requirement.
+        Node: The node template that is targeting this template via the requirement.
     """
 
     source_field, req_name = _get_field_from_prop_ref(requirement_name)
@@ -2962,7 +2962,7 @@ def find_required_by(
                     f"{req_name}'s type is incompatible with {cls} -- wrong requirement?"
                 )
     prefix = _get_expr_prefix(cls_or_obj)
-    # XXX elif RelationshipType
+    # XXX elif Relationship
     expr = prefix + [".sources", req_name]
     if not expected_type:
         ref = EvalData(None, expr)
@@ -3006,30 +3006,30 @@ def _get_expr_prefix(
 
 
 def find_all_required_by(
-    requirement_name: Union[str, "CapabilityType", "NodeType", "RelationshipType"],
+    requirement_name: Union[str, "CapabilityType", "Node", "Relationship"],
     expected_type: Union[Type[_TT], None] = None,
     cls_or_obj=None,
 ) -> List[_TT]:
     """
-    find_all_required_by(requirement_name: str | FieldProjection, expected_type: Type[NodeType] | None = None)
+    find_all_required_by(requirement_name: str | FieldProjection, expected_type: Type[Node] | None = None)
 
     Behaves the same as `find_required_by` but returns a list of all the matches found.
     If no match is found, return an empty list.
 
     Args:
         requirement_name (str | FieldProjection): Either the name of the req, or for a more type safety, a reference to the requirement (e.g. ``B.connects_to`` in the example above).
-        expected_type (NodeType, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
+        expected_type (Node, optional): The expected type of the node template will be returned. If provided, enables static typing and runtime validation of the return value.
 
     Returns:
-        List[tosca.NodeType]:
+        List[tosca.Node]:
     """
     ref = cast(EvalData, find_required_by(requirement_name, expected_type, cls_or_obj))
     ref.set_foreach("$true")
     return cast(List[_TT], ref)
 
 
-class NodeType(ToscaType):
-    "NodeType"
+class Node(ToscaType):
+    "A TOSCA node template."
 
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
@@ -3082,7 +3082,7 @@ class NodeType(ToscaType):
         @classmethod
         def find_required_by(
             cls,
-            source_attr: Union[str, "NodeType", FieldProjection, None],
+            source_attr: Union[str, "Node", FieldProjection, None],
             expected_type: Union[Type[_T], None] = None,
         ) -> _T:
             return cast(_T, None)
@@ -3095,7 +3095,7 @@ class NodeType(ToscaType):
         @classmethod
         def find_all_required_by(
             cls,
-            source_attr: Union[str, "NodeType", FieldProjection, None],
+            source_attr: Union[str, "Node", FieldProjection, None],
             expected_type: Union[Type[_T], None] = None,
         ) -> List[_T]:
             return cast(List[_T], None)
@@ -3103,14 +3103,15 @@ class NodeType(ToscaType):
     else:
         find_all_required_by = anymethod(find_all_required_by, keyword="cls_or_obj")
 
+NodeType = Node
 
 class _OwnedToscaType(ToscaType):
     _local_name: Optional[str] = field(default=None)
-    _node: Optional[NodeType] = field(default=None)
+    _node: Optional[Node] = field(default=None)
 
     def _set_parent(self, parent: "_ToscaType", name: str):
         # only set once
-        if not self._local_name and isinstance(parent, NodeType):
+        if not self._local_name and isinstance(parent, Node):
             self._node = parent
             self._local_name = name
 
@@ -3158,7 +3159,7 @@ class ValueType(_BaseDataType):
         return body
 
 
-class DataType(_BaseDataType, _OwnedToscaType):
+class DataEntity(_BaseDataType, _OwnedToscaType):
     _type_section: ClassVar[str] = "data_types"
 
     @classmethod
@@ -3171,9 +3172,9 @@ class DataType(_BaseDataType, _OwnedToscaType):
         for field, value in self.get_instance_fields().values():
             body[field.tosca_name] = to_tosca_value(value, dict_cls)
         return body
+DataType = DataEntity  # deprecated
 
-
-class OpenDataType(DataType):
+class OpenDataEntity(DataEntity):
     "Properties don't need to be declared with TOSCA data types derived from this class."
 
     _type_metadata = dict(additionalProperties=True)
@@ -3188,9 +3189,9 @@ class OpenDataType(DataType):
         "Add undeclared properties to the data type."
         self.__dict__.update(kw)
         return self
+OpenDataType = OpenDataEntity # deprecated
 
-
-class CapabilityType(_OwnedToscaType):
+class CapabilityEntity(_OwnedToscaType):
     _type_section: ClassVar[str] = "capability_types"
 
     @classmethod
@@ -3201,15 +3202,15 @@ class CapabilityType(_OwnedToscaType):
         tpl = super().to_template_yaml(converter)
         del tpl["type"]
         return tpl
+CapabilityType = CapabilityEntity
 
-
-class RelationshipType(_OwnedToscaType):
+class Relationship(_OwnedToscaType):
     # the "owner" of the relationship is its source node
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
     _valid_target_types: ClassVar[Optional[List[Type[CapabilityType]]]] = None
     _default_for: Optional[str] = field(default=None)
-    _target: NodeType = field(default=None, builtin=True)
+    _target: Node = field(default=None, builtin=True)
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
@@ -3231,14 +3232,14 @@ class RelationshipType(_OwnedToscaType):
             tpl["default_for"] = self._default_for
         return tpl
 
-    def __getitem__(self, target: NodeType) -> Self:
+    def __getitem__(self, target: Node) -> Self:
         if self._target:
             return dataclasses.replace(self, _target=target)  # type: ignore
         self._target = target
         return self
+RelationshipType = Relationship
 
-
-class ArtifactType(_OwnedToscaType):
+class ArtifactEntity(_OwnedToscaType):
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
@@ -3287,9 +3288,9 @@ class ArtifactType(_OwnedToscaType):
     def execute(self, *args: ToscaInputs, **kw):
         self.inputs = ToscaInputs._get_inputs(*args, **kw)
         return self
+ArtifactType = ArtifactEntity  # deprecated
 
-
-class InterfaceType(ToscaType):
+class Interface(ToscaType):
     # "Note: Interface types are not derived from ToscaType"
     _type_section: ClassVar[str] = "interface_types"
 
@@ -3317,25 +3318,25 @@ class InterfaceType(ToscaType):
             yaml[tosca_name].pop("interfaces", None)
             yaml[tosca_name].update(body)
         return yaml
+InterfaceType = Interface  # deprecated
 
-
-class PolicyType(ToscaType):
+class Policy(ToscaType):
     _type_section: ClassVar[str] = "policy_types"
     _template_section: ClassVar[str] = "policies"
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         return cls._shared_cls_to_yaml(converter)
+PolicyType = Policy  # deprecated
 
-
-class GroupType(ToscaType):
+class Group(ToscaType):
     _type_section: ClassVar[str] = "group_types"
     _template_section: ClassVar[str] = "groups"
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         return cls._shared_cls_to_yaml(converter)
-
+GroupType = Group  # deprecated
 
 class _ArtifactProxy:
     def __init__(self, name_or_tpl):

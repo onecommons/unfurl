@@ -396,12 +396,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     def find_required_by(
         self,
         requirement: Union[str, FieldProjection],
-        Expected: Optional[Type[tosca.NodeType]] = None,
-    ) -> tosca.NodeType:
+        Expected: Optional[Type[tosca.Node]] = None,
+    ) -> tosca.Node:
         """
-        Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
+        Runtime version of Node (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
         """
-        ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
+        ref = cast(Type[tosca.Node], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
         assert isinstance(ref, EvalData)  # actually it will be a EvalData
@@ -415,7 +415,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         Expected: Union[None, type, tosca.TypeInfo] = None,
     ) -> Any:
         """
-        Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
+        Runtime version of Node (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
         """
         result = _map_value(ref.expr, self._context)
         if Expected and not isinstance(Expected, tosca.TypeInfo):
@@ -435,7 +435,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         field, prop_name = _get_field_from_prop_ref(prop_ref)
         ref = search_func(
             field or prop_name,
-            cls_or_obj=cast(Type[tosca.NodeType], self._obj or self._cls),
+            cls_or_obj=cast(Type[tosca.Node], self._obj or self._cls),
         )
         if field:
             _type = field.get_type_info_checked()
@@ -463,12 +463,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     def find_all_required_by(
         self,
         requirement: Union[str, FieldProjection],
-        Expected: Optional[Type[tosca.NodeType]] = None,
-    ) -> List[tosca.NodeType]:
+        Expected: Optional[Type[tosca.Node]] = None,
+    ) -> List[tosca.Node]:
         """
-        Runtime version of NodeType (and RelationshipType)'s find_all_required_by, executes the eval expression returned by that method.
+        Runtime version of Node (and RelationshipType)'s find_all_required_by, executes the eval expression returned by that method.
         """
-        ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
+        ref = cast(Type[tosca.Node], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
         return self._execute_resolve_all(
@@ -504,7 +504,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 reltype = t
             elif issubclass(t, tosca.CapabilityType):
                 captype = t
-            elif issubclass(t, tosca.NodeType):
+            elif issubclass(t, tosca.Node):
                 nodetype = t
         if has_relationship_template and reltype:
             instance = rel
