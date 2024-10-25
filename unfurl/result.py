@@ -90,11 +90,11 @@ def serialize_value(value, **kw):
     if isSensitive and kw.get("redact"):
         return sensitive.redacted_str
     if isinstance(value, Mapping):
-        ctor = sensitive_dict if isSensitive else dict
-        return ctor((key, serialize_value(v, **kw)) for key, v in value.items())
+        d_ctor = sensitive_dict if isSensitive else dict
+        return d_ctor((key, serialize_value(v, **kw)) for key, v in value.items())
     if isinstance(value, (MutableSequence, tuple)):
-        ctor = sensitive_list if isSensitive else list
-        return ctor(serialize_value(item, **kw) for item in value)
+        l_ctor = sensitive_list if isSensitive else list
+        return l_ctor(serialize_value(item, **kw) for item in value)
     else:
         return value
 
