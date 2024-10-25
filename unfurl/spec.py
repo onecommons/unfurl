@@ -227,10 +227,13 @@ class ToscaSpec:
         # need to set a path for the import loader
         mode = os.getenv("UNFURL_VALIDATION_MODE")
         additionalProperties = False
+        validate_type_type = False
         if mode is not None:
             additionalProperties = "additionalProperties" in mode
+            validate_type_type = "types" in mode
             ToscaTemplate.strict = "reqcheck" in mode
         EntityTemplate.additionalProperties = additionalProperties
+        EntityTemplate.validate_type_type = validate_type_type
         if resolver:
             # hack! set this now so the find_matching_node callback is invoked
             resolver.manifest.tosca = self
@@ -1768,6 +1771,8 @@ class TopologySpec(EntitySpec):
             custom_types = tpl.pop("custom_types")
             if custom_types:
                 # XXX check for conflicts, throw error
+                # add to "types" so EntityTemplate validation passes
+                cast(dict, self.spec.template.tpl).setdefault("types", {}).update(custom_types)
                 self.topology_template.custom_defs.update(custom_types)
 
         nodeTemplate = self.topology_template.add_template(name, tpl)
