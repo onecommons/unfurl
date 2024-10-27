@@ -9,3 +9,5 @@ pytest-xdist[psutil]
 pytest-profiling
 mypy
 types-PyYAML
+types-requests
+types-redis

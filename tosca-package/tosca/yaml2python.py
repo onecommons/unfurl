@@ -1362,7 +1362,7 @@ class Convert:
         # XXX add arguments declared on the interface definition
         # XXX declare configurator/artifact as the return value
         type_anno = ": Any" if not self.concise else ""
-        args = f"{'' if template_name else 'self, '}**kw{type_anno}"
+        args = f"self, **kw{type_anno}"
         type_anno = " -> Any" if not self.concise else ""
         src += f"{indent}def {func_name}({args}){type_anno}:\n"
         indent += "   "
@@ -1711,10 +1711,7 @@ class Convert:
         if names:
             self._pending_defs.append(ops_src)
             for op_name in names:
-                if self.assign_attr:
-                    src += f"{indent}{name}.{op_name} = {name}_{op_name}  # type: ignore[attr-defined]\n"
-                else:
-                    src += f"{indent}setattr({name}, '{op_name}', {name}_{op_name})\n"
+                src += f'{indent}{name}.set_operation({name}_{op_name}, "op_name")\n'
         return src
 
     def _get_req_assignment(self, req):
