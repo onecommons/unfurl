@@ -338,7 +338,7 @@ Use the :cli:`unfurl clone<unfurl-clone>` command to clone projects and ensemble
 where:
 
 ``<source>`` can be a git URL or local file path.
-Git URLs can specify a particular file in the repository using an URL fragment like ``#:<path\to\file>`` or ``#<branch_or_tag>:<path\to\file>``.
+Git URLs can specify a particular file in the repository using an URL fragment like ``#:<path/to/file>`` or ``#<branch_or_tag>:<path/to/file>``.
 You can also use a cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
 
 ``<dest>`` is a file path. If ``<dest>`` already exists and is not inside an Unfurl project, clone will exit in error. If omitted, the destination name is derived from the source and created in the current directory. 
