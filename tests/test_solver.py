@@ -16,7 +16,10 @@ from toscaparser.properties import Property
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.common import exception
 from ruamel.yaml.comments import CommentedMap
+import pytest
 
+if os.getenv("UNFURL_TEST_SKIP_BUILD_RUST"):
+    pytest.skip("UNFURL_TEST_SKIP_BUILD_RUST set", allow_module_level=True)
 
 def make_tpl(yaml_str: str):
     tosca_yaml = load_yaml(yaml, yaml_str, readonly=True)
