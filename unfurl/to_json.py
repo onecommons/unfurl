@@ -1168,7 +1168,7 @@ def blueprint_metadata(spec: ToscaSpec, root_name: str) -> ApplicationBlueprint:
         name=name, __typename="ApplicationBlueprint", title=title
     )
     blueprint["description"] = spec.template.description or ""
-    metadata = spec.template.tpl.get("metadata") or {}
+    metadata = spec.template.metadata
     blueprint["livePreview"] = metadata.get("livePreview")
     blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
     blueprint["image"] = metadata.get("image")
@@ -1197,7 +1197,7 @@ def slugify(text):
 
 
 def _template_title(spec, default):
-    metadata = spec.template.tpl.get("metadata") or spec.template.tpl
+    metadata = spec.template.metadata or spec.template.tpl
     name = metadata.get("template_name") or default
     slug = slugify(name)
     title = metadata.get("title") or name
@@ -1519,7 +1519,7 @@ def _to_graphql(
             # db["ResourceTemplate"][name] = connection_template
             connections[name] = connection_template
 
-    db["Overview"] = tpl.get("metadata") or {}
+    db["Overview"] = spec.template.metadata
     env = DeploymentEnvironment(
         connections=connections,
         primary_provider=connections.get("primary_provider"),

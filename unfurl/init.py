@@ -9,6 +9,7 @@ import os
 import os.path
 from typing import Any, Dict, Optional, cast, TYPE_CHECKING
 import uuid
+import zipfile
 from jinja2.loaders import FileSystemLoader
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib, yaml
 from .venv import init_engine
 from .logs import getLogger
+from toscaparser.prereq.csar import CSAR, TOSCA_META
 
 if TYPE_CHECKING:
     from . import yamlmanifest
@@ -468,6 +470,7 @@ def create_project(
     existing=False,
     empty=False,
     creating_home=False,
+    ensemble_template=True,
     **kw,
 ):
     # check both new and old name for option flag
@@ -535,6 +538,7 @@ def create_project(
         mono,
         use_vault,
         skeleton_vars,
+        ensemble_template,
     )
     if homePath and not creating_home:
         newProject = find_project(projectConfigPath, homePath)
@@ -679,6 +683,10 @@ def _find_templates(sourceProject: Project, sourcePath: str):
     if template:
         sourceDir = sourceProject.get_relative_path(template[0])
         return dict(sourceDir=sourceDir, serviceTemplate=template[1])
+    if os.path.isfile(os.path.join(sourcePath, TOSCA_META)):
+        service_template = yaml.load(Path(sourcePath) / TOSCA_META)['Entry-Definitions']
+        sourceDir = sourceProject.get_relative_path(sourcePath)
+        return dict(sourceDir=sourceDir, serviceTemplate=service_template)
     return None
 
 
@@ -799,10 +807,6 @@ class EnsembleBuilder:
             self.template_vars,
         )
         assert self.template_vars is not None
-        if self.options.get("use_deployment_blueprint"):
-            self.template_vars["deployment_blueprint"] = self.options[
-                "use_deployment_blueprint"
-            ]
 
     @staticmethod
     def _get_ensemble_dir(targetPath):
@@ -1002,6 +1006,7 @@ class EnsembleBuilder:
         self.source_revision = revision
         repoURL = normalize_git_url(repoURL)
         if currentProject:
+            # XXX use currentProject.get_relative_path(destDir) as clone destination
             repo = currentProject.find_or_create_working_dir(repoURL, revision)
             destDir = repo.working_dir
         else:
@@ -1127,7 +1132,7 @@ class EnsembleBuilder:
 
     def set_ensemble(
         self,
-        isRemote: bool,
+        remote_source: bool,
         existingSourceProject: Optional[Project],
     ) -> str:
         sourceWasCloned = self.source_project is not existingSourceProject
@@ -1144,8 +1149,12 @@ class EnsembleBuilder:
                 # source wasn't pointing to an ensemble to clone
                 return "Cloned empty project to " + self.dest_project.projectRoot
 
+        if self.options.get("use_deployment_blueprint"):
+            self.template_vars["deployment_blueprint"] = self.options[
+                "use_deployment_blueprint"
+            ]
         destDir = self.create_new_ensemble()
-        if not isRemote and sourceWasCloned and existingSourceProject:
+        if not remote_source and sourceWasCloned and existingSourceProject:
             # we need to clone the referenced local repos so the new project has access to them
             clone_local_repos(
                 self.manifest,
@@ -1177,6 +1186,59 @@ class EnsembleBuilder:
         LocalEnv(ensemble_template_path).get_manifest()
         return "Cloned blueprint to " + ensemble_template_path
 
+    def clone_from_csar(
+        self, source: str, currentProject: Optional[Project], dest: str
+    ) -> Optional[str]:
+        if not os.path.isfile(source) or not zipfile.is_zipfile(source):
+            return None
+        if currentProject:
+            dest = os.path.abspath(dest) # needs to be absolute for creating ensemble later
+            if dest == currentProject.projectRoot:
+                # don't uncompress into root of existing project
+                dest = os.path.join(dest, os.path.splitext(os.path.basename(source))[0])
+        if (
+            not self.options.get("overwrite")
+            and os.path.exists(dest)
+            and os.listdir(dest)
+        ):
+            raise UnfurlError(
+                f'Can not decompress TOSCA CSAR into "{dest}": folder is not empty'
+            )
+
+        csar = CSAR(source, True, dest)
+        assert csar.unzip_dir
+        logger.info(
+            f'Decompressing TOSCA CSAR "{source}" into "{os.path.abspath(csar.unzip_dir)}"'
+        )
+        csar.validate()  # this will decompress and raise error if validation fails
+        if currentProject:
+            # set overwrite so we create the ensemble in the same directory as the CSAR
+            self.options["overwrite"] = True
+            self.source_project = currentProject
+            repo = currentProject.project_repoview.repo
+            if repo and (self.mono or self.options.get("empty")):
+                repo.add_all(csar.unzip_dir)
+                repo.repo.index.commit(
+                    f"Adding TOSCA CSAR {os.path.basename(source)} to project."
+                )
+        else:
+            options = self.options.copy()
+            options.pop("empty", None)
+            homePath, projectPath, repo = create_project(
+                os.path.abspath(dest), empty=True, ensemble_template=False, **options
+            )
+            self.source_project = find_project(projectPath, self.home_path)
+        assert self.source_project
+
+        assert csar.unzip_dir
+        assert csar.main_template_file_name
+        service_template = self.source_project.get_relative_path(
+            os.path.join(csar.unzip_dir, csar.main_template_file_name)
+        )
+        # set template_vars to create ensemble that includes the service template
+        self.template_vars = dict(sourceDir=".", serviceTemplate=service_template)
+        return dest
+
 
 def clone(
     source: str,
@@ -1188,7 +1250,7 @@ def clone(
     Clone the ``source`` project or ensemble to ``dest``. If ``dest`` isn't in a project, create a new one.
 
     ``source`` can be a git URL or a path inside a local git repository.
-    Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<file\path>``.
+    Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<file/path>``.
     You can use cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
 
     If ``source`` can point to an Unfurl project, an ensemble template, a service template, an existing ensemble, or a folder containing one of those.
@@ -1223,21 +1285,24 @@ def clone(
         dest = Repo.get_path_for_git_repo(source)  # choose dest based on source url
         if os.path.exists(dest):
             raise UnfurlError(
-                'Can not clone project to "'
-                + dest
-                + '": file already exists with that name'
+                'Can not clone to "' + dest + '": file already exists with that name'
             )
     currentProject = find_project(dest, builder.home_path)
     if currentProject:
-        logger.trace(f"Cloning in to project at {currentProject.projectRoot}")
+        logger.trace(f"Cloning into project at {currentProject.projectRoot}")
     source = builder.resolve_input_source(currentProject)
 
     ### step 1: clone the source repository and set the the source path
     sourceProject: Optional[Project] = None
     isRemote = is_url_or_git_path(source)
-
+    from_csar = False
     if isRemote:
         builder.clone_remote_project(currentProject, dest)
+    elif (
+        csar_dest := builder.clone_from_csar(source, currentProject, dest)
+    ) is not None:
+        dest = csar_dest
+        from_csar = True
     else:
         sourceProject = find_project(source, builder.home_path)
         if not sourceProject or not sourceProject.project_repoview.repo:
@@ -1266,13 +1331,20 @@ def clone(
     ##### step 2: create destination project if necessary and determine shared project
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
     if options.get("empty") and not options.get("design"):
-        # don't create an ensemble
+        # don't create an ensemble, so we're done
+        project_root = assert_not_none(builder.dest_project).projectRoot
+        if from_csar:
+            if currentProject:
+                return f"Cloned TOSCA CSAR to {dest}"
+            else:
+                return "Created project from TOSCA CSAR at " + project_root
         if builder.source_project is sourceProject:
             return "Project already exists."
-        return "Cloned project to " + assert_not_none(builder.dest_project).projectRoot
+        return "Cloned project to " + project_root
 
     ##### step 3: examine source for template details
-    builder.configure(isRemote)
+    if not builder.template_vars:
+        builder.configure(isRemote or from_csar)
 
     if options.get("design"):
         # don't create an ensemble but fully instantiate the ensemble-template
@@ -1280,7 +1352,7 @@ def clone(
         return builder.load_ensemble_template()
 
     ##### step 4 create ensemble in destination project if needed
-    return builder.set_ensemble(isRemote, sourceProject)
+    return builder.set_ensemble(isRemote or from_csar, sourceProject)
 
 
 def _create_local_config(clonedProject, logger, vars):
