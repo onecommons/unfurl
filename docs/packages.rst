@@ -10,8 +10,6 @@ A ``package`` is a similar abstraction in that a package is a collection of arti
 
 In a manner similar to common package managers like node.js' npm or go modules, Unfurl will apply package resolution to make sure all references to a package use the same revision -- for example, when multiple repository definitions refer to the same package.
 
-.. _repository:
-
 Repositories
 ============
 
@@ -40,11 +38,7 @@ There are three predefined repositories:
 "spec" which, unless explicitly declared, defaults to the project root or the ensemble itself if it is not part of a project.
 
 "unfurl" which points to the Python package of the unfurl process -- this can be used to load configurators and templates
-that ship with Unfurl.
-
-* Allow service templates to declare the unfurl version they are compatible with.
-
-They can do this be declaring a repository for the unfurl package like so:
+that ship with Unfurl. This allow service templates to declare the unfurl version they are compatible with by declaring a repository for the unfurl package like so:
 
 .. code-block:: yaml
 

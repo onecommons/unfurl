@@ -338,8 +338,8 @@ Use the :cli:`unfurl clone<unfurl-clone>` command to clone projects and ensemble
 where:
 
 ``<source>`` can be a git URL or local file path.
-Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<path\to\file>``.
-You can also use cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
+Git URLs can specify a particular file in the repository using an URL fragment like ``#:<path\to\file>`` or ``#<branch_or_tag>:<path\to\file>``.
+You can also use a cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
 
 ``<dest>`` is a file path. If ``<dest>`` already exists and is not inside an Unfurl project, clone will exit in error. If omitted, the destination name is derived from the source and created in the current directory. 
 
@@ -369,6 +369,11 @@ Either scenario allows you to put local specific settings in a local or home pro
 
   Shared ensembles should configure a `remote lock<Locking>` to prevent simultaneous deployments.
 
+Create a new project from a CSAR archive
+----------------------------------------
+
+* ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension) and ``<dest>`` isn't inside an existing project, a new Unfurl project will be created with the contents of the CSAR copied to the root of the project. A new ensemble will also created unless the ``--empty`` flag is used.
+
 Create a new ensemble from source
 ----------------------------------
 
@@ -377,8 +382,9 @@ A new ensemble is created when:
 * ``<source>`` explicitly points to an ensemble template or a TOSCA service template, a new ensemble is created from the template.
 * ``<source>`` explicitly points to an ensemble. A new ensemble is created from that source (just the "spec" section is copied, not the status and it will have new `uri<uris>`).
 * ``<source>`` is a blueprint project (ie. a project that contains no ensembles but does have an ``ensemble-template.yaml`` file) and the ``--empty`` flag wasn't used.
+* ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension) and the ``--empty`` flag wasn't used.
 
-If ``dest`` is omitted or doesn't exist, the project that ``<source>`` is in will be cloned and the new ensemble created in the cloned project. If ``dest`` points to an existing project and ``<source>`` is a git url and not a local file path, the source repository will be cloned into ``dest``.
+If ``dest`` is omitted or doesn't exist, the project that ``<source>`` is in will be cloned and the new ensemble created in the cloned project. If ``dest`` points to an existing project and ``<source>`` is a git url and not a local file path, the source repository will be cloned into the existing project.  If ``dest`` points to an existing project and ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension), the contents of the CSAR will be copied to ensemble's directory.
 
 Notes
 -----
@@ -522,8 +528,7 @@ Anything thing after the tag will be treated as arguments to be passed to the do
 
   Since specifying ``docker_args`` will require a space separator, the whole runtime argument will have to be quoted.
 
-
-shell
------
+shell default
+-------------
 
 If neither ``venv:`` or ``docker:`` is specified the ``--runtime`` option's argument is treated as a shell command with the unfurl command appended to it.

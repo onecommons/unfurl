@@ -93,6 +93,10 @@ There are different approaches to customize a blueprint but simple one is to dec
 
 Ensemble's ``deployment_blueprints``  In Python, a `deployment blueprint` is represented as a Python class with the customized template objects as class attributes.
 
+Add the following code below the code from the previous step:
+
+.. _deployment_blueprint_example:
+
 .. tab-set-code::
 
   .. literalinclude:: ./examples/quickstart_deployment_blueprints.py

@@ -161,7 +161,8 @@ If the left-side expression is omitted, the value of the segment's key is used a
 If the current value is a list and the key looks like an integer
 it will be treated like a zero-based index into the list.
 Otherwise the segment is evaluated again all values in the list and resulting value is a list.
-If the current value is a dictionary and the key is ``*``, all values will be selected.
+
+If the current value is a dictionary (a map), the next segment will match the keys in the map or use ``*`` to match all values. So to filter on the values in a map, select them all first before applying the filter, for example: ``.artifacts::*::[type=MyArtifactType]``.
 
 If a segment ends in ``?``, it will only include the first match.
 In other words, ``a?::b::c`` is a shorthand for ``a[b::c]::0::b::c``.

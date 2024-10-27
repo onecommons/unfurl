@@ -7,7 +7,7 @@ import unfurl.configurators.terraform
 @tosca.operation(
     name="default", apply_to=["Install.check", "Standard.configure", "Standard.delete"]
 )
-def terraform_example_default(**kw):
+def terraform_example_default(self, **kw):
     return unfurl.configurators.terraform.TerraformConfigurator(
         tfvars={"tag": "test"},
         main="""
@@ -19,6 +19,5 @@ def terraform_example_default(**kw):
       }""",
     )
 
-
 terraform_example = unfurl_nodes_Installer_Terraform()
-terraform_example.default = terraform_example_default
+terraform_example.set_operation(terraform_example_default)

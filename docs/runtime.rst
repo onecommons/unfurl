@@ -71,9 +71,10 @@ Environment Variables
 You can set the environment variables that are available while Unfurl is running
 in the ``variables`` section when declaring an ``environment``.
 These global directives can be overridden when executing an individual operation by
-by adding an ``environment`` section to an operation's ``implementation`` declaration.
+by adding an ``environment`` section to an operation's `implementation` declaration.
+This environment is used when an operation invokes a external process such as a shell command.
 
-In either case, the directives makes a copy of the current environment and applied each of its keys
+When applying these directives, Unfurl makes a copy of the current environment and applied each of its keys
 in the order they are declared, adding the given key and value as
 environment variables except keys starting with "+" and "-"
 will copy or remove the variable from the current into environment

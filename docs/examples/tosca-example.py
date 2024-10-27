@@ -69,14 +69,3 @@ myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
     file="myapp:latest",
     repository="docker_hub",
 )
-
-
-__all__ = [
-    "dbconnection",
-    "myApplication",
-    "myApp",
-    "compute",
-    "mydb",
-    "mydb_connection",
-]
-

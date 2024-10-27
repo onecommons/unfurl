@@ -186,6 +186,7 @@ Creates a little more verbose and illustrates how to pass input parameters and s
             resultTemplate=Eval(
                 {
                     "eval": {
+                        "if": "$result"
                         "then": {
                             "attributes": {
                                 "public_ip": "{{ "
@@ -198,7 +199,8 @@ Creates a little more verbose and illustrates how to pass input parameters and s
                                 "id": "{{ result.selfLink }}",
                             }
                         }
-                    }
+                    },
+                    "vars": {"result": "{%if success %}{{ stdout | from_json }}{% endif %}"}
                 }
             ),
         )

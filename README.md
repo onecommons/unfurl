@@ -20,9 +20,9 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 * You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can manage that complexity without complicated DevOps processes -- see https://www.unfurl.cloud/blog/why-unfurl for more.
 
-* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Just publish blueprint in an `.unfurl` folder or web UI on [Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
+* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it on cloudmap/[Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
 
-* Collaborative, open without depending on server infrastructure. Use git workflow, pull requests, while provide secret management and limiting admin access.
+* You want to use familiar coding practices and development processes to both develop blueprints and manage operations without depending on costly server infrastructure or having to rely on manual and proprietary admin UI.
 
 ## How it works
 
@@ -36,9 +36,7 @@ Avoid tedious and error prone low-level configuration by creating a cloud bluepr
 
 3. Instantiate your blueprint
 
-Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into.  For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.
-Or if you need to define your own implementations, its easy use the tools you already use and encapsulate the scripts you already have. Operations that invoke Terraform, Ansible, or other command-line tools. 
-Unfurl will generate a plan and render (e.g Terraform modules or ansible playbooks) that you can review or even create a pull request.
+Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into. For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.  Or your can easily use your own implementations -- Unfurl integrates with tools like Terraform, Ansible, and Helm or you can encapsulate the scripts you already have.
 
 4. Deploy and manage. 
 
@@ -51,8 +49,7 @@ After the initial deployment, subsequent deployment plans take into account the 
 
 Unfurl stores everything in git so git is all you need to share projects and collaboratively manage deployments.  Unfurl can use git lfs to provide locking during deployment and can automatically encrypts secrets. Or for ease of use and more advanced needs you can use [unfurl cloud](https://unfurl.cloud) to host and deploy.
 
-For complex applications and to enable open-source development and the integration of 3rd-party providers, Unfurl supports design patterns for 
-for integrating components and services that can be developed and deployed independently, such as encapsulation (imports), composition (substitute mapping), loosely-coupled components (dsl constraints), dependency injection (deployment blueprint / substitution mapping), modular architectures (std), semantic versioning (packaging), and component catalogs (cloudmaps).
+For complex applications and to enable open-source development and the integration of 3rd-party providers, Unfurl supports [design patterns](https://docs.unfurl.run/solution-overview.html#large-scale-collaboration) for integrating components and services that can be developed and deployed independently, such as [encapsulation](https://docs.unfurl.run/CHANGELOG.html#tosca-namespaces-and-global-type-identifiers), [composition](https://docs.unfurl.run/toscaref/spec-substitution-mapping.html), [loosely-coupled components](https://github.com/onecommons/unfurl/blob/main/rust/README.md), dependency injection, [semantic versioning](https://docs.unfurl.run/packages.html#package-resolution), and [component catalogs](https://docs.unfurl.run/cloudmap.html).
 
 ## Our Vision
 

@@ -13,24 +13,25 @@ class Inputs(TopologyInputs):
     domain: str
 
 
-class dbconnection(tosca.relationships.ConnectsTo):
+class Outputs(TopologyOutputs):
+    url: str = concat("https://", Inputs.domain, "/api/events")
+
+
+class DatabaseConnection(tosca.relationships.ConnectsTo):
     username: str
     password: str = Property(metadata={"sensitive": True})
 
 
-class myApplication(tosca.nodes.SoftwareComponent):
+class MyApplication(tosca.nodes.SoftwareComponent):
     domain: str = Inputs.domain
 
     private_address: str = Attribute()
 
     host: Sequence[
-        Union[
-            tosca.relationships.HostedOn,
-            tosca.nodes.Compute,
-            tosca.capabilities.Compute,
-        ]
+        tosca.relationships.HostedOn | tosca.nodes.Compute | tosca.capabilities.Compute
     ] = ()
-    db: "dbconnection"
+
+    db: "DatabaseConnection"
 
     def create(self, **kw):
         return unfurl.configurators.shell.ShellConfigurator(
@@ -63,12 +64,12 @@ mydb = tosca.nodes.Database(
     host=[compute],
 )
 
-mydb_connection = dbconnection(
+mydb_connection = DatabaseConnection(
     "mydb_connection",
     username="myapp",
     password=Eval({"eval": {"secret": "myapp_db_pw"}}),
 )
-myApp = myApplication(
+myApp = MyApplication(
     "myApp",
     host=[compute],
     db=mydb_connection[mydb],
@@ -78,7 +79,3 @@ myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
     file="myapp:latest",
     repository="docker_hub",
 )
-
-
-class Outputs(TopologyOutputs):
-    url: str = concat("https://", Inputs.domain)

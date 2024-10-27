@@ -64,6 +64,7 @@ topology_template:
             [
               https://,
               { get_input: domain },
+              /api/events
             ],
         }
       # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:

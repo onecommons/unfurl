@@ -38,7 +38,7 @@ get_artifact
   The ``get_artifact`` function returns the location of the referenced artifact.
   The location depends on the type of artifact. If the artifact is a Docker container image, return the image name in the form of
   "registry/repository/name:tag" or "registry/repository/name@sha256:digest".
-  If it is a file, return a local file path that is resolvable while the unfurl is running.
+  If it is a file, return a local file path that is resolvable while unfurl is running.
   In this case, calling get_artifact may have the side effect of downloading the file or cloning a git repository.
 
   The first argument is either a string or a instance reference (from an `eval expression <eval expressions>`).
@@ -566,9 +566,10 @@ Built-in keys start with a leading **.**:
 .instances     child instances (via the ``HostedOn`` relationship)
 .capabilities  list of capabilities
 .requirements  list of requirements
-.relationships relationships that target this capability
+.relationships list of relationships that target this capability
 .targets       map with requirement names as keys and target instances as values
 .sources       map with requirement names as keys and source instances as values
+.artifacts     map with artifact names as keys and artifact instances as values
 .repository    repository associated with this artifact or resource
 .hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
 .configured_by Follow .sources, filtering by the ``Configures`` relationship

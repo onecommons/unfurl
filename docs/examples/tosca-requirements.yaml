@@ -1,0 +1,41 @@
+node_types:
+    MyApplication:
+      derived_from: tosca.nodes.SoftwareComponent
+      requirements:
+      - db:
+          node: tosca.nodes.DBMS
+          relationship: DatabaseConnection
+          occurrences: [1, 1]
+
+relationship_types:
+  DatabaseConnection:
+    derived_from: tosca.relationships.ConnectsTo
+    properties:
+      username:
+        type: string
+      password:
+        type: string
+        metadata:
+          sensitive: true
+
+topology_template:
+
+  relationship_templates:
+    mydb_connection:
+      type: DatabaseConnection
+      properties:
+        username: myapp
+        password:
+          eval:
+            secret:
+              myapp_db_pw
+
+  node_templates:
+    myApp:
+      type: MyApplication
+      requirements:
+        - db:
+            relationship: mydb_connection
+            node_filter:
+              properties:
+                - name: mydb

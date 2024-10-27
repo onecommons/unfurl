@@ -43,8 +43,8 @@ As you use Unfurl to deploy applications, it updates the project:
 - Automatically install dependencies such as packages and executables and track the exact version used.
 - Track and manages external git repositories needed for development and deployment (e.g. automatically clone remote repositories).
 
-unfurl home
-~~~~~~~~~~~ 
+.unfurl_home
+~~~~~~~~~~~~
 
 Unfurl stores the local contexts such as environment variables in an ``.unfurl_home`` ensemble that represents its local environment. So you can use all Unfurl functionality to bootstrap your deployment environment and manage the local machine it is running on.
 
@@ -167,15 +167,11 @@ And the design of Unfurl enables open, collaborative processes built around fami
 Collaborative Development
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Unfurl stores everything in git as human readable and editable text files so you can use your favorite developer tools and workflows such as pull requests.
-
-For example, using the Python DSL allows tests. And when modifying YAML files like ensemble.yaml, Unfurl preserves comments and formatting.
+Unfurl stores everything in git as human readable and editable source code so you can use your favorite developer tools and workflows such as pull requests. For example, using the Python DSL allows you to use popular testing frameworks like pytest. And when modifying YAML files like ensemble.yaml, Unfurl preserves comments and formatting.
 
 Unfurl commands for managing Unfurl projects are modeled after git's but works with multiple git repositories in tandem and includes Unfurl-specific logic such as handling encrypted content. For example, :cli:`unfurl clone<unfurl-clone>` can clone an Unfurl project or clone blueprints and ensembles into an existing project.
 
-You can host an unfurl project on any git hosting service like Github or Gitlab; setup is no different than hosting a code repository -- See :ref:`Publish your project<publish_project>`.
-
-Or you can use `Unfurl Cloud`_, our open-source 
+You can host an unfurl project on any git hosting service like Github or Gitlab; setup is no different than hosting a code repository -- See :ref:`Publish your project<publish_project>`. Or you can use `Unfurl Cloud`_, our open-source deployment platform.
 
 Collaborative Operations
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -199,11 +195,11 @@ Large-scale Collaboration
 
 As the complexity of your cloud application increases you'll want to move beyond monolithic deployments to components and services that can be developed and deployed independently. Unfurl provides several facilities that encourage and support the composability and integration of services. Here's how you can use Unfurl to implement common strategies for building complex, maintainable systems:
 
-* Encapsulation and Composition. You maintain separate ensembles and blueprints for encapsulation and rely on various facilities for integrating them: import resources from `external ensembles`, `import <imports>` TOSCA libraries across repositories, and embed blueprints inside other blueprints using `substitution mappings <substitution_mappings>`.
+* Encapsulation and Composition. You maintain separate ensembles and blueprints for encapsulation and rely on various facilities for integrating them: import resources from `external ensembles`, `import <imports>` TOSCA libraries across repositories with isolation through `TOSCA namespaces and global type identifiers`, and embed blueprints inside other blueprints using `substitution mappings <substitution_mappings>`.
 
 * Loosely-coupled Components. TOSCA has features such as node filters that allows to the selection and integration of resource templates in a dynamic, loosely-coupled way -- so you can avoid hard-coding connections between components.  Unfurl's `Python DSL` allows you to express these constraints as simple generic Python.
 
-* Dependency Injection / Inversion of Control (DI/IoC). Ensembles can use several mechanisms that support this design pattern: the environment can use `deployment blueprints<deployment blueprint>` to replace templates; `substitution mappings<substitution_mappings>` can override embedded blueprints; the select node directive defines injection points.
+* Dependency Injection / Inversion of Control (DI/IoC). Ensembles can use several mechanisms that support this design pattern: the `environment<Environment Sections>` provides configuration including `deployment blueprints<deployment blueprint>` to replace templates; `substitution mappings<substitution_mappings>` can override embedded blueprints; the select node directive defines injection points. 
 
 * Modular architectures such as microservices or service-oriented architectures: The |stdlib|_ provides high-level abstractions for services, making it easier to integrate blueprints that use them. 
 
