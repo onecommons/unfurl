@@ -409,7 +409,7 @@ def solve_topology(topology_template: TopologyTemplate) -> Solution:
     # print ('types', types)
     # print("!solving " + "\n\n".join(repr(n) for n in nodes.values()))
     solved = cast(Solution, solve(nodes, types))
-    logger.debug(f"Solve found {len(solved)} matches for {len(nodes)}.")
+    logger.debug(f"Solver found {len(solved)} requirements match{'es' if len(solved)!=1 else ''} for {len(nodes)} Node template{'s' if len(nodes)!=1 else ''}.")
     for (source_name, req), targets in solved.items():
         source: NodeTemplate = topology_template.node_templates[source_name]
         target_nodes = [
