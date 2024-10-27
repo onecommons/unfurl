@@ -39,6 +39,8 @@ TOSCA Types
 
   .. automethod:: set_to_property_source
 
+  .. automethod:: set_operation
+
 .. autoclass:: Node
   
   .. automethod:: find_required_by

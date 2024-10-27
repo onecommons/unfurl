@@ -494,9 +494,10 @@ example_operation_on_template_python = (
     example_template_python
     + """
 wordpress_db.db_content = tosca.artifacts.File(file="files/wordpress_db_content.txt")
+
 def create(self):
     return self.find_artifact("db_create.sh").execute(db_data=self.db_content)
-wordpress_db.create = create
+wordpress_db.set_operation(create)
 """
 )
 

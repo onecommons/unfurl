@@ -14,7 +14,6 @@ import datetime
 import re
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Dict,
     ForwardRef,
@@ -37,6 +36,8 @@ from typing import (
 import types
 from typing_extensions import (
     Protocol,
+    Callable,
+    Concatenate,
     dataclass_transform,
     get_args,
     get_origin,
@@ -1579,7 +1580,7 @@ def Artifact(
 
 _make_field_doc(Artifact)
 
-_EvalDataExpr = Union["EvalData", str, None, Dict[str, Any], List[Any]]
+_EvalDataExpr = Union[str, None, Dict[str, Any], List[Any]]
 
 
 class _GetName:
@@ -1596,7 +1597,9 @@ class EvalData:
     "A wrapper around JSON/YAML data that may contain TOSCA functions or eval expressions and should be evaluated at runtime."
 
     def __init__(
-        self, expr: _EvalDataExpr, path: Optional[List[Union[str, _GetName]]] = None
+        self,
+        expr: Union["EvalData", _EvalDataExpr],
+        path: Optional[List[Union[str, _GetName]]] = None,
     ):
         if isinstance(expr, EvalData):
             expr = expr.expr
@@ -1661,7 +1664,7 @@ class EvalData:
             return "{{ " + jinja + " }}"
         elif isinstance(expr, list):
             return "{{ " + str(expr) + "| map_value }}"
-        return expr or ""  # type: ignore   # unreachable
+        return str(expr or "")
 
     def __repr__(self):
         return f"EvalData({self.expr})"
@@ -1903,7 +1906,7 @@ def is_data_field(obj) -> bool:
     return (
         not callable(obj)
         and not inspect.ismethoddescriptor(obj)
-        and not inspect.isdatadescriptor(object)
+        and not inspect.isdatadescriptor(obj)
     )
 
 
@@ -2396,6 +2399,13 @@ def find_hosted_on(
     return cast(_T, _search(field_name, ".hosted_on", cls_or_obj))
 
 
+# XXX make unconditional when type_extensions 4.13 is released (and use Self)
+if sys.version_info >= (3, 11):
+    _OperationFunc = Callable[Concatenate["ToscaType", ...], Any]
+else:
+    _OperationFunc = Callable
+
+
 class ToscaType(_ToscaType):
     "Base class for TOSCA type definitions."
 
@@ -2428,15 +2438,32 @@ class ToscaType(_ToscaType):
                     setattr(val, name, value)
         self._initialized = True
 
-    def _enforce_required_fields(self):
+    def _enforce_required_fields(self) -> bool:
         return True
 
     # XXX version (type and template?)
 
-    def register_template(self, current_module, name):
+    def register_template(self, current_module, name) -> None:
         self._all_templates.setdefault(self._template_section, {})[
             (current_module, self._name or name)
         ] = self
+
+    def set_operation(self, op: _OperationFunc, name: Optional[str] = None) -> None:
+        """
+        Assign the given :std:ref:`TOSCA operation<operation>` to this TOSCA object.
+        TOSCA allows operations to be defined directly on templates.
+
+        Args:
+          op: A function implements the operation. It should looks like a method, i.e. accepts ``Self`` as the first argument.
+              Using the `tosca.operation` function decorator is recommended but not required.
+          name: The TOSCA operation name. If omitted, ``op``'s :py:func:`operation_name<tosca.operation>` or function name is used.
+        """
+
+        if not name:
+            name = cast(str, getattr(op, "operation_name", op.__name__))
+        # we invoke methods through a proxy during yaml generation and at runtime so we don't need to worry
+        # that this function will not receive self because are assigning it directly to the object here.
+        setattr(self, name, op)
 
     @classmethod
     def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
@@ -3103,7 +3130,9 @@ class Node(ToscaType):
     else:
         find_all_required_by = anymethod(find_all_required_by, keyword="cls_or_obj")
 
+
 NodeType = Node
+
 
 class _OwnedToscaType(ToscaType):
     _local_name: Optional[str] = field(default=None)
@@ -3172,7 +3201,10 @@ class DataEntity(_BaseDataType, _OwnedToscaType):
         for field, value in self.get_instance_fields().values():
             body[field.tosca_name] = to_tosca_value(value, dict_cls)
         return body
+
+
 DataType = DataEntity  # deprecated
+
 
 class OpenDataEntity(DataEntity):
     "Properties don't need to be declared with TOSCA data types derived from this class."
@@ -3189,7 +3221,10 @@ class OpenDataEntity(DataEntity):
         "Add undeclared properties to the data type."
         self.__dict__.update(kw)
         return self
-OpenDataType = OpenDataEntity # deprecated
+
+
+OpenDataType = OpenDataEntity  # deprecated
+
 
 class CapabilityEntity(_OwnedToscaType):
     _type_section: ClassVar[str] = "capability_types"
@@ -3202,7 +3237,10 @@ class CapabilityEntity(_OwnedToscaType):
         tpl = super().to_template_yaml(converter)
         del tpl["type"]
         return tpl
+
+
 CapabilityType = CapabilityEntity
+
 
 class Relationship(_OwnedToscaType):
     # the "owner" of the relationship is its source node
@@ -3237,7 +3275,10 @@ class Relationship(_OwnedToscaType):
             return dataclasses.replace(self, _target=target)  # type: ignore
         self._target = target
         return self
+
+
 RelationshipType = Relationship
+
 
 class ArtifactEntity(_OwnedToscaType):
     _type_section: ClassVar[str] = "artifact_types"
@@ -3288,7 +3329,10 @@ class ArtifactEntity(_OwnedToscaType):
     def execute(self, *args: ToscaInputs, **kw):
         self.inputs = ToscaInputs._get_inputs(*args, **kw)
         return self
+
+
 ArtifactType = ArtifactEntity  # deprecated
+
 
 class Interface(ToscaType):
     # "Note: Interface types are not derived from ToscaType"
@@ -3318,7 +3362,10 @@ class Interface(ToscaType):
             yaml[tosca_name].pop("interfaces", None)
             yaml[tosca_name].update(body)
         return yaml
+
+
 InterfaceType = Interface  # deprecated
+
 
 class Policy(ToscaType):
     _type_section: ClassVar[str] = "policy_types"
@@ -3327,7 +3374,10 @@ class Policy(ToscaType):
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         return cls._shared_cls_to_yaml(converter)
+
+
 PolicyType = Policy  # deprecated
+
 
 class Group(ToscaType):
     _type_section: ClassVar[str] = "group_types"
@@ -3336,7 +3386,10 @@ class Group(ToscaType):
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         return cls._shared_cls_to_yaml(converter)
+
+
 GroupType = Group  # deprecated
+
 
 class _ArtifactProxy:
     def __init__(self, name_or_tpl):
