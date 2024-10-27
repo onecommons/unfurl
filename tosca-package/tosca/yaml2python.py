@@ -649,16 +649,8 @@ class Convert:
         return self.maybe_forward_refs(*(self.python_name_from_type(t) for t in types))
 
     def maybe_forward_refs(self, *types) -> Sequence[str]:
-        def may_quote(tn):
-            if self._builtin_prefix:
-                return repr(tn)
-            elif tn.startswith("unfurl.") or tn.startswith("tosca."):
-                return tn
-            else:
-                return repr(tn)
-
         if self.forward_refs:
-            return [may_quote(t) for t in types]
+            return [repr(t) for t in types]
         else:
             return types
 

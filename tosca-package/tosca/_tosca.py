@@ -436,6 +436,8 @@ def _get_type_name(_type):
 def get_optional_type(_type) -> Tuple[bool, Any]:
     # if not optional return false, type
     # else return true, type or type
+    if isinstance(_type, ForwardRef):
+        _type = _type.__forward_arg__
     if isinstance(_type, str):
         union = [t.strip() for t in _type.split("|")]
         try:
@@ -508,7 +510,9 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
             _type = Any
         origin = get_origin(_type)
 
-    if _get_type_name(origin) in ["Union", "UnionType"]:
+    if isinstance(_type, ForwardRef):
+        types: tuple = tuple(ForwardRef(t.strip()) for t in _type.__forward_arg__.split("|"))
+    elif _get_type_name(origin) in ["Union", "UnionType"]:
         types = get_args(_type)
     else:
         types = (_type,)
