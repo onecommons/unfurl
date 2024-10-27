@@ -2782,9 +2782,6 @@ class ToscaType(_ToscaType):
             elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
-                if field.tosca_field_type != ToscaFieldType.property:
-                    # the value was a data value or unrecognized, nothing to convert
-                    continue
                 field.default = MISSING  # this whole field was missing
                 yield name, (field, value)
             elif isinstance(field, _Tosca_Field):
@@ -3427,6 +3424,8 @@ class _ToscaTypeProxy:
             else:
                 # this is only called when defining an operation on a type so reset query to be relative
                 attr._path = [".", attr.field.as_ref_expr()]
+        elif isinstance(attr, ArtifactType):
+            return _ArtifactProxy(name)
         return attr
 
     def find_artifact(self, name_or_tpl):

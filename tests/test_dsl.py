@@ -510,19 +510,20 @@ def test_example_template():
     assert src_tpl == tosca_tpl2
     tosca_tpl3 = _to_yaml(example_operation_on_template_python, False)
     wordpress_db = tosca_tpl3["topology_template"]["node_templates"]["wordpress_db"]
-    wordpress_db["artifacts"] = {
+    assert wordpress_db["artifacts"] == {
         "db_content": {
             "type": "tosca.artifacts.File",
             "file": "files/wordpress_db_content.txt",
         }
     }
-    wordpress_db["interfaces"] = {
+    assert wordpress_db["interfaces"] == {
         "Standard": {
             "type": "tosca.interfaces.node.lifecycle.Standard",
             "operations": {
                 "create": {
                     "implementation": {"primary": "db_create.sh"},
-                    "inputs": {"db_data": {"get_artifact": ["SELF", "db_content"]}},
+                    "inputs": {"db_data": {"get_artifact": ["SELF", "db_content"]}
+                  },
                 }
             },
         }
