@@ -1411,15 +1411,18 @@ class Job(ConfigChange):
                     UnfurlTaskError(task, "too many subtasks spawned")
                     change = task.finished(ConfiguratorResult(False, None))
                 else:
-                    ready, _, error_reqs = do_render_requests(self, [result])
-                    if not ready:
-                        err_msg = "render failed"
-                        if error_reqs and error_reqs[0].render_errors:
-                            err_msg = str(error_reqs[0].render_errors[0])
+                    if result.task:  # already rendered
+                        ready = [result]
+                    else:
+                        ready, _, error_reqs = do_render_requests(self, [result])
                         assert result.task
-                        return result.task.finished(
-                            ConfiguratorResult(False, False, result=err_msg)
-                        )
+                        if not ready:
+                            err_msg = "render failed"
+                            if error_reqs and error_reqs[0].render_errors:
+                                err_msg = str(error_reqs[0].render_errors[0])
+                            return result.task.finished(
+                                ConfiguratorResult(False, False, result=err_msg)
+                            )
                     change = self.apply(ready, not_ready, depth + 1)
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
