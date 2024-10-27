@@ -136,7 +136,12 @@ def convert_to_yaml(
         import_resolver,
     )
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
-        logger.debug("converted %s to:\n%s", path, pprint.pformat(yaml_src), extra=dict(truncate=0))
+        logger.debug(
+            "converted %s to:\n%s",
+            path,
+            pprint.pformat(yaml_src),
+            extra=dict(truncate=0),
+        )
     return yaml_src
 
 
@@ -179,8 +184,13 @@ class DslMethodConfigurator(Configurator):
 
     def render(self, task: TaskView) -> Any:
         if self.action == "render":
+            # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
             result = obj._invoke(self.func)
+            if isinstance(result, Generator):
+                # render the yielded configurator
+                result = result.send(None)
+                # need a way to mark yielded configurator as already rendered
             if isinstance(result, Configurator):
                 self.configurator = result
                 # configurators rely on task.inputs, so update them
@@ -213,6 +223,7 @@ class DslMethodConfigurator(Configurator):
             return self.configurator.can_dry_run(task)
         return False
 
+
 def eval_computed(arg, ctx):
     """
     eval:
@@ -235,6 +246,7 @@ class ProxyCollection(CollectionProxy):
     For proxying lists and maps set on a ToscaType template to a value usable by the runtime.
     It will create proxies of Tosca datatypes on demand.
     """
+
     def __init__(self, collection, type_info: tosca.TypeInfo):
         self._values = collection
         self._type_info = type_info
@@ -443,10 +455,15 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             _type = None
         if _type and _type.is_sequence():
             return cast(
-                T, self._execute_resolve_all(cast(EvalData, ref), prop_name, _type.types[0])
+                T,
+                self._execute_resolve_all(
+                    cast(EvalData, ref), prop_name, _type.types[0]
+                ),
             )
         else:
-            return cast(T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type))
+            return cast(
+                T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type)
+            )
 
     def find_configured_by(
         self,
@@ -580,6 +597,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     if isinstance(val, types.MethodType):
                         # so we can call with proxy as self
                         val = val.__func__
+                    elif (
+                        isinstance(val, functools.partial)
+                        and val.args
+                        and val.args[0] is self._obj
+                    ):
+                        val = val.func
                     # should have been set by _invoke() earlier in the call stack.
                     assert global_state.context
                     return functools.partial(val, self)
@@ -594,7 +617,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 # self._context._trace=2
                 # self._instance.attributes.context._trace=2
                 type_info = field.get_type_info()
-                if type_info.optional and field.tosca_name not in self._instance.attributes:
+                if (
+                    type_info.optional
+                    and field.tosca_name not in self._instance.attributes
+                ):
                     val = None  # don't raise KeyError if the property isn't required
                 else:
                     val = _proxy_prop(

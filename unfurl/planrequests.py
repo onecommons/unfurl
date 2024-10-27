@@ -57,7 +57,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     inputs: Optional[Mapping[str, Any]]
     base_dir: Optional[str]
     dependencies: Optional[List["ArtifactSpec"]]
-    outputs: Optional[dict]
+    outputs: Optional[Dict[str, Any]]
     operation_host: Optional[str]
     entry_state: Optional[str]
     workflow: Optional[str]
@@ -100,9 +100,9 @@ class ConfigurationSpec:
         self.timeout = timeout
         self.operation_host = operation_host
         self.environment = environment
-        self.inputs = inputs or {}
+        self.inputs: Dict[str, Any] = inputs or {}
         self.inputSchema = inputSchema
-        self.outputs = outputs or {}
+        self.outputs: Dict[str, Any] = outputs or {}
         self.preConditions = preConditions
         self.postConditions = postConditions
         self.artifact = primary

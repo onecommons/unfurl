@@ -601,6 +601,26 @@ def test_custom_interface():
     assert yaml_dict == tosca_yaml
 
 
+def test_generator_operation():
+    import unfurl.configurators.shell
+    from unfurl.configurator import TaskView
+    class Node(tosca.nodes.Root):
+
+        def foo(self, ctx: TaskView):
+            result = yield unfurl.configurators.shell.ShellConfigurator()
+            if result.result.success:
+                return ctx.done()
+
+        def configure(self, **kw):
+            return self.foo
+
+    test = Node()
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    yaml.dump(yaml_dict, sys.stdout)
+
 def test_bad_field():
     class BadNode(tosca.nodes.Root):
         a_property: str = tosca.Property()

@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, Union, Dict, Any
+from typing import TYPE_CHECKING, List, Union, Dict, Any, cast
 from typing_extensions import Literal
 
 from ..configurator import TaskView
@@ -238,14 +238,15 @@ class TerraformConfigurator(ShellConfigurator):
             task.logger.debug("failed to load provider schema", exc_info=True)
             return None
 
-    def _get_outputs(self, task):
+    def _get_outputs(self, task: TaskView) -> List[str]:
         outputs = [
-            p.name
+            cast(str, p.name)
             for p in task.target.template.attributeDefs.values()
             if p.schema.get("metadata", {}).get(self.attribute_output_metadata_key)
         ]
         if task.configSpec.outputs:
-            if isinstance(task.configSpec.outputs, (str, int)):
+            # allow list for backwards compatibility
+            if not isinstance(task.configSpec.outputs, (dict, list)):
                 raise UnfurlTaskError(
                     task,
                     f'Invalid Terraform outputs specified "{task.configSpec.outputs}"',
@@ -253,7 +254,7 @@ class TerraformConfigurator(ShellConfigurator):
             outputs.extend(task.configSpec.outputs)
         return outputs
 
-    def _get_tfvars(self, task):
+    def _get_tfvars(self, task: TaskView):
         tfvars = task.inputs.get_copy("tfvars")
         if not isinstance(tfvars, str):
             tfprops = _get_tfvars_from_properties(task.target)
