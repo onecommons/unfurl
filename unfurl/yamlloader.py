@@ -349,14 +349,27 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         from . import (
             configurators,
         )  # need to import configurators to get short names  # noqa: F401
+        from .spec import NodeSpec
 
         inputs = op.inputs if op.inputs is not None else {}
-        if not op._source and self.manifest:
-            op._source = self.manifest.get_base_dir()
+        node = None
+        if self.manifest:
+            if not op._source:
+                op._source = self.manifest.get_base_dir()
+            if self.manifest.tosca and self.manifest.tosca.topology:
+                if op.node_template:
+                    node_template = op.node_template
+                else:
+                    ntype = op.ntype.type if op.ntype else "tosca:Root"
+                    topology = self.manifest.tosca.topology.topology_template
+                    nname = f"_{ntype}"
+                    node_template = topology.add_template(nname, dict(type=ntype, imported="ignore"))
+                    del topology.node_templates[nname]
+                node = NodeSpec(node_template, self.manifest.tosca.topology)
         return cast(
             Optional[Dict[str, Any]],
             _get_config_spec_args_from_implementation(
-                op, inputs, None, None, safe_mode=self.get_safe_mode()
+                op, inputs, node, None, safe_mode=self.get_safe_mode()
             ),
         )
 

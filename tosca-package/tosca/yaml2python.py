@@ -802,6 +802,8 @@ class Convert:
         default_value: Any = MISSING
         if "default" in prop.schema.schema:
             default_value = prop.schema.schema["default"]
+        elif "value" in prop.schema.schema:  # special case for topology outputs
+            default_value = prop.schema.schema["value"]
         elif not prop.required:
             default_value = None
         typename = self._prop_type(prop.schema)
@@ -1271,7 +1273,7 @@ class Convert:
             else None
         )
         cmd = ""
-        if kw is None:
+        if kw is None or kw["primary"]:
             if isinstance(op.implementation, dict):
                 artifact = op.implementation.get("primary")
                 kw = op.implementation.copy()
@@ -1281,11 +1283,12 @@ class Convert:
             kw["inputs"] = op.inputs
             if isinstance(artifact, str):
                 artifact, toscaname = self._get_name(artifact)
-                if hasattr(self, artifact):
+                tname = toscaname or artifact
+                if op.node_template and tname in op.node_template.artifacts:
                     # add direct reference to allow static type checking
-                    cmd = f"self.{artifact}.execute("
+                    cmd = f"self.{artifact}.execute"
             if not cmd and artifact:
-                cmd = f"self.find_artifact({self.value2python_repr(artifact)})"
+                cmd = f"self.find_artifact({self.value2python_repr(artifact)}).execute"
         else:
             cmd = kw["className"]
             module, sep, klass = cmd.rpartition(".")
