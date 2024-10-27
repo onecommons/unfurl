@@ -28,7 +28,7 @@ class MyApplication(tosca.nodes.SoftwareComponent):
     private_address: str = Attribute()
 
     host: Sequence[
-        tosca.relationships.HostedOn | tosca.nodes.Compute | tosca.capabilities.Compute
+        "tosca.relationships.HostedOn | tosca.nodes.Compute | tosca.capabilities.Compute"
     ] = ()
 
     db: "DatabaseConnection"
