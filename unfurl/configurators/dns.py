@@ -1,3 +1,4 @@
+from itertools import groupby
 import os
 from collections import defaultdict
 from dataclasses import dataclass
@@ -79,6 +80,24 @@ def _get_zone(zone):
         return zone
     return zone + "."
 
+def _forcelist(o):
+    if not isinstance(o, list):
+        return [o]
+    return o
+
+def _compare_records(name, expected, existing):
+    if name not in existing:
+        return 0
+    current = existing[name]
+    for r in _forcelist(expected):
+        for s in _forcelist(current):
+            if r["type"] == s["type"]:
+                if r != s:
+                    return -1  # differs
+                break
+        else:
+            return 0  # not found
+    return 1  # found
 
 class DNSConfigurator(Configurator):
     """A configurator for managing a DNS zone using OctoDNS.
@@ -171,6 +190,7 @@ class DNSConfigurator(Configurator):
             },
             "zones": {
                 properties.name: {
+                    "lenient": True,
                     "sources": ["source_config"],
                     "targets": ["target_config"],
                 }
@@ -283,14 +303,25 @@ class DNSConfigurator(Configurator):
             if not records and managed:
                 status = Status.absent
             else:
+                match = False
+                status = Status.ok
+                msg = "DNS records in sync"
                 for name, value in managed.items():
-                    if name not in records or records[name] != value:
+                    cmp = _compare_records(name, value, records)
+                    if cmp > 0: # found
+                        match = True
+                    elif cmp < 0:  # doesn't match
                         msg = f"DNS zone is out of sync: expected to find {managed} in {records}"
                         status = Status.error
-                        break
-                else:
-                    msg = "DNS records in sync"
-                    status = Status.ok
+                        break                        
+                    else:  # missing
+                        if match:
+                            msg = f"DNS zone is out of sync: expected to find {managed} in {records}"
+                            status = Status.error
+                            break
+                        else:
+                            msg = "DNS records missing"
+                            status = Status.absent                        
 
         if msg:
             task.logger.verbose(msg)
