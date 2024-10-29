@@ -794,19 +794,11 @@ class nodes(Namespace):
 
     class ContainerApplication(Root):
         _type_name = "tosca.nodes.Container.Application"
-        host: Union[
-            "relationships.HostedOn", "nodes.ContainerRuntime", "capabilities.Container"
-        ]
         storage: "capabilities.Storage" = Requirement()
         network: "capabilities.Endpoint" = Requirement()
 
     class ContainerRuntimeDocker(ContainerRuntime):
         _type_name = "tosca.nodes.Container.Runtime.Docker"
-        host_capability: "capabilities.ContainerDocker" = Capability(
-            name="host",
-            factory=capabilities.ContainerDocker,
-            valid_source_types=["tosca.nodes.Container.Application.Docker"],
-        )
 
     class ContainerApplicationDocker(ContainerApplication):
         _type_name = "tosca.nodes.Container.Application.Docker"

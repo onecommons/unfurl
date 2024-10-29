@@ -988,7 +988,7 @@ def parse_path_key(segment):
         segment = segment[:-1]
         modifier = "?"
 
-    parts = re.split(r"(=|!=)", segment, 1)
+    parts = re.split(r"(=|!=)", segment, maxsplit=1)
     if len(parts) == 3:
         key = parts[0]
         op = operator.eq if parts[1] == "=" else operator.ne
@@ -1032,7 +1032,7 @@ def parse_exp(exp):
 
 
 def parse_step(exp, start=None):
-    split = re.split(r"(\[|\])", exp, 1)
+    split = re.split(r"(\[|\])", exp, maxsplit=1)
     if len(split) == 1:  # not found
         return parse_path(split[0], start), ""
     else:

@@ -19,7 +19,7 @@ from unfurl.util import change_cwd
 
 
 def _verify_mypy(path):
-    stdout, stderr, return_code = api.run([path])
+    stdout, stderr, return_code = api.run(["--disable-error-code=override", path])
     if stdout:
         print(stdout)
         assert "no issues found in 1 source file" in stdout

@@ -46,7 +46,7 @@ class artifact_AsdfTool(unfurl.artifacts.ShellExecutable):
 
 class artifact_PythonPackage(tosca.artifacts.Root):
     _type_name = "artifact.PythonPackage"
-    version: str = ""
+    version = ""
     """Full version specifier (e.g. "==1.0")"""
 
     def check(self, **kw: Any) -> Any:

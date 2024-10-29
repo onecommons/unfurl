@@ -105,11 +105,11 @@ class Project:
     def _set_parent_project(
         self, parentProject: Optional["Project"], save: bool = True
     ) -> None:
+        assert parentProject is not self
         assert not parentProject or parentProject.projectRoot != self.projectRoot, (
-            parentProject.projectRoot,
+            parentProject and parentProject.projectRoot,
             self.projectRoot,
         )
-        assert parentProject is not self
         self.parentProject = parentProject
         if parentProject and save:
             parentProject.register_project(self)  # saves config

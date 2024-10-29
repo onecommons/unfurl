@@ -204,10 +204,6 @@ class unfurl_nodes_K8sResource(unfurl_nodes_K8sRawResource):
         )
     )
 
-    host: Union[
-        Union[tosca.relationships.HostedOn, "unfurl_nodes_K8sNamespace"], None
-    ] = None
-
 
 class unfurl_nodes_K8sSecretResource(unfurl_nodes_K8sResource):
     _type_name = "unfurl.nodes.K8sSecretResource"
