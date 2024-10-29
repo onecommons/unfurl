@@ -128,7 +128,7 @@ __configurator_artifacts_terraform: ArtifactEntity = artifact_AsdfTool(
 configurator_artifacts.terraform = __configurator_artifacts_terraform  # type: ignore[attr-defined]
 __configurator_artifacts_gcloud: ArtifactEntity = artifact_AsdfTool(
     "gcloud",
-    version="398.0.0",
+    version="499.0.0",
     file="gcloud",
 )
 configurator_artifacts.gcloud = __configurator_artifacts_gcloud  # type: ignore[attr-defined]

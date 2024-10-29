@@ -152,7 +152,7 @@ topology_template:
           type: artifact.AsdfTool
           file: gcloud
           properties:
-            version: 398.0.0
+            version: 499.0.0
 
         kompose:
           type: artifact.AsdfTool
