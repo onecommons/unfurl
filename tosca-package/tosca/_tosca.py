@@ -1974,7 +1974,7 @@ def _make_dataclass(cls):
                     base_field = cls.__dataclass_fields__.get(name)
                     if base_field:
                         field = _Tosca_Field(
-                            base_field._tosca_field_type, value, owner=cls
+                            getattr(base_field, "_tosca_field_type", ToscaFieldType.property), value, owner=cls
                         )
                         # avoid type(None) or type(())
                         field.type = base_field.type if not value else type(value)
