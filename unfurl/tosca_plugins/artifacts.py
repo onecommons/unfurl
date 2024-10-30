@@ -81,7 +81,7 @@ class artifact_AnsibleCollection(tosca.artifacts.Root):
 
     def check(self, **kw: Any) -> Any:
         return unfurl.configurators.CmdConfigurator(
-            cmd=Eval("ansible-galaxy collection list --format json {{SELF.file}}"),
+            cmd=Eval("{{__python_executable}} -m ansible.cli.galaxy collection list --format json {{SELF.file}}"),
             done={"success": True},
             resultTemplate=Eval(
                 (
@@ -98,7 +98,7 @@ class artifact_AnsibleCollection(tosca.artifacts.Root):
 
     def create(self, **kw: Any) -> Any:
         return unfurl.configurators.CmdConfigurator(
-            cmd=Eval("ansible-galaxy collection install {{SELF.file}}"),
+            cmd=Eval("{{__python_executable}} -m ansible.cli.galaxy collection install {{SELF.file}}"),
             resultTemplate=Eval(
                 {"eval": {"python": "unfurl.configurators.ansible.reload_collections"}}
             ),
