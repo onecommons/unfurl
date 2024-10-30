@@ -15,7 +15,7 @@ classifiers = [
 dependencies = [
   "black>=24.3.0",
   "typing_extensions>=4.7.1",
-  "RestrictedPython>=7.0",
+  "RestrictedPython>=7.4",
 ]
 
 [build-system]

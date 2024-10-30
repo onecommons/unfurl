@@ -1256,12 +1256,8 @@ def json_response(obj, pretty, **dump_args):
     else:
         dump_args.setdefault("separators", (",", ":"))
 
-    dumps = flask.json.dumps
-    mimetype = current_app.config["JSONIFY_MIMETYPE"]
-    # XXX in flask 2.2+:
-    # dumps = current_app.json.dumps
-    # mimetype= current_app.json.mimetype
-    return current_app.response_class(f"{dumps(obj, **dump_args)}\n", mimetype=mimetype)
+    dumps = current_app.json.dumps
+    return current_app.response_class(f"{dumps(obj, **dump_args)}\n", mimetype="application/json")
 
 
 # /export?format=environments&include_all_deployments=true&latest_commit=foo&project_id=bar&branch=main
