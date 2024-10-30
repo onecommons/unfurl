@@ -500,7 +500,7 @@ class CacheValue(NamedTuple):
     last_commit_date: int
 
     def make_etag(self) -> str:
-        etag = int(self.last_commit, 16) ^ int(get_package_digest(True), 16)
+        etag = int(self.last_commit, 16) ^ int(get_package_digest() or "0", 16)
         for dep in self.deps.values():
             for last_commit in dep.last_commits:
                 if last_commit:
@@ -1148,7 +1148,7 @@ def health():
 
 @app.route("/version")
 def version():
-    return f"{__version__(True)} ({get_package_digest()})"
+    return f"{__version__(True)} ({get_package_digest() or '00000000'})"
 
 
 def get_canonical_url(project_id: str) -> str:

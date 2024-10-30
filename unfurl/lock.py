@@ -137,7 +137,7 @@ class Lock:
         ensemble = self.ensemble
         record = CommentedMap()
         record["unfurl"] = CommentedMap(
-            (("version", __version__(True)), ("digest", get_package_digest()))
+            (("version", __version__(True)), ("digest", get_package_digest()  or "00000000"))
         )
         if ensemble.localEnv and ensemble.localEnv.toolVersions:
             record["toolVersions"] = {

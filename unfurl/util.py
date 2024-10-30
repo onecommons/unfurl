@@ -72,7 +72,7 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 _package_digest: Optional[str] = None
 
 
-def get_package_digest(commit_only=False) -> str:
+def get_package_digest() -> str:
     global _package_digest
     if _package_digest is not None:
         return _package_digest
@@ -82,18 +82,18 @@ def get_package_digest(commit_only=False) -> str:
     basedir = os.path.dirname(_basepath)
     if os.path.isdir(os.path.join(basedir, ".git")):
         repo = Repo(basedir)
-        if commit_only:
-            # same as pbr's git_version
-            _package_digest = repo.git.log(n=1, pretty="format:%h")
-        else:
-            _package_digest = repo.git.describe("--dirty", "--always", "--match=v*")
-
-    try:
-        pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]  # type: ignore  # Ignored because of the try/except
-        _package_digest = json.loads(pbr.read_text())["git_version"]
-    except Exception:
+        # same as pbr's git_version
+        _package_digest = repo.git.log(n=1, pretty="format:%h")
+    else:
         _package_digest = ""
-    return cast(str, _package_digest)
+        pkg_files = files("unfurl")
+        if pkg_files:
+            try:
+                pbr = [p for p in pkg_files if "pbr.json" in str(p)][0]
+                _package_digest = json.loads(pbr.read_text())["git_version"]
+            except Exception:  # no git or pbr.json
+                _package_digest = ""
+    return str(_package_digest)
 
 
 class UnfurlError(Exception):

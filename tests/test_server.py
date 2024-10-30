@@ -1,6 +1,7 @@
 import json
 import os
 from pprint import pformat
+import re
 import threading
 import time
 import unittest
@@ -196,6 +197,11 @@ def test_server_health(runner):
     assert res.status_code == 200
     assert res.content == b"OK"
 
+def test_server_version(runner):
+    res = requests.get("http://localhost:8090/version", params={"secret": "secret"})
+
+    assert res.status_code == 200
+    assert re.match(rb"^1\..+ \(.*\)$", res.content) is not None
 
 def test_server_authentication(runner):
     res = requests.get("http://localhost:8090/health")
@@ -375,7 +381,7 @@ def test_server_export_remote():
 
             dep_commit = GitRepo(Repo("application-blueprint/std")).revision
             etag = server._make_etag(hex(int(last_commit, 16) 
-                                         ^ int(get_package_digest(True), 16)
+                                         ^ int(get_package_digest(), 16)
                                          ^ int(dep_commit, 16)))
             # # check that this public project (no auth header sent) was cached
             res = requests.get(
