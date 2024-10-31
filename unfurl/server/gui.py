@@ -197,6 +197,7 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Gi
     try:
         repo_view = localenv.get_manifest().find_or_clone_from_url(url)
     except UnfurlError:  # we probably want to treat clone errors as not found
+        logger.warning("could not find or clone %s", url, exc_info=True)
         repo_view = None
 
     if not repo_view or not repo_view.repo:

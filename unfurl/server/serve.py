@@ -23,6 +23,7 @@ The server manage local clones of remote git repositories and uses a in-memory o
 from dataclasses import dataclass, field
 import gc
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -1257,7 +1258,9 @@ def json_response(obj, pretty, **dump_args):
         dump_args.setdefault("separators", (",", ":"))
 
     dumps = current_app.json.dumps
-    return current_app.response_class(f"{dumps(obj, **dump_args)}\n", mimetype="application/json")
+    return current_app.response_class(
+        f"{dumps(obj, **dump_args)}\n", mimetype="application/json"
+    )
 
 
 # /export?format=environments&include_all_deployments=true&latest_commit=foo&project_id=bar&branch=main
@@ -2556,21 +2559,23 @@ def serve(
             "Serving ui for project at %s", app.config.get("UNFURL_CURRENT_GIT_URL")
         )
 
-    # Start one WSGI server
-    import uvicorn
+    import waitress
+    from .translogger import make_filter  # type: ignore
 
-    log_level = get_console_log_level()  # getEffectiveLevel() doesn't work
-    if log_level == Levels.VERBOSE:  # (custom level)
-        log_level = Levels.DEBUG
-    uvicorn.run(
-        app,
+    wlogger = logging.getLogger("waitress.queue")
+    wlogger.setLevel(Levels.ERROR)  # suppress queue warning spam
+    # Start single-threaded WSGI server
+    waitress.serve(
+        make_filter(
+            app,
+            logger_name="http",
+            logging_level=Levels.VERBOSE,
+        ),
         host=host,
         port=port,
-        interface="wsgi",
-        log_level=log_level.name.lower(),
+        threads=1,
     )
 
-    # app.run(host=host, port=port)
     # gunicorn  , "-b", "0.0.0.0:5000", "unfurl.server:app"
     # from gunicorn.app.wsgiapp import WSGIApplication
     # WSGIApplication().run()
