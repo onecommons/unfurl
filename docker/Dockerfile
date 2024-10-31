@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 RUN apt-get -qq update && \
     apt-get -qq install -y --no-install-recommends git curl unzip wget expect build-essential && \
@@ -46,7 +46,7 @@ COPY . /unfurl
 
 RUN . "$HOME/.cargo/env" && \
     pip install --no-cache-dir --upgrade pip pipenv setuptools-rust && \
-    cd /unfurl/unfurl/templates/python3.11 && \
+    cd /unfurl/unfurl/templates/python3.13 && \
     pipenv install --system --deploy && \
     pip install --no-deps /unfurl && \
     ansible-galaxy collection install ansible.utils community.docker kubernetes.core && \
