@@ -638,26 +638,33 @@ class RepoView:
         tosca_repos_root = Path(base_path) / "tosca_repositories"
         # ensure t_r and its gitignore exist
         if not tosca_repos_root.exists():
-            os.mkdir(tosca_repos_root)
-            with open(tosca_repos_root / ".gitignore", "w") as gi:
-                gi.write("*")
+            try:
+                os.mkdir(tosca_repos_root)
+                with open(tosca_repos_root / ".gitignore", "w") as gi:
+                    gi.write("*")
+            except Exception:
+                logger.error(
+                    f"Error creating tosca_repositories at {base_path}", exc_info=True
+                )
 
         symlink = tosca_repos_root / name
         # remove/recreate to ensure symlink is correct
-        if symlink.exists():
-            if not symlink.is_symlink():
-                raise UnfurlError(
-                    f"Can not create symlink at {symlink}: it already exists but is not a symlink"
-                )
+        if symlink.is_symlink():
             target = os.path.join(os.path.dirname(symlink), os.readlink(symlink))
-            if Path(target) == Path(self.working_dir):  # already exists
+            if os.path.abspath(target) == os.path.abspath(
+                self.working_dir
+            ):  # already exists
                 return name, self.working_dir
             symlink.unlink()
 
         # use os.path.relpath as Path.relative_to only accepts strict subpaths
         rel_repo_path = os.path.relpath(self.working_dir, tosca_repos_root)
-        symlink.symlink_to(rel_repo_path)
-
+        try:
+            symlink.symlink_to(rel_repo_path, target_is_directory=True)
+        except FileExistsError:
+            raise UnfurlError(
+                f"Can not create symlink at {symlink}: it already exists but is not a symlink"
+            )
         return name, self.working_dir
 
 
