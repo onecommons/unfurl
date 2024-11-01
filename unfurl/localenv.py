@@ -50,7 +50,13 @@ from .util import (
     is_sensitive,
 )
 from .merge import merge_dicts
-from .yamlloader import UnfurlVaultLib, YamlConfig, make_vault_lib_ex, make_yaml
+from .yamlloader import (
+    LoadIncludeAction,
+    UnfurlVaultLib,
+    YamlConfig,
+    make_vault_lib_ex,
+    make_yaml,
+)
 from . import DefaultNames, get_home_config_path
 from urllib.parse import urlparse, urlunsplit, urlsplit
 from ruamel.yaml.comments import CommentedMap
@@ -647,7 +653,7 @@ class Project:
         baseDir,
         warnWhenNotFound=False,
         expanded=None,
-        action=None,
+        action: Optional[LoadIncludeAction] = None,
     ):
         """
         This is called while the YAML config is being loaded.

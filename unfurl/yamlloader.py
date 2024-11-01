@@ -101,7 +101,9 @@ try:
     from .solver import solve_topology
 except ImportError:
     solve_topology = None  # type: ignore
-    logger.warning("Failed to import tosca_solver extension, topology inference is disabled.")
+    logger.warning(
+        "Failed to import tosca_solver extension, topology inference is disabled."
+    )
 
 yaml_perf = 0.0
 
@@ -363,7 +365,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     ntype = op.ntype.type if op.ntype else "tosca:Root"
                     topology = self.manifest.tosca.topology.topology_template
                     nname = f"_{ntype}"
-                    node_template = topology.add_template(nname, dict(type=ntype, imported="ignore"))
+                    node_template = topology.add_template(
+                        nname, dict(type=ntype, imported="ignore")
+                    )
                     del topology.node_templates[nname]
                 node = NodeSpec(node_template, self.manifest.tosca.topology)
         return cast(
@@ -1001,8 +1005,12 @@ class SimpleCacheResolver(ImportResolver):
 
 
 class LoadIncludeAction:
-    def __init__(self, check_include=False, get_key=None):
+    def __init__(
+        self, directive: str, check_include: bool = False, get_key: Optional[str] = None
+    ):
+        self.directive = directive
         self.get_key = get_key
+        # check_include is called to see check if the include exists
         self.check_include = check_include
 
 
@@ -1092,7 +1100,7 @@ class YamlConfig:
 
     def _expand(self) -> Tuple[Mapping, Mapping]:
         find_anchor(self.config, None)  # create _anchorCache
-        self._cachedDocIncludes: Dict[str, Tuple[str, dict]] = {}
+        self._cachedDocIncludes: Dict[str, Tuple[str, dict, str]] = {}
         yaml_dict = yaml_dict_type(self.readonly)
         return expand_doc(
             self.config,
@@ -1198,7 +1206,7 @@ class YamlConfig:
         self, key: Optional[str] = None, pathPrefix: Optional[str] = None
     ) -> Union[Tuple[None, None], Tuple[str, dict]]:
         for k in self._cachedDocIncludes:
-            path, template = self._cachedDocIncludes[k]
+            path, template, directive = self._cachedDocIncludes[k]
             candidate = True
             if pathPrefix is not None:
                 candidate = path.startswith(pathPrefix)
@@ -1209,7 +1217,7 @@ class YamlConfig:
         return None, None
 
     def save_include(self, key):
-        path, template = self._cachedDocIncludes[key]
+        path, template, directive = self._cachedDocIncludes[key]
         if self.readonly:
             raise UnfurlError(
                 f'Can not save include at "{path}", config "{self.path}" is readonly'
@@ -1223,7 +1231,12 @@ class YamlConfig:
             f.write(output.getvalue())
 
     def load_include(
-        self, templatePath, warnWhenNotFound=False, expanded=None, check_or_path=False
+        self,
+        templatePath,
+        warnWhenNotFound=False,
+        expanded=None,
+        check_or_path=False,
+        directive="",
     ):
         if check_or_path and isinstance(check_or_path, bool):
             # called by merge.has_template
@@ -1234,7 +1247,7 @@ class YamlConfig:
                     self.baseDirs[-1],
                     warnWhenNotFound,
                     expanded,
-                    LoadIncludeAction(check_include=True),
+                    LoadIncludeAction(directive, check_include=True),
                 )
             else:
                 return True
@@ -1268,13 +1281,13 @@ class YamlConfig:
                 self.baseDirs[-1],
                 warnWhenNotFound,
                 expanded,
-                LoadIncludeAction(get_key=key),
+                LoadIncludeAction(directive, get_key=key),
             )
             if not key:
                 return value, None, ""
 
         if key in self._cachedDocIncludes:
-            path, _template = self._cachedDocIncludes[key]
+            path, _template, directive = self._cachedDocIncludes[key]
             baseDir = os.path.dirname(path)
             self.baseDirs.append(baseDir)
             return value, _template, baseDir
@@ -1309,5 +1322,5 @@ class YamlConfig:
         _cache_anchors(self.config._anchorCache, template)
         self.baseDirs.append(newBaseDir)
 
-        self._cachedDocIncludes[key] = (path, template)
+        self._cachedDocIncludes[key] = (path, template, directive)
         return value, template, newBaseDir

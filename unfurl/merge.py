@@ -275,11 +275,15 @@ def _json_pointer_validate(pointer):
     return None
 
 
-def get_template(doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None) -> Optional[Any]:
+def get_template(
+    doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None
+) -> Optional[Any]:
     template = doc
     templatePath = None
     if key.include:
-        value, template, baseDir = doc.loadTemplate(value, key.maybe, doc, path)  # type: ignore
+        value, template, baseDir = doc.loadTemplate(  # type: ignore
+            value, key.maybe, doc, path, key.include[len("include") :]
+        )
         if template is None:  # include wasn't not found and key.maybe
             return None
         cls = make_map_with_base(doc, baseDir, cls)
@@ -368,7 +372,7 @@ def _find_template(
     return template, templatePath
 
 
-def has_template(doc: dict, key, value, path, cls) -> bool:
+def has_template(doc: dict, key: "MergeKey", value, path, cls) -> bool:
     if key.include:
         if key.maybe:
             # treat missing includes as null template instead of an error
@@ -376,7 +380,9 @@ def has_template(doc: dict, key, value, path, cls) -> bool:
         loadTemplate = getattr(doc, "loadTemplate", None)
         if not loadTemplate:
             return False
-        return doc.loadTemplate(value, key.maybe, doc, True)  # type: ignore
+        return doc.loadTemplate(  # type: ignore
+            value, key.maybe, doc, True, key.include[len("include") :]
+        )
     return _find_template(doc, key, path, cls, False) is not None
 
 
@@ -437,14 +443,17 @@ def _copy_item(value):
     else:
         return value
 
+
 def copy_list(current: Sequence, cls=list) -> Sequence:
-     return cls(_copy_item(i) for i in current)
+    return cls(_copy_item(i) for i in current)
+
 
 def copy_dict(current: Mapping, cls=dict) -> MutableMapping:
     cp = cls()
     for key, value in current.items():
         cp[key] = _copy_item(value)
     return cp
+
 
 def expand_dict(doc, path, includes, current, cls=dict) -> Any:
     """

@@ -51,7 +51,14 @@ from .packages import (
 )
 from .merge import merge_dicts
 from .result import ChangeRecord, ResourceRef
-from .yamlloader import yaml, ImportResolver, yaml_dict_type, SimpleCacheResolver
+from .yamlloader import (
+    LoadIncludeAction,
+    YamlConfig,
+    yaml,
+    ImportResolver,
+    yaml_dict_type,
+    SimpleCacheResolver,
+)
 from .logs import getLogger
 from . import DEFAULT_CLOUD_SERVER, __version__
 import toscaparser.imports
@@ -842,12 +849,12 @@ class Manifest(AttributeManager):
 
     def load_yaml_include(
         self,
-        yamlConfig,
+        yamlConfig: YamlConfig,
         templatePath,
         baseDir,
         warnWhenNotFound=False,
         expanded=None,
-        action=None,
+        action: Optional[LoadIncludeAction] = None,
         repository_root=None,
     ):
         """
@@ -894,7 +901,7 @@ class Manifest(AttributeManager):
         self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
-        for path, included in yamlConfig._cachedDocIncludes.values():
+        for path, included, directive in yamlConfig._cachedDocIncludes.values():
             self._update_repositories(included, None, resolver)
         repositories = self.repositories_as_tpl()
         base_dir = get_base_dir(baseDir)
