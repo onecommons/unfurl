@@ -142,6 +142,25 @@ class CliTestConfigurator(Configurator):
         yield task.done(True, False)
 
 
+def test_versioncheck(caplog):
+    assert (0, 1, 4, 11) == unfurl.version_tuple("0.1.4.dev11")
+    assert unfurl.version_tuple("0.1.4.dev11") == unfurl.version_tuple("0.1.5-dev.11")
+    current_version = unfurl.version_tuple()
+    if current_version[:3] != (
+        0,
+        0,
+        1,
+    ):  # skip if running unit tests on a shallow clone
+        assert (
+            unfurl.version_tuple("0.1.4.dev11") < current_version
+        ), unfurl.version_tuple()
+
+    runner = CliRunner()
+    checkedVersion = "9.0.0"
+    result = runner.invoke(cli, ["-vvv", "--version-check", checkedVersion, "help"])
+    assert result.exit_code == 1, result
+    assert "older than expected version " + checkedVersion in caplog.text
+
 class CliTest(unittest.TestCase):
     def test_help(self):
         runner = CliRunner()
@@ -158,28 +177,8 @@ class CliTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
         self.assertEqual(result.exit_code, 0, result)
-        version = unfurl.__version__(True)
+        version = unfurl.semver_prerelease()
         self.assertIn(version, result.output.strip())
-
-    def test_versioncheck(self):
-        self.assertEqual((0, 1, 4, 11), unfurl.version_tuple("0.1.4.dev11"))
-        current_version = unfurl.version_tuple()
-        if current_version[:3] != (
-            0,
-            0,
-            1,
-        ):  # skip if running unit tests on a shallow clone
-            assert (
-                unfurl.version_tuple("0.1.4.dev11") < current_version
-            ), unfurl.version_tuple()
-        # XXX this test only passes when run individually -- log output is surpressed otherwise?
-        # runner = CliRunner()
-        # checkedVersion = "9.0.0"
-        # result = runner.invoke(cli, ["-vvv", "--version-check", checkedVersion, "help"])
-        # self.assertEqual(result.exit_code, 0, result)
-        # self.assertIn(
-        #     "older than expected version " + checkedVersion, result.output.strip()
-        # )
 
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"

@@ -26,7 +26,7 @@ from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
-from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
+from . import DefaultNames, __version__, semver_prerelease, get_home_config_path, is_version_unreleased
 from . import init as initmod
 from . import logs, version_tuple
 from .job import start_job, Job
@@ -1625,7 +1625,7 @@ def validate(ctx, path, **options):
     "--semver",
     default=False,
     is_flag=True,
-    help="Print only the semantic version",
+    help="Print the released semantic version.",
 )
 @click.option(
     "--remote",
@@ -1639,7 +1639,7 @@ def version(ctx, semver=False, remote=False, **options):
     if semver:
         click.echo(__version__())
     else:
-        click.echo(f"unfurl version {__version__(True)} ({get_package_digest()})")
+        click.echo(f"unfurl version {semver_prerelease()}+{get_package_digest()}")
 
     if remote and not options.get("no_runtime"):
         home_path = get_home_config_path(options.get("home"))

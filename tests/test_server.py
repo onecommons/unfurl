@@ -13,6 +13,8 @@ import requests
 from click.testing import CliRunner
 from git import Repo
 from unfurl.server import serve as server
+from unfurl.server import gui
+from unfurl.packages import is_semver_compatible_with
 
 import pytest
 from tests.utils import init_project, run_cmd
@@ -191,19 +193,19 @@ def set_up_deployment(runner, deployment):
     return p, port, repo.revision
 
 
-def test_server_health(runner):
+def test_server_health(runner: Process):
     res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
 
     assert res.status_code == 200
     assert res.content == b"OK"
 
-def test_server_version(runner):
+def test_server_version(runner: Process):
     res = requests.get("http://localhost:8090/version", params={"secret": "secret"})
 
     assert res.status_code == 200
-    assert re.match(rb"^1\..+ \(.*\)$", res.content) is not None
+    assert re.match(rb"^1\..+\+\w+$", res.content) is not None
 
-def test_server_authentication(runner):
+def test_server_authentication(runner: Process):
     res = requests.get("http://localhost:8090/health")
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
@@ -401,7 +403,7 @@ def test_server_export_remote():
             p.join()
 
 
-def test_populate_cache(runner):
+def test_populate_cache(runner: Process):
     project_ids = ["onecommons/project-templates/dashboard", "onecommons/project-templates/dashboard",
                   "onecommons/project-templates/application-blueprint"]
     files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]

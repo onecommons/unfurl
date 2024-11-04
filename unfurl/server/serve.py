@@ -74,7 +74,7 @@ from ..repo import (
 from ..util import UnfurlError, get_package_digest, is_relative_to, unique_name
 from ..logs import Levels, get_console_log_level, getLogger, add_log_file
 from ..yamlmanifest import YamlManifest
-from .. import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
+from .. import __version__, semver_prerelease, DefaultNames, DEFAULT_CLOUD_SERVER
 from .. import to_json
 from .. import init
 from toscaparser.common.exception import FatalToscaImportError
@@ -135,7 +135,7 @@ os.environ["GIT_TERMINAL_PROMPT"] = "0"
 git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
 if git_user_name:
     git_user_full_name = (
-        f"{git_user_name} unfurl-server-{__version__(True)}-{get_package_digest()}"
+        f"{git_user_name} unfurl-server-{semver_prerelease()}+{get_package_digest()}"
     )
     os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
     os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
@@ -1149,7 +1149,7 @@ def health():
 
 @app.route("/version")
 def version():
-    return f"{__version__(True)} ({get_package_digest() or '00000000'})"
+    return f"{semver_prerelease()}+{get_package_digest() or '00000000'}"
 
 
 def get_canonical_url(project_id: str) -> str:
