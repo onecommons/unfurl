@@ -5,15 +5,12 @@ import sys, os
 sys.path.insert(0, os.path.abspath(".."))
 import unfurl
 
-VERSION = unfurl.__version__()
-
-
 # -- Project information -----------------------------------------------------
 
 project = "Unfurl"
-copyright = "2025, OneCommons Co."
+copyright = "2024, OneCommons Co."
 author = "Adam Souzis"
-release = VERSION
+release = unfurl.semver_prerelease()
 
 # -- General configuration ---------------------------------------------------
 

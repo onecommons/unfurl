@@ -2490,10 +2490,9 @@ def enter_safe_mode():
 
     tosca.loader.FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER") or "1"
 
-
+# SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
-
 
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(

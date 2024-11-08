@@ -1,3 +1,5 @@
+# Copyright (c) 2023 Adam Souzis
+# SPDX-License-Identifier: MIT
 from typing import (
     Dict,
     List,

@@ -1,15 +1,14 @@
-"""
-UI for local Unfurl project
-
-"project_path" is used by serve for export and patch
-"""
-
+# Copyright (c) 2024 OneCommons Co
+# SPDX-License-Identifier: MIT
 import glob
 import os
 from typing import Any, Iterator, List, Literal, Optional, Union
 import shutil
 import tarfile
 import urllib.request
+import urllib.parse
+
+from ..packages import is_semver_compatible_with
 
 from ..to_json import get_project_path
 
@@ -19,7 +18,7 @@ from ..repo import GitRepo
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
-from ..util import UnfurlError
+from ..util import UnfurlError, unique_name
 from .gui_variables import set_variables, yield_variables
 
 from flask import request, Response, jsonify, send_file, make_response
@@ -27,16 +26,40 @@ from jinja2 import Environment, FileSystemLoader
 import requests
 import re
 from urllib.parse import urlparse
+from urllib.error import HTTPError
 import git
+
+TAG = "v0.1.0-alpha.2"
+RELEASE_URL = f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz"
+DIST_DIR = ".cache/unfurl_gui"
+TAG_FILE = "RELEASE.txt"
+
+__doc__ = f"""
+Running ``unfurl serve --gui /path/to/your/project`` will start Unfurl's built-in web server (at http://127.0.0.1:8081 by default, see :cli:`unfurl serve<unfurl-serve>` for more options).
+
+When the server starts it checks for the web application's files at
+``{DIST_DIR}`` in your unfurl home project if there is one set or in the current project.
+
+If that directory is missing or the web application version there isn't compatible with the version required by your unfurl (currently "{TAG}"), the web application is downloaded from ``{RELEASE_URL}`` to ``{DIST_DIR}``.
+
+You can set an alternative download URL with the ``UNFURL_GUI_DIST_URL`` environment variable or set it to "skip" to skip downloading a release. If a version tag is embedded in that URL then the local download needs to exactly match that version otherwise a semantic version compatibility check is made.
+You can also set an alternative download location with the ``UNFURL_GUI_DIST_DIR`` environment variable.
+
+For development, you can instead set the ``UNFURL_GUI_DIR`` environment variable to point 
+to your local clone of the `unfurl-gui <https://github.com/onecommons/unfurl-gui>`_ repository.
+You'll need to either build the release distribution with  ``yarn build`` or run ``yarn serve`` there and set the ``UNFURL_GUI_WEBPACK_ORIGIN`` environment variable to its URL.
+"""
 
 logger = getLogger("unfurl.gui")
 
-TAG = "v0.1.0.alpha.1"
-local_dir = os.path.dirname(os.path.abspath(__file__))
+release_url_pattern = r".+/(v[0-9A-Za-z.\-]+)/.*tar.gz"
 
-env = Environment(loader=FileSystemLoader(os.path.join(local_dir, "templates")))
-blueprint_template = env.get_template("project.j2.html")
-dashboard_template = env.get_template("dashboard.j2.html")
+_local_dir = os.path.dirname(os.path.abspath(__file__))
+_template_env = Environment(
+    loader=FileSystemLoader(os.path.join(_local_dir, "templates"))
+)
+blueprint_template = _template_env.get_template("project.j2.html")
+dashboard_template = _template_env.get_template("dashboard.j2.html")
 
 
 def get_project_readme(repo: GitRepo) -> str:
@@ -56,24 +79,20 @@ def get_head_contents(f) -> str:
             return ""
 
 
-def get_head(html_src: str, WEBPACK_ORIGIN: str, PUBLIC: str, DIST: str) -> str:
-    if WEBPACK_ORIGIN:
-        head = f"""
+def get_head_for_webpack(index_path: str) -> str:
+    return f"""
         <head>
-          {get_head_contents(os.path.join(PUBLIC, "index.html"))}
+          {get_head_contents(index_path)}
 
           <script defer src="/js/chunk-vendors.js"></script>
           <script defer src="/js/chunk-common.js"></script>
           <script defer src="/js/project.js"></script>
         </head>
         """
-    else:
-        head = f"<head>{get_head_contents(os.path.join(DIST, html_src))}</head>"
-    return head
 
 
 def serve_document(
-    path, localenv: LocalEnv, WEBPACK_ORIGIN: str, PUBLIC: str, DIST: str
+    path, localenv: LocalEnv, webpack_origin: str, public_files_dir: str
 ):
     assert localenv.project
     localrepo = localenv.project.project_repoview.repo
@@ -97,8 +116,7 @@ def serve_document(
     repo = _get_repo(projectPath, localenv)
 
     if not repo:
-        location = PUBLIC if WEBPACK_ORIGIN else DIST
-        return send_file(os.path.join(location, "404.html"))
+        return send_file(os.path.join(public_files_dir, "404.html"))
     format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
@@ -113,10 +131,14 @@ def serve_document(
 
     if format == "blueprint":
         template = blueprint_template
-        head = get_head("project.html", WEBPACK_ORIGIN, PUBLIC, DIST)
+        html_src_file = "project.html"
     else:
         template = dashboard_template
-        head = get_head("dashboard.html", WEBPACK_ORIGIN, PUBLIC, DIST)
+        html_src_file = "dashboard.html"
+    if webpack_origin:
+        head = get_head_for_webpack(os.path.join(public_files_dir, "index.html"))
+    else:
+        head = f"<head>{get_head_contents(os.path.join(public_files_dir, html_src_file))}</head>"
 
     return template.render(
         name=project_name,
@@ -148,16 +170,18 @@ def proxy_webpack(url):
     )
 
     # exclude some keys in :res response
-    excluded_headers = [
+    excluded_headers = (
         "content-encoding",
         "content-length",
         "transfer-encoding",
         "connection",
-    ]  # NOTE we here exclude all "hop-by-hop headers" defined by RFC 2616 section 13.5.1 ref. https://www.rfc-editor.org/rfc/rfc2616#section-13.5.1
+        "keep-alive",
+        "trailers",
+        "upgrade",
+    )  # NOTE we here exclude all hop-by-hop response headers defined by RFC 2616 section 13.5.1 ref. https://www.rfc-editor.org/rfc/rfc2616#section-13.5.1
     headers = [
         (k, v) for k, v in res.raw.headers.items() if k.lower() not in excluded_headers
     ]
-
     return Response(res.content, res.status_code, headers)
 
 
@@ -205,39 +229,47 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Gi
     return repo_view and repo_view.repo or None
 
 
-def fetch_release(download_dir, release):
-    TAG_FILE = os.path.join(download_dir, "unfurl_gui", "current_tag.txt")
-    dist_dir = os.path.join(download_dir, "unfurl_gui", "dist")
-
-    logger.debug(f"Checking assets for '{TAG}'")
-    if os.path.exists(TAG_FILE):
-        with open(TAG_FILE, "r") as f:
-            current_tag = f.read().strip()
-        if current_tag == TAG and os.path.exists(dist_dir):
-            logger.info(f"Using unfurl_gui release {TAG}")
-            return
+def fetch_release(dist_dir, release_url, release_tag, exact_match):
+    tag_file = os.path.join(dist_dir, TAG_FILE)
+    msg = ""
+    if release_tag:
+        if os.path.exists(tag_file):
+            logger.debug(f"Checking {tag_file} for '{release_tag}'")
+            with open(tag_file, "r") as f:
+                found_tag = f.read().strip()
+            if found_tag == release_tag or (
+                not exact_match and is_semver_compatible_with(release_tag, found_tag)
+            ):
+                logger.info(f"Found local unfurl_gui release {found_tag}")
+                return
+            else:
+                msg = f"'{found_tag}' is not compatible with '{release_tag}'"
         else:
-            logger.debug(f"'{current_tag}' does not match the needed tag '{TAG}'")
+            msg = "unfurl_gui distribution not found"
+        if msg:
+            logger.info(msg)
 
     if os.path.exists(dist_dir):
-        shutil.rmtree(dist_dir)
-        logger.debug("Removed existing dist directory")
+        parent, dirname = os.path.split(dist_dir)
+        new_name = unique_name(dirname, os.listdir(parent))
+        new_path = os.path.join(parent, new_name)
+        logger.info("Moving existing dist directory to %s", new_path)
+        os.rename(dist_dir, new_path)
 
-    logger.debug(f"Downloading {release}")
-    os.makedirs(dist_dir, exist_ok=True)
     tar_path = os.path.join(dist_dir, "unfurl-gui-dist.tar.gz")
-    urllib.request.urlretrieve(release, tar_path)
+    logger.debug(f"Downloading {release_url} to {tar_path}")
+    os.makedirs(dist_dir, exist_ok=True)
+    try:
+        urllib.request.urlretrieve(release_url, tar_path)
+    except HTTPError as e:
+        # e.g. HTTP Error 404: Not Found
+        logger.error(f"Unable to download {release_url}: {e}")
+    else:
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path=dist_dir)
 
-    with tarfile.open(tar_path, "r:gz") as tar:
-        logger.debug(f"Extracting {release} to {dist_dir}")
-        tar.extractall(path=os.path.dirname(dist_dir))
-
-    os.remove(tar_path)
-    logger.debug("Removed tarball file")
-
-    with open(TAG_FILE, "w") as f:
-        f.write(TAG)
-    logger.debug(f"Updated tag file to '{TAG}'")
+        logger.info(f"Extracted unfurl_gui release {release_url} to {dist_dir}")
+        os.remove(tar_path)
 
 
 def create_routes(localenv: LocalEnv):
@@ -249,34 +281,54 @@ def create_routes(localenv: LocalEnv):
     )
     assert localrepo
 
-    development_mode = os.getenv("UNFURL_GUI_DIR") or os.getenv("UNFURL_GUI_WEBPACK_ORIGIN")
+    development_mode = os.getenv("UNFURL_GUI_DIR") or os.getenv(
+        "UNFURL_GUI_WEBPACK_ORIGIN"
+    )
     if development_mode:
-        logger.debug("Development mode detected, not downloading compiled assets.")
-        UFGUI_DIR = os.getenv("UNFURL_GUI_DIR", local_dir)
-        # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
-        WEBPACK_ORIGIN = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN", "")
-        DIST = os.path.join(UFGUI_DIR, "dist")
-        PUBLIC = os.path.join(UFGUI_DIR, "public")
-    else:
-        WEBPACK_ORIGIN = ""
-        home_project = localenv.homeProject or localenv.project
-        assert home_project
-        download_dir = os.path.join(home_project.projectRoot, ".cache")
-        DIST = os.path.join(download_dir, "unfurl_gui", "dist")
-        PUBLIC = os.path.join(download_dir, "unfurl_gui", "public")
-        RELEASE = os.getenv(
-            "UNFURL_GUI_DIST",
-            f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz",
+        ufgui_dir = os.getenv("UNFURL_GUI_DIR", ".")
+        logger.info(
+            "Development mode detected, not downloading compiled assets, using %s instead.",
+            ufgui_dir,
         )
-        fetch_release(download_dir, RELEASE)
+        # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
+        webpack_origin = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN", "")
+        dist_dir = os.path.join(ufgui_dir, "dist")
+        if webpack_origin:
+            public_files_dir = os.path.join(ufgui_dir, "public")
+        else:
+            public_files_dir = dist_dir
+    else:
+        webpack_origin = ""
+        download_dir = os.getenv("UNFURL_GUI_DIST_DIR", DIST_DIR)
+        if not os.path.isabs(download_dir):
+            home_project = localenv.homeProject or localenv.project
+            assert home_project
+            download_dir = os.path.join(home_project.projectRoot, download_dir)
+        dist_dir = os.path.join(download_dir, "dist")
+        public_files_dir = dist_dir
+        release_url = os.getenv("UNFURL_GUI_DIST_URL")
+        tag = TAG
+
+        if release_url == "skip":
+            logger.info("Skipping download check for unfurl_gui release.")
+        else:
+            exact = False
+            if release_url:
+                tag_match = re.match(release_url_pattern, release_url)
+                if tag_match:
+                    exact = True
+                    tag = tag_match.group(1)
+            else:
+                release_url = RELEASE_URL
+            # XXX search for latest compatible release with https://api.github.com/repos/onecommons/unfurl-gui/releases tag_name assets[0][browser_download_url]
+            fetch_release(download_dir, release_url, tag, exact)
 
     def get_repo(project_path: str, branch=None):
         return _get_repo(project_path, localenv, branch)
 
     def notfound_response(projectPath):
         # 404 page is not currently a template, but could become one
-        location = PUBLIC if WEBPACK_ORIGIN else DIST
-        return send_file(os.path.join(location, "404.html"))
+        return send_file(os.path.join(public_files_dir, "404.html"))
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
@@ -308,6 +360,10 @@ def create_routes(localenv: LocalEnv):
             [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
         )
 
+    @app.route("/api/v4/<api>")
+    def unsupported_api(api):
+        return "Bad Request", 400
+
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
     def local_file(project_path, branch, file):
         repo = get_repo(project_path, branch)
@@ -321,20 +377,20 @@ def create_routes(localenv: LocalEnv):
     @app.route("/<path:path>")
     def serve_path(path):
         if "accept" in request.headers and "text/html" in request.headers["accept"]:
-            return serve_document(path, localenv, WEBPACK_ORIGIN, PUBLIC, DIST)
+            return serve_document(path, localenv, webpack_origin, public_files_dir)
 
         if request.headers.get("sec-fetch-dest") == "iframe":
             return "Bad Request", 400
 
-        if WEBPACK_ORIGIN:
-            url = f"{WEBPACK_ORIGIN}/{path}"
+        if webpack_origin:
+            url = urllib.parse.urljoin(webpack_origin, path)
             qs = request.query_string.decode("utf-8")
             if qs != "":
                 url += "?" + qs
             return proxy_webpack(url)
         else:
             assert path and path[0] != "/"
-            local_path = os.path.join(DIST, path)
+            local_path = os.path.join(dist_dir, path)
             if os.path.isfile(local_path):
                 response = make_response(send_file(local_path))
                 if not development_mode:
@@ -342,4 +398,4 @@ def create_routes(localenv: LocalEnv):
                         "public, max-age=31536000"  # 1 year
                     )
                 return response
-            return serve_document(path, localenv, WEBPACK_ORIGIN, PUBLIC, DIST)
+            return serve_document(path, localenv, webpack_origin, public_files_dir)

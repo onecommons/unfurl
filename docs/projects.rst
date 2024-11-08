@@ -343,14 +343,14 @@ You can also use a cloudmap url like ``cloudmap:<package_id>``, which will resol
 
 ``<dest>`` is a file path. If ``<dest>`` already exists and is not inside an Unfurl project, clone will exit in error. If omitted, the destination name is derived from the source and created in the current directory. 
 
-Depending on the ``<source>``, use to clone to accomplish one of the following:
+Depending on the ``<source>``, use the clone command to accomplish one of the following:
 
 Clone a project
 ---------------
 
 If ``<source>`` points to a project, the project will be cloned.
 
-If the source project is a blueprint project (i.e. it doesn't contain any ensembles) a new ensemble will also be created (see below) in the cloned project -- use the ``--empty`` option to skip creating the new ensemble.
+If the source project is a blueprint project (i.e. it doesn't contain any ensembles) a new ensemble will also be created (`see below<Create a new ensemble from source>`) in the cloned project -- use the ``--empty`` option to skip creating the new ensemble.
 
 The exception to this is when source is also a local file path and ``<dest>`` is an existing project, in that case the source project will just be registered with the destination project instead of cloned, and a new ensemble will be created (see below). Use an URL like ``file:path/to/project`` as the source to force cloning.
 
@@ -372,7 +372,7 @@ Either scenario allows you to put local specific settings in a local or home pro
 Create a new project from a CSAR archive
 ----------------------------------------
 
-* ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension) and ``<dest>`` isn't inside an existing project, a new Unfurl project will be created with the contents of the CSAR copied to the root of the project. A new ensemble will also created unless the ``--empty`` flag is used.
+* If ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension) and ``<dest>`` isn't inside an existing project, a new Unfurl project will be created with the contents of the CSAR copied to the root of the project. A new ensemble will also created unless the ``--empty`` flag is used.
 
 Create a new ensemble from source
 ----------------------------------
@@ -384,7 +384,7 @@ A new ensemble is created when:
 * ``<source>`` is a blueprint project (ie. a project that contains no ensembles but does have an ``ensemble-template.yaml`` file) and the ``--empty`` flag wasn't used.
 * ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension) and the ``--empty`` flag wasn't used.
 
-If ``dest`` is omitted or doesn't exist, the project that ``<source>`` is in will be cloned and the new ensemble created in the cloned project. If ``dest`` points to an existing project and ``<source>`` is a git url and not a local file path, the source repository will be cloned into the existing project.  If ``dest`` points to an existing project and ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension), the contents of the CSAR will be copied to ensemble's directory.
+If ``dest`` is omitted or doesn't exist, the project that ``<source>`` is in will be cloned and the new ensemble created in the cloned project. If ``dest`` points to an existing project and ``<source>`` is a git url and not a local file path, the source repository will be cloned into the existing project.  If ``dest`` points to an existing project and ``<source>`` is a TOSCA Cloud Service Archive (CSAR) (a file path with a .csar or .zip extension), the contents of the CSAR will be copied to the ensemble's directory.
 
 Notes
 -----
@@ -406,6 +406,11 @@ Notes
   The password needs to communicated out of band. Alternatively, you can set an environment variable of the form ``UNFURL_VAULT_<VAULTID>_PASSWORD`` at runtime.
 
 * This step can be skipped if your project is hosted on `Unfurl Cloud`_, clone will retrieve the value password from `Unfurl Cloud`_. 
+
+Browser-based Admin User Interface
+==================================
+
+.. automodule:: unfurl.server.gui
 
 Unfurl Home
 ===========

@@ -1683,7 +1683,7 @@ def help(ctx, cmd=""):
     "--secret",
     envvar="UNFURL_SERVE_SECRET",
     show_envvar=True,
-    help="Secret required to access the server",
+    help='Require secret as Authorization: Bearer <secret> header or "secret" URL parameter.',
 )
 @click.option(
     "--clone-root",
@@ -1720,7 +1720,7 @@ def serve(
     gui,
     **options,
 ):
-    """Run Unfurl as a server."""
+    """Run Unfurl's built-in web server."""
     options.update(ctx.obj)
     # env vars need to set before importing serve
     if cors:

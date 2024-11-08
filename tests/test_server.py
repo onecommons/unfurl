@@ -205,6 +205,10 @@ def test_server_version(runner: Process):
     assert res.status_code == 200
     assert re.match(rb"^1\..+\+\w+$", res.content) is not None
 
+def test_gui_release():
+    assert re.match(gui.release_url_pattern, gui.RELEASE_URL).group(1) == gui.TAG
+    assert is_semver_compatible_with(gui.TAG, "v0.1.0-alpha.1")
+
 def test_server_authentication(runner: Process):
     res = requests.get("http://localhost:8090/health")
     assert res.status_code == 401
