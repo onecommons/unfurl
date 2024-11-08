@@ -22,6 +22,9 @@ HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
 DEFAULT_TRUNCATE_LENGTH =  int(os.getenv("UNFURL_LOG_TRUNCATE") or 748)
 
+sensitive_params = ("private_token", "secret")
+sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=[^&\s]+")
+
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
     if not s:
         return ""
@@ -197,7 +200,8 @@ class SensitiveFilter(logging.Filter):
 
     @staticmethod
     def sanitize_urls(value: str) -> str:
-        return re.sub(r"//(\S{1,100}):(\S{1,200})@", r"//\1:XXXXX@", value)
+        value = re.sub(r"//(\S{1,100}):(\S{1,200})@", r"//\1:XXXXX@", value)
+        return re.sub(sensitive_params_regex, r"\1=XXXXX", value)
 
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:

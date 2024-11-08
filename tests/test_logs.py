@@ -138,14 +138,14 @@ class TestSensitiveFilter:
 
     def test_url_redaction(self):
         record = logging.LogRecord(
-            msg="Bad https://user:uc-4aefafdase8@unfurl.cloud/onecommons/ %s %s",
-            args=("bad https://root:uc-CVFGFFEEE@unfurl.cloud/onecommons/", "ok https://user2@unfurl.cloud/onecommons/"),
+            msg="Bad https://user:uc-4aefafdase8@unfurl.cloud/onecommons/?private_token=uc-4aefafdase8 %s %s",
+            args=("bad https://root:uc-CVFGFFEEE@unfurl.cloud/onecommons/", "ok https://user2@unfurl.cloud/onecommons/?private_token=uc-4aefafdase8"),
             **self.not_important_args,
         )
         self.sensitive_filter.filter(record)
 
         assert (
-            record.getMessage() == "Bad https://user:XXXXX@unfurl.cloud/onecommons/ bad https://root:XXXXX@unfurl.cloud/onecommons/ ok https://user2@unfurl.cloud/onecommons/"
+            record.getMessage() == "Bad https://user:XXXXX@unfurl.cloud/onecommons/?private_token=XXXXX bad https://root:XXXXX@unfurl.cloud/onecommons/ ok https://user2@unfurl.cloud/onecommons/?private_token=XXXXX"
         )
 
 class TestColorHandler:
