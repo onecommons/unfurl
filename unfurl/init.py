@@ -856,10 +856,13 @@ class EnsembleBuilder:
             self.template_vars,
             self.options.get("skeleton"),
         )
+        use_environment = self.options.get("use_environment")
+        if project and use_environment not in project.contexts:
+            use_environment = None
         localEnv = LocalEnv(
             manifestPath,
             project=project,
-            override_context=self.options.get("use_environment"),
+            override_context=use_environment,
             parent=self.options.get("parent_localenv"),
         )
         manifest = yamlmanifest.ReadOnlyManifest(
