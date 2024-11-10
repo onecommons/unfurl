@@ -249,7 +249,7 @@ class Repo(abc.ABC):
             return localPath
         return None
 
-    def is_path_excluded(self, localPath):
+    def is_path_excluded(self, localPath) -> bool:
         return False
 
     def find_path(
@@ -416,6 +416,7 @@ class RepoView:
             )
         self.read_only = False
         self.package: Optional[Union[Literal[False], "Package"]] = None
+        self._loaded_secrets = False
 
     @property
     def working_dir(self) -> str:
@@ -494,8 +495,15 @@ class RepoView:
         self.repo.repo.git.add("--all", self.path or ".")
 
     def load_secrets(self, _loader):
+        if self._loaded_secrets or not self.repo:
+            return
         logger.trace("looking for secrets %s", self.working_dir)
+        excluded = set(self.repo.find_excluded_dirs(self.working_dir))
+        failed = False
         for root, dirs, files in os.walk(self.working_dir):
+            for d in dirs[:]:
+                if d == ".git" or os.path.join(root, d, "") in excluded:
+                    dirs.remove(d)
             if ".secrets" not in Path(root).parts:
                 continue
             logger.trace("checking if secret files where changed or added %s", files)
@@ -510,6 +518,7 @@ class RepoView:
                         contents = _loader.load_from_file(str(filepath))
                     except Exception as err:
                         logger.warning("could not decrypt %s: %s", filepath, err)
+                        failed = True
                         continue
                     target_path = str(target)
                     dir = os.path.dirname(target_path)
@@ -519,6 +528,7 @@ class RepoView:
                         f.write(contents)
                     os.utime(target, (stinfo.st_atime, stinfo.st_mtime))
                     logger.verbose("decrypted secret file to %s", target)
+        self._loaded_secrets = not failed
 
     def save_secrets(self):
         return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
@@ -812,7 +822,7 @@ class GitRepo(Repo):
 
     def is_path_excluded(self, localPath: str) -> bool:
         # XXX cache and test
-        # excluded = list(self.findExcludedDirs(self.working_dir))
+        # excluded = list(self.find_excluded_dirs(self.working_dir))
         # success error code means it's ignored
         return not self.run_cmd(["check-ignore", "-q", localPath])[0]
 
