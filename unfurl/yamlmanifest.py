@@ -1103,11 +1103,13 @@ class YamlManifest(ReadOnlyManifest):
             return
 
         if self.changeLogPath:
-            local_changes, committed_changes = split_changes(changes)
-            self.save_change_log(job.log_path(ext=".yaml"), jobRecord, local_changes)
-            jobLogPath = job.log_path("changes", ".yaml")
-            self.save_change_log(jobLogPath, jobRecord, committed_changes)
-            if not job.dry_run:
+            if job.dry_run:  # don't commit dry run changes
+                self.save_change_log(job.log_path(ext=".yaml"), jobRecord, changes)
+            else:
+                local_changes, committed_changes = split_changes(changes)
+                self.save_change_log(job.log_path(ext=".yaml"), jobRecord, local_changes)
+                jobLogPath = job.log_path("changes", ".yaml")
+                self.save_change_log(jobLogPath, jobRecord, committed_changes)
                 self._append_log(job, jobRecord, changes, jobLogPath)
 
         if job.dry_run:
