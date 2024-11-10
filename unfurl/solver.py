@@ -40,8 +40,9 @@ class Node:
         self.fields: List[Field] = fields or []
         # Set if any of its fields has restrictions
         self.has_restrictions: bool = False
-        self._reqs: Dict[str, int] = {} # extra attribute for book keeping (not used in rust)
-
+        self._reqs: Dict[
+            str, int
+        ] = {}  # extra attribute for book keeping (not used in rust)
 
     def __repr__(self) -> str:
         return f"Node({self.name}, {self.tosca_type}, {self.has_restrictions}, {self.fields!r})"
@@ -256,7 +257,9 @@ def convert(
         else:
             required = bool(req_dict["occurrences"][0])
             max_occurences = req_dict["occurrences"][1]
-            upper = sys.maxsize if max_occurences == "UNBOUNDED" else int(max_occurences)
+            upper = (
+                sys.maxsize if max_occurences == "UNBOUNDED" else int(max_occurences)
+            )
         # note: ok if multiple requirements with same name on the template, then occurrences should be on type
         entity._reqs[name] = upper
         match_type = not on_type_only or required
@@ -399,17 +402,20 @@ def get_req_terms(
 
 
 def solve_topology(topology_template: TopologyTemplate) -> Solution:
+    if not topology_template.node_templates:
+        return {}
     types: Dict[str, List[str]] = {}
     nodes = {}
     for node_template in topology_template.node_templates.values():
         node = convert(node_template, types, topology_template)
         nodes[node.name] = node
-
-    # print("missing", topology_template.node_templates["app"].missing_requirements)
+        # print("missing", node_template.missing_requirements)
     # print ('types', types)
     # print("!solving " + "\n\n".join(repr(n) for n in nodes.values()))
     solved = cast(Solution, solve(nodes, types))
-    logger.debug(f"Solver found {len(solved)} requirements match{'es' if len(solved)!=1 else ''} for {len(nodes)} Node template{'s' if len(nodes)!=1 else ''}.")
+    logger.debug(
+        f"Solver found {len(solved)} requirements match{'es' if len(solved)!=1 else ''} for {len(nodes)} Node template{'s' if len(nodes)!=1 else ''}."
+    )
     for (source_name, req), targets in solved.items():
         source: NodeTemplate = topology_template.node_templates[source_name]
         target_nodes = [
@@ -438,6 +444,20 @@ def solve_topology(topology_template: TopologyTemplate) -> Solution:
 def _set_target(source: NodeTemplate, req_name: str, cap: str, target: str) -> None:
     # updates requirements yaml directly so NodeTemplate won't search for a match later
     req_dict: dict = source.find_or_add_requirement(req_name, target)
-    req_dict["node"] = target
-    if cap != "feature":
+    changed = ""
+    if req_dict.get("node") != target:
+        index = req_dict.get("minimized")
+        if index is not None:
+            cast(list, source.requirements)[index][req_name] = target
+        else:
+            req_dict["node"] = target
+        changed = "node"
+    if cap != "feature" and req_dict.get("capability") != cap:
         req_dict["capability"] = cap
+        changed = "cap"
+    if changed == "node":
+        logger.trace(f"Solver set {source.name}.{req_name} to {target}")
+    elif changed == "cap":
+        logger.trace(
+            f"Solver set {source.name}.{req_name} to {target} with capability {cap}"
+        )
