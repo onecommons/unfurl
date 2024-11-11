@@ -475,17 +475,25 @@ class TypeInfo(NamedTuple):
     def is_sequence(self):
         return self.collection in (tuple, list)
 
-    def instance_check(self, value: Any):
+    @property
+    def simple_types(self) -> tuple:
+        return tuple(
+            (t.simple_type() if issubclass(t, ValueType) else t) for t in self.types
+        )
+
+    def instance_check(self, value: Any) -> bool:
         if self.optional and value is None:
             return True
         if self.collection:
             if isinstance(value, Collection_Types):
                 for item in value:
-                    if not isinstance(value, self.types):
+                    if not isinstance(item, self.simple_types):
                         return False
                 return True
+            return False
         elif isinstance(value, self.types):
             return True
+        return False
 
 
 def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
@@ -511,7 +519,9 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
         origin = get_origin(_type)
 
     if isinstance(_type, ForwardRef):
-        types: tuple = tuple(ForwardRef(t.strip()) for t in _type.__forward_arg__.split("|"))
+        types: tuple = tuple(
+            ForwardRef(t.strip()) for t in _type.__forward_arg__.split("|")
+        )
     elif _get_type_name(origin) in ["Union", "UnionType"]:
         types = get_args(_type)
     else:
@@ -1974,7 +1984,11 @@ def _make_dataclass(cls):
                     base_field = cls.__dataclass_fields__.get(name)
                     if base_field:
                         field = _Tosca_Field(
-                            getattr(base_field, "_tosca_field_type", ToscaFieldType.property), value, owner=cls
+                            getattr(
+                                base_field, "_tosca_field_type", ToscaFieldType.property
+                            ),
+                            value,
+                            owner=cls,
                         )
                         # avoid type(None) or type(())
                         field.type = base_field.type if not value else type(value)
@@ -3161,22 +3175,27 @@ class _BaseDataType(ToscaObject):
 
 
 class ValueType(_BaseDataType):
+    "ValueTypes are user-defined TOSCA data types that are derived from simple TOSCA datatypes, as opposed to complex TOSCA data types."
+
     _template_section: ClassVar[str] = "data_types"
     _constraints: ClassVar[Optional[List[dict]]] = None
 
     @classmethod
-    def type(cls) -> str:
+    def simple_type(cls) -> type:
+        "The Python type that this data types is derived from."
         for c in cls.__mro__:
             if c.__name__ in PYTHON_TO_TOSCA_TYPES:
-                return PYTHON_TO_TOSCA_TYPES[c.__name__]
+                return c
         raise TypeError("ValueType must be derived from a simple type.")
+
+    @classmethod
+    def simple_tosca_type(cls) -> str:
+        "The TOSCA simple type that this data types is derived from."
+        return PYTHON_TO_TOSCA_TYPES[cls.simple_type().__name__]
 
     def to_yaml(self, dict_cls=dict):
         # find the simple type this is derived from and convert value to that type
-        for c in self.__class__.__mro__:
-            if c.__name__ in PYTHON_TO_TOSCA_TYPES:
-                return c(self)
-        raise TypeError("ValueType must be derived from a simple type.")
+        return self.simple_type()(self)
 
     @classmethod
     def _cls_to_yaml(cls, converter: Optional["PythonToYaml"]) -> dict:
@@ -3186,7 +3205,7 @@ class ValueType(_BaseDataType):
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
             body[cls.tosca_type_name()]["description"] = doc
-        body[cls.tosca_type_name()]["type"] = cls.type()
+        body[cls.tosca_type_name()]["type"] = cls.simple_tosca_type()
         if cls._constraints:
             body[cls.tosca_type_name()]["constraints"] = cls._constraints
         return body

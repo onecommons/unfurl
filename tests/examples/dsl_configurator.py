@@ -55,6 +55,12 @@ class MyDataType(tosca.OpenDataEntity):
         factory=lambda: tosca.datatypes.NetworkPortSpec(source=port80, target=port80)
     )
 
+data_list_type_info = Test.__dataclass_fields__["data_list"].get_type_info()
+assert not data_list_type_info.instance_check(1), "data_list_type_info.instance_check(1)"
+assert data_list_type_info.instance_check([]), "data_list_type_info.instance_check([])"
+assert not data_list_type_info.instance_check([1]), "not data_list_type_info.instance_check([1])"
+assert data_list_type_info.instance_check([MyDataType()])
+
 generic = unfurl.nodes.Generic("generic")
 assert generic._name == "generic"
 setattr(generic, "extra", "extra")
