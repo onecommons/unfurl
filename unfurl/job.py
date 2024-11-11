@@ -193,7 +193,7 @@ class JobOptions:
             options["update"] = False
         if "skip_save" not in kw and os.getenv("UNFURL_SKIP_SAVE"):
             kw["skip_save"] = os.getenv("UNFURL_SKIP_SAVE")
-        instance = kw.get("instance")
+        instance = kw.pop("instance", None)
         if instance:
             if isinstance(instance, tuple):
                 instances = kw.pop("instance")
