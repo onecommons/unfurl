@@ -1,2 +1,2 @@
 gunicorn==22.0.0
-redis==4.3.5
+redis==4.4.4
