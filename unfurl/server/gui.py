@@ -21,7 +21,7 @@ from ..localenv import LocalEnv
 from ..util import UnfurlError, unique_name
 from .gui_variables import set_variables, yield_variables
 
-from flask import request, Response, jsonify, send_file, make_response
+from flask import request, Response, jsonify, send_from_directory, make_response
 from jinja2 import Environment, FileSystemLoader
 import requests
 import re
@@ -116,7 +116,7 @@ def serve_document(
     repo = _get_repo(projectPath, localenv)
 
     if not repo:
-        return send_file(os.path.join(public_files_dir, "404.html"))
+        return send_from_directory(public_files_dir, "404.html")
     format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
@@ -328,7 +328,7 @@ def create_routes(localenv: LocalEnv):
 
     def notfound_response(projectPath):
         # 404 page is not currently a template, but could become one
-        return send_file(os.path.join(public_files_dir, "404.html"))
+        return send_from_directory(public_files_dir, "404.html")
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
@@ -370,7 +370,7 @@ def create_routes(localenv: LocalEnv):
         if repo:
             full_path = os.path.join(repo.working_dir, file)
             if os.path.exists(full_path):
-                return send_file(full_path)
+                return send_from_directory(repo.working_dir, file)
         return notfound_response(project_path)
 
     @app.route("/", defaults={"path": ""})
@@ -392,7 +392,7 @@ def create_routes(localenv: LocalEnv):
             assert path and path[0] != "/"
             local_path = os.path.join(dist_dir, path)
             if os.path.isfile(local_path):
-                response = make_response(send_file(local_path))
+                response = make_response(send_from_directory(dist_dir, path))
                 if not development_mode:
                     response.headers["Cache-Control"] = (
                         "public, max-age=31536000"  # 1 year

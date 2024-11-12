@@ -1373,8 +1373,7 @@ def get_blueprint_from_topology(
 
 
 def get_blueprint_path(manifest: YamlManifest):
-    path, template = manifest.manifest.search_includes("ensemble-template.yaml")
-    if (path, template) == (None, None):
+    if "ensemble-template.yaml" not in manifest.manifest._cachedDocIncludes:
         # the ensemble doesn't include the standard ensemble-template.yaml so treat the deployment itself as the blueprint
         if manifest.path and manifest.localEnv and manifest.localEnv.project:
             return manifest.localEnv.project.get_relative_path(manifest.path)
