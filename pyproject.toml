@@ -1,0 +1,61 @@
+[project]
+name = "unfurl"
+requires-python = ">=3.8"
+description = "Use Git to record and deploy changes to your DevOps infrastructure"
+authors = [
+  { name="Adam Souzis", email="adam@onecommons.org" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dynamic = ["readme", "dependencies", "optional-dependencies", "version"]
+
+[build-system]
+requires = [
+    "setuptools>=70.0.0",
+    "wheel",
+    "setuptools-rust>=1.7.0",
+    "pbr",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["unfurl*"]
+
+[[tool.setuptools-rust.ext-modules]]
+target = "unfurl.tosca_solver"
+path = "rust/Cargo.toml"
+
+[tool.setuptools.dynamic]
+readme = {file = ["README.md"], content-type = "text/markdown"}
+dependencies = {file = ["requirements.txt", "tosca-parser/requirements.txt"]}
+optional-dependencies.full = { file = ["full-requirements.txt"] }
+optional-dependencies.server = { file = ["server-requirements.txt"] }
+
+[project.urls]
+    Homepage = "https://www.unfurl.cloud"
+    Documentation = "https://docs.unfurl.run"
+    Repository = "https://github.com/onecommons/unfurl"
+    Changelog = "https://github.com/onecommons/unfurl/blob/main/CHANGELOG.md"
+
+[project.entry-points.console_scripts]
+    unfurl = "unfurl.__main__:main"
+    unfurl-vault-client = "unfurl.__main__:vaultclient"
+
+[project.entry-points."toscaparser.extensions"]
+    tosca_simple_unfurl_1_0_0 = "unfurl.tosca_plugins:plugindef_1_0_0"

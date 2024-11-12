@@ -132,10 +132,8 @@ def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
         topology.service.find_all_required_by(requirement, expected_type) == []
     )
 
-    # XXX this is broken because the node_filter match is evaluated too early and so .sources is empty
-    # assert topology.connection.parent == topology.service
+    assert topology.connection.parent == topology.service
     # print ( topology.connection._instance.template.sources )
-    assert topology.service.parent == None
 
     with pytest.raises(TypeError):
         topology.connection.find_required_by(Service.connects_to, tosca.nodes.Compute)
@@ -171,14 +169,21 @@ def test_hosted_on():
 
 def test_expressions():
     tosca.global_state.mode = "spec"
+    class Inputs(tosca.TopologyInputs):
+        domain: str
+
     class Test(tosca.nodes.Root):
         url: str = expr.uri()
         path1: str = expr.get_dir(None, "src")
         default_expr: str = expr.fallback(None, "foo")
         or_expr: str = expr.or_expr(default_expr, "ignored")
+        label: str = functions.to_dns_label(expr.get_input("missing", "fo!o"))
+
     class test(tosca.Namespace):
         service = Service()
         test_node = Test()
+
+    assert Inputs.domain == tosca.EvalData({'get_input': 'domain'})
 
     topology = runtime_test(test)
     assert expr.get_env("MISSING", "default") == "default"
@@ -187,7 +192,7 @@ def test_expressions():
     assert expr.get_nodes_of_type(Service) == [topology.service]
     assert expr.get_input("MISSING", "default") == "default"
     with pytest.raises(UnfurlError):
-        assert expr.get_input("MISSING")
+        input: str = expr.get_input("MISSING")
     assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
     # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
     assert expr.abspath(topology.service, "test_dsl_integration.py", "src").get() == __file__
@@ -197,6 +202,7 @@ def test_expressions():
     assert expr.template(topology.test_node, contents="{%if 1 %}{{SELF.url}}{%endif%}") == "#::test.test_node"
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"
+    assert topology.test_node.label == "fo--o"
     # XXX test:
     # "if_expr", and_expr
     # "lookup",

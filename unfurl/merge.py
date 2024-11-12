@@ -234,7 +234,7 @@ def _cache_anchors(_anchorCache, obj):
     anchor = obj.yaml_anchor()
     if anchor and anchor.value:
         _anchorCache[anchor.value] = obj
-        # By default, anchors are only emitted when it detects a reference t
+        # By default, anchors are only emitted when it detects a reference
         # to an object previously seen, so force it to be emitted
         anchor.always_dump = True
 
@@ -252,7 +252,7 @@ def find_anchor(doc, anchorName):
         _anchorCache = {}
         # recursively find anchors
         _cache_anchors(_anchorCache, doc)
-        doc._anchorCache = _anchorCache  # type: ignore
+        setattr(doc, "_anchorCache", _anchorCache)
 
     return _anchorCache.get(anchorName)
 
@@ -275,11 +275,15 @@ def _json_pointer_validate(pointer):
     return None
 
 
-def get_template(doc, key, value, path, cls, includes=None):
+def get_template(
+    doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None
+) -> Optional[Any]:
     template = doc
     templatePath = None
     if key.include:
-        value, template, baseDir = doc.loadTemplate(value, key.maybe, doc, path)
+        value, template, baseDir = doc.loadTemplate(  # type: ignore
+            value, key.maybe, doc, path, key.include[len("include") :]
+        )
         if template is None:  # include wasn't not found and key.maybe
             return None
         cls = make_map_with_base(doc, baseDir, cls)
@@ -313,12 +317,13 @@ def get_template(doc, key, value, path, cls, includes=None):
             template = expand_dict(doc, path, includes, template, cls=cls)
     finally:
         if key.include:
-            doc.loadTemplate(baseDir)  # pop baseDir
+            # pop baseDir
+            doc.loadTemplate(baseDir)  # type: ignore
     return template
 
 
 def _find_template(
-    doc: MutableMapping, key, path, cls, fail: bool
+    doc: MutableMapping, key: "MergeKey", path, cls, fail: bool
 ) -> Optional[Tuple[Any, Optional[List[str]]]]:
     template: Optional[MutableMapping] = doc
     templatePath: Optional[list] = None
@@ -367,7 +372,7 @@ def _find_template(
     return template, templatePath
 
 
-def has_template(doc: dict, key, value, path, cls) -> bool:
+def has_template(doc: dict, key: "MergeKey", value, path, cls) -> bool:
     if key.include:
         if key.maybe:
             # treat missing includes as null template instead of an error
@@ -375,7 +380,9 @@ def has_template(doc: dict, key, value, path, cls) -> bool:
         loadTemplate = getattr(doc, "loadTemplate", None)
         if not loadTemplate:
             return False
-        return doc.loadTemplate(value, key.maybe, doc, True)  # type: ignore
+        return doc.loadTemplate(  # type: ignore
+            value, key.maybe, doc, True, key.include[len("include") :]
+        )
     return _find_template(doc, key, path, cls, False) is not None
 
 
@@ -389,16 +396,17 @@ class _MissingInclude:
         return self.key.key
 
 
-RE_FIRST = re.compile(r"([?]?)(include\d*)?([*]\S+)?([.]+$)?")
+RE_FIRST = re.compile(r"([?]?)(include[\w-]*)?([*]\S+)?([.]+$)?")
 
 MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
 
 
-def parse_merge_key(key) -> Optional[MergeKey]:
-    """
+def parse_merge_key(key: str) -> Optional[MergeKey]:
+    r"""
     +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
 
-    [include] = "include"[number?]
+    [maybe] = "?"
+    [include] = "include"[\w-]*
     [anchor] = "*"[anchorname]
     relative = '.'+
     """
@@ -435,8 +443,10 @@ def _copy_item(value):
     else:
         return value
 
+
 def copy_list(current: Sequence, cls=list) -> Sequence:
-     return cls(_copy_item(i) for i in current)
+    return cls(_copy_item(i) for i in current)
+
 
 def copy_dict(current: Mapping, cls=dict) -> MutableMapping:
     cp = cls()
@@ -444,18 +454,20 @@ def copy_dict(current: Mapping, cls=dict) -> MutableMapping:
         cp[key] = _copy_item(value)
     return cp
 
-def expand_dict(doc, path, includes, current, cls=dict):
+
+def expand_dict(doc, path, includes, current, cls=dict) -> Any:
     """
     Return a copy of `doc` that expands include directives.
     Include directives look like "+path/to/value"
     When appearing as a key in a map it will merge the result with the current dictionary.
+    If the result isn't a map, that value will be returned instead.
     When appearing in a list it will insert the result in the list;
     if result is also a list, each item will be inserted separately.
     (If you don't want that behavior just wrap include in another list, e.g "[+list1]")
     """
     cp = cls()
     # first merge any includes includes into cp
-    templates: List[Mapping] = []
+    templates: List[MutableMapping] = []
     assert isinstance(current, Mapping), current
     for key, value in current.items():
         if not isinstance(key, str):
@@ -464,6 +476,10 @@ def expand_dict(doc, path, includes, current, cls=dict):
         if key.startswith("+"):
             if key == mergeStrategyKey:
                 cp[key] = value
+                continue
+            if len(key) == 2 and key[1] == "&":
+                if hasattr(doc, "_anchorCache"):
+                    doc._anchorCache[value] = cp
                 continue
             mergeKey = parse_merge_key(key)
             if not mergeKey:
@@ -476,7 +492,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
                 continue
             includes.setdefault(path, []).append((mergeKey, value))
             template = get_template(doc, mergeKey, value, path, cls, includes)
-            if isinstance(template, Mapping):
+            if isinstance(template, MutableMapping):
                 templates.append(template)
             elif mergeKey.include and template is None:
                 continue  # include path not found
@@ -526,7 +542,7 @@ def _delete_deleted_keys(expanded):
                 _delete_deleted_keys(value)
 
 
-def expand_doc(doc, current=None, cls=dict) -> Tuple[Mapping, Mapping]:
+def expand_doc(doc, current=None, cls=dict) -> Tuple[MutableMapping, Any]:
     includes = cls()
     if current is None:
         current = doc
@@ -535,7 +551,7 @@ def expand_doc(doc, current=None, cls=dict) -> Tuple[Mapping, Mapping]:
     expanded = expand_dict(doc, (), includes, current, cls)
     assert isinstance(expanded, Mapping), expanded
     if hasattr(doc, "_anchorCache"):
-        expanded._anchorCache = doc._anchorCache  # type: ignore
+        setattr(expanded, "_anchorCache", doc._anchorCache)
     last = 0
     while True:
         missing = list(_find_missing_includes(includes))
@@ -563,7 +579,7 @@ def expand_doc(doc, current=None, cls=dict) -> Tuple[Mapping, Mapping]:
         expanded = expand_dict(expanded, (), includes, current, cls)
         assert isinstance(expanded, Mapping), expanded
         if hasattr(doc, "_anchorCache"):
-            expanded._anchorCache = doc._anchorCache  # type: ignore
+            setattr(expanded, "_anchorCache", doc._anchorCache)
 
 
 def expand_list(doc, path, includes, value, cls=dict):

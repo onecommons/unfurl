@@ -8,67 +8,77 @@ Terminology from TOSCA
 Service Template
 ++++++++++++++++
 
-  Services templates specify how resources should be configured using the `TOSCA` standard. Templates can live in their own git repositories.
+Services templates specify how resources should be configured using the `TOSCA` standard. 
 
 Node Template
 +++++++++++++
 
-  A Node Template specifies the occurrence of a component node as part of a :ref:`Topology<topology>` Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.
+A Node Template defines a node that gets instantiated into an instance (or resource) when the service template is deployed.  A node template uses its node type as a prototype and can define properties, capabilities, artifacts, and requirements specific to the template.
 
 Entity Types
 ++++++++++++
 
-  Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the `Service Template`.
+Every entity in TOSCA has a declared type (including node types, relationship types, Artifact types, and data types) and type inheritance hierarchies can be defined in the `Service Template`.
 
 Instance
 ++++++++
 
-  The running instance of a `Node template`, typically instantiated when running the deployment workflow.
+The running instance of a `Node template`, typically instantiated by the deployment workflow.
 
 Properties
 ++++++++++
 
-  Name values that are declared in the specification of the node and relationship templates.
+Name values that are declared in the specification of the node and relationship templates.
 
 Attributes
 ++++++++++
 
-  Attribute refer to the actual values of an instance. They may be a reflect declared properties' values or they may be determined at runtime.
-
-.. _topology:
+Attribute refer to the actual values of an instance. They may be a reflect declared properties' values or they may be determined at runtime.
 
 Topology
 ++++++++
 
-  The set of Node Template and Relationship Template definitions that together define the topology model of a service as a (not necessarily connected) directed graph.
+The set of node templates and other components along with their relationships and dependencies and that together define the model of the service being deployed.
 
-Relationships and Requirements
-++++++++++++++++++++++++++++++
+Artifact
+++++++++
 
-  Relationships between nodes are specified in the *requirements* section of a *node template*.
+A representation of assets such as files, container images, or software packages that need to be deployed or used by an implementation of an operation.
+
+Repository
+++++++++++
+
+A TOSCA abstraction that can represent any collection of artifacts. For example, a repository can be git repository, an OCI (Docker) container registry, or a local file directory
+
+Requirement
++++++++++++
+
+A requirement is description of a dependency between two node templates.
 
 Relationship Template
 +++++++++++++++++++++
 
-  Specifies the occurrence of a relationship between nodes in a Topology Template. Each Relationship Template refers to a Relationship Type that defines the semantics relationship (e.g., properties, attributes, interfaces, etc.). Relationship Types are defined separately for reuse purposes.
+A relationship template is used to provide additional information about a requirement, for example how to establish a connection between two nodes.
 
 Capabilities
 ++++++++++++
 
-  Nodes can specify the types of capabilities they may have and the relationships between nodes can target specific capabilities.
+Nodes can specify the types of capabilities they may have and requirements can target specific capabilities.
 
-.. _operation:
+Interface
+++++++++++
+
+A collections of `operations<Interfaces and Operations>` associated with a node template or other TOSCA types.
 
 Operation
 +++++++++
 
-  The basic unit of work invoked by an TOSCA orchestrator such as Unfurl. Interfaces associated with TOSCA types define a collections of operations and Node and Relationship templates specify their implementation.
+A definition of an invocation of an artifact or a configurator. A TOSCA orchestrator like Unfurl instantiates a service template by executing operations.
 
 Workflow
 ++++++++
 
-  A plan for executing operations on instances. Predefined workflows include *deploy* for instantiating a topology, *undeploy* for destroying it, *discover* for discovering existing instances, and *check* for checking the status of existing instances.
-  Custom workflows can be defined in a service template.
+A plan for executing operations on instances. `Predefined workflows<Jobs and Workflows>` include *deploy* for instantiating a topology, *undeploy* for destroying it, *discover* for discovering existing instances, and *check* for checking the status of existing instances. Custom workflows can be defined in a service template.
 
 Unfurl specific
 ===============
@@ -95,6 +105,11 @@ Installers
 
   A node template represents the software that creates and manages installations. Installers allow implementations to be reified as first-class instances so they can be instantiated and configured themselves, enabling the local client environment to be bootstrapped as well.
 
+Deployment blueprint
+++++++++++++++++++++
+
+A deployment blueprint is a blueprint that is only applied when its criteria matches the deployment environment. It inherits from a topology template and includes node templates that override the topology template's.
+
 Eval expressions
 ++++++++++++++++
 
@@ -103,19 +118,19 @@ Eval expressions
 Job
 +++
 
-  A jobs executes a *workflow* by instantiating a plan of tasks to run.
+  A jobs executes a `workflow` by instantiating a plan of tasks to run.
 
 .. _tasks:
 
 Tasks
 +++++
 
-  Instantiates a configurator to carry out the given *operation*.
+  Instantiates a `configurator` to carry out the given :std:ref:`operation`.
 
 Config Change
 +++++++++++++
 
-  A persistent record of the changes made by a task.
+  A persistent record of the changes made by a `task<tasks>`.
 
 Changelog
 +++++++++

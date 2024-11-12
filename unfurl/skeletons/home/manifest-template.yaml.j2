@@ -16,13 +16,9 @@ spec:
       readyState: ok
 
   service_template:
-    repositories:
-      asdf:
-        url: https://github.com/asdf-vm/asdf.git#v0.8.0
-
     imports:
-      - repository: unfurl
-        file: configurators/templates/supervisor.yaml
+#      - repository: unfurl
+#        file: configurators/templates/supervisor.yaml
       - repository: unfurl
         file: tosca_plugins/localhost.yaml
       - repository: unfurl
@@ -35,18 +31,15 @@ spec:
         localhost:
           type: unfurl.nodes.Localhost
 
-        # uncomment if you want to default to using the current context in your kubeconfig
-        # defaultK8sCluster:
-        #   # set the "default" directive so this template will only be used
-        #   # if no other matching template is defined elsewhere
-        #   directives:
-        #     - default
-        #   type: unfurl.nodes.K8sCluster
-
         # uncomment and deploy if you want to share a local supervisord instance across projects
+        # (uncomment the above import of configurators/templates/supervisor.yaml too)
+        # supervisord:
+        #   type: unfurl.nodes.Supervisor
+        #   requirements:
+        #   - host: localhost
+        #
+        # once deployed, to use, add this to your project's node_templates:
         # supervisord:
         #   type: unfurl.nodes.Supervisor
         #   directives:
-        #     - default
-        #   requirements:
-        #   - host: localhost
+        #   - select

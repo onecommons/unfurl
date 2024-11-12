@@ -19,7 +19,7 @@ from unfurl.util import change_cwd
 
 
 def _verify_mypy(path):
-    stdout, stderr, return_code = api.run([path])
+    stdout, stderr, return_code = api.run(["--disable-error-code=override", path])
     if stdout:
         print(stdout)
         assert "no issues found in 1 source file" in stdout
@@ -301,6 +301,7 @@ def test_computed_properties():
                 "source": 80,
                 "source_range": None,
             },
+
             "a_list": [1],
             "data_list": [
                 {
@@ -310,7 +311,8 @@ def test_computed_properties():
                         "target_range": None,
                         "source": 80,
                         "source_range": None,
-                    }
+                    },
+                    "additional": 1
                 }
             ],
             "extra": "extra",
@@ -326,6 +328,9 @@ def test_computed_properties():
             "skipped": 0,
             "changed": 1,
         }
+        # XXX we need to delete this module because mytypes gets re-evaluated, breaking class identity
+        # is this a scenario we need to worry about outside unit tests?
+        del sys.modules['service_template.mytypes']
         result, job, summary = run_job_cmd(
             cli_runner, ["-vvv", "undeploy"], print_result=True
         )

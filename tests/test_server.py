@@ -1,6 +1,7 @@
 import json
 import os
 from pprint import pformat
+import re
 import threading
 import time
 import unittest
@@ -11,7 +12,9 @@ from multiprocessing import Process, set_start_method
 import requests
 from click.testing import CliRunner
 from git import Repo
-from unfurl import server
+from unfurl.server import serve as server
+from unfurl.server import gui
+from unfurl.packages import is_semver_compatible_with
 
 import pytest
 from tests.utils import init_project, run_cmd
@@ -163,7 +166,7 @@ def set_up_deployment(runner, deployment):
     # configure the server to clone into "server" and push into "remote.git"
     init_project(
         runner,
-        args=["init", "--mono", "--var", "vaultpass", "", "remote"],
+        args=["init", "--mono", "--var", "VAULT_PASSWORD", "", "remote"],
         env=dict(UNFURL_HOME=""),
     )
     # Create a mock deployment
@@ -190,14 +193,23 @@ def set_up_deployment(runner, deployment):
     return p, port, repo.revision
 
 
-def test_server_health(runner):
+def test_server_health(runner: Process):
     res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
 
     assert res.status_code == 200
     assert res.content == b"OK"
 
+def test_server_version(runner: Process):
+    res = requests.get("http://localhost:8090/version", params={"secret": "secret"})
 
-def test_server_authentication(runner):
+    assert res.status_code == 200
+    assert re.match(rb"^1\..+\+\w+$", res.content) is not None
+
+def test_gui_release():
+    assert re.match(gui.release_url_pattern, gui.RELEASE_URL).group(1) == gui.TAG
+    assert is_semver_compatible_with(gui.TAG, "v0.1.0-alpha.1")
+
+def test_server_authentication(runner: Process):
     res = requests.get("http://localhost:8090/health")
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
@@ -375,7 +387,7 @@ def test_server_export_remote():
 
             dep_commit = GitRepo(Repo("application-blueprint/std")).revision
             etag = server._make_etag(hex(int(last_commit, 16) 
-                                         ^ int(get_package_digest(True), 16)
+                                         ^ int(get_package_digest(), 16)
                                          ^ int(dep_commit, 16)))
             # # check that this public project (no auth header sent) was cached
             res = requests.get(
@@ -395,7 +407,7 @@ def test_server_export_remote():
             p.join()
 
 
-def test_populate_cache(runner):
+def test_populate_cache(runner: Process):
     project_ids = ["onecommons/project-templates/dashboard", "onecommons/project-templates/dashboard",
                   "onecommons/project-templates/application-blueprint"]
     files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]

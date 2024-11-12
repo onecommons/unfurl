@@ -367,7 +367,7 @@ The following options affect the output of the generated Python code:
                                   Overwrite existing files (Default: auto)
 ```
 
-The conversion process will follow TOSCA imports and generate Python files alongside the imported YAML files. The `--overwrite` controls what happens when a file with the same name already exists; its values can be:
+The conversion process will follow TOSCA imports and generate Python files alongside the imported YAML files. The `--overwrite` option controls what happens when a file with the same name already exists; its values can be:
 
 * `older` will only overwrite the output file if it is older than the source file.
 * `never` will never overwrite an existing file.
@@ -397,6 +397,10 @@ To enable untrusted Python service templates to be safely parsed in the same con
 * All other modules imported have their contents executed in the same sandbox.
 * Disallowed imports will only raise `ImportError` when an imported module's attribute is accessed.
 * In safe mode, `python_to_yaml` will not invoke Python methods when convert operations to YAML. Since `ImportError`s are deferred until the imported module's attributes are accessed, this allows safe mode to parse Python code with unsafe imports in global scope as long as they aren't accessed while declaring types and templates in global scope.
+
+IMPORTANT CAVEATS:
+* Safe mode does not attempt to protect against denial-of-service attacks.
+* The generated YAML should be treated as untrusted.
 
 ## API Documentation
 

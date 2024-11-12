@@ -66,50 +66,54 @@ Definition
 Example
 -------
 
-.. code:: yaml
+.. tab-set-code::
 
-   node_types:
-     # The following node type is used in the node templates section
-     nodes.Nginx:
-       derived_from: tosca.nodes.WebServer
-       properties:
-         port:
-           description: The default listening port for the Nginx server.
-           type: integer
-       interfaces:
-         Standard:
-           create:
-             implementation: scripts/install-nginx.sh
-             inputs:
-               process:
-                 default:
-                   env:
-                     port: 80
-           start: scripts/start-nginx.sh
+  .. code:: yaml
 
-   node_templates:
-     vm:
-       type: tosca.nodes.Compute
-       properties:
-         ip: 192.168.0.11
+    node_types:
+      # The following node type is used in the node templates section
+      nodes.Nginx:
+        derived_from: tosca.nodes.WebServer
+        properties:
+          port:
+            description: The default listening port for the Nginx server.
+            type: integer
+        interfaces:
+          Standard:
+            create:
+              implementation: scripts/install-nginx.sh
+              inputs:
+                process:
+                  default:
+                    env:
+                      port: 80
+            start: scripts/start-nginx.sh
 
-     nginx:
-       # We specify that this node template is of the node type we defined in the node types section
-       type: nodes.Nginx
-       # properties should match nodes.Nginx type properties schema
-       properties:
-         port: 80
-       interfaces:
-         Standard:
-           create:
-             # inputs should match the inputs schema defined in nodes.Nginx for the create operation
-             inputs:
-               process:
-                 env:
-                   port: { get_property: [SELF, port] }
-       requirements:
-         - type: tosca.requirements.contained_in
-           target: vm
+    node_templates:
+      vm:
+        type: tosca.nodes.Compute
+        properties:
+          ip: 192.168.0.11
 
+      nginx:
+        # We specify that this node template is of the node type we defined in the node types section
+        type: nodes.Nginx
+        # properties should match nodes.Nginx type properties schema
+        properties:
+          port: 80
+        interfaces:
+          Standard:
+            create:
+              # inputs should match the inputs schema defined in nodes.Nginx for the create operation
+              inputs:
+                process:
+                  env:
+                    port: { get_property: [SELF, port] }
+        requirements:
+          - type: tosca.requirements.contained_in
+            target: vm
+
+  .. literalinclude:: ./../examples/node-templates-1.py
+    :language: python
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Node Templates Section <_Toc50125410>`

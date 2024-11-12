@@ -5,7 +5,7 @@ from ruamel.yaml.comments import CommentedMap
 
 from .repo import RepoView
 
-from . import __version__
+from . import semver_prerelease
 from .packages import Package, PackageSpec, PackagesType, get_package_id_from_url
 from .util import get_package_digest
 from .logs import getLogger
@@ -137,7 +137,7 @@ class Lock:
         ensemble = self.ensemble
         record = CommentedMap()
         record["unfurl"] = CommentedMap(
-            (("version", __version__(True)), ("digest", get_package_digest()))
+            (("version", semver_prerelease()), ("digest", get_package_digest()  or "00000000"))
         )
         if ensemble.localEnv and ensemble.localEnv.toolVersions:
             record["toolVersions"] = {

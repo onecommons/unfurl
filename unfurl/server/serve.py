@@ -1,10 +1,10 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates 
+API server for the unfurl front-end app that provides JSON representations of ensembles and TOSCA service templates
 and a patch api for updating them.
 
-The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access. 
+The server manage local clones of remote git repositories and uses a in-memory or redis cache for efficient access.
 """
 
 # Security assumptions:
@@ -21,7 +21,9 @@ The server manage local clones of remote git repositories and uses a in-memory o
 # But if access fails when attempting to clone the repository, the repository is accessed the using the standard project loader, which makes clone local to the project using the project repository's credentials (if on the same host) (see ``apply_url_credentials``), and the loaded files are not cached.
 
 from dataclasses import dataclass, field
+import gc
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -29,6 +31,7 @@ import time
 import traceback
 from typing import (
     Dict,
+    Iterable,
     List,
     NamedTuple,
     Optional,
@@ -53,13 +56,13 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from .graphql import ImportDef, ResourceTypesByName, get_local_type
-from .manifest import relabel_dict
-from .packages import Package, get_package_from_url, is_semver
+from ..graphql import ImportDef, get_local_type, project_id_from_urlresult
+from ..manifest import relabel_dict
+from ..packages import Package, get_package_from_url
 
-from .projectpaths import rmtree
-from .localenv import LocalEnv, Project
-from .repo import (
+from ..projectpaths import rmtree
+from ..localenv import LocalEnv, Project
+from ..repo import (
     GitRepo,
     Repo,
     RepoView,
@@ -67,17 +70,13 @@ from .repo import (
     normalize_git_url,
     normalize_git_url_hard,
     sanitize_url,
-    split_git_url,
-    get_remote_tags,
 )
-from .util import UnfurlError, get_package_digest, is_relative_to, unique_name
-from .logs import getLogger, add_log_file
-from .yamlmanifest import YamlManifest
-from .yamlloader import ImportResolver_Context, SimpleCacheResolver
-from . import __version__, DefaultNames, DEFAULT_CLOUD_SERVER
-from . import to_json
-from . import init
-from .cloudmap import Repository, RepositoryDict
+from ..util import UnfurlError, get_package_digest, is_relative_to, unique_name
+from ..logs import Levels, get_console_log_level, getLogger, add_log_file
+from ..yamlmanifest import YamlManifest
+from .. import __version__, semver_prerelease, DefaultNames, DEFAULT_CLOUD_SERVER
+from .. import to_json
+from .. import init
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
 
@@ -136,7 +135,7 @@ os.environ["GIT_TERMINAL_PROMPT"] = "0"
 git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
 if git_user_name:
     git_user_full_name = (
-        f"{git_user_name} unfurl-server-{__version__(True)}-{get_package_digest()}"
+        f"{git_user_name} unfurl-server-{semver_prerelease()}+{get_package_digest()}"
     )
     os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
     os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
@@ -150,7 +149,10 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
     backend.ignore_errors = True
     redis = getattr(backend, "_read_client", None)
     if redis:
-        keys = [k.decode()[len(backend.key_prefix) :] for k in redis.keys(backend.key_prefix + starts_with + "*")]  # type: ignore
+        prefix = backend.key_prefix  # type: ignore
+        keys = [
+            k.decode()[len(prefix) :] for k in redis.keys(prefix + starts_with + "*")
+        ]
     else:
         simple = getattr(backend, "_cache", None)
         if simple is not None:
@@ -186,10 +188,14 @@ if os.environ.get("CACHE_CLEAR_ON_START"):
 DEFAULT_BRANCH = "main"
 
 
-def _set_local_projects(repo_views, local_projects, clone_root):
+def _set_local_projects(
+    repo_views: Iterable[RepoView], local_projects: Dict[str, str], clone_root, gui
+):
     server_url = app.config["UNFURL_CLOUD_SERVER"]
     server_host = urlparse(server_url).hostname
     for repo_view in repo_views:
+        if not repo_view.repo:
+            continue
         remote = repo_view.repo.find_remote(host=server_host)
         if remote:
             parts = urlparse(remote.url)
@@ -204,28 +210,58 @@ def _set_local_projects(repo_views, local_projects, clone_root):
                 project_id,
             )
             local_projects[project_id] = repo_view.repo.working_dir
+        elif gui:
+            # only include non unfurl cloud repos when in gui mode
+            local_projects[to_json.get_local_project_path(repo_view.repo)] = (
+                repo_view.repo.working_dir
+            )
 
 
-def set_local_projects(local_env, clone_root):
+def get_project_path(repo: GitRepo):
+    server_url = app.config["UNFURL_CLOUD_SERVER"]
+    server_host = urlparse(server_url).hostname
+    cloud_remote = repo.find_remote(host=server_host)
+    if cloud_remote:
+        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
+    else:
+        project_path = "local:" + repo.working_dir.lstrip("/")
+    return project_path
+
+
+def set_local_projects(local_env: LocalEnv, clone_root: str, gui: bool):
     clone_root = os.path.abspath(clone_root)
     local_projects: Dict[str, str] = {}
     if local_env.project:
         _set_local_projects(
-            local_env.project.workingDirs.values(), local_projects, clone_root
+            local_env.project.workingDirs.values(), local_projects, clone_root, gui
         )
     if local_env.homeProject:
         _set_local_projects(
-            local_env.homeProject.workingDirs.values(), local_projects, clone_root
+            local_env.homeProject.workingDirs.values(), local_projects, clone_root, gui
         )
     app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
 
 
-def set_current_ensemble_git_url():
+def set_current_ensemble_git_url(gui: bool = False):
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
     if not project_or_ensemble_path:
         return None
     try:
-        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True, readonly=True)
+        # the ENVIRONMENT=* in overrides is a hackish way to load all env vars for all environments
+        if gui:
+            overrides = dict(
+                ENVIRONMENT="*",
+                UNFURL_SKIP_UPSTREAM_CHECK=True,
+                apply_url_credentials=True,
+            )
+        else:
+            overrides = None
+        local_env = LocalEnv(
+            project_or_ensemble_path,
+            overrides=overrides,
+            can_be_empty=True,
+            readonly=not gui,
+        )
     except Exception:
         logger.info(
             'no project found at "%s", no local project set', project_or_ensemble_path
@@ -241,33 +277,34 @@ def set_current_ensemble_git_url():
         )
         server_url = app.config["UNFURL_CLOUD_SERVER"]
         server_host = urlparse(server_url).hostname
-        if not server_host:
-            return None
-        remote = local_env.project.project_repoview.repo.find_remote(host=server_host)
-        if remote:
-            remote_url = remote.url
+        if not gui and not server_host:
+            return None  # no remote is ok in local mode
+        if server_host:
+            remote = local_env.project.project_repoview.repo.find_remote(
+                host=server_host
+            )
+            if remote:
+                remote_url = remote.url
+            else:
+                remote_url = local_env.project.project_repoview.url
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
         else:
-            remote_url = local_env.project.project_repoview.url
-        app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(
+                local_env.project.project_repoview.repo.url
+            )
         return local_env
     return None
 
 
+# XXX we shouldn't call this twice when invoked from the cli
 set_current_ensemble_git_url()
 
 
-def get_project_id(request):
+def get_project_id(request) -> str:
     project_id = request.args.get("auth_project")
     if project_id:
         return project_id
     return ""
-
-
-def project_id_from_urlresult(urlparse_result) -> str:
-    project_id = urlparse_result.path.strip("/")
-    if project_id.endswith(".git"):
-        project_id = project_id[:-4]
-    return project_id
 
 
 def get_current_project_id() -> str:
@@ -294,10 +331,19 @@ def _get_local_project_dir(project_id) -> str:
 
 
 def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) -> str:
+    # NB: in gui mode, reserves a working_dir in UNFURL_LOCAL_PROJECTS if the project_id is missing
     if not project_id:
         return app.config.get("UNFURL_CURRENT_WORKING_DIR", ".")
     local_dir = _get_local_project_dir(project_id)
     if local_dir:
+        return local_dir
+    local_env = cast(Optional[LocalEnv], app.config.get("UNFURL_GUI_MODE"))
+    if local_env:
+        assert local_env.project
+        local_dir = local_env.project._create_path_for_git_repo(
+            get_project_url(project_id)
+        ).rstrip("/")
+        cast(dict, app.config.get("UNFURL_LOCAL_PROJECTS"))[project_id] = local_dir
         return local_dir
     base = "public"
     if args:
@@ -308,25 +354,30 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
         ):
             base = "private"
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
-    return os.path.join(clone_root, base, project_id, branch)
+    return os.path.join(clone_root, base, project_id, branch).rstrip("/")
 
 
 def _get_project_repo(
     project_id: str, branch: str, args: Optional[dict]
 ) -> Optional[GitRepo]:
     path = _get_project_repo_dir(project_id, branch, args)
-    if os.path.isdir(os.path.join(path, ".git")):
+    git_path = os.path.join(path, ".git")
+    if os.path.isdir(git_path):
         if os.path.isfile(path + ".lock"):
+            logger.warning("can't get repo: %s found", path + ".lock")
             return None  # in the middle of cloning this repo
         repo = GitRepo(git.Repo(path))
         if args:
             # make sure we are using the latest credentials:
-            username, password = args.get("username"), args.get(
-                "private_token", args.get("password")
+            username, password = (
+                args.get("username"),
+                args.get("private_token", args.get("password")),
             )
             if username and password:
                 repo.set_url_credentials(username, password, True)
         return repo
+    else:
+        logger.warning("git repo not found: %s", git_path)
     return None
 
 
@@ -335,8 +386,9 @@ def _clone_repo(
 ) -> GitRepo:
     repo_path = _get_project_repo_dir(project_id, branch, args)
     os.makedirs(os.path.dirname(repo_path), exist_ok=True)
-    username, password = args.get("username"), args.get(
-        "private_token", args.get("password")
+    username, password = (
+        args.get("username"),
+        args.get("private_token", args.get("password")),
     )
     git_url = get_project_url(project_id, username, password)
     clone_lock_path = repo_path + ".lock"
@@ -360,7 +412,7 @@ _cache_inflight_timeout = int(
 class CacheDirective:
     cache: bool = True  # save cache entry
     store: bool = True  # store value in cache
-    check_file: bool = True # check if the file in the key has changed
+    check_file: bool = True  # check if the file in the key has changed
     # cache timeout or default (default default: never expires)
     timeout: Optional[int] = None
     latest_commit: Optional[str] = None
@@ -429,6 +481,8 @@ class CacheItemDependency:
 
 
 def set_version_from_remote_tags(package: Package, args: Optional[dict]):
+    from .cache import get_remote_tags_cached
+
     def get_remote_tags(url, pattern):
         return get_remote_tags_cached(url, pattern, args)
 
@@ -447,7 +501,7 @@ class CacheValue(NamedTuple):
     last_commit_date: int
 
     def make_etag(self) -> str:
-        etag = int(self.last_commit, 16) ^ int(get_package_digest(True), 16)
+        etag = int(self.last_commit, 16) ^ int(get_package_digest() or "0", 16)
         for dep in self.deps.values():
             for last_commit in dep.last_commits:
                 if last_commit:
@@ -513,6 +567,7 @@ class CacheEntry:
     directives: Optional[CacheDirective] = None
     value: Optional[CacheValue] = None
     pull_state: Optional[str] = None
+    owns_repo: bool = False
 
     def _set_project_repo(self) -> Optional[GitRepo]:
         self.repo = _get_project_repo(
@@ -520,6 +575,7 @@ class CacheEntry:
             self.branch or DEFAULT_BRANCH,
             self.args,
         )
+        self.owns_repo = True
         return self.repo
 
     def cache_key(self) -> str:
@@ -537,7 +593,7 @@ class CacheEntry:
     def checked_repo(self) -> GitRepo:
         if not self.repo:
             self._set_project_repo()
-        assert self.repo
+        assert self.repo, self.project_id
         return self.repo
 
     def pull(self, cache: Cache, stale_ok_age: int = 0, shallow_since=None) -> GitRepo:
@@ -555,7 +611,10 @@ class CacheEntry:
                         self.repo.working_dir,
                         exc_info=True,
                     )
-                    self.repo = None
+                    if self.repo:
+                        self.repo.repo.__del__()
+                        self.repo = None
+                        gc.collect()
 
         branch = self.branch or DEFAULT_BRANCH
         repo_key = (
@@ -601,18 +660,23 @@ class CacheEntry:
                 self._set_project_repo()
             repo = self.repo
             if repo:
-                logger.info(f"pulling repo for {repo_key}")
-                try:
-                    action = pull(repo, branch, shallow_since)
-                except Exception:
-                    logger.info(
-                        f"pull failed for {repo_key}, clearing project", exc_info=True
-                    )
-                    _clear_project(self.project_id)
-                    if not local_developer_mode():
-                        repo = None  # we don't delete the repo in local developer mode
-                    else:
-                        action = "detached"
+                if repo.remote:
+                    logger.info(f"pulling repo for {repo_key}")
+                    try:
+                        action = pull(repo, branch, shallow_since)
+                    except Exception:
+                        logger.info(
+                            f"pull failed for {repo_key}, clearing project",
+                            exc_info=True,
+                        )
+                        _clear_project(self.project_id)
+                        if not local_developer_mode():
+                            # we don't delete the repo in local developer mode
+                            repo = None
+                        else:
+                            action = "detached"
+                else:
+                    action = "detached"
             if not repo:
                 if self.do_clone:
                     logger.info(f"cloning repo for {repo_key}")
@@ -637,7 +701,9 @@ class CacheEntry:
             if self.file_path:  # if no file_path, just get the latest commit
                 paths.append(self.file_path)
         # note: self.file_path can be a directory
-        commits = list(repo.repo.iter_commits(self.branch, paths, max_count=1))
+        commits = list(
+            repo.repo.iter_commits(self.branch or "HEAD", paths, max_count=1)
+        )
         if commits:
             self.commitinfo = commits[0]
             new_commit = self.commitinfo.hexsha
@@ -909,7 +975,12 @@ class CacheEntry:
             return False
 
         if local_developer_mode():
-            if self.checked_repo.is_dirty(False, self.file_path):
+            if not self.repo:
+                self._set_project_repo()
+            if self.repo:
+                if self.repo.is_dirty(False, self.file_path):
+                    return False
+            else:
                 return False
 
         logger.debug("checking deps %s on %s", list(self._deps), self.cache_key())
@@ -929,66 +1000,78 @@ class CacheEntry:
         validate: Optional[Callable] = None,
         cache_dependency: Optional[CacheItemDependency] = None,
     ) -> Tuple[Optional[Any], Any]:
-        if latest_commit is None and not self.stale_pull_age:
-            # don't use the cache
-            return self._do_work(work, latest_commit)[0:2]
+        try:
+            if (
+                latest_commit is None and not self.stale_pull_age
+                #            or app.config.get("UNFURL_GUI_MODE")
+            ):
+                # don't use the cache
+                return self._do_work(work, latest_commit)[0:2]
 
-        cache_value, stale = self.get_cache(cache, latest_commit)
-        if cache_value:  # cache hit
-            if not stale:
-                if self._validate(
-                    cache_value.value,
-                    cache,
-                    cache_value.latest_commit,
-                    validate,
-                ):
-                    if self.root_entry and cache_dependency:
-                        self.root_entry.add_cache_dep(
-                            cache_dependency,
-                            cache_value.latest_commit,
-                            cache_value.last_commit,
-                        )
-                    return None, cache_value.value
-                logger.debug(f"validation failed for {self.cache_key()}")
-            # otherwise in cache but stale or invalid, fall thru to redo work
-            # XXX? check date to see if its recent enough to serve anyway
-            # if stale.committed_date - time.time() < stale_ok_age:
-            #      return value
-            self.hit = False
-        commit_date = cache_value.last_commit_date if cache_value else 0
-        if not cache_value or not self.hit:  # cache miss
-            try:
-                if not self.repo:
-                    self._set_project_repo()
-                if self.repo:
-                    # if we have a local copy of the repo
-                    # make sure we pulled latest_commit before doing the work
-                    if not latest_commit:
-                        self.repo = self.pull(cache, self.stale_pull_age)
-                    else:
-                        pulled, self.repo = self._pull_if_missing_commit(
-                            latest_commit, commit_date
-                        )
-                elif self.do_clone:  # this will clone the repo
-                    self.repo = self.pull(cache, shallow_since=commit_date)
-            except Exception as pull_err:
-                logger.warning(
-                    f"exception while pulling {self.project_id}", exc_info=True
-                )
-                return pull_err, None
-        assert self.repo or not self.do_clone, self
+            cache_value, stale = self.get_cache(cache, latest_commit)
+            if cache_value:  # cache hit
+                if not stale:
+                    if self._validate(
+                        cache_value.value,
+                        cache,
+                        cache_value.latest_commit,
+                        validate,
+                    ):
+                        if self.root_entry and cache_dependency:
+                            self.root_entry.add_cache_dep(
+                                cache_dependency,
+                                cache_value.latest_commit,
+                                cache_value.last_commit,
+                            )
+                        return None, cache_value.value
+                    logger.debug(f"validation failed for {self.cache_key()}")
+                # otherwise in cache but stale or invalid, fall thru to redo work
+                # XXX? check date to see if its recent enough to serve anyway
+                # if stale.committed_date - time.time() < stale_ok_age:
+                #      return value
+                self.hit = False
+            commit_date = cache_value.last_commit_date if cache_value else 0
+            if not cache_value or not self.hit:  # cache miss
+                try:
+                    if not self.repo:
+                        self._set_project_repo()
+                    if self.repo:
+                        # if we have a local copy of the repo
+                        # make sure we pulled latest_commit before doing the work
+                        if not latest_commit:
+                            if not app.config.get("UNFURL_GUI_MODE"):  # pull if stale
+                                self.repo = self.pull(cache, self.stale_pull_age)
+                        else:
+                            pulled, self.repo = self._pull_if_missing_commit(
+                                latest_commit, commit_date
+                            )
+                    elif self.do_clone:  # this will clone the repo
+                        self.repo = self.pull(cache, shallow_since=commit_date)
+                except Exception as pull_err:
+                    logger.warning(
+                        f"exception while pulling {self.project_id}", exc_info=True
+                    )
+                    return pull_err, None
+            assert self.repo or not self.do_clone, self
 
-        value, found_inflight = self._set_inflight(cache, latest_commit)
-        if found_inflight:
-            # there was already work inflight and use that instead
-            return None, value
+            value, found_inflight = self._set_inflight(cache, latest_commit)
+            if found_inflight:
+                # there was already work inflight and use that instead
+                return None, value
 
-        err, value, directives = self._do_work(work, latest_commit, cache_dependency)
-        cancel_succeeded = self._cancel_inflight(cache)
-        # skip caching work if cancel inflight failed -- that means invalidate_cache deleted it
-        if cancel_succeeded and not err:
-            self.set_cache(cache, directives, value)
-        return err, value
+            err, value, directives = self._do_work(
+                work, latest_commit, cache_dependency
+            )
+            cancel_succeeded = self._cancel_inflight(cache)
+            # skip caching work if cancel inflight failed -- that means invalidate_cache deleted it
+            if cancel_succeeded and not err:
+                self.set_cache(cache, directives, value)
+            return err, value
+        finally:
+            if self.owns_repo and self.repo:
+                self.repo.repo.__del__()
+                self.repo = None
+                gc.collect()
 
     def add_cache_dep(
         self, dep: CacheItemDependency, latest_commit: str, last_commit: str
@@ -1066,15 +1149,16 @@ def health():
 
 @app.route("/version")
 def version():
-    return f"{__version__(True)} ({get_package_digest()})"
+    return f"{semver_prerelease()}+{get_package_digest() or '00000000'}"
 
 
 def get_canonical_url(project_id: str) -> str:
-    return urljoin(DEFAULT_CLOUD_SERVER, project_id + ".git")
+    return urljoin(DEFAULT_CLOUD_SERVER, project_id.rstrip("/") + ".git")
 
 
-def get_project_url(project_id: str, username=None, password=None) -> str:
-    base_url = current_app.config["UNFURL_CLOUD_SERVER"]
+def get_project_url(project_id: str, username=None, password=None, branch=None) -> str:
+    assert not project_id.startswith("local:"), project_id
+    base_url = cast(str, current_app.config["UNFURL_CLOUD_SERVER"])
     assert base_url
     if username:
         url_parts = urlsplit(base_url)
@@ -1083,7 +1167,10 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
         else:
             netloc = f"{username}@{url_parts.netloc}"
         base_url = urlunsplit(url_parts._replace(netloc=netloc))
-    return urljoin(base_url, project_id + ".git")
+    url = urljoin(base_url, project_id.rstrip("/") + ".git")
+    if branch and branch != "(MISSING)":
+        url += "#" + branch
+    return url
 
 
 def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[GitRepo]:
@@ -1170,12 +1257,10 @@ def json_response(obj, pretty, **dump_args):
     else:
         dump_args.setdefault("separators", (",", ":"))
 
-    dumps = flask.json.dumps
-    mimetype = current_app.config["JSONIFY_MIMETYPE"]
-    # XXX in flask 2.2+:
-    # dumps = current_app.json.dumps
-    # mimetype= current_app.json.mimetype
-    return current_app.response_class(f"{dumps(obj, **dump_args)}\n", mimetype=mimetype)
+    dumps = current_app.json.dumps
+    return current_app.response_class(
+        f"{dumps(obj, **dump_args)}\n", mimetype="application/json"
+    )
 
 
 # /export?format=environments&include_all_deployments=true&latest_commit=foo&project_id=bar&branch=main
@@ -1191,23 +1276,52 @@ def export():
     return _export(request, requested_format, deployment_path, False)
 
 
+def get_default_branch(
+    project_id: str,
+    branch: Optional[str] = "(MISSING)",
+    args: Optional[Dict[str, Any]] = None,
+) -> str:
+    project_url = get_project_url(project_id)
+    package = get_package_from_url(project_url)
+    if package:
+        package.missing = branch == "(MISSING)"
+        set_version_from_remote_tags(package, args)
+        branch = package.revision_tag or DEFAULT_BRANCH
+    else:
+        logger.debug(
+            f"{project_url} is not a package url, skipping retrieving remote version tags."
+        )
+        branch = DEFAULT_BRANCH
+
+    return branch
+
+
 def _export(
     request: Request,
     requested_format: str,
     deployment_path: str,
     include_all: bool,
-    post_work=None,
+    post_work: Optional[Callable[[CacheEntry, Any], None]] = None,
 ):
     latest_commit = request.args.get("latest_commit")
+    if latest_commit == "undefined":
+        latest_commit = None
     project_id = get_project_id(request)
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
+    if branch == "HEAD":
+        branch = ""
     args: Dict[str, Any] = dict(request.args)
     if request.headers.get("X-Git-Credentials"):
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
-    args["root_url"] = get_canonical_url(project_id)
+    if project_id and not project_id.startswith("local:"):
+        args["root_url"] = get_canonical_url(project_id)
+        if not branch or branch == "(MISSING)":
+            branch = get_default_branch(project_id, branch, args)
+    elif not branch:
+        branch = ""
     args["include_all"] = include_all
     if include_all:
         extra = "+types"
@@ -1216,17 +1330,6 @@ def _export(
             extra = "+" + args["environment"]
         else:
             extra = ""
-    if not branch or branch == "(MISSING)":
-        package = get_package_from_url(get_project_url(project_id))
-        if package:
-            package.missing = branch == "(MISSING)"
-            set_version_from_remote_tags(package, args)
-            branch = package.revision_tag or DEFAULT_BRANCH
-        else:
-            logger.debug(
-                f"{get_project_url(project_id)} is not a package url, skipping retrieving remote version tags."
-            )
-            branch = DEFAULT_BRANCH
     repo = _get_project_repo(project_id, branch, args)
     stale_pull_age = app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
     cache_entry = CacheEntry(
@@ -1238,128 +1341,91 @@ def _export(
         args=args,
         stale_pull_age=stale_pull_age,
     )
-    if requested_format == "blueprint":
-        # blueprint exports can depend on more than just the file in the key
-        cache_entry.directives = CacheDirective(check_file=False)
-    err, json_summary = cache_entry.get_or_set(
-        cache,
-        _export_cache_work,
-        latest_commit,
-    )
-    if not err:
-        hit = cache_entry.hit and not post_work
-        derrors = False
-        if request.args.get("include_all_deployments"):
-            deployments = []
-            for manifest_path in json_summary["DeploymentPath"]:
-                dcache_entry = CacheEntry(
-                    project_id,
-                    branch,
-                    manifest_path,
-                    "deployment",
-                    repo,
-                    args=args,
-                    stale_pull_age=stale_pull_age,
-                    # don't need to set root_entry since deployments depend on the same commit
-                )
-                derr, djson = dcache_entry.get_or_set(
-                    cache, _export_cache_work, latest_commit
-                )
-                if derr:
-                    derrors = True
-                    error_dict = dict(deployment=manifest_path, error="Internal Error")
-                    if isinstance(derr, Exception):
-                        error_dict["details"] = "".join(
-                            traceback.TracebackException.from_exception(derr).format()
-                        )
-                    deployments.append(error_dict)
-                else:
-                    deployments.append(djson)
-                hit = hit and dcache_entry.hit
-            json_summary["deployments"] = deployments
-        if not derrors and (hit or (cache_entry.value and not post_work)):
-            etag = request.headers.get("If-None-Match")
-            if etag and cache_entry.value and cache_entry.value.make_etag() == etag:
-                return "Not Modified", 304
-        elif post_work:
-            post_work(cache_entry, json_summary)
-
-        response = json_response(
-            json_summary, request.args.get("pretty"), sort_keys=False
+    try:
+        if requested_format == "blueprint":
+            # blueprint exports can depend on more than just the file in the key
+            cache_entry.directives = CacheDirective(check_file=False)
+        err, json_summary = cache_entry.get_or_set(
+            cache,
+            _export_cache_work,
+            latest_commit,
         )
-        if not derrors:
-            # don't set caching if there were errors
-            if cache_entry.value:
-                response.headers["Etag"] = cache_entry.value.make_etag()
-            if latest_commit:
-                max_age = 86400  # one day
-            else:
-                max_age = stale_pull_age
-            serve_stale = app.config["CACHE_CONTROL_SERVE_STALE"]
-            if serve_stale:
-                response.headers["Cache-Control"] = (
-                    f"max-age={max_age}, stale-while-revalidate={serve_stale}"
-                )
-        return response
-    else:
-        if isinstance(err, FatalToscaImportError):
-            return create_error_response(
-                "BAD_REPOSITORY",
-                "Aborting loading the {requested_format} because an import failed.",
-                err,
-            )
-        elif isinstance(err, Exception):
-            return create_error_response(
-                "INTERNAL_ERROR", "An internal error occurred", err
-            )
-        else:
-            return err
-
-
-def _get_cloudmap_types(project_id: str, root_cache_entry: CacheEntry):
-    err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
-    if doc is None:
-        return err, {}
-    repositories_dict = cast(Dict[str, dict], doc.get("repositories") or {})
-    types: Dict[str, dict] = {}
-    for r_dict in repositories_dict.values():
-        r = Repository(**r_dict)
-        if not r.notable:
-            continue
-        for file_path, notable in r.notable.items():
-            if notable.get("artifact_type") == "artifact.tosca.ServiceTemplate":
-                typeinfo = notable.get("type")
-                if typeinfo:
-                    name = typeinfo["name"]
-                    if "_sourceinfo" not in typeinfo:
-                        typeinfo["_sourceinfo"] = ImportDef(
-                            file=file_path, url=r.git_url()
+        if not err:
+            hit = cache_entry.hit and not post_work
+            derrors = False
+            if request.args.get("include_all_deployments"):
+                deployments = []
+                for manifest_path in json_summary["DeploymentPath"]:
+                    dcache_entry = CacheEntry(
+                        project_id,
+                        branch,
+                        manifest_path,
+                        "deployment",
+                        repo,
+                        args=args,
+                        stale_pull_age=stale_pull_age,
+                        # don't need to set root_entry since deployments depend on the same commit
+                    )
+                    derr, djson = dcache_entry.get_or_set(
+                        cache, _export_cache_work, latest_commit
+                    )
+                    if derr:
+                        derrors = True
+                        error_dict = dict(
+                            deployment=manifest_path, error="Internal Error"
                         )
-                    if "@" not in name:
-                        schema = cast(str, notable.get("schema", r.git_url()))
-                        local_types = ResourceTypesByName(schema, Namespace({}, ""))
-                        typeinfo["name"] = name = local_types.expand_typename(name)
-                        # make sure "extends" are fully qualified
-                        extends = typeinfo.get("extends")
-                        if extends:
-                            typeinfo["extends"] = [
-                                local_types.expand_typename(extend)
-                                for extend in extends
-                            ]
-                    typeinfo["_sourceinfo"]["incomplete"] = True
-                    if not typeinfo.get("description") and notable.get("description"):
-                        typeinfo["description"] = notable["description"]
-                    # XXX hack, always set for root type:
-                    typeinfo["implementations"] = ["connect", "create"]
-                    typeinfo["directives"] = ["substitute"]
-                    if r.metadata.avatar_url:
-                        typeinfo["icon"] = r.metadata.avatar_url
-                    dependencies = notable.get("dependencies")
-                    if dependencies:
-                        typeinfo.setdefault("metadata", {})["components"] = dependencies
-                    types[name] = typeinfo
+                        if isinstance(derr, Exception):
+                            error_dict["details"] = "".join(
+                                traceback.TracebackException.from_exception(
+                                    derr
+                                ).format()
+                            )
+                        deployments.append(error_dict)
+                    else:
+                        deployments.append(djson)
+                    hit = hit and dcache_entry.hit
+                json_summary["deployments"] = deployments
+            if not derrors and (hit or (cache_entry.value and not post_work)):
+                etag = request.headers.get("If-None-Match")
+                if etag and cache_entry.value and cache_entry.value.make_etag() == etag:
+                    return "Not Modified", 304
+            elif post_work:
+                post_work(cache_entry, json_summary)
 
-    return err, types
+            response = json_response(
+                json_summary, request.args.get("pretty"), sort_keys=False
+            )
+            if not derrors:
+                # don't set caching if there were errors
+                if cache_entry.value:
+                    response.headers["Etag"] = cache_entry.value.make_etag()
+                if latest_commit:
+                    max_age = 86400  # one day
+                else:
+                    max_age = stale_pull_age
+                serve_stale = app.config["CACHE_CONTROL_SERVE_STALE"]
+                if serve_stale:
+                    response.headers["Cache-Control"] = (
+                        f"max-age={max_age}, stale-while-revalidate={serve_stale}"
+                    )
+            return response
+        else:
+            if isinstance(err, FatalToscaImportError):
+                return create_error_response(
+                    "BAD_REPOSITORY",
+                    "Aborting loading the {requested_format} because an import failed.",
+                    err,
+                )
+            elif isinstance(err, Exception):
+                return create_error_response(
+                    "INTERNAL_ERROR", "An internal error occurred", err
+                )
+            else:
+                return err
+    finally:
+        if repo:
+            repo.repo.__del__()
+            gc.collect()
 
 
 @app.route("/types")
@@ -1371,9 +1437,10 @@ def get_types():
     filename = request.args.get("file", "dummy-ensemble.yaml")
     cloudmap_project_id = request.args.get("cloudmap")
     if cloudmap_project_id:  # e.g. "onecommons/cloudmap"
+        from .cache import get_cloudmap_types
 
-        def _add_types(cache_entry, db):
-            err, types = _get_cloudmap_types(cloudmap_project_id, cache_entry)
+        def _add_types(cache_entry: CacheEntry, db: Any):
+            err, types = get_cloudmap_types(cloudmap_project_id, cache_entry)
             if err:
                 return err
             db["ResourceType"].update(types)
@@ -1465,17 +1532,22 @@ def _clear_project(project_id):
 
 
 def _make_readonly_localenv(
-    clone_root: str, deployment_path: str, parent_localenv=None
+    clone_root: str,
+    deployment_path: str,
+    parent_localenv=None,
+    requested_format: Optional[str] = None,
 ):
     try:
         # we don't want to decrypt secrets because the export is cached and shared
         overrides: Dict[str, Any] = dict(
             UNFURL_SKIP_VAULT_DECRYPT=True,
             # XXX enable skipping when deps support private repositories
-            UNFURL_SKIP_UPSTREAM_CHECK=False,
+            UNFURL_SKIP_UPSTREAM_CHECK=bool(app.config.get("UNFURL_GUI_MODE")),
             apply_url_credentials=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
+        if requested_format:
+            overrides["format"] = requested_format
         clone_location = os.path.join(clone_root, deployment_path)
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
         if app.config.get("UNFURL_CURRENT_WORKING_DIR") != clone_root:
@@ -1527,7 +1599,6 @@ def _localenv_from_cache(
         err, local_env = _make_readonly_localenv(clone_location, deployment_path)
         return err, local_env, True
 
-    repo = _get_project_repo(project_id, branch, args)
     cache_entry = CacheEntry(
         project_id,
         branch,
@@ -1535,7 +1606,6 @@ def _localenv_from_cache(
         deployment_path
         or os.path.join(DefaultNames.EnsembleDirectory, DefaultNames.Ensemble),
         "localenv",
-        repo,
         args=args,
         stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
     )
@@ -1583,11 +1653,16 @@ def _do_export(
     latest_commit: Optional[str],
     args: dict,
 ) -> Tuple[Optional[Any], Optional[Any]]:
-    assert cache_entry.branch
+    # assert cache_entry.branch
     parent_localenv = args.get("parent_localenv")
     if not parent_localenv:
         err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
-            cache, project_id, cache_entry.branch, deployment_path, latest_commit, args
+            cache,
+            project_id,
+            cache_entry.branch or "",
+            deployment_path,
+            latest_commit,
+            args,
         )
         if err:
             return err, None
@@ -1603,7 +1678,7 @@ def _do_export(
         parent_localenv.instance_repoview,
     )
     err, local_env = _make_readonly_localenv(
-        repo.repo.working_dir, deployment_path, parent_localenv
+        repo.repo.working_dir, deployment_path, parent_localenv, requested_format
     )
     if err:
         return (
@@ -1621,10 +1696,16 @@ def _do_export(
             )
             local_env.manifest_context_name = "_export_types_placeholder"
     if cache_entry:
+        from .cache import ServerCacheResolver
+
         local_env.make_resolver = ServerCacheResolver.make_factory(cache_entry)
+    gui = bool(app.config.get("UNFURL_GUI_MODE"))
     if requested_format == "environments":
         json_summary = to_json.to_environments(
-            local_env, args.get("root_url"), args.get("environment")
+            local_env,
+            args.get("root_url"),
+            args.get("environment"),
+            include_default=gui,
         )
     elif requested_format == "blueprint":
         json_summary = to_json.to_blueprint(
@@ -1634,7 +1715,12 @@ def _do_export(
             nested=args.get("include_all", False),
         )
     elif requested_format == "deployment":
-        json_summary = to_json.to_deployment(local_env, args.get("root_url"))
+        server_host = (
+            urlparse(app.config["UNFURL_CLOUD_SERVER"]).hostname if gui else None
+        )
+        json_summary = to_json.to_deployment(
+            local_env, args.get("root_url"), server_host=server_host
+        )
     else:
         assert False, requested_format
     return None, json_summary
@@ -1790,7 +1876,14 @@ def _patch_deployment_blueprint(
     if deleted:
         del deployment_blueprints[deployment_blueprint]
     else:
-        keys = ["title", "cloud", "description", "primary", "source", "projectPath", "branch"]
+        keys = [
+            "title",
+            "cloud",
+            "description",
+            "primary",
+            "source",
+            "branch",
+        ]
         for key, prop in patch.items():
             if key in keys:
                 current[key] = prop
@@ -1987,7 +2080,11 @@ def _patch_environment(body: dict, project_id: str):
     assert repo
     username = cast(str, body.get("username"))
     password = cast(str, body.get("private_token", body.get("password")))
-    if not password and repo.url.startswith("http"):
+    if (
+        not password
+        and repo.url.startswith("http")
+        and not app.config.get("UNFURL_GUI_MODE")
+    ):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
     was_dirty = repo.is_dirty()
     starting_revision = (
@@ -2105,6 +2202,8 @@ def _get_commit_msg(body, default_msg):
 def _patch_ensemble(
     body: dict, create: bool, project_id: str, check_lastcommit=True
 ) -> str:
+    from .cache import ServerCacheResolver
+
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
@@ -2114,8 +2213,14 @@ def _patch_ensemble(
 
     username = body.get("username")
     password = body.get("private_token", body.get("password"))
+    # XXX push_url isn't used... is this needed?? and doesn't make sense in local mode
     push_url = existing_repo.url if existing_repo else app.config["UNFURL_CLOUD_SERVER"]
-    if push_url and not password and push_url.startswith("http"):
+    if (
+        push_url
+        and not password
+        and push_url.startswith("http")
+        and not app.config.get("UNFURL_GUI_MODE")
+    ):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     latest_commit = body.get("latest_commit") or ""
@@ -2123,6 +2228,9 @@ def _patch_ensemble(
         cache, project_id, branch, "", latest_commit, body, check_lastcommit
     )
     if err:
+        if existing_repo:
+            existing_repo.repo.__del__()
+            gc.collect()
         return err
     assert (
         parent_localenv
@@ -2134,7 +2242,13 @@ def _patch_ensemble(
     )
 
     invalidate_cache(body, "deployment", project_id)
-    was_dirty = existing_repo and existing_repo.is_dirty()
+    if existing_repo:
+        was_dirty = existing_repo.is_dirty()
+        existing_repo.repo.__del__()
+        existing_repo = None
+        gc.collect()
+    else:
+        was_dirty = False
     starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
     current_working_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
@@ -2145,42 +2259,64 @@ def _patch_ensemble(
         None, dict(username=username, password=password)
     )
     parent_localenv.make_resolver = make_resolver
+    gui_mode = app.config.get("UNFURL_GUI_MODE")
     if create:
-        blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
-        logger.info(
-            "creating deployment at %s for %s",
-            clone_location,
-            sanitize_url(blueprint_url, True),
+        # if current_working_dir is set, use it as the home project so clone uses the local repository if available
+        blueprint_url = body.get("blueprint_url")
+        mono = (
+            parent_localenv.instance_repoview
+            is parent_localenv.project.project_repoview
         )
-        # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so clone uses the local repository if available
-        msg = init.clone(
-            blueprint_url,
-            clone_location,
-            existing=True,
-            mono=True,
-            skeleton="dashboard",
-            use_environment=environment,
-            use_deployment_blueprint=deployment_blueprint,
-            home=current_working_dir,
-            parent_localenv=parent_localenv,
-        )
+        skeleton = None if gui_mode else "dashboard"
+        if blueprint_url:
+            logger.info(
+                "creating deployment at %s for %s",
+                clone_location,
+                sanitize_url(blueprint_url, True),
+            )
+            msg = init.clone(
+                blueprint_url,
+                clone_location,
+                existing=True,
+                mono=mono,
+                render=was_dirty,  # don't commit if dirty
+                skeleton=skeleton,
+                use_environment=environment,
+                use_deployment_blueprint=deployment_blueprint,
+                home=current_working_dir,
+                parent_localenv=parent_localenv,
+            )
+        else:
+            logger.info("creating new deployment at %s", clone_location)
+            # this will clone the default ensemble if it exists or use ensemble-template
+            msg = init.clone(
+                parent_localenv.project.projectRoot,
+                parent_localenv.project.projectRoot,
+                deployment_path,
+                want_init=True,
+                existing=True,
+                mono=mono,
+                render=was_dirty,  # don't commit if dirty
+                skeleton=skeleton,
+                use_environment=environment,
+                use_deployment_blueprint=deployment_blueprint,
+                home=current_working_dir,
+                parent_localenv=parent_localenv,
+            )
         logger.info(msg)
-    # elif clone:
-    #     logger.info("creating deployment at %s for %s", clone_location, sanitize_url(blueprint_url, True))
-    #     msg = init.clone(clone_location, clone_location, existing=True, mono=True, skeleton="dashboard",
-    #                      use_environment=environment, use_deployment_blueprint=deployment_blueprint)
-    #     logger.info(msg)
-
     cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
     # set apply_url_credentials=True so that we reuse the credentials when cloning other repositories on this server
     overrides = dict(
         ENVIRONMENT=environment,
-        UNFURL_CLOUD_VARS_URL=cloud_vars_url,
         apply_url_credentials=True,
         # we need to decrypt/encrypt yaml but we can skip secret files (expensive)
         skip_secret_files=True,
     )
+    if cloud_vars_url:
+        overrides["UNFURL_CLOUD_VARS_URL"] = cloud_vars_url
+    if gui_mode:
+        overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
     local_env.make_resolver = make_resolver
@@ -2200,7 +2336,7 @@ def _patch_ensemble(
         committed = manifest.commit(commit_msg, True, True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
-            if manifest.repo:
+            if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):
                 try:
                     if password:
                         url = add_user_to_url(manifest.repo.url, username, password)
@@ -2283,6 +2419,8 @@ def _commit_and_push(
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
+    if not app.config.get("UNFURL_GUI_MODE"):
+        return None  # don't push
     if password:
         url = add_user_to_url(repo.url, username, password)
     else:
@@ -2315,10 +2453,15 @@ def _fetch_working_dir(
             # otherwise clone the project if necessary
             # root of repo not necessarily unfurl project
             repo = _stage(project_path, branch, args, pull)
-            clone_location = repo.working_dir if repo else None
+            if repo:
+                clone_location = repo.working_dir
+                repo.repo.__del__()
+                gc.collect()
+            else:
+                clone_location = None
         if not clone_location:
             return clone_location
-    # XXX: deployment_path must be in the project repo, split repos are not supported
+    # XXX local: deployment_path must be in the project repo, split repos are not supported
     # we want the caching and staging infrastructure to only know about git, not unfurl projects
     # so we can't reference a file path outside of the git repository
     return clone_location
@@ -2347,10 +2490,9 @@ def enter_safe_mode():
 
     tosca.loader.FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER") or "1"
 
-
+# SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
-
 
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
@@ -2361,6 +2503,7 @@ def serve(
     project_path,
     options: dict,
     cloud_server=None,
+    gui: bool = False,
 ):
     """Start a simple HTTP server which will expose part of the CLI's API.
 
@@ -2388,9 +2531,9 @@ def serve(
                 )
                 return
         app.config["UNFURL_CLOUD_SERVER"] = cloud_server
-    local_env = set_current_ensemble_git_url()
+    local_env = set_current_ensemble_git_url(gui)
     if local_env:
-        set_local_projects(local_env, clone_root)
+        set_local_projects(local_env, clone_root, gui)
 
     current_project_id = get_current_project_id()
     if current_project_id:
@@ -2404,285 +2547,34 @@ def serve(
             f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
         )
 
+    if gui and local_env:
+        from . import gui as unfurl_gui
+
+        unfurl_gui.create_routes(local_env)
+
     enter_safe_mode()
+    if gui:
+        logger.info(
+            "Serving ui for project at %s", app.config.get("UNFURL_CURRENT_GIT_URL")
+        )
 
-    # Start one WSGI server
-    import uvicorn
+    import waitress
+    from .translogger import make_filter  # type: ignore
 
-    uvicorn.run(
-        app,
+    wlogger = logging.getLogger("waitress.queue")
+    wlogger.setLevel(Levels.ERROR)  # suppress queue warning spam
+    # Start single-threaded WSGI server
+    waitress.serve(
+        make_filter(
+            app,
+            logger_name="http",
+            logging_level=Levels.VERBOSE,
+        ),
         host=host,
         port=port,
-        interface="wsgi",
-        log_level=logger.getEffectiveLevel(),
+        threads=1,
     )
 
-    # app.run(host=host, port=port)
     # gunicorn  , "-b", "0.0.0.0:5000", "unfurl.server:app"
     # from gunicorn.app.wsgiapp import WSGIApplication
     # WSGIApplication().run()
-
-
-def load_yaml(project_id, branch, file_name, root_entry=None, latest_commit=None):
-    from toscaparser.utils.yamlparser import load_yaml
-
-    def _work(
-        cache_entry: CacheEntry, latest_commit: Optional[str]
-    ) -> Tuple[Any, Any, bool]:
-        path = os.path.join(cache_entry.checked_repo.working_dir, cache_entry.file_path)
-        doc = load_yaml(path)
-        return None, doc, True
-
-    cache_entry = CacheEntry(
-        project_id,
-        branch,
-        file_name,
-        "load_yaml",
-        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
-        do_clone=True,
-        root_entry=root_entry,
-    )
-    # this will add this cache_dep to the root_cache_request's value
-    # XXX create package from url, branch and latest_commit to decide if a cache_dep is need
-    dep = cache_entry.make_cache_dep(cache_entry.stale_pull_age, None)
-    return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
-
-
-def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commit=None):
-    def _work(
-        cache_entry: CacheEntry, latest_commit: Optional[str]
-    ) -> Tuple[Any, Any, bool]:
-        path = os.path.join(cache_entry.checked_repo.working_dir, cache_entry.file_path)
-        return None, path, True
-
-    def _validate(
-        working_dir, entry: CacheEntry, cache: Cache, latest_commit: Optional[str]
-    ) -> bool:
-        return os.path.isdir(working_dir)
-
-    cache_entry = CacheEntry(
-        project_id,
-        branch,
-        file_name,
-        "working_dir",
-        stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
-        do_clone=True,
-        root_entry=root_entry,
-    )
-    return cache_entry.get_or_set(cache, _work, latest_commit, _validate)
-
-
-def get_remote_tags_cached(url, pattern, args) -> List[str]:
-    key = normalize_git_url_hard(url)
-    tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
-    if tags is not None:
-        return tags
-    else:
-        base_url = current_app.config["UNFURL_CLOUD_SERVER"] and normalize_git_url_hard(
-            current_app.config["UNFURL_CLOUD_SERVER"]
-        )
-        if args and base_url and key.startswith(base_url):
-            # repository on this server, apply credentials if present
-            username, password = args.get("username"), args.get(
-                "private_token", args.get("password")
-            )
-            if username and password:
-                url = add_user_to_url(url, username, password)
-        tags = get_remote_tags(url, pattern)
-        timeout = app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
-        cache.set("tags:" + key + ":" + pattern, tags, timeout)
-        return tags
-
-
-class ServerCacheResolver(SimpleCacheResolver):
-    safe_mode: bool = True
-    root_cache_request: Optional[CacheEntry] = None
-    args: Optional[dict] = None
-
-    @classmethod
-    def make_factory(
-        cls,
-        root_cache_request: Optional[CacheEntry],
-        credentials: Optional[dict] = None,
-    ):
-        def ctor(*args, **kw):
-            assert root_cache_request or credentials
-            resolver = cls(*args, **kw)
-            resolver.root_cache_request = root_cache_request
-            resolver.args = (
-                credentials
-                if credentials is not None
-                else root_cache_request and root_cache_request.args
-            )
-            return resolver
-
-        return ctor
-
-    def get_remote_tags(self, url, pattern="*") -> List[str]:
-        return get_remote_tags_cached(url, pattern, self.args)
-
-    @property
-    def use_local_cache(self) -> bool:
-        return flask_config["CACHE_TYPE"] != "simple"
-
-    def find_repository_path(
-        self,
-        name: str,
-        tpl: Optional[Dict[str, Any]] = None,
-        base_path: Optional[str] = None,
-    ) -> Optional[str]:
-        repo_view = self._match_repoview(name, tpl)
-        if not repo_view:
-            return None
-        base_url = current_app.config["UNFURL_CLOUD_SERVER"]
-        private = (
-            not base_url or not repo_view.url.startswith(base_url) or repo_view.repo
-        )
-        if private:
-            logger.trace(
-                f"find_repository_path on server falling back to private for {repo_view.url} ({repo_view.repo})"
-            )
-            return self._get_link_to_repo(repo_view, base_path)
-        else:
-            project_id = project_id_from_urlresult(urlparse(repo_view.url))
-            branch = self._branch_from_repo(repo_view)
-            err, working_dir = get_working_dir(
-                project_id, branch, "", root_entry=None, latest_commit=None
-            )
-            if err:
-                return None
-            return working_dir
-
-    def _really_resolve_to_local_path(
-        self,
-        repo_view: RepoView,
-        base: str,
-        file_name: str,
-    ) -> str:
-        # this is called by ImportResolver.resolve_to_local_path()
-        # we only want to expose a real local path during deploy time, not when generating cacheable representations
-        # so in the context of the server just return a git url
-        # (the only time the server will call this is when resolving expressions to a local file path (e.g. abspath, get_dir))
-        path = repo_view.as_git_url(sanitize=True)
-        if file_name:
-            return os.path.join(path, file_name)
-        else:
-            return path
-
-    def load_yaml(
-        self,
-        url: str,
-        fragment: Optional[str],
-        ctx: ImportResolver_Context,
-    ) -> Tuple[Any, bool]:
-        isFile, repo_view, base, file_name = ctx
-        base_url = current_app.config["UNFURL_CLOUD_SERVER"]
-        # if not base_url, than we're running locally, fall back to the base implementation
-        if isFile or not base_url:
-            # url is a file path relative to the current project, just use the ensemble's in-memory cache
-            return super().load_yaml(url, fragment, ctx)
-        assert repo_view  # urls must have a repo_view
-
-        # private if the repo isn't on the server or the project has a local copy of the repository
-        # XXX handle remote repositories
-        private = not repo_view.url.startswith(base_url)
-        project_id = project_id_from_urlresult(urlparse(repo_view.url))
-        if private:
-            logger.trace(
-                f"load yaml {file_name} for {url} isn't on {base_url}, skipping cache."
-            )
-        elif repo_view.repo or _get_local_project_dir(project_id):
-            private = True
-            logger.trace(f"load yaml {file_name} for {url}: local repository found.")
-        if private:
-            return super().load_yaml(url, fragment, ctx)
-
-        # if the repo is private, use the base implementation
-        # otherwise use the server cache to resolve the url to a local repo clone and load the file from it
-        # and track its cache entry as a dependency on the root cache entry
-
-        def _work(
-            cache_entry: CacheEntry, latest_commit: Optional[str]
-        ) -> Tuple[Any, Any, bool]:
-            path = os.path.join(cache_entry.checked_repo.working_dir, file_name)
-            doc, cacheable = self._really_load_yaml(
-                path, True, fragment, repo_view, cache_entry.checked_repo.working_dir
-            )
-            # we only care about deps when the revision is mutable (not a version tag)
-            # # version specified or explicit -> not a dependency
-            # # no revision specified -> use key for latest remote tags cache of repo
-            # # branch or tag that isn't a semver -> dep, save commit hash as latest_commit
-            assert repo_view
-            # return the value and whether it is cacheable
-            return None, doc, cacheable and not private
-
-        err = None
-        if not private:
-            # assert repo_view.package # local repositories
-            # if the revision doesn't look like a version_tag treat as branch
-            branch = self._branch_from_repo(repo_view)
-            cache_entry = CacheEntry(
-                project_id,
-                branch,
-                os.path.join(repo_view.path, file_name),
-                "load_yaml" + (fragment or ""),
-                stale_pull_age=app.config["CACHE_DEFAULT_PULL_TIMEOUT"],
-                do_clone=True,
-                root_entry=self.root_cache_request,
-            )
-            is_cache_dep = not repo_view.package or repo_view.package.is_mutable_ref()
-            if self.use_local_cache:
-                doc = self.get_cache(cache_entry.cache_key())  # check local cache
-                if doc is not None:
-                    return doc, True
-            # XXX lock_to_commit not implemented, currently used to indicate the lock have a tag
-            # latest_commit = (
-            #     repo_view.package.lock_to_commit if repo_view.package else None
-            # )
-            latest_commit = None
-            dep = None
-            if is_cache_dep:
-                # this will add this cache_dep to the root_cache_request's value
-                dep = cache_entry.make_cache_dep(
-                    cache_entry.stale_pull_age,
-                    repo_view.package if repo_view.package else None,
-                )
-            err, doc = cache_entry.get_or_set(
-                cache, _work, latest_commit, cache_dependency=dep
-            )
-            if err:
-                if not _get_project_repo(project_id, branch, None):
-                    # couldn't clone the repo
-                    private = True
-                    # XXX not working (not set yet?):
-                    # if credentials were added, to a private so we can check if clone locally with the credentials works
-                    # private = repo_view.has_credentials()
-            else:
-                # cache_entry.directives isn't set on cache hit so the value must have been cacheable if None
-                cacheable = not cache_entry.directives or cache_entry.directives.store
-                if cacheable and self.use_local_cache:
-                    self.set_cache(cache_entry.cache_key(), doc)
-
-        if private:
-            logger.trace(
-                f"load yaml {file_name} for {url}: server falling back to private with {repo_view.repo} {err}"
-            )
-            doc, cacheable = super().load_yaml(url, fragment, ctx)
-            # XXX support private cache deps (need to save last_commit, provide repo_view.working_dir)
-        elif err:
-            raise err
-
-        return doc, cacheable
-
-    def _branch_from_repo(self, repo_view):
-        if repo_view.package and not repo_view.package.has_semver(True):
-            branch = repo_view.package.revision_tag or DEFAULT_BRANCH
-        elif repo_view.revision:
-            branch = repo_view.revision
-        else:
-            url, gitpath, revision = split_git_url(repo_view.url)
-            if revision and not is_semver(revision, True):
-                branch = revision
-            else:
-                branch = DEFAULT_BRANCH
-        return branch

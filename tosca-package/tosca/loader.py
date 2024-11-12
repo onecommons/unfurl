@@ -64,9 +64,16 @@ class RepositoryFinder(PathFinder):
             if repo_path:
                 if len(names) == 2:
                     if os.path.exists(repo_path):
-                        return ModuleSpec(
-                            fullname, None, origin=repo_path, is_package=True
-                        )
+                        init_path = os.path.join(repo_path, "__init__.py")
+                        if os.path.exists(init_path):
+                            loader = ToscaYamlLoader(fullname, init_path, modules)
+                            return spec_from_file_location(
+                                fullname, init_path, loader=loader, submodule_search_locations=[repo_path]
+                            )
+                        else:
+                            return ModuleSpec(
+                                fullname, None, origin=repo_path, is_package=True
+                            )
                     else:
                         logger.error(
                             f"Can't load module {fullname}: {repo_path} doesn't exist"
@@ -77,15 +84,22 @@ class RepositoryFinder(PathFinder):
                     if os.path.isdir(origin_path) and not os.path.isfile(
                         origin_path + ".py"
                     ):
-                        return ModuleSpec(
-                            fullname, None, origin=origin_path, is_package=True
-                        )
-                    origin_path += ".py"
+                        init_path = os.path.join(origin_path, "__init__.py")
+                        if os.path.exists(init_path):
+                            loader = ToscaYamlLoader(fullname, init_path, modules)
+                            return spec_from_file_location(
+                                fullname, init_path, loader=loader, submodule_search_locations=[origin_path]
+                            )
+                        else:
+                            return ModuleSpec(
+                                fullname, None, origin=origin_path, is_package=True
+                            )
+                    else:
+                        origin_path += ".py"
                     assert os.path.isfile(origin_path), origin_path
                     loader = ToscaYamlLoader(fullname, origin_path, modules)
                     spec = spec_from_loader(fullname, loader, origin=origin_path)
                     return spec
-                    # return PathFinder.find_spec(fullname, [repo_path], target)
             else:
                 logger.error(
                     f"Can't load module {fullname}: have you declared a repository for {names[1]}?"
@@ -153,7 +167,7 @@ class ToscaYamlLoader(Loader):
         for i in range(self.full_name.count(".")):
             path = path.parent
         restricted_exec(
-            src, vars(module), path, self.full_name, self.modules, safe_mode
+            src, vars(module), str(path), self.full_name, self.modules, safe_mode
         )
 
 
@@ -324,7 +338,13 @@ def __safe_import__(
         if name in modules and not (is_allowed_package and fromlist):
             # we need to skip the second check to allow the fromlist to includes sub-packages
             module = modules[name]
-            _check_fromlist(module, fromlist)
+            if parts[0] != "tosca_repositories":
+                _check_fromlist(module, fromlist)
+            elif fromlist:
+                for from_name in fromlist:
+                    if not hasattr(module, from_name):
+                        # e.g. from tosca_repositories.repo import module
+                        load_private_module(base_dir, modules, name+"."+from_name)
             return module if fromlist else modules[parts[0]]
         if name in ALLOWED_MODULES:
             if len(parts) > 1:
@@ -343,7 +363,7 @@ def __safe_import__(
                 module = ImmutableModule(name, **vars(module))
                 modules[name] = module
                 return module
-        elif not is_allowed_package and parts[0] not in ["tosca_repositories"]:
+        elif not is_allowed_package and parts[0] != "tosca_repositories":
             # these modules fall through to load_private_module():
             package_name, sep, module_name = name.rpartition(".")
             if package_name not in ALLOWED_PRIVATE_PACKAGES:
@@ -568,18 +588,19 @@ import_resolver: Optional[ImportResolver] = None
 service_template_basedir = ""
 
 
-def install(import_resolver_: Optional[ImportResolver], base_dir=None):
+def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     # insert the path hook ahead of other path hooks
     global import_resolver
     import_resolver = import_resolver_
     global service_template_basedir
+    old_basedir = service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
-    elif not service_template_basedir:
+    else:
         service_template_basedir = os.getcwd()
     global installed
     if installed:
-        return
+        return old_basedir
 
     sys.meta_path.insert(0, RepositoryFinder())
     # XXX this breaks imports in local scope somehow:
@@ -589,6 +610,7 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None):
     # sys.path_importer_cache.clear()
     # invalidate_caches()
     installed = True
+    return old_basedir
 
 
 class PrintCollector:
@@ -618,7 +640,7 @@ class PrintCollector:
 def restricted_exec(
     python_src: str,
     namespace,
-    base_dir,
+    base_dir: str,
     full_name="service_template",
     modules=None,
     safe_mode=False,
@@ -636,7 +658,7 @@ def restricted_exec(
             )
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
-        modules = {} if safe_mode else sys.modules
+        modules = global_state.modules if safe_mode else sys.modules
 
     if namespace is None:
         namespace = {}
@@ -696,10 +718,16 @@ def restricted_exec(
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = full_name
     if base_dir and "__file__" not in namespace:
+        # try to guess file path from module name
+        if full_name.startswith("service_template."):
+            # assume service_template is just our dummy package
+            module_name = full_name[len("service_template."):]
+        else:
+            module_name = full_name
         namespace["__file__"] = (
-            os.path.join(base_dir, full_name.replace(".", "/")) + ".py"
+            os.path.join(base_dir, module_name.lstrip(".").replace(".", "/")) + ".py"
         )
-    if package:
+    if package and "__package__" not in namespace:
         namespace["__package__"] = package
     policy = SafeToscaDslNodeTransformer if safe_mode else ToscaDslNodeTransformer
     # print(python_src)
@@ -715,6 +743,8 @@ def restricted_exec(
         # so to make it happy add a dummy one if its missing
         temp_module = ModuleType(full_name)
         temp_module.__dict__.update(namespace)
+        if full_name == "service_template":
+            temp_module.__path__ = [service_template_basedir]
         sys.modules[full_name] = temp_module
     previous_safe_mode = global_state.safe_mode
     previous_mode = global_state.mode

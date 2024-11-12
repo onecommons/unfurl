@@ -3,7 +3,7 @@
 import logging
 import os
 import sys
-from typing import Dict, Union, TYPE_CHECKING
+from typing import Dict, Optional, Union, TYPE_CHECKING
 
 import pbr.version
 
@@ -14,17 +14,37 @@ from . import logs
 logs.initialize_logging()
 
 
-def __version__(release: bool = False) -> str:
-    # a function because this is expensive
-    if release:  # appends .devNNN
+def __version__(include_prerelease: bool = False) -> str:
+    # this is expensive so make this a function to calculate lazily
+    if include_prerelease:
+        # if running from a repository appends .devNNN using something like git describe
         return pbr.version.VersionInfo(__name__).release_string()
-    else:  # semver only
+    else:  # semver only (last release)
         return pbr.version.VersionInfo(__name__).version_string()
 
 
+def semver_prerelease() -> str:
+    bpr_ver = __version__(True)
+    parts = bpr_ver.split(".")
+    # if ends with .devNNN, bump the patch version to indicate upcoming release and append pre-release version
+    if len(parts) > 3:
+        return f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}-dev.{parts[3].lstrip('dev')}"
+    else:
+        return bpr_ver
+
+
 def version_tuple(v: Union[None, str] = None) -> tuple:
+    "Convert a pbr or semver version string into a comparable 3 or 4 item tuple."
     if v is None:
         v = __version__(True)
+    elif "-" in v:  # its a semver with a pre-release version
+        v, sep, prerelease = v.partition("-")
+        semver = version_tuple(v)
+        prerelease, sep, build_id = prerelease.partition("+")
+        # decrement patch version and add prerelease as an int so it compares properly with released version
+        return semver[0:2] + (semver[2] - 1, int(prerelease.lstrip("dev.") or 0))
+    elif "+" in v:
+        v, sep, build_id = v.partition("+")
     return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))
 
 
@@ -63,10 +83,12 @@ class DefaultNames:
     LocalConfigTemplate = ".unfurl-local-template.yaml"
     InputsTemplate = "inputs-template.yaml"
 
-    def __init__(self, **names: Dict[str, str]) -> None:
+    def __init__(self, **names: Optional[str]) -> None:
         self.__dict__.update({name: value for name, value in names.items() if value})
 
+
 DEFAULT_CLOUD_SERVER = "https://unfurl.cloud"
+
 
 def get_home_config_path(homepath: Union[None, str]) -> Union[None, str]:
     # if homepath is explicitly it overrides UNFURL_HOME
@@ -138,11 +160,13 @@ else:
         screen_only: bool = False,
         log_only: bool = True,
         newline: bool = True,
-        **kw
+        **kw,
     ) -> Union[None, ansible.utils.display.Display]:
         if screen_only:
             return None
-        return _super_display(self, msg, color, stderr, screen_only, log_only, newline, **kw)
+        return _super_display(
+            self, msg, color, stderr, screen_only, log_only, newline, **kw
+        )
 
     ansible.utils.display.Display.display = _display
 

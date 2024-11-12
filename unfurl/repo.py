@@ -15,7 +15,7 @@ from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse
-from .util import UnfurlError, assert_not_none, is_relative_to, save_to_file
+from .util import UnfurlError, assert_not_none, change_cwd, is_relative_to, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
@@ -103,7 +103,7 @@ def is_url_or_git_path(url):
     if "@" in url:
         return True
     candidate, sep, frag = url.partition("#")
-    if frag or candidate.rstrip("/").endswith(".git"):
+    if sep or candidate.rstrip("/").endswith(".git"):
         return True
     return False
 
@@ -181,7 +181,7 @@ class Repo(abc.ABC):
     url: str = ""
 
     @staticmethod
-    def find_containing_repo(rootDir, gitDir=".git"):
+    def find_containing_repo(rootDir, gitDir=".git") -> Optional["GitRepo"]:
         """
         Walk parents looking for a git repository.
         """
@@ -233,13 +233,11 @@ class Repo(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def working_dir(self) -> str:
-        ...
+    def working_dir(self) -> str: ...
 
     @property
     @abc.abstractmethod
-    def revision(self) -> str:
-        ...
+    def revision(self) -> str: ...
 
     @property
     def safe_url(self):
@@ -251,7 +249,7 @@ class Repo(abc.ABC):
             return localPath
         return None
 
-    def is_path_excluded(self, localPath):
+    def is_path_excluded(self, localPath) -> bool:
         return False
 
     def find_path(
@@ -299,7 +297,14 @@ class Repo(abc.ABC):
 
     @classmethod
     def create_working_dir(
-        cls, gitUrl, localRepoPath, revision=None, depth=1, shallow_since=None, username=None, password=None
+        cls,
+        gitUrl,
+        localRepoPath,
+        revision=None,
+        depth=1,
+        shallow_since=None,
+        username=None,
+        password=None,
     ):
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
@@ -411,6 +416,7 @@ class RepoView:
             )
         self.read_only = False
         self.package: Optional[Union[Literal[False], "Package"]] = None
+        self._loaded_secrets = False
 
     @property
     def working_dir(self) -> str:
@@ -489,8 +495,15 @@ class RepoView:
         self.repo.repo.git.add("--all", self.path or ".")
 
     def load_secrets(self, _loader):
+        if self._loaded_secrets or not self.repo:
+            return
         logger.trace("looking for secrets %s", self.working_dir)
+        excluded = set(self.repo.find_excluded_dirs(self.working_dir))
+        failed = False
         for root, dirs, files in os.walk(self.working_dir):
+            for d in dirs[:]:
+                if d == ".git" or os.path.join(root, d, "") in excluded:
+                    dirs.remove(d)
             if ".secrets" not in Path(root).parts:
                 continue
             logger.trace("checking if secret files where changed or added %s", files)
@@ -505,6 +518,7 @@ class RepoView:
                         contents = _loader.load_from_file(str(filepath))
                     except Exception as err:
                         logger.warning("could not decrypt %s: %s", filepath, err)
+                        failed = True
                         continue
                     target_path = str(target)
                     dir = os.path.dirname(target_path)
@@ -514,6 +528,7 @@ class RepoView:
                         f.write(contents)
                     os.utime(target, (stinfo.st_atime, stinfo.st_mtime))
                     logger.verbose("decrypted secret file to %s", target)
+        self._loaded_secrets = not failed
 
     def save_secrets(self):
         return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
@@ -580,7 +595,11 @@ class RepoView:
                 ("commit", self.get_current_commit()),
             ]
         )
-        initial = self.repo and self.repo.resolve_rev_spec("INITIAL") or self.get_initial_revision()
+        initial = (
+            self.repo
+            and self.repo.resolve_rev_spec("INITIAL")
+            or self.get_initial_revision()
+        )
         if initial:
             record["initial"] = initial
         record["discovered_revision"] = ""  # default: no search occurred
@@ -629,26 +648,33 @@ class RepoView:
         tosca_repos_root = Path(base_path) / "tosca_repositories"
         # ensure t_r and its gitignore exist
         if not tosca_repos_root.exists():
-            os.mkdir(tosca_repos_root)
-            with open(tosca_repos_root / ".gitignore", "w") as gi:
-                gi.write("*")
+            try:
+                os.mkdir(tosca_repos_root)
+                with open(tosca_repos_root / ".gitignore", "w") as gi:
+                    gi.write("*")
+            except Exception:
+                logger.error(
+                    f"Error creating tosca_repositories at {base_path}", exc_info=True
+                )
 
         symlink = tosca_repos_root / name
         # remove/recreate to ensure symlink is correct
-        if symlink.exists():
-            if not symlink.is_symlink():
-                raise UnfurlError(
-                    f"Can not create symlink at {symlink}: it already exists but is not a symlink"
-                )
-            target = os.path.abspath(os.readlink(symlink))
-            if target == self.working_dir:  # already exists
+        if symlink.is_symlink():
+            target = os.path.join(os.path.dirname(symlink), os.readlink(symlink))
+            if os.path.abspath(target) == os.path.abspath(
+                self.working_dir
+            ):  # already exists
                 return name, self.working_dir
             symlink.unlink()
 
         # use os.path.relpath as Path.relative_to only accepts strict subpaths
         rel_repo_path = os.path.relpath(self.working_dir, tosca_repos_root)
-        symlink.symlink_to(rel_repo_path)
-
+        try:
+            symlink.symlink_to(rel_repo_path, target_is_directory=True)
+        except FileExistsError:
+            raise UnfurlError(
+                f"Can not create symlink at {symlink}: it already exists but is not a symlink"
+            )
         return name, self.working_dir
 
 
@@ -794,19 +820,21 @@ class GitRepo(Repo):
             path = os.path.join(self.working_dir, file)
             yield path
 
-    def is_path_excluded(self, localPath):
+    def is_path_excluded(self, localPath: str) -> bool:
         # XXX cache and test
-        # excluded = list(self.findExcludedDirs(self.working_dir))
+        # excluded = list(self.find_excluded_dirs(self.working_dir))
         # success error code means it's ignored
         return not self.run_cmd(["check-ignore", "-q", localPath])[0]
 
     def reset(self, args: str = "--hard HEAD~1") -> bool:
         return not self.run_cmd(("reset " + args).split())[0]
 
-    def run_cmd(self, args, with_exceptions=False, **kw):
+    def run_cmd(
+        self, args, with_exceptions: bool = False, **kw
+    ) -> Tuple[int, str, str]:
         """
         :return:
-          tuple(int(status), str(stdout), str(stderr))
+          tuple(status, stdout, stderr)
         """
         gitcmd = self.repo.git
         call: List[str] = [gitcmd.GIT_PYTHON_GIT_EXECUTABLE or "git"]
@@ -815,10 +843,13 @@ class GitRepo(Repo):
         call.extend(list(args))
         call.extend(gitcmd.transform_kwargs(**kw))
 
-        # note: sets cwd to working_dir
-        return gitcmd.execute(  # type: ignore
-            call, with_exceptions=with_exceptions, with_extended_output=True
-        )
+        # execute() sets cwd to working_dir, so use change_cwd() to restore it
+        with change_cwd():
+            return gitcmd.execute(  # type: ignore
+                call,
+                with_extended_output=True,
+                with_exceptions=with_exceptions,
+            )
 
     def add_to_local_git_ignore(self, rule):
         path = os.path.join(self.repo.git_dir, "info")
@@ -963,6 +994,50 @@ class GitRepo(Repo):
         self.repo.index.remove(os.path.abspath(path), r=True, working_tree=True)
         if commit:
             self.repo.index.commit(commit)
+
+    def is_lfs_enabled(self, url=None) -> bool:
+        if self.repo.remotes:
+            status, out, err = self.run_cmd(["lfs", "locks"], remote=url)
+            if status:
+                logger.warning(
+                    "git lfs on %s not available, `git lfs locks` says: %s",
+                    self.safe_url,
+                    err,
+                )
+            else:
+                logger.debug(
+                    "git lfs on %s available, `git lfs locks` says: %s",
+                    self.safe_url,
+                    out,
+                )
+                return True
+        return False
+
+    def lock_lfs(self, lockfilepath: str, url=None) -> bool:
+        try:
+            # note: file doesn't have to exist or added to the repo or have its .gitattributes set
+            self.run_cmd(
+                ["lfs", "lock", lockfilepath], remote=url, with_exceptions=True
+            )
+        except git.exc.GitCommandError as e:
+            if "already locked" in e.stderr:
+                return False
+            else:
+                raise
+        return True
+
+    def unlock_lfs(self, lockfilepath: str, url=None) -> bool:
+        try:
+            # note: file doesn't have to exist or added to the repo or have its .gitattributes set
+            self.run_cmd(
+                ["lfs", "unlock", lockfilepath], remote=url, with_exceptions=True
+            )
+        except git.exc.GitCommandError as e:
+            if "no matching locks found" in e.stderr:
+                return False
+            else:
+                raise
+        return True
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()

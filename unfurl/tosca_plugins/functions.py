@@ -3,6 +3,7 @@ This module contains utility functions that can be executed in "spec" mode (e.g.
 and in the safe mode Python sandbox.
 Each of these are also available as Eval `Expression Functions`.
 """
+
 import base64
 import hashlib
 import math
@@ -26,6 +27,12 @@ from typing import (
 )
 from typing_extensions import TypedDict, Unpack
 from urllib.parse import quote, quote_plus
+from tosca import (
+    EvalData,
+    safe_mode,
+    global_state_mode,
+    global_state_context,
+)
 
 
 def _digest(arg: str, case: str, digest: Optional[str] = None) -> str:
@@ -105,16 +112,16 @@ def _validate_allowed(chars):
 
 
 @overload
-def to_label(arg: Union[str, list], **kw: Unpack[LabelKwArgs]) -> str:
-    ...
+def to_label(arg: Union[str, list], **kw: Unpack[LabelKwArgs]) -> str: ...
 
 
 @overload
-def to_label(arg: Mapping, **kw: Unpack[LabelKwArgs]) -> dict:
-    ...
+def to_label(arg: Mapping, **kw: Unpack[LabelKwArgs]) -> dict: ...
 
 
-def to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
+def to_label(
+    arg: LabelArg, _wrapper="to_label", eager=False, **kw: Unpack[LabelKwArgs]
+):
     r"""Convert a string to a label with the given constraints.
         If a dictionary, all keys and string values are converted.
         If list, to_label is applied to each item and concatenated using ``sep``
@@ -135,6 +142,14 @@ def to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
         digestlen (int, optional): If a label is truncated, the length of the digest to include in the label. 0 to disable.
                                 Default: 3 or 2 if max < 32
     """
+    if global_state_mode() == "runtime" or not isinstance(arg, EvalData):
+        return _to_label(arg, **kw)
+    else:
+        kw[_wrapper] = arg  # type: ignore
+        return EvalData({"eval": kw})  # type: ignore
+
+
+def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
     case: str = kw.get("case", _label_defaults["case"])
     sep: str = kw.get("sep", _label_defaults["sep"])
     digest: Optional[str] = kw.pop("digest", _label_defaults["digest"])
@@ -229,8 +244,7 @@ def to_dns_label(
     end="[a-zA-Z0-9]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
-) -> str:
-    ...
+) -> str: ...
 
 
 @overload
@@ -244,8 +258,7 @@ def to_dns_label(
     end="[a-zA-Z0-9]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
-) -> dict:
-    ...
+) -> dict: ...
 
 
 def to_dns_label(
@@ -274,8 +287,9 @@ def to_dns_label(
         case=case,
         end=end,
         max=max,
+        _wrapper="to_dns_label",
         **kw,
-    )
+    )  # type: ignore
 
 
 @overload
@@ -289,8 +303,7 @@ def to_kubernetes_label(
     end="[a-zA-Z0-9]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
-) -> str:
-    ...
+) -> str: ...
 
 
 @overload
@@ -304,8 +317,7 @@ def to_kubernetes_label(
     end="[a-zA-Z0-9]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
-) -> dict:
-    ...
+) -> dict: ...
 
 
 def to_kubernetes_label(
@@ -332,8 +344,9 @@ def to_kubernetes_label(
         max=max,
         case=case,
         start=start,
+        _wrapper="to_kubernetes_label",
         **kw,
-    )
+    )  # type: ignore
 
 
 @overload
@@ -346,8 +359,7 @@ def to_googlecloud_label(
     start="[a-zA-Z]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
-) -> str:
-    ...
+) -> str: ...
 
 
 @overload
@@ -360,8 +372,7 @@ def to_googlecloud_label(
     start="[a-zA-Z]",
     max=63,
     **kw: Unpack[DNSLabelKwArgs],
-) -> dict:
-    ...
+) -> dict: ...
 
 
 def to_googlecloud_label(
@@ -380,8 +391,15 @@ def to_googlecloud_label(
     Invalid characters are replaced with "__".
     """
     return to_label(
-        arg, allowed=allowed, case=case, replace=replace, max=max, start=start, **kw
-    )
+        arg,
+        allowed=allowed,
+        case=case,
+        replace=replace,
+        max=max,
+        start=start,
+        _wrapper="to_googlecloud_label",
+        **kw,
+    )  # type: ignore
 
 
 def get_random_password(

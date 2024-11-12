@@ -1,0 +1,13 @@
+topology_template:
+
+  inputs:
+    domain:
+      type: string
+      default: example.com
+
+  outputs:
+    url:
+      type: string
+      # value: { concat: [ https://, { get_input: domain }, ':',  { get_attribute: [ myapp, portspec, source ] }, '/api/events'] }
+      # # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:
+      value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events

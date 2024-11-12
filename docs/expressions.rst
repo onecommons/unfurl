@@ -2,6 +2,10 @@
 Expression Functions
 ====================
 
+.. contents::
+   :local:
+   :depth: 1
+
 TOSCA functions and other stand-alone functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -10,7 +14,7 @@ Stand-alone functions don't need to be wrapped in an "eval".
   ============================  ========================================================
   Key                           Value
   ============================  ========================================================
-  `concat`                      ``[ string* ]``
+  :std:ref:`concat`             ``[ string* ]``
   `get_artifact`                ``[ template_name, artifact_name]``
   `get_attribute`               ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`get_env`            :regexp:`[ name, default? return ] | name`
@@ -18,9 +22,8 @@ Stand-alone functions don't need to be wrapped in an "eval".
   :std:ref:`get_nodes_of_type`  ``type_name``
   `get_property`                ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`has_env`            ``name``
-  `join`                        ``[ string+, delimiter? ]``
   `q`                           ``any``
-  `token`                       ``[ string, token, index]``
+  :std:ref:`token`               ``[ string, token, index]``
   ============================  ========================================================
 
 concat
@@ -35,7 +38,7 @@ get_artifact
   The ``get_artifact`` function returns the location of the referenced artifact.
   The location depends on the type of artifact. If the artifact is a Docker container image, return the image name in the form of
   "registry/repository/name:tag" or "registry/repository/name@sha256:digest".
-  If it is a file, return a local file path that is resolvable while the unfurl is running.
+  If it is a file, return a local file path that is resolvable while unfurl is running.
   In this case, calling get_artifact may have the side effect of downloading the file or cloning a git repository.
 
   The first argument is either a string or a instance reference (from an `eval expression <eval expressions>`).
@@ -88,11 +91,6 @@ has_env
 
   The ``has_env`` function returns a boolean indicating whether the given variable is found in the current environment.
 
-join
-^^^^
-
-  The join function is used to join an array of strings into a single string with optional delimiter. See
-
 q
 ^
 
@@ -122,19 +120,20 @@ token
 Expression Functions
 ~~~~~~~~~~~~~~~~~~~~
 
-  ===============================  ==================================================
+  ================================ ==================================================
   Key                              Value
-  ===============================  ==================================================
+  ================================ ==================================================
   :std:ref:`abspath`               path | [path, location, mkdir?]
   `and`                            [test+]
   `eq`                             [a, b]
   external                         name
   `file`                           (see below)
   foreach                          {key?, value?}
+  :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
   `is_function_defined`            function name
   `if`                             (see below)
-  local                            name
+  `local`                          name
   :std:ref:`lookup`                (see below)
   `or`                             [test+]
   `not`                            expr
@@ -149,7 +148,7 @@ Expression Functions
   :std:ref:`to_label`              string or map or list
   :std:ref:`urljoin`               [scheme, host, port?, path?, query?, fragment?]
   `validate`                       [contents, schema]
-  ===============================  ==================================================
+  ================================ ==================================================
 
 abspath
 ^^^^^^^
@@ -180,8 +179,7 @@ external
 file
 ^^^^
 
-  Read or write a file. If the ``contents`` keyword argument is present, a file will be written
-  upon evaluation of this function, otherwise it will be read.
+  Read or write a file.
 
   .. code-block:: YAML
 
@@ -200,23 +198,58 @@ file
   ========= ===============================
   Key       Value
   ========= ===============================
-  file:     path
-  dir?:     path
+  file      path
+  dir?      directory path
   encoding? "binary" | "vault" | "json" | "yaml" | "env" | python_text_encoding
   contents? any
   ========= ===============================
 
+  Optional keyword arguments:
+
+  ``dir`` Base dir for ``file``
+
   ``encoding`` can be "binary", "vault", "json", "yaml", "env" or an encoding registered with the Python codec registry
 
-  The ``select`` clause can evaluate the following keys:
+  ``contents`` If present, the contents will be written to the file, if missing the file will be read.
 
-  ========= ===============================
-  Key       Returns
-  ========= ===============================
-  path:     absolute path of the file
-  encoding  encoding of the file
-  contents? file contents (None if it doesn't exist)
-  ========= ===============================
+  The `select<expression function syntax>` clause can evaluate the following keys:
+
+  =============  ========================================
+  Key            Returns
+  =============  ========================================
+  path           Absolute path of the file
+  encoding       Encoding of the file
+  contents       File contents (Null if it doesn't exist)
+  artifact_keys  Dict with "file" and "repository" keys
+  =============  ========================================
+
+get_ensemble_metadata
+^^^^^^^^^^^^^^^^^^^^^
+
+  Return metadata about the current ensemble and job.
+
+  If one of the keys below if given as an argument, return its value;
+  if no argument is given, return a map with all the metadata.
+
+  ============= ===============================
+  Key           Value
+  ============= ===============================
+  deployment    Name of the ensemble
+  job           `Change Id<ChangeIds>` of the current job
+  revision      Current git commit of the ensemble
+  environment   Name of the current environment
+  unfurlproject Name of the project
+  ============= ===============================
+
+  This example evaluates to a map of strings that conform to DNS name syntax.
+
+  .. code-block:: YAML
+
+        eval:
+          to_dns_label:
+            eval:
+              get_ensemble_metadata:
+
 
 foreach
 ^^^^^^^
@@ -318,6 +351,8 @@ lookup
 local
 ^^^^^
 
+  Return the value of the given `local <locals>` declared in the current environment.
+
 or
 ^^
 
@@ -363,7 +398,7 @@ python
 secret
 ^^^^^^
 
-  Return the value of the given secret. It will be marked as sensitive.
+  Return the value of the given :std:ref:`secret <secrets>` declared in the current environment. It will be marked as sensitive.
 
 sensitive
 ^^^^^^^^^
@@ -531,12 +566,16 @@ Built-in keys start with a leading **.**:
 .instances     child instances (via the ``HostedOn`` relationship)
 .capabilities  list of capabilities
 .requirements  list of requirements
-.relationships relationships that target this capability
+.relationships list of relationships that target this capability
 .targets       map with requirement names as keys and target instances as values
 .sources       map with requirement names as keys and source instances as values
+.artifacts     map with artifact names as keys and artifact instances as values
 .repository    repository associated with this artifact or resource
 .hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
 .configured_by Follow .sources, filtering by the ``Configures`` relationship
 .descendants   (including self)
-.all           dictionary of child resources with their names as keys
+.all           Dictionary of child resources with their names as keys
+.uri           Unique URI for this instance (`URI<uris>` plus the tosca_id)
+.deployment    Name of the ensemble
+.apex          Root ancestor of the outermost topology
 ============== ========================================================

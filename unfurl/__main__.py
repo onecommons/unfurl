@@ -6,8 +6,10 @@ Applies a Unfurl ensemble
 
 For each configuration, run it if required, then record the result
 """
+
 import functools
 import getpass
+import inspect
 import json
 import logging
 import os
@@ -20,86 +22,211 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
+from click import Context
+from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
-import click
-
-from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
+from . import DefaultNames, __version__, semver_prerelease, get_home_config_path, is_version_unreleased
 from . import init as initmod
 from . import logs, version_tuple
 from .job import start_job, Job
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import UnfurlBadDocumentError, filter_env, get_base_dir, get_package_digest
+from .util import UnfurlBadDocumentError, filter_env, get_package_digest
+
+import rich_click as click
+
+# see https://github.com/ewels/rich-click/blob/main/docs/documentation/configuration.md
+click.rich_click.STYLE_METAVAR = "dark_orange"
+click.rich_click.STYLE_OPTION_ENVVAR = "dim dark_orange"
+click.rich_click.STYLE_OPTION = "green"
+click.rich_click.STYLE_COMMAND = "bold green"
+if os.environ.get("PY_COLORS") == "0":
+    click.rich_click.COLOR_SYSTEM = None  # disable colors
+click.rich_click.OPTION_ENVVAR_FIRST = False
+click.rich_click.ENVVAR_STRING = "(${})"
+click.rich_click.OPTION_GROUPS = {
+    "unfurl": [
+        {
+            "name": "Global Options",
+            "options": [
+                "--home",
+                "--runtime",
+                "--no-runtime",
+                "--skip-upstream-check",
+                "--version-check",
+                "--no-version-check",
+                "--tmp",
+                "--help",
+            ],
+        },
+        {
+            "name": "Logging",
+            "options": ["--verbose", "--quiet", "--loglevel", "--logfile"],
+        },
+    ],
+}
+
 
 if TYPE_CHECKING:
-    from repo import RepoView
-    from yamlmanifest import YamlManifest
+    from .repo import RepoView
+    from .yamlmanifest import YamlManifest
 
 _latestJobs = []  # for testing
 _args: List[str] = []  # for testing
 
 
-def option_group(*options):
-    return lambda func: functools.reduce(lambda a, b: b(a), options, func)
+def _get_option_names(options):
+    option_names = []
+    for o in options:
+        nonlocals = inspect.getclosurevars(o).nonlocals
+        names = nonlocals.get("param_decls")
+        if names:
+            option_names.append(names[0])
+        elif "options" in nonlocals:  # nested option_group
+            option_names.extend(_get_option_names(nonlocals["options"]))
+    return option_names
 
 
-@click.group()
+def _group_options(func, options, rich_group=None):
+    # options are a list of click decorator closures
+    if func and rich_group:
+        option_names = _get_option_names(options)
+        groups = click.rich_click.OPTION_GROUPS.setdefault(
+            "unfurl " + func.__name__, []
+        )
+        for group in groups:
+            if group["name"] == rich_group:
+                group["options"] = sorted(set(group["options"] + option_names))
+                break
+        else:
+            groups.append(OptionGroupDict(name=rich_group, options=option_names))
+
+
+def option_group(*options, rich_group=None):
+    # helper to reuse option decorators and set rich_click groups
+    return lambda func: _group_options(func, options, rich_group) or functools.reduce(
+        lambda a, b: b(a), options, func
+    )
+
+
+globalOptions = option_group(
+    click.option(
+        "--home",
+        envvar="UNFURL_HOME",
+        show_envvar=True,
+        type=click.Path(exists=False),
+        help="Path to .unfurl_home (Use '' to ignore default home)",
+    ),
+    click.option(
+        "--runtime",
+        envvar="UNFURL_RUNTIME",
+        show_envvar=True,
+        help="Use the given runtime",
+    ),
+    click.option(
+        "--no-runtime",
+        envvar="UNFURL_NORUNTIME",
+        show_envvar=True,
+        default=False,
+        is_flag=True,
+        help="Ignore runtime settings",
+    ),
+    click.option(
+        "-v",
+        "--verbose",
+        count=True,
+        metavar="",
+        help="Verbose mode (-vv or -vvv for more)",
+    ),
+    click.option(
+        "-q",
+        "--quiet",
+        default=False,
+        is_flag=True,
+        help="Only output critical errors to the stdout",
+    ),
+    click.option(
+        "--logfile",
+        default=None,
+        envvar="UNFURL_LOGFILE",
+        show_envvar=True,
+        help="Log messages to file (at DEBUG level)",
+    ),
+    click.option(
+        "--tmp",
+        envvar="UNFURL_TMPDIR",
+        show_envvar=True,
+        type=click.Path(exists=True),
+        help="Directory for saving temporary files",
+    ),
+    click.option(
+        "--loglevel",
+        envvar="UNFURL_LOGGING",
+        show_envvar=True,
+        help="One of trace debug verbose warning info error critical (overrides -v)",
+    ),
+    click.option(
+        "--version-check",
+        envvar="UNFURL_VERSION_CHECK",
+        help="Abort if the runtime's Unfurl is older than the given version",
+    ),
+    click.option(
+        "--no-version-check",
+        is_flag=True,
+        help="Skip the Unfurl version check when invoking the runtime.",
+    ),
+    click.option(
+        "--skip-upstream-check",
+        default=False,
+        is_flag=True,
+        envvar="UNFURL_SKIP_UPSTREAM_CHECK",
+        show_envvar=True,
+        help="Skip pulling latest upstream changes from existing repositories.",
+    ),
+)
+
+
+# the help message is only visible in docs
+@click.group("Deploy Commands", help="See `Jobs and Workflows`.")
+@globalOptions
 @click.pass_context
-@click.option(
-    "--home",
-    envvar="UNFURL_HOME",
-    type=click.Path(exists=False),
-    help="Path to .unfurl_home",
-)
-@click.option("--runtime", envvar="UNFURL_RUNTIME", help="use this runtime")
-@click.option(
-    "--no-runtime",
-    envvar="UNFURL_NORUNTIME",
-    default=False,
-    is_flag=True,
-    help="ignore runtime settings",
-)
-@click.option("-v", "--verbose", count=True, help="verbose mode (-vvv for more)")
-@click.option(
-    "-q",
-    "--quiet",
-    default=False,
-    is_flag=True,
-    help="Only output errors to the stdout",
-)
-@click.option(
-    "--logfile",
-    default=None,
-    envvar="UNFURL_LOGFILE",
-    help="Log messages to file (at DEBUG level)",
-)
-@click.option(
-    "--tmp",
-    envvar="UNFURL_TMPDIR",
-    type=click.Path(exists=True),
-    help="Directory for saving temporary files",
-)
-@click.option("--loglevel", envvar="UNFURL_LOGGING", help="log level (overrides -v)")
-@click.option(
-    "--version-check",
-    envvar="UNFURL_VERSION_CHECK",
-    help="Abort if the runtime's Unfurl is older than the given version",
-)
-@click.option(
-    "--no-version-check",
-    is_flag=True,
-    help="Skip the Unfurl version check when invoking the runtime.",
-)
-@click.option(
-    "--skip-upstream-check",
-    default=False,
-    is_flag=True,
-    envvar="UNFURL_SKIP_UPSTREAM_CHECK",
-    help="Skip pulling latest upstream changes from existing repositories.",
-)
-def cli(
+def deploy_cli(
+    ctx,
+    **kw,
+):
+    return _cli(ctx, **kw)
+
+
+@click.group("Project Commands")
+@click.pass_context
+def project_cli(
+    ctx,
+    **kw,
+):
+    return _cli(ctx, **kw)
+
+
+@click.group("Utility Commands")
+@click.pass_context
+def utility_cli(
+    ctx,
+    **kw,
+):
+    return _cli(ctx, **kw)
+
+
+@click.group("Info Commands")
+@click.pass_context
+def info_cli(
+    ctx,
+    **kw,
+):
+    return _cli(ctx, **kw)
+
+
+def _cli(
     ctx,
     verbose=0,
     quiet=False,
@@ -110,7 +237,8 @@ def cli(
     home=None,
     **kw,
 ):
-    # ensure that ctx.obj exists and is a dict (in case `cli()` is called
+    """A command line tool for deploying services and applications."""
+    # ensure that ctx.obj exists and is a dict (in case `_cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
     if not kw.get("logfile"):
@@ -174,6 +302,9 @@ def detect_verbose_level(effective_log_level: Levels) -> int:
     return verbose
 
 
+job_control_group_label = "Job Control Options"
+job_filter_group_label = None  # "Filter options"
+
 readonlyJobControlOptions = option_group(
     click.option(
         "--dryrun",
@@ -197,7 +328,7 @@ readonlyJobControlOptions = option_group(
         "--dirty",
         type=click.Choice(["abort", "ok", "auto"]),
         default="auto",
-        help="Action if there are uncommitted changes before run. (Default: auto)",
+        help="When there are uncommitted changes before run. (Default: auto)",
     ),
     click.option("-m", "--message", help="commit message to use"),
     click.option(
@@ -206,6 +337,7 @@ readonlyJobControlOptions = option_group(
         default="never",
         help="Set exit code to 64 if job ends at given status. (Default: never)",
     ),
+    rich_group=job_control_group_label,
 )
 jobControlOptions = option_group(
     readonlyJobControlOptions,
@@ -213,14 +345,24 @@ jobControlOptions = option_group(
         "-a",
         "--approve",
         envvar="UNFURL_APPROVE",
+        show_envvar=True,
         default=False,
         is_flag=True,
         help="Don't prompt for approval to apply changes.",
     ),
+    rich_group=job_control_group_label,
 )
-commonJobFilterOptions = option_group(
-    click.option("--template", help="TOSCA template to target"),
-    click.option("--instance", help="instance name to target"),
+allButRunJobOptions = option_group(
+    click.option("--template", help="TOSCA template to target."),
+    click.option(
+        "--force",
+        default=False,
+        is_flag=True,
+        help="(Re)run operation regardless of instance's status or state",
+    ),
+    rich_group=job_filter_group_label,
+)
+commonOutputOptions = option_group(
     click.option("--query", help="Run the given expression upon job completion"),
     click.option("--trace", default=0, help="Set the query's trace level"),
     click.option(
@@ -229,26 +371,35 @@ commonJobFilterOptions = option_group(
         default="text",
         help="How to print summary of job run",
     ),
-    click.option("--starttime", help="Set the start time of the job."),
+)
+allJobOptions = option_group(
+    commonOutputOptions,
     click.option(
-        "--force",
-        default=False,
-        is_flag=True,
-        help="(Re)run operation regardless of instance's status or state",
+        "--instance", multiple=True, help="Instance name to target (multiple times ok)."
     ),
+    click.option("--starttime", help="Set the start time of the job."),
     click.option(
         "--use-environment",
         default=None,
         help="Run this job in the given environment.",
+        metavar="NAME",
     ),
     click.option(
         "--var",
         nargs=2,
         type=click.Tuple([str, str]),
         multiple=True,
+        metavar="NAME VALUE",
         help="name/value pair to pass to job (multiple times ok).",
     ),
+    rich_group="Generic Job Options",
 )
+commonJobOptions = option_group(
+    allJobOptions,
+    allButRunJobOptions,
+    rich_group="Generic Job Options",
+)
+
 destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
     default=False,
@@ -257,7 +408,7 @@ destroyUnmanagedOption = click.option(
 )
 
 
-@cli.command(short_help="Run and record an ad-hoc command")
+@deploy_cli.command(short_help="Run and record an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
 @click.option("--ensemble", default="", type=click.Path(exists=False))
@@ -268,15 +419,16 @@ destroyUnmanagedOption = click.option(
 # @click.option(
 #     "--replace", default=False, is_flag=True, help="replace the previous command"
 # )
+@click.option("--save", default=False, is_flag=True, help="Save in job history.")
 @jobControlOptions
-@commonJobFilterOptions
-@click.option("--host", help="host to run the command on")
-@click.option("--operation", help="TOSCA operation to run")
-@click.option("--module", help="ansible module to run (default: command)")
+@allJobOptions
+@click.option("--host", help="Name of instance to run the command on.")
+@click.option("--operation", help="TOSCA operation to run.")
+@click.option("--module", help="Ansible module to run. (default: command)")
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
-def run(ctx, instance="root", cmdline=None, **options):
+def run(ctx, instance="root", save=False, cmdline=None, **options):
     """
-    Run an ad-hoc command in the context of the given ensemble.
+    Run a TOSCA operation or an ad-hoc shell command in the context of the given ensemble.
     Use "--" to separate the given command line, for example:
 
     > unfurl run -- echo 'hello!'
@@ -288,29 +440,43 @@ def run(ctx, instance="root", cmdline=None, **options):
     options.update(ctx.obj)
     options["instance"] = instance
     options["cmdline"] = cmdline
+    options["skip_save"] = not save
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
-def _get_runtime(options, ensemblePath):
+def _get_runtime(options: dict, ensemble_path: Optional[str]) -> Optional[str]:
     runtime = options.get("runtime")
-    localEnv = None
-    if not runtime:
-        localEnv = LocalEnv(ensemblePath, options.get("home"), can_be_empty=True)
-        runtime = localEnv.get_runtime()
-    return runtime, localEnv
+    if runtime:
+        return runtime
+    else:
+        return LocalEnv.get_runtime(ensemble_path, options.get("home"))
 
 
-def _run(ensemble: str, options, workflow=None):
+def _run(ensemble: Optional[str], options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
     if not options.get("no_runtime"):
-        runtime, localEnv = _get_runtime(options, ensemble)
+        runtime = _get_runtime(options, ensemble)
         if runtime and runtime != ".":
-            if not localEnv:
-                localEnv = LocalEnv(ensemble, options.get("home"))
-            return _run_remote(runtime, options, localEnv)
+            return _run_remote(runtime, options, ensemble)
     return _run_local(ensemble, options)
+
+
+def _remote_docker_cmd(
+    runtime: str, cmd_line: List[str], local_env: LocalEnv, version_check: List[str]
+):
+    context = local_env.get_context()
+    envvar_filter = context.get("variables") or {}
+    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING", "UNFURL_MOCK_DEPLOY"]:
+        if name in os.environ:
+            envvar_filter[name] = os.environ[name]
+    if envvar_filter:
+        env = filter_env(local_env.map_value(envvar_filter, None), addOnly=True)
+    else:
+        env = None
+    cmd = DockerCmd(runtime, env or {}).build()
+    return env, cmd + version_check + cmd_line, False
 
 
 def _venv(runtime, env):
@@ -324,24 +490,12 @@ def _venv(runtime, env):
     return env
 
 
-def _remote_cmd(runtime_, cmd_line, local_env, version_check):
-    context = local_env.get_context()
-    kind, sep, rest = runtime_.partition(":")
-    envvar_filter = context.get("variables") or {}
-    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING", "UNFURL_MOCK_DEPLOY"]:
-        if name in os.environ:
-            envvar_filter[name] = os.environ[name]
-
-    if envvar_filter:
-        addOnly = kind == "docker"
-        env = filter_env(local_env.map_value(envvar_filter, None), addOnly=addOnly)
-    else:
-        env = None
-
+def _remote_cmd(runtime: str, cmd_line: List[str], version_check: List[str]):
+    kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return (
-            _venv(pipfileLocation, env),
+            _venv(pipfileLocation, None),
             [
                 "python",
                 "-m",
@@ -352,14 +506,11 @@ def _remote_cmd(runtime_, cmd_line, local_env, version_check):
             + cmd_line,
             False,
         )
-    elif kind == "docker":
-        cmd = DockerCmd(runtime_, env or {}).build()
-        return env, cmd + version_check + cmd_line, False
     else:
         # treat as shell command
-        cmd = shlex.split(runtime_)
+        cmd = shlex.split(runtime)
         return (
-            env,
+            None,
             cmd + ["--no-runtime"] + version_check + cmd_line,
             True,
         )
@@ -440,7 +591,7 @@ class DockerCmd:
         ]
 
 
-def _run_remote(runtime, options, localEnv):
+def _run_remote(runtime, options, ensemble):
     logger = logging.getLogger("unfurl")
     logger.info('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
@@ -453,7 +604,14 @@ def _run_remote(runtime, options, localEnv):
     else:
         version_check = ["--version-check", __version__(True)]
 
-    env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv, version_check)
+    kind, sep, rest = runtime.partition(":")
+    if kind == "docker":
+        localEnv = LocalEnv(ensemble, options.get("home"))
+        env, remote, shell = _remote_docker_cmd(
+            runtime, cmdLine, localEnv, version_check
+        )
+    else:
+        env, remote, shell = _remote_cmd(runtime, cmdLine, version_check)
     logger.debug("executing remote command: %s", remote)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
@@ -507,12 +665,12 @@ def yesno(prompt):
         return False
 
 
-def _stop_logging(job, options, verbose, tmplogfile, summary):
+def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary):
     if summary:
         with open(tmplogfile, "a") as f:
             f.write(summary)
-    if job and job.log_path:
-        log_path = job.log_path
+    if job and job.log_path():
+        log_path = job.log_path()
         dir = os.path.dirname(log_path)
         if not os.path.exists(dir):
             os.makedirs(dir)
@@ -527,7 +685,7 @@ def _stop_logging(job, options, verbose, tmplogfile, summary):
         click.echo("Done, full log written to " + log_path)
 
 
-def _run_local(ensemble: str, options):
+def _run_local(ensemble: Optional[str], options: dict):
     logger = logging.getLogger("unfurl")
     logger.verbose("Running command: %s", sys.argv[1:])  # type: ignore
     verbose = options.get("verbose", 0)
@@ -537,8 +695,9 @@ def _run_local(ensemble: str, options):
     summary = ""
     if job:
         declined = False
-        if not job.unexpectedAbort and not job.planOnly and proceed:
+        if not job.unexpectedAbort and not job.jobOptions.planOnly and proceed:
             if options.get("approve") or yesno("proceed with job?"):
+                assert rendered
                 job.run(rendered)
             else:
                 declined = True
@@ -580,9 +739,10 @@ checkFilterOptions = option_group(
     click.option(
         "--change-detection",
         default="evaluate",
-        type=click.Choice(["skip", "spec", "evaluate"]),
+        type=click.Choice(["skip", "always", "evaluate"]),
         help="How to detect configuration changes to existing instances. (Default: evaluate)",
     ),
+    rich_group=job_filter_group_label,
 )
 
 deployFilterOptions = option_group(
@@ -603,7 +763,7 @@ deployFilterOptions = option_group(
         "--prune",
         default=False,
         is_flag=True,
-        help="destroy instances that are no longer used",
+        help="Destroy instances that are no longer used",
     ),
     destroyUnmanagedOption,
     click.option(
@@ -612,16 +772,17 @@ deployFilterOptions = option_group(
         is_flag=True,
         help="check if new instances exist before deploying",
     ),
+    rich_group=job_filter_group_label,
 )
 
 
-@cli.command()
+@deploy_cli.command()
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
-@commonJobFilterOptions
+@commonJobOptions
 @deployFilterOptions
 @jobControlOptions
-def deploy(ctx, ensemble=None, **options):
+def deploy(ctx: Context, ensemble: Optional[str] = None, **options):
     """
     Deploy the given ensemble
     """
@@ -629,13 +790,13 @@ def deploy(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
-@cli.command(short_help="Check the status of each instance")
+@deploy_cli.command(short_help="Check the status of each instance")
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
-@commonJobFilterOptions
+@commonJobOptions
 @checkFilterOptions
 @readonlyJobControlOptions
-def check(ctx, ensemble=None, **options):
+def check(ctx: Context, ensemble=None, **options):
     """
     Check and update the status of the ensemble's instances
     """
@@ -644,12 +805,12 @@ def check(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
-@cli.command(short_help="Run the discover workflow.")
+@deploy_cli.command(short_help="Run the discover workflow.")
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
-@commonJobFilterOptions
+@commonJobOptions
 @jobControlOptions
-def discover(ctx, ensemble=None, **options):
+def discover(ctx: Context, ensemble=None, **options):
     """
     Run the "discover" workflow which updates the ensemble's spec by probing its live instances.
     """
@@ -657,26 +818,40 @@ def discover(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
-@cli.command()
+@deploy_cli.command(hidden=True)
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
-@commonJobFilterOptions
+@commonJobOptions
 @jobControlOptions
 @destroyUnmanagedOption
-def undeploy(ctx, ensemble=None, **options):
+def undeploy(ctx: Context, ensemble=None, **options):
     """
-    Destroy what was deployed.
+    Destroy what was deployed (alias for teardown).
     """
     options.update(ctx.obj)
     return _run(ensemble, options, ctx.info_name)
 
 
-@cli.command()
+@deploy_cli.command()
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
-@commonJobFilterOptions
+@commonJobOptions
 @jobControlOptions
-def stop(ctx, ensemble=None, **options):
+@destroyUnmanagedOption
+def teardown(ctx: Context, ensemble=None, **options):
+    """
+    Destroy what was previously deployed by running the "undeploy" workflow.
+    """
+    options.update(ctx.obj)
+    return _run(ensemble, options, "undeploy")
+
+
+@deploy_cli.command()
+@click.pass_context
+@click.argument("ensemble", default="", type=click.Path(exists=False))
+@commonJobOptions
+@jobControlOptions
+def stop(ctx: Context, ensemble=None, **options):
     """
     Stop running instances.
     """
@@ -684,13 +859,13 @@ def stop(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
-@cli.command(short_help="Print the given deployment plan")
+@deploy_cli.command(short_help="Print the given deployment plan")
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
-@commonJobFilterOptions
+@commonJobOptions
 @deployFilterOptions
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
-def plan(ctx, ensemble=None, **options):
+def plan(ctx: Context, ensemble=None, **options):
     """Print the given deployment plan"""
     options.update(ctx.obj)
     options["planOnly"] = True
@@ -698,7 +873,7 @@ def plan(ctx, ensemble=None, **options):
     return _run(ensemble, options)
 
 
-@cli.command(short_help="Create a new unfurl project or ensemble")
+@project_cli.command(short_help="Create a new unfurl project or ensemble")
 @click.pass_context
 @click.argument("projectdir", default="", type=click.Path(exists=False))
 @click.argument("ensemble_name", default="")
@@ -726,18 +901,39 @@ def plan(ctx, ensemble=None, **options):
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
-    help="Path to a directory of project skeleton templates.",
+    metavar="NAME or PATH",
+    help="Name of built-in skeleton or path to a directory with a project skeleton.",
 )
 @click.option(
-    "--create-environment",
-    is_flag=True,
-    default=False,
-    help="Create (if missing) a environment with the same name and set this as the default repository for ensembles that use this environment.",
+    "--var",
+    nargs=2,
+    type=click.Tuple([str, str]),
+    multiple=True,
+    metavar="NAME VALUE",
+    help="Name/value pair to pass to skeleton (multiple times ok).",
 )
 @click.option(
     "--use-environment",
     default=None,
+    metavar="NAME",
     help="Associate the given environment with this ensemble.",
+)
+@click.option(
+    "--use-deployment-blueprint",
+    metavar="NAME",
+    help="Use this deployment blueprint.",
+)
+@click.option(
+    "--as-shared-environment",
+    is_flag=True,
+    default=False,
+    help="Create an environment with the same name and set this project as its shared repository.",
+)
+@click.option(
+    "--create-environment",  # old name of --as-shared-environment for backward compatibility
+    is_flag=True,
+    default=False,
+    hidden=True,
 )
 @click.option(
     "--shared-repository",
@@ -746,52 +942,38 @@ def plan(ctx, ensemble=None, **options):
     help="Create the ensemble in an repository outside the project.",
 )
 @click.option(
-    "--overwrite",
-    type=click.Path(exists=False),
-    help="Create ensemble in the given directory even if it exists.",
-)
-@click.option(
     "--render",
     is_flag=True,
     default=False,
     help="Generate files only (don't commit them).",
 )
-@click.option(
-    "--use-deployment-blueprint",
-    help="Use this deployment blueprint.",
-)
-@click.option(
-    "--var",
-    nargs=2,
-    type=click.Tuple([str, str]),
-    multiple=True,
-    help="name/value pair to pass to skeleton (multiple times ok).",
-)
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
-    Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
+    Create a new project, or, if [project_dir] is an existing project, create a new ensemble.
     If [ensemble_name] is omitted, use a default name.
     """
     options.update(ctx.obj)
-    if not projectdir:
-        # if adding a project to an existing repository use '.unfurl' as the default name
-        if options.get("existing"):
-            projectdir = DefaultNames.ProjectDirectory
-        else:  # otherwise use the current directory
-            projectdir = "."
-
-    projectPath = Project.find_path(projectdir)
+    projectPath = Project.find_path(projectdir or ".")
     if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
+        if not projectdir:
+            projectdir = "."
         projectPath = os.path.dirname(projectPath)  # strip out unfurl.yaml
         # if projectPath is deeper than projectDir (happens if it is .unfurl) set projectDir to that
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
         # this will clone the default ensemble if it exists or use ensemble-template
         options["want_init"] = True
-        message = initmod.clone(projectPath, projectdir, ensemble_name, **options)
+        message = initmod.clone(projectPath, projectdir, ensemble_name or "", **options)
         click.echo(message)
         return
+
+    if not projectdir:
+        # if creating a new project in an existing repository use '.unfurl' as the default name
+        if options.get("existing"):
+            projectdir = DefaultNames.ProjectDirectory
+        else:  # otherwise use the current directory
+            projectdir = "."
     if os.path.exists(projectdir):
         if not os.path.isdir(projectdir):
             raise click.ClickException(
@@ -812,12 +994,12 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         os.path.abspath(projectdir), ensemble_name, **options
     )
     if homePath:
-        click.echo(f"unfurl home created at {homePath}")
-    click.echo(f"New Unfurl project created at {projectPath}")
+        click.echo(f"Unfurl home created at {homePath}")
+    click.echo(f"Unfurl project created at {projectPath}")
 
 
 # XXX add --upgrade option
-@cli.command(short_help="Print or manage the unfurl home project")
+@utility_cli.command(short_help="Print or manage the Unfurl home project.")
 @click.pass_context
 @click.option(
     "--render",
@@ -831,6 +1013,27 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     default=False,
     is_flag=True,
     help="Replace (and backup) current home project",
+)
+@click.option(
+    "--skeleton",
+    type=click.Path(exists=False),
+    metavar="NAME or PATH",
+    default="home",
+    help="Name of built-in skeleton or path to a directory with a project skeleton. (Default: home)",
+)
+@click.option(
+    "--poly",
+    default=False,
+    is_flag=True,
+    help="Create a separate repository for the localhost ensemble.",
+)
+@click.option(
+    "--var",
+    nargs=2,
+    type=click.Tuple([str, str]),
+    metavar="NAME VALUE",
+    multiple=True,
+    help="Name/value pair to pass to skeleton (multiple times ok).",
 )
 def home(ctx, init=False, render=False, replace=False, **options):
     """If no options are set, display the location of current unfurl home.
@@ -854,7 +1057,7 @@ def home(ctx, init=False, render=False, replace=False, **options):
             click.echo("Error: home path is empty")
 
 
-@cli.command(short_help="Print or manage the project's runtime")
+@utility_cli.command(short_help="Print or manage the project's runtime")
 @click.pass_context
 @click.option("--init", default=False, is_flag=True, help="Create a new runtime")
 @click.option(
@@ -876,17 +1079,8 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     project_path = os.path.abspath(project_folder)
     runtime_ = options.get("runtime") or "venv:"
     if not init:
-        try:
-            # XXX if --runtime is set venv_location likely is wrong
-            venv_location, local_env = _get_runtime(options, project_folder)
-        except:
-            # if the current path isn't a folder
-            if project_folder == ".":
-                venv_location, local_env = _get_runtime(
-                    options, get_home_config_path(options.get("home"))
-                )
-            else:
-                raise
+        # XXX if --runtime is set venv_location likely is wrong
+        venv_location = _get_runtime(options, project_folder)
         if venv_location:
             # venv_location will be "venv:project/path/.venv" or None
             project_path = os.path.dirname(venv_location[len("venv:") :])
@@ -898,6 +1092,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     if init:
         error = initmod.init_engine(project_path, runtime_)
     else:  # update
+        assert venv_location and venv_location.startswith("venv:")
         venv_path = Path(venv_location[len("venv:") :])
         env = _venv(venv_path, None)
         import importlib.metadata
@@ -917,7 +1112,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
         click.echo(f'Failed to {action} runtime "{runtime_}": {error}')
 
 
-@cli.command(short_help="Clone a project, ensemble or service template")
+@project_cli.command(short_help="Clone a project, ensemble or service template")
 @click.pass_context
 @click.argument(
     "source",
@@ -928,7 +1123,10 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     default="",
 )
 @click.option(
-    "--mono", default=False, is_flag=True, help="Create one repository for the project."
+    "--mono",
+    default=False,
+    is_flag=True,
+    help="Don't create a separate ensemble repository.",
 )
 @click.option(
     "--existing",
@@ -937,7 +1135,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     help="Add project to nearest existing repository.",
 )
 @click.option(
-    "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
+    "--empty", default=False, is_flag=True, help="Don't create a new ensemble."
 )
 @click.option(
     "--design",
@@ -949,11 +1147,13 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--use-environment",
     default=None,
     help="Associate the given environment with the ensemble.",
+    metavar="NAME",
 )
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
-    help="Path to a directory of project skeleton templates.",
+    metavar="NAME or PATH",
+    help="Name of built-in skeleton or path to a directory with a project skeleton.",
 )
 @click.option(
     "--overwrite",
@@ -964,13 +1164,15 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
 @click.option(
     "--use-deployment-blueprint",
     help="Use this deployment blueprint.",
+    metavar="NAME",
 )
 @click.option(
     "--var",
     nargs=2,
     type=click.Tuple([str, str]),
+    metavar="NAME VALUE",
     multiple=True,
-    help="name/value pair to pass to skeleton (multiple times ok).",
+    help="Name/value pair to pass to skeleton (multiple times ok).",
 )
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
@@ -986,7 +1188,7 @@ def clone(ctx, source, dest, **options):
     click.echo(message)
 
 
-@cli.command(
+@project_cli.command(
     short_help="Run a git command across all repositories",
     context_settings={"ignore_unknown_options": True},
 )
@@ -1057,7 +1259,7 @@ def get_commit_message(committer, default_message):
         return None
 
 
-@cli.command()
+@project_cli.command()
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
 @click.option("-m", "--message", help="commit message to use")
@@ -1083,6 +1285,7 @@ def get_commit_message(committer, default_message):
     "--use-environment",
     default=None,
     help="Use this environment.",
+    metavar="NAME",
 )
 def commit(
     ctx,
@@ -1135,7 +1338,9 @@ def commit(
     click.echo(f"committed to {committed} repositories")
 
 
-@cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@project_cli.command(
+    short_help="Show the git status for paths relevant to this ensemble."
+)
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
 @click.option(
@@ -1148,6 +1353,7 @@ def commit(
     "--use-environment",
     default=None,
     help="Use this environment.",
+    metavar="NAME",
 )
 def git_status(ctx, project_or_ensemble_path, dirty, **options):
     "Show the git status for paths relevant to the given project or ensemble."
@@ -1171,11 +1377,13 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 
 
 def _yaml_to_python(
-    project_or_ensemble_path, file, local_env, python_target_version, overwrite: str
+    project_or_ensemble_path: str,
+    file: Optional[str],
+    local_env: Optional[LocalEnv],
+    python_target_version,
+    overwrite: str,
 ):
     from tosca import yaml2python, WritePolicy
-    from .yamlloader import ImportResolver
-    from .manifest import Manifest
 
     if python_target_version:
         python_target_version = int(python_target_version.split(".")[-1])
@@ -1186,33 +1394,38 @@ def _yaml_to_python(
             manifest = local_env.get_manifest(
                 skip_validation=True,
             )  # XXX safe_mode=True
-        except UnfurlBadDocumentError:
-            manifest = None  # assume the user didn't specify a manifest file
+        except UnfurlBadDocumentError as e:
+            if not e.doc or "apiVersion" in e.doc:
+                raise
+            # otherwise assume the user didn't specify a manifest file
+            manifest = None
         except Exception:
             raise  # unexpected error
 
-    if local_env and manifest:
+    if local_env and manifest and local_env.manifestPath:
         assert manifest.tosca and manifest.tosca.template
         if not file:
-            file = Path(manifest.get_base_dir()) / (
-                re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py"
+            file = str(
+                Path(manifest.get_base_dir())
+                / (re.sub(r"\W", "_", Path(local_env.manifestPath).stem) + ".py")
             )
-        python_src = yaml2python.convert_service_template(
+        yaml2python.convert_service_template(
             manifest.tosca.template,
             python_compatible=python_target_version,
-            path=str(file),
+            path=file,
             write_policy=write_policy,
         )
     else:
         if not file:
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
-        # XXX:
-        # dummy_manifest = Manifest(None)
-        # dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
-        # import_resolver=ImportResolver(dummy_manifest)
-        import_resolver = None
-        python_src = yaml2python.yaml_to_python(
+        from .yamlloader import ImportResolver
+        from .manifest import Manifest
+
+        dummy_manifest = Manifest(None)
+        dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
+        import_resolver = ImportResolver(dummy_manifest)
+        yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
             import_resolver=import_resolver,
@@ -1222,7 +1435,7 @@ def _yaml_to_python(
     return file
 
 
-@cli.command(short_help="Export as JSON, Python or YAML.")
+@utility_cli.command(short_help="Export as JSON, Python or YAML.")
 @click.pass_context
 @click.argument("path", default=".", type=click.Path(exists=False))
 @click.option(
@@ -1237,6 +1450,7 @@ def _yaml_to_python(
     "--use-environment",
     default=None,
     help="Export using this environment.",
+    metavar="NAME",
 )
 @click.option(
     "--file",
@@ -1249,6 +1463,7 @@ def _yaml_to_python(
     type=click.Choice(["older", "never", "always", "auto"]),
     help="Overwrite existing files (Default: auto)",
     envvar="UNFURL_OVERWRITE_POLICY",
+    show_envvar=True,
 )
 @click.option(
     "--python-target",
@@ -1305,7 +1520,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     logger.info("Export complete.")
 
 
-@cli.command()
+@info_cli.command()
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=False))
 @click.option("--query", help="Run the given expression")
@@ -1314,6 +1529,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     "--use-environment",
     default=None,
     help="Use this environment.",
+    metavar="NAME",
 )
 def status(ctx, ensemble, **options):
     """Show the status of deployed resources in the given ensemble.\n
@@ -1339,23 +1555,77 @@ def status(ctx, ensemble, **options):
         _print_query(query, result)
 
 
-@cli.command()
+@info_cli.command()
 @click.pass_context
-@click.argument("ensemble", default=".", type=click.Path(exists=False))
-def validate(ctx, ensemble, **options):
-    """Validate the given ensemble."""
+@click.argument("path", default=".", type=click.Path(exists=False))
+@click.option(
+    "--use-environment",
+    default="",
+    help="Use this environment.",
+    metavar="NAME",
+)
+@click.option(
+    "--as-template",
+    default=False,
+    is_flag=True,
+    help="Treat as an ensemble template.",
+)
+def validate(ctx, path, **options):
+    """Validate the syntax of the given Unfurl project, ensemble, cloud map, or TOSCA file."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"), override_context="")
-    localEnv.get_manifest()
+    localEnv = None
+    try:
+        overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
+        if options.get("as_template") or "template" in path:  # hack!
+            overrides["format"] = "blueprint"
+        localEnv = LocalEnv(
+            path, options.get("home"), overrides=overrides, can_be_empty=True
+        )
+        if localEnv.manifestPath:
+            localEnv.get_manifest()
+        elif localEnv.project:
+            # found project without an ensemble, try to validate the ensemble-template.yaml
+            template = os.path.join(
+                localEnv.project.projectRoot, DefaultNames.EnsembleTemplate
+            )
+            if not os.path.isfile(template):
+                click.echo(
+                    f"No ensemble or ensemble template found in project at {localEnv.project.projectRoot}"
+                )
+            else:
+                overrides["format"] = "blueprint"
+                localEnv = LocalEnv(template, options.get("home"), overrides=overrides)
+                localEnv.get_manifest()
+    except UnfurlBadDocumentError as e:
+        if path.endswith(".py"):
+            from tosca.python2yaml import python_src_to_yaml_obj
+
+            with open(path) as f:
+                python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
+        elif e.doc and "tosca_definitions_version" in e.doc:
+            from .manifest import Manifest
+            from .spec import ToscaSpec
+
+            if localEnv and localEnv.project:
+                m = Manifest(path, localEnv=localEnv)
+                m._set_spec(dict(service_template=e.doc))
+            else:
+                ToscaSpec(e.doc, path=path)
+        elif e.doc and e.doc.get("kind") == "CloudMap":
+            from .cloudmap import CloudMapDB
+
+            CloudMapDB(path)
+        else:
+            raise
 
 
-@cli.command()
+@info_cli.command()
 @click.pass_context
 @click.option(
     "--semver",
     default=False,
     is_flag=True,
-    help="Print only the semantic version",
+    help="Print the released semantic version.",
 )
 @click.option(
     "--remote",
@@ -1364,12 +1634,12 @@ def validate(ctx, ensemble, **options):
     help="Also print the version installed in the current runtime.",
 )
 def version(ctx, semver=False, remote=False, **options):
-    """Print the current version"""
+    """Print the current version of Unfurl."""
     options.update(ctx.obj)
     if semver:
         click.echo(__version__())
     else:
-        click.echo(f"unfurl version {__version__(True)} ({get_package_digest()})")
+        click.echo(f"unfurl version {semver_prerelease()}+{get_package_digest()}")
 
     if remote and not options.get("no_runtime"):
         home_path = get_home_config_path(options.get("home"))
@@ -1378,16 +1648,16 @@ def version(ctx, semver=False, remote=False, **options):
             _run(home_path, options)
 
 
-@cli.command()
+@info_cli.command()
 @click.pass_context
 @click.argument("cmd", nargs=1, default="")
 def help(ctx, cmd=""):
-    """Get help on a command"""
+    """Get help on a command."""
     if not cmd:
         click.echo(cli.get_help(ctx.parent), color=ctx.color)
         return
 
-    command = ctx.parent.command.commands.get(cmd)
+    command = ctx.parent.command.get_command(ctx, cmd)
     if command:
         ctx.info_name = cmd  # hack
         click.echo(command.get_help(ctx), color=ctx.color)
@@ -1395,7 +1665,7 @@ def help(ctx, cmd=""):
         raise click.UsageError(f"no help found for unknown command '{cmd}'", ctx=ctx)
 
 
-@cli.command()
+@utility_cli.command()
 @click.pass_context
 @click.argument(
     "project_or_ensemble_path",
@@ -1412,24 +1682,31 @@ def help(ctx, cmd=""):
 @click.option(
     "--secret",
     envvar="UNFURL_SERVE_SECRET",
-    help="Secret required to access the server",
+    show_envvar=True,
+    help='Require secret as Authorization: Bearer <secret> header or "secret" URL parameter.',
 )
 @click.option(
     "--clone-root",
     default="./repos",
     help="Where to clone repositories (default: ./repos)",
     envvar="UNFURL_CLONE_ROOT",
+    show_envvar=True,
     type=click.Path(exists=False),
 )
 @click.option(
     "--cloud-server",
     envvar="UNFURL_CLOUD_SERVER",
+    show_envvar=True,
     help="Unfurl Cloud server URL to connect to.",
 )
 @click.option(
     "--cors",
     envvar="UNFURL_SERVE_CORS",
+    show_envvar=True,
     help='enable CORS with origin (e.g. "*")',
+)
+@click.option(
+    "--gui", envvar="UNFURL_SERVE_GUI", is_flag=True, help="Serve the Unfurl GUI app"
 )
 def serve(
     ctx,
@@ -1440,9 +1717,10 @@ def serve(
     project_or_ensemble_path,
     cors,
     cloud_server,
+    gui,
     **options,
 ):
-    """Run unfurl as a server."""
+    """Run Unfurl's built-in web server."""
     options.update(ctx.obj)
     # env vars need to set before importing serve
     if cors:
@@ -1451,9 +1729,9 @@ def serve(
     os.environ["UNFURL_CLONE_ROOT"] = clone_root
     if cloud_server:
         os.environ["UNFURL_CLOUD_SERVER"] = cloud_server
-    from .server import serve as _serve
+    from .server import serve
 
-    _serve(
+    serve.serve(
         address,
         port,
         secret,
@@ -1461,26 +1739,30 @@ def serve(
         project_or_ensemble_path,
         options,
         cloud_server,
+        gui,
     )
 
 
-@cli.command(short_help="Manage a cloud map")
+@utility_cli.command(short_help="Manage a cloud map.")
 @click.pass_context
 @click.argument("cloudmap", default="cloudmap")
 @click.option(
     "--sync",
     default=None,
     help='Sync the given repository host ("local", name, or url).',
+    metavar="HOST",
 )
 @click.option(
     "--import",
     default=None,
     help='Update the cloudmap with the given repository host ("local", name, or url).',
+    metavar="HOST",
 )
 @click.option(
     "--export",
     default=None,
     help='Update the given repository host ("local", name, or url) with the local repositories recorded in the cloudmap.',
+    metavar="HOST",
 )
 @click.option(
     "--namespace",
@@ -1570,6 +1852,19 @@ def cloudmap(
     # elif clone_root:
     #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")
     #     cloud_map.from_provider(namespace, download)
+
+
+cli = click.RichCommandCollection(
+    "unfurl",
+    callback=click.pass_context(_cli),
+    sources=[deploy_cli, project_cli, utility_cli, info_cli],
+)
+cli.params = deploy_cli.params  # needed to show global options in docs and rich-click
+
+click.rich_click.COMMAND_GROUPS["unfurl"] = [
+    CommandGroupDict(name=c.name.split()[0], commands=list(c.commands))  # type: ignore
+    for c in cli.sources
+]
 
 
 def main():

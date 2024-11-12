@@ -450,3 +450,44 @@ def test_delete_failed_node():
     )
     manifest = YamlManifest(manifest_delete_failed_node)
     list(lifecycle(manifest, STEPS))
+
+
+manifest_dependent = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    service_template:
+      node_types:
+        test.nodes.simple:
+          interfaces:
+           defaults:
+              implementation: Template
+           Install:
+              check:
+           Standard:
+              configure:
+              delete:
+
+      topology_template:
+        node_templates:
+          host:
+            type: test.nodes.simple
+
+          deletable:
+            type: test.nodes.simple
+
+          dependent:
+            directives:
+              - protected
+            type: test.nodes.simple
+            requirements:
+              - host: host
+"""
+
+def test_delete_dependent_node():
+    STEPS = (
+        Step("deploy", Status.ok, changed=3),
+        Step("undeploy", Status.absent, changed=1),
+    )
+    manifest = YamlManifest(manifest_dependent)
+    list(lifecycle(manifest, STEPS))

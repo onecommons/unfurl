@@ -1,0 +1,23 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+    - repository: unfurl
+      file: tosca_plugins/artifacts.yaml
+    node_types:
+      artifact_example:
+          derived_from: tosca:Root
+          artifacts:
+            ripgrep:
+              type: artifact.AsdfTool
+              file: ripgrep
+              properties:
+                version: 13.0.0
+          interfaces:
+            Standard:
+              configure:
+                implementation: 
+                  primary: ripgrep
+                inputs:
+                  cmd: rg search

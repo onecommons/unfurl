@@ -3,9 +3,11 @@
 Repositories
 ============
 
-``repositories`` refers to a named `repository <repository>` which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.
+``repositories`` refers to a named `repository` which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.
 
-If the repository name matches the package id syntax, Unfurl will treat repository declaration as a package rule.
+A ``repository`` is a TOSCA abstraction that can represent any collection of artifacts. For example, a repository can be git repository, an OCI (Docker) container registry, or a local file directory -- see the `repository` section on using them with Unfurl.
+
+If the repository name matches the package id syntax, Unfurl will treat repository declarations as a `package rule<package rules>`.
 
 Declaration
 +++++++++++
@@ -41,3 +43,7 @@ Example
      description: My project’s code repository in GitHub
 
      url: https://github.com/my-project/
+
+
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA Repository Section <_Toc50125248>`
+

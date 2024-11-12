@@ -66,6 +66,9 @@ data_types:
         description: Use the same values as the docker client --network parameter ("bridge", "host", "none")
         type: string
         required: false
+      deploy:
+        type: map
+        required: false
 
 node_types:
   unfurl.nodes.Container.Application.Docker:

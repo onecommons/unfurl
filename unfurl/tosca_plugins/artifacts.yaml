@@ -82,7 +82,7 @@ artifact_types:
           implementation:
             className: Cmd
           inputs:
-            cmd: "ansible-galaxy collection list --format json {{SELF.file}}"
+            cmd: "{{__python_executable}} -m ansible.cli.galaxy collection list --format json {{SELF.file}}"
             done:
               success: True # command returns error if there are no collections at all so set success true regardless
             # check if output isn't not empty
@@ -100,7 +100,7 @@ artifact_types:
             className: Cmd
           inputs:
             # XXX add version if specified
-            cmd: "ansible-galaxy collection install {{SELF.file}}"
+            cmd: "{{__python_executable}} -m ansible.cli.galaxy collection install {{SELF.file}}"
             resultTemplate:
               eval:
                 python: unfurl.configurators.ansible.reload_collections
@@ -152,7 +152,7 @@ topology_template:
           type: artifact.AsdfTool
           file: gcloud
           properties:
-            version: 398.0.0
+            version: 499.0.0
 
         kompose:
           type: artifact.AsdfTool
@@ -180,7 +180,7 @@ topology_template:
           type: artifact.AnsibleCollection
           file: community.docker
           properties:
-            version: "1.10.2"
+            version: "3.12.1"
 
         ansible.utils:
           type: artifact.AnsibleCollection

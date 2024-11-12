@@ -1,0 +1,29 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+data_types:
+  my.datatypes.Endpoint:
+    description: Socket endpoint details
+    properties:
+      ip:
+        description: the endpoint IP
+        type: string
+      port:
+        description: the endpoint port
+        type: integer
+
+node_types:
+
+  DatabaseService:
+    derived_from: tosca.nodes.DBMS
+    properties:
+      endpoint:
+        type: my.datatypes.Endpoint
+
+topology_template:
+  node_templates:
+    my_db_service:
+      type: DatabaseService
+      properties:
+        endpoint:
+          ip: 192.168.15.85
+          port: 2233

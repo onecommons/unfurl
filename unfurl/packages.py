@@ -91,6 +91,15 @@ def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
         and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
     )
 
+def is_semver_compatible_with(expected: str, test: str) -> bool:
+    """
+    Return true if ``expected`` and ``test``'s major versions are equal and ``expected``'s minor version is less than or equal to ``test``'s minor version.
+    Raise an InvalidTOSCAVersionPropertyException if either ``expected`` or ``test`` doesn't match the semantic version syntax.
+    """
+    return TOSCAVersionProperty(expected).is_semver_compatible_with(
+        TOSCAVersionProperty(test)
+    )
+
 
 class Package_Url_Info(NamedTuple):
     package_id: Optional[str]

@@ -1,22 +1,21 @@
 # pbr uses this for install_requires
-pipenv==2023.7.3 # MIT
+pipenv==2024.0.0 # MIT
 click>=8.0.1,<8.1.4 # BSD 3-clause
-jsonschema[format_nongpl]==3.2 # MIT
+jsonschema[format_nongpl] # MIT
 ruamel.yaml==0.17.21
 # use range because ansible-core support for 3.7 stops at 2.11.12
 ansible-core >= 2.11.12, <= 2.15.9 # gpl 3
 GitPython==3.1.41; python_version>='3.7' # BSD
 rich==12.4.4  # MIT
+rich-click>=1.8.0 # MIT
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
--r tosca-parser/requirements.txt
-itsdangerous==2.0.1 # newer version broken with moto (using old flask)
 MarkupSafe<=2.1.1 # newer version broken with jinja2
 jinja2==3.1.3 # BSD 3-clause
 typing_extensions>=4.7
-flask<=2.1.3 # BSD 3-clause
+flask==2.3.3 # BSD 3-clause
 flask-caching<=2.0.1 # BSD 3-clause
-flask_cors==3.0.10
-werkzeug==2.2.3 # needed by flask 2.1 (which is needed by moto) (later versions of werkzeug hang tests)
-uvicorn<=0.18.2 # BSD 3-clause
+flask_cors==5.0.0
+waitress>=3.0.0  # Zope ZPL 2.1
 python-gitlab==3.13.0
 tosca>=0.0.8
+tenacity>=6.1.0 # Apache-2.0

@@ -35,7 +35,7 @@ class Test(Base):
         extra = self.a_requirement.extra  # type: ignore
         self.a_requirement.copy_of_extra = extra  # type: ignore
 
-        self.data_list.append(MyDataType())
+        self.data_list.append(MyDataType().extend(additional=1))
         self.data_list[0].ports.source = port80
         self.data_list[0].ports.target = tosca.datatypes.NetworkPortDef(8080)
         return True
@@ -50,10 +50,16 @@ class Test(Base):
         return TemplateConfigurator(TemplateInputs(run="test me", done=done))
 
 
-class MyDataType(tosca.OpenDataType):
+class MyDataType(tosca.OpenDataEntity):
     ports: tosca.datatypes.NetworkPortSpec = tosca.Property(
         factory=lambda: tosca.datatypes.NetworkPortSpec(source=port80, target=port80)
     )
+
+data_list_type_info = Test.__dataclass_fields__["data_list"].get_type_info()
+assert not data_list_type_info.instance_check(1), "data_list_type_info.instance_check(1)"
+assert data_list_type_info.instance_check([]), "data_list_type_info.instance_check([])"
+assert not data_list_type_info.instance_check([1]), "not data_list_type_info.instance_check([1])"
+assert data_list_type_info.instance_check([MyDataType()])
 
 generic = unfurl.nodes.Generic("generic")
 assert generic._name == "generic"

@@ -28,7 +28,7 @@ spec:
                       sensitive: shhh
                   run: # this will evaluate all these expressions
                    dir_in_git: "{{ '../fixtures/helmrepo' | abspath('project') }}"
-                   file_in_git: "{{ '../fixtures/setup.py' | abspath('project') }}"
+                   file_in_git: "{{ '../fixtures/pyproject.toml' | abspath('project') }}"
                    tempfile: "{{ '::anInstance::referenced' | eval }}"
                    missingfile: "{{ '../fixtures/doesnt_exist' | abspath('project') }}"
                    # XXX test:

@@ -13,23 +13,28 @@ When a YAML configuration is loaded, will look for dictionary keys that match th
 
 and treat them as merge directives that update the dictionary by processing the directive and merging in its resolved value.
 
-Merge directives can have the following components:
+Merge keys can have the following components:
 
 .. productionlist::
-     merge key      : "+"["?"]["include"][anchor][relative_path][absolute_path]
-     anchor         : "*"[PCHAR]*[PCHAR except "."]
+     merge key      : merge_directive | merge_anchor | merge_strategy
+     merge_directive : "+"["?"][include][alias][relative_path][absolute_path]
+     include        : "include"[ALPHNUM]*
+     alias          : "*"[PCHAR]*[PCHAR except "."]
      relative_path  : "."+
      absolute_path  : ["/" PCHAR*]+
-     PCHAR           : any printable character except "/"
+     ALPHNUM        : a-z, A-Z, 0-9, _, -
+     PCHAR          : any printable character except "/"
+     merge_anchor   : "+&"
+     merge_strategy : "+%"
 
 
 Each of these components are optional but at least one needs to be present, otherwise the key is ignored and included in the final document.
 
 A leading '?' indicates that reference maybe missing, otherwise the processing will abort with an error.
 
-``include`` indicates that value of the merge key includes a yaml or json file to load.
+``include`` indicates that value of the merge key includes a yaml or json file to load. Can have optional trailing alphanumeric characters to ensure key is unique.
 
-``*anchor``: a reference to YAML anchor that appears in either the current document or, a file was specified, from that file.
+``*alias``: a reference to merge anchor that appears in either the current document or, a file was specified, from that file.
 
 ``relative path``: '.'+ The path starting at current location this key appears in.
 
@@ -156,7 +161,8 @@ If the left-side expression is omitted, the value of the segment's key is used a
 If the current value is a list and the key looks like an integer
 it will be treated like a zero-based index into the list.
 Otherwise the segment is evaluated again all values in the list and resulting value is a list.
-If the current value is a dictionary and the key is ``*``, all values will be selected.
+
+If the current value is a dictionary (a map), the next segment will match the keys in the map or use ``*`` to match all values. So to filter on the values in a map, select them all first before applying the filter, for example: ``.artifacts::*::[type=MyArtifactType]``.
 
 If a segment ends in ``?``, it will only include the first match.
 In other words, ``a?::b::c`` is a shorthand for ``a[b::c]::0::b::c``.

@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CloudMap Schema",
+  "description": "CloudMap Schema",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "unfurl/v1alpha1"
+    },
+    "kind": {
+      "const": "CloudMap"
+    },
+    "repositories": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[^\\s]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "git": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "initial_revision": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "internal_id": {
+            "type": "string"
+          },
+          "project_url": {
+            "type": "string"
+          },
+          "mirror_of": {
+            "type": "string"
+          },
+          "fork_of": {
+            "type": "string"
+          },
+          "private": {
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "topics": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "spdx_license_id": {
+                "type": "string"
+              },
+              "license_url": {
+                "type": "string"
+              },
+              "issues_url": {
+                "type": "string"
+              },
+              "homepage_url": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": "string"
+              },
+              "lastupdate_time": {
+                "type": "string"
+              },
+              "lastupdate_digest": {
+                "type": "string"
+              }
+            }
+          },
+          "branches": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "notable": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "artifact_type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "schema": {
+                  "type": "string"
+                },
+                "artifacts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "propertyNames": {
+        "description": "Artifacts referenced by notables",
+        "pattern": "^[^\\s]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "repositories"
+  ]
+}

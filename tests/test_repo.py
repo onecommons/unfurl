@@ -4,6 +4,7 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
+from unfurl.projectpaths import rmtree
 from unfurl.repo import (
     split_git_url,
     is_url_or_git_path,
@@ -14,8 +15,9 @@ from unfurl.repo import (
 from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
+from unfurl.testing import run_cmd
 from unfurl.yamlmanifest import YamlManifest
-
+from .utils import print_config
 
 def createUnrelatedRepo(gitDir):
     os.makedirs(gitDir)
@@ -213,7 +215,7 @@ class GitRepoTest(unittest.TestCase):
         self.maxDiff = None
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["--home", "", "init"])
+            result = runner.invoke(cli, ["--home", "", "init", "--use-environment", "test"])
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -230,7 +232,6 @@ class GitRepoTest(unittest.TestCase):
 *** Running 'git ls-files' in '.'
 .gitattributes
 .gitignore
-.secrets/secrets.yaml
 .unfurl-local-template.yaml
 ensemble-template.yaml
 service_template.py
@@ -239,7 +240,10 @@ unfurl.yaml
 *** Running 'git ls-files' in './ensemble'
 .gitattributes
 .gitignore
+.secrets/secrets.yaml
+.unfurl-local-template.yaml
 ensemble.yaml
+unfurl.yaml
 """
             self.assertEqual(
                 output.strip(), result.output.strip(), result.output.strip()
@@ -256,6 +260,13 @@ ensemble.yaml
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
+            result = runner.invoke(cli, ["--home", "", "clone", "ensemble", "cloned-ensemble"])
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+            assert os.path.isdir("cloned-ensemble")
 
     def test_home_manifest(self):
         """
@@ -410,6 +421,8 @@ ensemble.yaml
                 "branch",
             ),
             "file:foo/repo.git": ("file:foo/repo.git", "", ""),
+            "file:foo/repo#": ("file:foo/repo#", "", ""),
+            "file:foo/repo#:path": ("file:foo/repo", "path", ""),
         }
         for url, expected in urls.items():
             if expected:
@@ -459,7 +472,7 @@ ensemble.yaml
             # test that invoking an ensemble will cause the project it is in to registered in the home project
             # we use this ensemble because it is in a repository with a non-local origin set:
             project = os.path.join(
-                os.path.dirname(__file__), "examples/testimport-ensemble.yaml"
+                os.path.dirname(__file__), "examples/import/testimport-ensemble.yaml"
             )
             # set starttime to suppress job logging to file
             result = runner.invoke(
@@ -507,6 +520,7 @@ ensemble.yaml
                 ]:
                     self.assertIn(line, contents)
                 self.assertNotIn("origin:", contents)
+            rmtree(os.path.join(os.path.dirname(project), "jobs"))
 
             externalProjectManifest = """
 apiVersion: unfurl/v1alpha1
@@ -515,7 +529,7 @@ environment:
  external:
   test:
     manifest:
-      file: testimport-ensemble.yaml
+      file: import/testimport-ensemble.yaml
       project: examples
 spec:
   service_template:
@@ -532,7 +546,7 @@ spec:
                 f.write(externalProjectManifest)
 
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "plan", "externalproject.yaml"]
+                cli, ["--home", "./unfurl_home", "plan",  "--starttime=1", "externalproject.yaml"]
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -600,7 +614,7 @@ spec:
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["clone", "test", "cloned"])
+            result = runner.invoke(cli, ["clone", "file:test#:", "cloned"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -692,3 +706,24 @@ def test_reified_repo(caplog):
         # and make sure the environment can override the built-in "spec" repository
         assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
         assert 'skipping inline repository definition for "include-early-repo", it was previously defined' in caplog.text
+
+def test_clone_ensemble_repo():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        # use a home project so git-local: url resolve across projects
+        run_cmd(runner, ["--home", "local_home", "home", "--init"])
+        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "inner", "src"])
+        ensemble_repo_files = set(['unfurl.yaml', '.gitignore', '.gitattributes', '.git', 'ensemble.yaml', '.secrets', '.unfurl-local-template.yaml'])
+        assert set(os.listdir("src/ensemble")) == (ensemble_repo_files | set(['local', 'secrets']))
+        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "outer", "dst"])
+        # use URL with fragment instead of file path to induce remote cloning semantics
+        run_cmd(runner, ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"])
+        assert "ensemble1" in os.listdir("dst")
+        assert set(os.listdir("dst/ensemble1")) == ensemble_repo_files
+        local_env = LocalEnv("dst/ensemble1")
+        assert local_env.manifest_context_name == "inner"
+        assert local_env.project.projectRoot.endswith("dst")
+        local_env2 = LocalEnv("dst")
+        assert local_env2.manifest_context_name == "outer"
+        # print_config("local_home")
+        run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])

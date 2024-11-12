@@ -8,7 +8,7 @@ import sys
 import unfurl
 from click.testing import CliRunner
 from click.termui import unstyle
-from unfurl.__main__ import _args, cli
+from unfurl.__main__ import _args, cli, info_cli
 from unfurl.configurator import Configurator
 from unfurl.configurators.shell import clean_output
 from unfurl.localenv import LocalEnv, Project
@@ -18,7 +18,7 @@ from unfurl.yamlmanifest import YamlManifest
 from .utils import run_cmd, print_config
 
 
-manifest = """
+manifest_yaml = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 environment:
@@ -30,11 +30,23 @@ spec:
   instances:
     no_op:
       template:
-        type: tosca.nodes.Root
+        type: NoOp
       readyState:
         local: pending
 
   service_template:
+    interface_types:
+      MyOps:
+        operations:
+          test_op:
+    node_types:
+      NoOp:
+        interfaces:
+          MyOps:
+            type: MyOps
+            operations:
+              test_op: echo "test_op ran on {{ '.name' | eval }}"
+
     topology_template:
       node_templates:
         test:
@@ -130,43 +142,44 @@ class CliTestConfigurator(Configurator):
         yield task.done(True, False)
 
 
+def test_versioncheck(caplog):
+    assert (0, 1, 4, 11) == unfurl.version_tuple("0.1.4.dev11")
+    assert unfurl.version_tuple("0.1.4.dev11") == unfurl.version_tuple("0.1.5-dev.11")
+    current_version = unfurl.version_tuple()
+    if current_version[:3] != (
+        0,
+        0,
+        1,
+    ):  # skip if running unit tests on a shallow clone
+        assert (
+            unfurl.version_tuple("0.1.4.dev11") < current_version
+        ), unfurl.version_tuple()
+
+    runner = CliRunner()
+    checkedVersion = "9.0.0"
+    result = runner.invoke(cli, ["-vvv", "--version-check", checkedVersion, "help"])
+    assert result.exit_code == 1, result
+    assert "older than expected version " + checkedVersion in caplog.text
+
 class CliTest(unittest.TestCase):
     def test_help(self):
         runner = CliRunner()
         result = runner.invoke(cli, [])
-        assert result.output.startswith(
-            "Usage: cli [OPTIONS] COMMAND [ARGS]"
+        assert unstyle(result.output).strip().startswith(
+            "Usage: unfurl [OPTIONS] COMMAND [ARGS]"
         ), result.output
         self.assertEqual(result.exit_code, 0)
 
     def test_version(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["version"])
+        assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
         self.assertEqual(result.exit_code, 0, result)
-        version = unfurl.__version__(True)
+        version = unfurl.semver_prerelease()
         self.assertIn(version, result.output.strip())
 
-    def test_versioncheck(self):
-        self.assertEqual((0, 1, 4, 11), unfurl.version_tuple("0.1.4.dev11"))
-        current_version = unfurl.version_tuple()
-        if current_version[:3] != (
-            0,
-            0,
-            1,
-        ):  # skip if running unit tests on a shallow clone
-            assert (
-                unfurl.version_tuple("0.1.4.dev11") < current_version
-            ), unfurl.version_tuple()
-        # XXX this test only passes when run individually -- log output is surpressed otherwise?
-        # runner = CliRunner()
-        # checkedVersion = "9.0.0"
-        # result = runner.invoke(cli, ["-vvv", "--version-check", checkedVersion, "help"])
-        # self.assertEqual(result.exit_code, 0, result)
-        # self.assertIn(
-        #     "older than expected version " + checkedVersion, result.output.strip()
-        # )
-
-    @unittest.skip("TODO: Why has this started to fail?") # XXX
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
     )
@@ -174,21 +187,17 @@ class CliTest(unittest.TestCase):
         runner = CliRunner()
         venvSrc = os.path.join(os.path.dirname(__file__), "fixtures/venv")
         repoPath = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-        # instead of runtime = "venv:%s:%s@" % (venvSrc, repoPath)
         # fully specify the runtime so we can point to our fake empty unfurl package
-        runtime = "venv:%s:git+file://%s#egg=unfurl&subdirectory=tests/fixtures" % (
-            venvSrc,
-            repoPath,
-        )
+        cmd = f"-vvv --runtime='venv:{venvSrc}:git+file://{repoPath}#egg=unfurl&subdirectory=tests/fixtures' runtime --init"
+        # print("running", "unfurl " + cmd)
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["--runtime=" + runtime, "runtime", "--init"])
+            result = runner.invoke(cli, cmd)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
             self.assertIn("Created runtime", result.output)
             self.assertIn("Installing dependencies from Pipfile.lock", result.output)
-            assert os.path.exists(".venv/src/unfurl")
             assert os.path.exists(".venv/bin/unfurl")
 
             result = runner.invoke(cli, ["init", "--mono", "test"])
@@ -298,24 +307,34 @@ spec:
             ), result.exception
 
             with open("manifest2.yaml", "w") as f:
-                f.write(manifest)
+                f.write(manifest_yaml)
             run_cmd = ["run", "--ensemble", "manifest2.yaml"]
-            result = runner.invoke(cli, run_cmd + ["--", "echo", "ok"])
+            # jinja2 expression in command line should be evaluated in task context
+            result = runner.invoke(cli, run_cmd + ["--", "echo", "{{'.name'|eval|upper}}"])
             # print("result.output1!", result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
-            assert r"ok" in output, output
+            assert r"ROOT" in output, output
             # run same command using ansible
             result = runner.invoke(
-                cli, run_cmd + ["--host", "localhost", "--", "echo", "ok"]
+                cli, run_cmd + ["--host", "localhost", "--", "echo", "{{'.name'|eval|upper}}"]
             )
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             output = re.sub(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]", "", unstyle(result.output))
-            assert r"'stdout': 'ok'" in output, output
+            assert r"'stdout': 'ROOT'" in output, output
+
+            result = runner.invoke(
+                cli, run_cmd + ["--operation", "MyOps.test_op"]
+            )
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+            assert "test_op ran on no_op" in unstyle(result.output)
 
     def test_localConfig(self):
         # test loading the default manifest declared in the local config
@@ -332,7 +351,7 @@ spec:
             os.mkdir(repoDir)
             os.chdir(repoDir)
             with open("default-manifest.yaml", "w") as f:
-                f.write(manifest)
+                f.write(manifest_yaml)
 
             # make sure the test environment set UNFURL_HOME:
             testHomePath = os.environ.get("UNFURL_HOME")
@@ -387,7 +406,7 @@ spec:
         runner = CliRunner()
         with runner.isolated_filesystem():
             specTemplate = os.path.join(
-                os.path.dirname(__file__), "examples/spec/service_template.yaml"
+                os.path.dirname(__file__), "examples/import/spec/service_template.yaml"
             )
             result = runner.invoke(
                 cli,
@@ -501,7 +520,7 @@ spec:
                     "--home",
                     "./unfurl_home",
                     "init",
-                    "--create-environment",
+                    "--as-shared-environment",
                     "production",
                 ],
             )
@@ -534,9 +553,10 @@ spec:
             )
             # print_config("p1", "./unfurl_home")
 
-            # creates in production project because that's the defaultProject
+            # creates ensemble named "p1" in production project because that's the defaultProject
             self.assertNotIn("ensemble", os.listdir("p1"))
             self.assertNotIn("p1", os.listdir("p1"))
+            self.assertNotIn("production", os.listdir("p1"))
             self.assertIn("p1", os.listdir("production"))
 
             localEnv = LocalEnv("p1", homePath="./unfurl_home")
@@ -605,7 +625,7 @@ spec:
             os.chdir("..")
 
             run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
-
+            # print_config("p1copy", "./unfurl_home")
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
             assert localEnv.manifest_context_name == "production"
             # default context is set for the new

@@ -91,7 +91,8 @@ def convert_to_yaml(
 ) -> dict:
     from .yamlloader import yaml_dict_type
 
-    namespace: Dict[str, Any] = {}
+    path = os.path.abspath(path)
+    namespace: Dict[str, Any] = dict(__file__=path)
     logger.trace(
         f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"
     )
@@ -135,7 +136,12 @@ def convert_to_yaml(
         import_resolver,
     )
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
-        logger.debug("converted %s to:\n%s", path, pprint.pformat(yaml_src), extra=dict(truncate=0))
+        logger.debug(
+            "converted %s to:\n%s",
+            path,
+            pprint.pformat(yaml_src),
+            extra=dict(truncate=0),
+        )
     return yaml_src
 
 
@@ -178,8 +184,13 @@ class DslMethodConfigurator(Configurator):
 
     def render(self, task: TaskView) -> Any:
         if self.action == "render":
+            # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
             result = obj._invoke(self.func)
+            if isinstance(result, Generator):
+                # render the yielded configurator
+                result = result.send(None)
+                # need a way to mark yielded configurator as already rendered
             if isinstance(result, Configurator):
                 self.configurator = result
                 # configurators rely on task.inputs, so update them
@@ -212,6 +223,7 @@ class DslMethodConfigurator(Configurator):
             return self.configurator.can_dry_run(task)
         return False
 
+
 def eval_computed(arg, ctx):
     """
     eval:
@@ -234,6 +246,7 @@ class ProxyCollection(CollectionProxy):
     For proxying lists and maps set on a ToscaType template to a value usable by the runtime.
     It will create proxies of Tosca datatypes on demand.
     """
+
     def __init__(self, collection, type_info: tosca.TypeInfo):
         self._values = collection
         self._type_info = type_info
@@ -395,12 +408,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     def find_required_by(
         self,
         requirement: Union[str, FieldProjection],
-        Expected: Optional[Type[tosca.NodeType]] = None,
-    ) -> tosca.NodeType:
+        Expected: Optional[Type[tosca.Node]] = None,
+    ) -> tosca.Node:
         """
-        Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
+        Runtime version of Node (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
         """
-        ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
+        ref = cast(Type[tosca.Node], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
         assert isinstance(ref, EvalData)  # actually it will be a EvalData
@@ -414,7 +427,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         Expected: Union[None, type, tosca.TypeInfo] = None,
     ) -> Any:
         """
-        Runtime version of NodeType (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
+        Runtime version of Node (and RelationshipType)'s find_required_by, executes the eval expression returned by that method.
         """
         result = _map_value(ref.expr, self._context)
         if Expected and not isinstance(Expected, tosca.TypeInfo):
@@ -434,7 +447,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         field, prop_name = _get_field_from_prop_ref(prop_ref)
         ref = search_func(
             field or prop_name,
-            cls_or_obj=cast(Type[tosca.NodeType], self._obj or self._cls),
+            cls_or_obj=cast(Type[tosca.Node], self._obj or self._cls),
         )
         if field:
             _type = field.get_type_info_checked()
@@ -442,10 +455,15 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             _type = None
         if _type and _type.is_sequence():
             return cast(
-                T, self._execute_resolve_all(cast(EvalData, ref), prop_name, _type.types[0])
+                T,
+                self._execute_resolve_all(
+                    cast(EvalData, ref), prop_name, _type.types[0]
+                ),
             )
         else:
-            return cast(T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type))
+            return cast(
+                T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type)
+            )
 
     def find_configured_by(
         self,
@@ -462,12 +480,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     def find_all_required_by(
         self,
         requirement: Union[str, FieldProjection],
-        Expected: Optional[Type[tosca.NodeType]] = None,
-    ) -> List[tosca.NodeType]:
+        Expected: Optional[Type[tosca.Node]] = None,
+    ) -> List[tosca.Node]:
         """
-        Runtime version of NodeType (and RelationshipType)'s find_all_required_by, executes the eval expression returned by that method.
+        Runtime version of Node (and RelationshipType)'s find_all_required_by, executes the eval expression returned by that method.
         """
-        ref = cast(Type[tosca.NodeType], self._obj or self._cls).find_required_by(
+        ref = cast(Type[tosca.Node], self._obj or self._cls).find_required_by(
             requirement, Expected
         )
         return self._execute_resolve_all(
@@ -503,7 +521,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 reltype = t
             elif issubclass(t, tosca.CapabilityType):
                 captype = t
-            elif issubclass(t, tosca.NodeType):
+            elif issubclass(t, tosca.Node):
                 nodetype = t
         if has_relationship_template and reltype:
             instance = rel
@@ -579,6 +597,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     if isinstance(val, types.MethodType):
                         # so we can call with proxy as self
                         val = val.__func__
+                    elif (
+                        isinstance(val, functools.partial)
+                        and val.args
+                        and val.args[0] is self._obj
+                    ):
+                        val = val.func
                     # should have been set by _invoke() earlier in the call stack.
                     assert global_state.context
                     return functools.partial(val, self)
@@ -593,7 +617,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 # self._context._trace=2
                 # self._instance.attributes.context._trace=2
                 type_info = field.get_type_info()
-                if type_info.optional and field.tosca_name not in self._instance.attributes:
+                if (
+                    type_info.optional
+                    and field.tosca_name not in self._instance.attributes
+                ):
                     val = None  # don't raise KeyError if the property isn't required
                 else:
                     val = _proxy_prop(
