@@ -18,9 +18,9 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 ## Why use Unfurl?
 
-* You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can manage that complexity without complicated DevOps processes -- see https://www.unfurl.cloud/blog/why-unfurl for more.
+* You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can [manage that complexity without complicated DevOps processes](https://www.unfurl.cloud/blog/why-unfurl).
 
-* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it on cloudmap/[Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
+* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it in a [Cloud Map](https://docs.unfurl.run/cloudmap.html) or on [Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
 
 * You want to use familiar coding practices and development processes to both develop blueprints and manage operations without depending on costly server infrastructure or having to rely on manual and proprietary admin UI.
 
@@ -118,27 +118,26 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 # Installation
 
-`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pip` (or `pip3`):
+`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pipx` or `pip`:
 
 ```
-pip install unfurl
+pipx install unfurl
 ```
 
-Running `unfurl home --init` creates a virtual Python environment to run unfurl in so by default unfurl only installs the minimal requirements needed to run the command line. If you want to run unfurl using your system Python install it with the "full" option:
+By default, Unfurl creates an [Unfurl home](https://docs.unfurl.run/projects.html#unfurl-home) project with a virtual Python environment for deployments so Unfurl only installs the minimal requirements needed to run the command line. If you want to deploy in the same environment, install it with the "full" option:
 
 ```
-pip install unfurl[full]
+pipx install unfurl[full]
 ```
 
 You can also install `unfurl` directly from this repository to get the latest code:
 
 ```
-pip3 install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
+pipx install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
 ```
 
 Alternatively, you can get the Unfurl container image from [GitHub](https://github.com/onecommons/unfurl/pkgs/container/unfurl) or [Docker Hub](https://hub.docker.com/r/onecommons
 /unfurl) and run Unfurl from the image:
-
 
 ```
 docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
@@ -150,7 +149,7 @@ The `stable` tag matches the version published to PyPi; `latest` is the latest c
 
 - Linux or MacOS
 - Git
-- Python (3.8, 3.9, 3.10, 3.11, 3.12)
+- Python (3.8, 3.9, 3.10, 3.11, 3.12, 3.13)
 
 Optional: Docker or Podman
 
@@ -167,26 +166,40 @@ Use the table below to activate shell autocompletion for the `unfurl`:
 | Fish  | Add this to `~/.config/fish/completions/unfurl.fish`: |
 |       | `eval (env _UNFURL_COMPLETE=fish_source unfurl)`      |
 
-## Developing
+## Development
+
+To hack on Unfurl:
+
+1. Clone this repository with its submodules:
+
+`git clone --recurse-submodules https://github.com/onecommons/unfurl /path/to/unfurl/`
+
+2. Install package dependencies and run Unfurl from source:
+
+`pip install -U -e /path/to/unfurl`
+
+3. Build the Rust extension (this is optional for developing or running Unfurl):
 
 ```
-git clone --recurse-submodules https://github.com/onecommons/unfurl /path/to/unfurl/
-
-pip3 install -U -e git+file:///path/to/unfurl/
+pip install setuptools-rust>=1.7.0
+python setup.py build_rust --debug --inplace
 ```
 
-To build documentation: Run `tox -e docs`.
+Requires Rust >= 1.70.
 
-To build a distribution package run:
+4. To build documentation: Install tox (see below). Run `tox -e docs`.
 
-```
-python setup.py sdist bdist_wheel
-```
-
-You can now install this package with pip, for example:
+5. To build a distribution package run:
 
 ```
-pip install ./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl
+pip install build
+python -m build /path/to/unfurl/
+```
+
+You can now install this package with pip or pipx, for example:
+
+```
+pipx install ./dist/unfurl-1.1.1.dev219-cp38-abi3-macosx_12_0_arm64.whl
 ```
 
 ## Running unit tests
@@ -196,6 +209,8 @@ Install tox `pip install tox==3.28.0` and then run `tox` in source root. To inst
 If you use `asdf` to manage multiple versions of Python, also install `tox-asdf`: `pip install tox-asdf`.
 
 Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- tests/test_runtime.py`.
+
+When running unit tests, `tox` it will try to build the Rust extension first. To skip building and running associated tests, set the UNFURL_TEST_SKIP_BUILD_RUST=1 environment variable.
 
 ## Status and Caveats
 

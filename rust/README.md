@@ -19,18 +19,28 @@ By default, this crate is built as a Python extension, to disable this feature, 
 
 ## Design notes
 
-Finding the match for a TOSCA requirement with a node_filter can't be determined with a simple algorithm. For example, a node_filter's match can depends on a property value that is computed from a requirement itself (e.g. via TOSCA's ``get_property`` function). So finding a node filter match might change a property's value, which in turn could affect the node_filter match.
+Finding the match for a TOSCA requirement with a node_filter can't be determined with a simple algorithm. For example, a requirement node_filter's match can depend on a property value that is itself computed from a requirement (e.g. via TOSCA's ``get_property`` function). So finding a node filter match might change a property's value, which in turn could affect the node_filter match.
 
-In addition to this basic functionality, this solver will use type inference to resolve requirements that haven't defined explicit node targets and support Unfurl's node_filter extensions for applying constraints and graph querying.
+In addition to this basic functionality, this solver will use type inference to resolve requirements that haven't defined explicit node targets and supports Unfurl's node_filter extensions for applying constraints and graph querying.
 
-Luckily we can avoid needing a full SAT solver and instead encode the inference rules as [Datalog](https://blogit.michelin.io/an-introduction-to-datalog/)-like query rules using [Ascent](https://github.com/s-arash/ascent/).
+Luckily, by eschewing negation and quantification we can avoid the need for a full SAT solver and instead encode the inference rules as [Datalog](https://blogit.michelin.io/an-introduction-to-datalog/)-like query rules using [Ascent](https://github.com/s-arash/ascent/) -- a simpler and more scalable approach.
 
 ## Why?
 
-One of Unfurl's goal is to enable adaptable blueprints that can easily compose independent, open-source components -- imagine something like a [package manager for the cloud](https://github.com/onecommons/cloudmap).
+One of Unfurl's goal is to enable adaptable blueprints that can easily compose independent, open-source components -- imagine something like a [package manager for the cloud](https://github.com/onecommons/cloudmap). This crate allows blueprints can express their requirements in a loosely-coupled, generic manner.
+
+## Development
+
+You can use the standard cargo commands for development if you use its ``--no-default-features`` flag to skip compiling with the "pyo3/extension-module" feature.
+
+To compile the Python extension, in the parent of this directory, run:
+
+``python setup.py build_rust --debug --inplace``
+
+Run `pip install setuptools-rust>=1.7.0 pbr` to install `setup.py`'s requirements.
 
 ## Tests
 
 Cargo tests should be invoked with ``cargo test --no-default-features`` because the "pyo3/extension-module" feature doesn't work with cargo test.
 
-Unfurl's Python unit tests have more extensive tests in https://github.com/onecommons/unfurl/blob/main/tests/test_solver.py.
+Unfurl's Python unit tests have more extensive tests in https://github.com/onecommons/unfurl/blob/main/tests/test_solver.py. See Unfurl's main README for instructions on running its unit tests.
