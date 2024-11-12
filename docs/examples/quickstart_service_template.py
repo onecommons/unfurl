@@ -12,20 +12,15 @@ db = std.PostgresDB()
 host = std.ContainerHost()
 
 container = std.ContainerService(
-  environment=unfurl.datatypes.EnvironmentVariables(
-    DBASE=db.url,
-    URL= std.SQLWebApp.url
-  ),
-  host_requirement=host,
-  container = unfurl_datatypes_DockerContainer(
+    environment=unfurl.datatypes.EnvironmentVariables(
+        DBASE=db.url, URL=std.SQLWebApp.url
+    ),
+    host_requirement=host,
+    container=unfurl_datatypes_DockerContainer(
         image="registry.gitlab.com/gitlab-org/project-templates/express/main:latest",
         ports=["5000:5000"],
-        deploy={"resources": {"limits": {"memory": Inputs.mem_size }}}
-  )
+        deploy={"resources": {"limits": {"memory": Inputs.mem_size}}},
+    ),
 )
 
-__root__ = std.SQLWebApp(
-  container=container,
-  db=db,
-  subdomain="myapp"
-)
+__root__ = std.SQLWebApp(container=container, db=db, subdomain="myapp")

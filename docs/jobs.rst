@@ -34,8 +34,10 @@ a job is created and run. Running a job entails these steps:
 
 After the job finishes, a summary is printed showing the results of each operation along with any `outputs` defined in the model.
 
-.. image:: images/job-summary.png
+.. figure:: images/job-summary.png
    :align: center
+
+   Example deploy job output
 
 Generated Files
 ===============
@@ -120,13 +122,13 @@ Changes are detected by comparing a digest of the values of the inputs and prope
 Undeploy (teardown)
 =====================
 
-The undeploy (:cli:`teardown<unfurl-teardown>`) workflow builds a plan where resources are deleted from the edges to the root, based on the topology's dependency graph -- essentially the reverse order of how it was deployed.
+The undeploy workflow (invoked by the :cli:`unfurl teardown<unfurl-teardown>` command) builds a plan where resources are deleted from the edges to the root, based on the topology's dependency graph -- essentially the reverse order of how it was deployed.
 
 A resource will be excluded from deletion if any of the following are true:
 
 * It was not created by the deployment (e.g. it was `discovered <Resource Discovery>`). This can be overridden by the :cli:`--destroyunmanaged<cmdoption-unfurl-deploy-destroyunmanaged>` job option. This is by the determined by the ``created`` field in the resource's status.
 
-* It is managed by another resource. In that case,the name of the resource that manages it is the value of its ``created`` field. (And it is the responsibility of the managing resource's delete operation to also delete this resource). 
+* It is managed by another resource. In that case, the name of the resource that manages it is the value of its ``created`` field. In this case, it is the responsibility of the managing resource's delete operation to also delete this resource.
 
 * Its status has ``protected`` set to true.
 

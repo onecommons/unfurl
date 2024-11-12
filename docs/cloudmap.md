@@ -173,3 +173,7 @@ This enables the cloudmap to used like a package manager to resolve the dependen
 Most code isn't used directly, instead there is a build or packaging process to create the the artifact (for example, an executable binary, a software package, or a container image) that actually used when an application is deployed; the `artifacts` section of a cloud map lists artifacts.
 
 Artifacts are declared separately from repositories because there isn't necessarily a way to determine how artifacts are built, but that relationship can be expressed with the `builds` annotation in the `notable` section. In the future, the cloud map schema will be extended to better represent the build processes build artifacts from code in repositories.
+
+## Future directions
+
+Could cloud maps evolve into a package manager for the cloud? See <https://github.com/onecommons/cloudmap/blob/main/README.md> for more on our vision.
