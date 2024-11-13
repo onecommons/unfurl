@@ -1,15 +1,12 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
-import importlib.util, importlib._bootstrap
 import io
-import inspect
 from types import ModuleType
 import sys
 import os.path
 from typing import (
     Any,
     Dict,
-    Set,
     List,
     Optional,
     Tuple,
@@ -248,8 +245,7 @@ class PythonToYaml:
                 module.__name__,
             )
             return yaml_path
-        assert module.__file__
-        if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
+        if not self.write_policy.can_overwrite(str(path), str(yaml_path)):
             logger.info(
                 "skipping saving imported python module as YAML %s: %s",
                 yaml_path,
