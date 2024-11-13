@@ -73,7 +73,8 @@ class PythonToYaml:
         self, module_name: str
     ) -> Tuple[Optional[ModuleType], Optional[Path]]:
         "Find the given Python module and corresponding yaml file path"
-        module = self.modules.get(module_name) or sys.modules.get(module_name)
+        # Python import should already have happened
+        module = self.modules.get(module_name)
         if not module:
             return None, None
         path = module.__file__
@@ -258,9 +259,7 @@ class PythonToYaml:
             return yaml_path
 
         # skip leading / and parts corresponding to the module name
-        base_dir = "/".join(
-            path.parts[1 : -len(module.__name__.split("."))]
-        )
+        base_dir = "/".join(path.parts[1 : -len(module.__name__.split("."))])
         with open(path) as sf:
             src = sf.read()
         namespace: dict = dict(__file__=str(path))
@@ -391,9 +390,15 @@ class PythonToYaml:
         # this type was imported from another module
         # instead of converting the type, add an import if missing
         module, yaml_path = self.find_yaml_import(module_name)
-        if not yaml_path and module:
-            #  its a TOSCA object but no yaml file found, convert to yaml now
-            yaml_path = self._imported_module2yaml(module)
+        if not yaml_path:
+            if module:
+                #  its a TOSCA object but no yaml file found, convert to yaml now
+                yaml_path = self._imported_module2yaml(module)
+            else:
+                logger.warning(
+                    f"Import of {module_name} in {current_module} failed, module wasn't loaded."
+                )
+                return
         if yaml_path:
             try:
                 module_dir = Path(os.path.dirname(module_path))
