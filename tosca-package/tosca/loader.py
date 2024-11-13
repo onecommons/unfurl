@@ -658,6 +658,7 @@ def restricted_exec(
             )
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
+        logger.warning(f"!!!! {full_name} {safe_mode}, {global_state.modules is sys.modules}")
         modules = global_state.modules if safe_mode else sys.modules
 
     if namespace is None:
@@ -748,6 +749,7 @@ def restricted_exec(
         sys.modules[full_name] = temp_module
     previous_safe_mode = global_state.safe_mode
     previous_mode = global_state.mode
+    logger.warning("00000000000 %s %s", full_name, temp_module)
     try:
         global_state.safe_mode = safe_mode
         global_state.mode = "spec"
@@ -757,9 +759,12 @@ def restricted_exec(
             namespace.update(temp_module.__dict__)
         else:
             exec(result.code, namespace)
+    except:
+        logger.warning("ASDFASDFASDFASDF %s %s", full_name, temp_module)
+        raise
     finally:
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
-        if safe_mode and temp_module:
+        if temp_module:
             del sys.modules[full_name]
     return result
