@@ -934,7 +934,7 @@ class Manifest(AttributeManager):
                     f"document include {templatePath} does not exist (base: {baseDir})"
                 )
         finally:
-            install(None)
+            install(None, repository_root)
         return path, doc
 
     def get_import_resolver(

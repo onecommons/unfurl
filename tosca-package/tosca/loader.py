@@ -594,7 +594,6 @@ import_resolver: Optional[ImportResolver] = None
 service_template_basedir = ""
 
 def _clear_special_modules():
-    # these are relative to the manifest
     for name in list(sys.modules):
         if name.startswith("service_template") or name.startswith("tosca_repositories"):
             del sys.modules[name]
@@ -607,8 +606,9 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     old_basedir = service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
-        # if base_dir != old_basedir:
-        #     _clear_special_modules()  # these are bad
+        if base_dir != old_basedir:
+            # delete modules whose contents are relative to the base dir that has changed
+            _clear_special_modules()
     else:
         service_template_basedir = os.getcwd()
     global installed
