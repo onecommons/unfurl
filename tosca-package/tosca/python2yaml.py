@@ -1,15 +1,12 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
-import importlib.util, importlib._bootstrap
 import io
-import inspect
 from types import ModuleType
 import sys
 import os.path
 from typing import (
     Any,
     Dict,
-    Set,
     List,
     Optional,
     Tuple,
@@ -35,7 +32,7 @@ from ._tosca import (
     EvalData,
     Namespace,
 )
-from .loader import restricted_exec, get_module_path
+from .loader import restricted_exec, get_module_path, get_allowed_modules
 
 
 class PythonToYaml:
@@ -97,7 +94,7 @@ class PythonToYaml:
         else:
             root_package = parts[0]
             repo_name = parts[0]
-        root_module = self.modules.get(root_package, sys.modules.get(root_package))
+        root_module = self.modules.get(root_package)
         if not root_module:
             return "", None
         root_path = root_module.__file__
@@ -249,8 +246,7 @@ class PythonToYaml:
                 module.__name__,
             )
             return yaml_path
-        assert module.__file__
-        if not self.write_policy.can_overwrite(module.__file__, str(yaml_path)):
+        if not self.write_policy.can_overwrite(str(path), str(yaml_path)):
             logger.info(
                 "skipping saving imported python module as YAML %s: %s",
                 yaml_path,
@@ -445,7 +441,7 @@ def python_src_to_yaml_obj(
     import_resolver=None,
 ) -> dict:
     if modules is None:
-        modules = {}
+        modules = get_allowed_modules()
     global_state.modules = modules
     if namespace is None:
         namespace = {}

@@ -26,6 +26,7 @@ import os.path
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.nodetemplate import NodeTemplate
 from .spec import ArtifactSpec, EntitySpec
+import tosca.loader
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
@@ -130,7 +131,14 @@ class ConfigurationSpec:
             from .dsl import DslMethodConfigurator
 
             module_name, qualname, action = className.split(":")
-            module = importlib.import_module(module_name)
+            if tosca.loader.import_resolver:
+                assert not tosca.loader.import_resolver.get_safe_mode(), module_name
+            else:
+                assert not tosca.safe_mode(), module_name
+            if module_name not in sys.modules:
+                module = importlib.import_module(module_name)
+            else:
+                module = sys.modules[module_name]
             cls_name, sep, func_name = qualname.rpartition(".")
             cls = getattr(module, cls_name)
             return DslMethodConfigurator(cls, getattr(cls, func_name), action)

@@ -25,6 +25,33 @@ from . import Namespace, global_state
 
 logger = logging.getLogger("tosca")
 
+# python standard library modules matches those added to utility_builtins
+ALLOWED_MODULES = (
+    "typing",
+    "typing_extensions",
+    "tosca",
+    "random",
+    "math",
+    "string",
+    "DateTime",
+    "unfurl",
+    "urllib.parse",
+)
+
+# XXX have the unfurl package set these:
+ALLOWED_PRIVATE_PACKAGES = [
+    "unfurl.tosca_plugins",
+    "unfurl.configurators.templates",
+]
+
+
+def get_allowed_modules() -> Dict[str, "ImmutableModule"]:
+    allowed = {}
+    for name in ALLOWED_MODULES:
+        if name in sys.modules:
+            allowed[name] = ImmutableModule(name, sys.modules[name])
+    return allowed
+
 
 def get_module_path(module) -> str:
     if getattr(module, "__spec__", None) and module.__spec__.origin:
@@ -68,7 +95,10 @@ class RepositoryFinder(PathFinder):
                         if os.path.exists(init_path):
                             loader = ToscaYamlLoader(fullname, init_path, modules)
                             return spec_from_file_location(
-                                fullname, init_path, loader=loader, submodule_search_locations=[repo_path]
+                                fullname,
+                                init_path,
+                                loader=loader,
+                                submodule_search_locations=[repo_path],
                             )
                         else:
                             return ModuleSpec(
@@ -88,7 +118,10 @@ class RepositoryFinder(PathFinder):
                         if os.path.exists(init_path):
                             loader = ToscaYamlLoader(fullname, init_path, modules)
                             return spec_from_file_location(
-                                fullname, init_path, loader=loader, submodule_search_locations=[origin_path]
+                                fullname,
+                                init_path,
+                                loader=loader,
+                                submodule_search_locations=[origin_path],
                             )
                         else:
                             return ModuleSpec(
@@ -162,7 +195,11 @@ class ToscaYamlLoader(Loader):
             python_filepath = str(path)
             with open(path) as f:
                 src = f.read()
-        safe_mode = import_resolver.get_safe_mode() if import_resolver else True
+        safe_mode = (
+            import_resolver.get_safe_mode()
+            if import_resolver
+            else global_state.safe_mode
+        )
         module.__dict__["__file__"] = python_filepath
         for i in range(self.full_name.count(".")):
             path = path.parent
@@ -172,6 +209,8 @@ class ToscaYamlLoader(Loader):
 
 
 class ImmutableModule(ModuleType):
+    "Immutable wrapper around allowed modules."
+
     __always_safe__ = (
         "__safe__",
         "__all__",
@@ -181,21 +220,21 @@ class ImmutableModule(ModuleType):
         "__root__",
     )
 
-    def __init__(self, name="__builtins__", **kw):
-        ModuleType.__init__(self, name)
-        super().__getattribute__("__dict__").update(kw)
+    def __init__(self, name, module):
+        super().__init__(name)
 
     def __getattribute__(self, __name: str) -> Any:
-        attrs = super().__getattribute__("__dict__")
+        module = sys.modules[super().__getattribute__("__name__")]
         if (
             __name not in ImmutableModule.__always_safe__
-            and __name not in attrs.get("__safe__", attrs.get("__all__", ()))
-            and attrs.get("__name__") != "math"
+            and __name
+            not in getattr(module, "__safe__", getattr(module, "__all__", ()))
+            and module.__name__ != "math"
         ):
             # special case "math", it doesn't have __all__
             # only allow access to public attributes
             raise AttributeError(__name)
-        return super().__getattribute__(__name)
+        return getattr(module, __name)
 
     def __setattr__(self, name, v):
         raise AttributeError(name)
@@ -204,14 +243,15 @@ class ImmutableModule(ModuleType):
         raise AttributeError(name)
 
 
-class DeniedModule(ImmutableModule):
+class DeniedModule(ModuleType):
     """
     A dummy module that defers raising ImportError until the module is accessed.
     This allows unsafe import statements in the global scope as long as access is never attempted during sandbox execution.
     """
 
     def __init__(self, name, fromlist, **kw):
-        super().__init__(name, **kw)
+        super().__init__(name)
+        object.__getattribute__(self, "__dict__").update(kw)
         object.__getattribute__(self, "__dict__")["__fromlist__"] = fromlist
 
     def __getattribute__(self, __name: str) -> Any:
@@ -233,12 +273,8 @@ class DeniedModule(ImmutableModule):
 
 def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
     parent, sep, last = name.rpartition(".")
-    if parent:
-        if parent not in modules:
-            if parent in sys.modules:
-                modules[parent] = sys.modules[parent]
-            else:
-                load_private_module(base_dir, modules, parent)
+    if parent and parent not in modules:
+        load_private_module(base_dir, modules, parent)
     if name in modules:
         # cf. "Crazy side-effects!" in _bootstrap.py (e.g. parent could have imported child)
         return modules[name]
@@ -300,6 +336,7 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
 
 
 def _check_fromlist(module, fromlist):
+    # note: allowed modules aren't lazily checked like denied modules and so will raise ImportError in safe mode
     if fromlist:
         allowed = set(getattr(module, "__safe__", getattr(module, "__all__", ())))
         for name in fromlist:
@@ -315,7 +352,7 @@ def _load_or_deny_module(name, ALLOWED_MODULES, modules):
         return modules[name]
     if name in ALLOWED_MODULES:
         module = importlib.import_module(name)
-        module = ImmutableModule(name, **vars(module))
+        module = ImmutableModule(name, module)
         modules[name] = module
         return module
     else:
@@ -333,46 +370,51 @@ def __safe_import__(
     level=0,
 ):
     parts = name.split(".")
+    assert modules is not sys.modules
     if level == 0:
-        is_allowed_package = name in ALLOWED_PRIVATE_PACKAGES
-        if name in modules and not (is_allowed_package and fromlist):
-            # we need to skip the second check to allow the fromlist to includes sub-packages
+        if name in modules:
+            if not fromlist:
+                return modules[parts[0]]
             module = modules[name]
-            if parts[0] != "tosca_repositories":
-                _check_fromlist(module, fromlist)
-            elif fromlist:
+            if parts[0] == "tosca_repositories":
                 for from_name in fromlist:
                     if not hasattr(module, from_name):
                         # e.g. from tosca_repositories.repo import module
-                        load_private_module(base_dir, modules, name+"."+from_name)
-            return module if fromlist else modules[parts[0]]
-        if name in ALLOWED_MODULES:
+                        load_private_module(base_dir, modules, name + "." + from_name)
+            if name in ALLOWED_MODULES:
+                _check_fromlist(module, fromlist)
+            # otherwise a privately loaded or DeniedModule, don't need to validate fromlist besides *
+            elif "*" in fromlist:
+                _validate_star(module)
+            # XXX if DeniedModule, update its __fromlist__ to defer ImportError
+            return module
+        if name in ALLOWED_MODULES:  # allowed but need to be made ImmutableModule
             if len(parts) > 1:
                 first = importlib.import_module(parts[0])
-                first = ImmutableModule(parts[0], **vars(first))
+                first = ImmutableModule(parts[0], first)
                 modules[parts[0]] = first
                 last = importlib.import_module(name)
                 _check_fromlist(last, fromlist)
-                last = ImmutableModule(name, **vars(last))
+                last = ImmutableModule(name, last)
                 modules[name] = last
                 # we don't need to worry about _handle_fromlist here because we don't allow importing submodules
                 return last if fromlist else first
             else:
                 module = importlib.import_module(name)
                 _check_fromlist(module, fromlist)
-                module = ImmutableModule(name, **vars(module))
+                module = ImmutableModule(name, module)
                 modules[name] = module
                 return module
-        elif not is_allowed_package and parts[0] != "tosca_repositories":
-            # these modules fall through to load_private_module():
+        elif name not in ALLOWED_PRIVATE_PACKAGES and parts[0] != "tosca_repositories":
             package_name, sep, module_name = name.rpartition(".")
             if package_name not in ALLOWED_PRIVATE_PACKAGES:
                 if fromlist:
                     return DeniedModule(name, fromlist)
                 else:
                     return _load_or_deny_module(parts[0], ALLOWED_MODULES, modules)
+            # not denied, so fall through to load_private_module() below
     else:
-        # relative import
+        # relative import so load_private_module
         package = globals["__package__"] if globals else None
         importlib._bootstrap._sanity_check(name, package, level)
         name = importlib._bootstrap._resolve_name(name, package, level)
@@ -381,21 +423,24 @@ def __safe_import__(
     module = load_private_module(base_dir, modules, name)
     if fromlist:
         if "*" in fromlist:
-            # ok if there's no __all__ because default * will exclude names that start with "_"
-            safe = getattr(module, "__safe__", None)
-            if safe is not None:
-                all_name = getattr(module, "__all__", ())
-                if set(safe) != set(all_name):
-                    raise ImportError(
-                        f'Import of * from {module.__name__} is not permitted, its "__all__" does not match its "__safe__" attribute.',
-                        name=module.__name__,
-                    )
-
+            _validate_star(module)
         # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
         importlib._bootstrap._handle_fromlist(
             module, fromlist, lambda name: load_private_module(base_dir, modules, name)
         )
     return module
+
+
+def _validate_star(module):
+    # ok if there's no __all__ because default * will exclude names that start with "_"
+    safe = getattr(module, "__safe__", None)
+    if safe is not None:
+        all_name = getattr(module, "__all__", ())
+        if set(safe) != set(all_name):
+            raise ImportError(
+                f'Import of * from {module.__name__} is not permitted, its "__all__" does not match its "__safe__" attribute.',
+                name=module.__name__,
+            )
 
 
 def doc_str(node):
@@ -418,26 +463,6 @@ def get_descriptions(body):
             doc_strings[current_name] = doc_str(node)
         current_name = None
     return doc_strings
-
-
-# python standard library modules matches those added to utility_builtins
-ALLOWED_MODULES = (
-    "typing",
-    "typing_extensions",
-    "tosca",
-    "random",
-    "math",
-    "string",
-    "DateTime",
-    "unfurl",
-    "urllib.parse",
-)
-
-# XXX have the unfurl package set these:
-ALLOWED_PRIVATE_PACKAGES = [
-    "unfurl.tosca_plugins",
-    "unfurl.configurators.templates",
-]
 
 
 def default_guarded_getattr(ob, name):
@@ -588,6 +613,12 @@ import_resolver: Optional[ImportResolver] = None
 service_template_basedir = ""
 
 
+def _clear_private_modules():
+    for name in list(sys.modules):
+        if name.startswith("service_template") or name.startswith("tosca_repositories"):
+            del sys.modules[name]
+
+
 def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     # insert the path hook ahead of other path hooks
     global import_resolver
@@ -596,13 +627,17 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     old_basedir = service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
+        if base_dir != old_basedir:
+            # delete modules whose contents are relative to the base dir that has changed
+            _clear_private_modules()
     else:
         service_template_basedir = os.getcwd()
     global installed
     if installed:
         return old_basedir
 
-    sys.meta_path.insert(0, RepositoryFinder())
+    if not isinstance(sys.meta_path[0], RepositoryFinder):
+        sys.meta_path.insert(0, RepositoryFinder())
     # XXX this breaks imports in local scope somehow:
     # sys.path_hooks.insert(0, FileFinder.path_hook(loader_details))
     # this break some imports:
@@ -721,7 +756,7 @@ def restricted_exec(
         # try to guess file path from module name
         if full_name.startswith("service_template."):
             # assume service_template is just our dummy package
-            module_name = full_name[len("service_template."):]
+            module_name = full_name[len("service_template.") :]
         else:
             module_name = full_name
         namespace["__file__"] = (
@@ -738,14 +773,20 @@ def restricted_exec(
     if result.errors:
         raise SyntaxError("\n".join(result.errors))
     temp_module = None
-    if full_name not in sys.modules:
-        # dataclass._process_class() might assume the current module is in sys.modules
-        # so to make it happy add a dummy one if its missing
+    if full_name not in modules:
         temp_module = ModuleType(full_name)
         temp_module.__dict__.update(namespace)
         if full_name == "service_template":
             temp_module.__path__ = [service_template_basedir]
+        modules[full_name] = temp_module
+    else:
+        temp_module = modules[full_name]
+    remove_temp_module = False
+    if temp_module and full_name not in sys.modules:
+        # dataclass._process_class() might assume the current module is in sys.modules
+        # so to make it happy add a dummy one if its missing
         sys.modules[full_name] = temp_module
+        remove_temp_module = True
     previous_safe_mode = global_state.safe_mode
     previous_mode = global_state.mode
     try:
@@ -760,6 +801,6 @@ def restricted_exec(
     finally:
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
-        if safe_mode and temp_module:
+        if remove_temp_module:
             del sys.modules[full_name]
     return result

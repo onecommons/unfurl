@@ -107,4 +107,5 @@ def test_quickstart():
         with open("service_template.py", "a") as f:
             f.write(deployment_blueprint)
         run_cmd(runner, "plan production")
-        run_cmd(runner, "deploy --dryrun --approve development")
+        if "slow" not in os.getenv("UNFURL_TEST_SKIP", ""):
+            run_cmd(runner, "deploy --dryrun --approve development")
