@@ -131,12 +131,14 @@ class ConfigurationSpec:
             from .dsl import DslMethodConfigurator
 
             module_name, qualname, action = className.split(":")
-            logger.warning("loading dsl configurator %s %s", module_name, tosca.safe_mode())
             if tosca.loader.import_resolver:
                 assert not tosca.loader.import_resolver.get_safe_mode(), module_name
             else:
                 assert not tosca.safe_mode(), module_name
-            module = importlib.import_module(module_name)
+            if module_name not in sys.modules:
+                module = importlib.import_module(module_name)
+            else:
+                module = sys.modules[module_name]
             cls_name, sep, func_name = qualname.rpartition(".")
             cls = getattr(module, cls_name)
             return DslMethodConfigurator(cls, getattr(cls, func_name), action)

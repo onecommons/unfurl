@@ -70,7 +70,7 @@ class PythonToYaml:
         self, module_name: str
     ) -> Tuple[Optional[ModuleType], Optional[Path]]:
         "Find the given Python module and corresponding yaml file path"
-        module = self.modules.get(module_name) or sys.modules.get(module_name)
+        module = self.modules.get(module_name)
         if not module:
             return None, None
         path = module.__file__
@@ -93,7 +93,7 @@ class PythonToYaml:
         else:
             root_package = parts[0]
             repo_name = parts[0]
-        root_module = self.modules.get(root_package, sys.modules.get(root_package))
+        root_module = self.modules.get(root_package)
         if not root_module:
             return "", None
         root_path = root_module.__file__

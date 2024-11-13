@@ -2248,10 +2248,11 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             globals = cls._globals
         else:
             globals = {}
-        if cls.__module__ in sys.modules and cls.__module__ != "builtins":
-            mod_globals = sys.modules[cls.__module__].__dict__
-        elif cls.__module__ in global_state.modules:
+        # global_state.modules get priority
+        if cls.__module__ in global_state.modules:
             mod_globals = global_state.modules[cls.__module__].__dict__
+        elif cls.__module__ in sys.modules and cls.__module__ != "builtins":
+            mod_globals = sys.modules[cls.__module__].__dict__
         else:
             mod_globals = {}
         locals = cls._namespace or {}

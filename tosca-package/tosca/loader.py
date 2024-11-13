@@ -233,12 +233,8 @@ class DeniedModule(ImmutableModule):
 
 def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str):
     parent, sep, last = name.rpartition(".")
-    if parent:
-        if parent not in modules:
-            if parent in sys.modules:
-                modules[parent] = sys.modules[parent]
-            else:
-                load_private_module(base_dir, modules, parent)
+    if parent and parent not in modules:
+        load_private_module(base_dir, modules, parent)
     if name in modules:
         # cf. "Crazy side-effects!" in _bootstrap.py (e.g. parent could have imported child)
         return modules[name]
@@ -601,8 +597,8 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     old_basedir = service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
-        if base_dir != old_basedir:
-            _clear_special_modules()  # these are bad
+        # if base_dir != old_basedir:
+        #     _clear_special_modules()  # these are bad
     else:
         service_template_basedir = os.getcwd()
     global installed
@@ -746,14 +742,20 @@ def restricted_exec(
     if result.errors:
         raise SyntaxError("\n".join(result.errors))
     temp_module = None
-    if full_name not in sys.modules:
-        # dataclass._process_class() might assume the current module is in sys.modules
-        # so to make it happy add a dummy one if its missing
+    if full_name not in modules:
         temp_module = ModuleType(full_name)
         temp_module.__dict__.update(namespace)
         if full_name == "service_template":
             temp_module.__path__ = [service_template_basedir]
+        modules[full_name] = temp_module
+    else:
+        temp_module = modules[full_name]
+    remove_temp_module = False
+    if full_name not in sys.modules:
+        # dataclass._process_class() might assume the current module is in sys.modules
+        # so to make it happy add a dummy one if its missing
         sys.modules[full_name] = temp_module
+        remove_temp_module = True
     previous_safe_mode = global_state.safe_mode
     previous_mode = global_state.mode
     try:
@@ -768,6 +770,6 @@ def restricted_exec(
     finally:
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
-        if temp_module:
+        if remove_temp_module:
             del sys.modules[full_name]
     return result
