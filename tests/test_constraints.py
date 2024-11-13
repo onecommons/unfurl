@@ -328,8 +328,6 @@ def test_computed_properties():
             "skipped": 0,
             "changed": 1,
         }
-        # XXX we need to delete this module because mytypes gets re-evaluated, breaking class identity
-        # is this a scenario we need to worry about outside unit tests?
         result, job, summary = run_job_cmd(
             cli_runner, ["-vvv", "undeploy"], print_result=True
         )

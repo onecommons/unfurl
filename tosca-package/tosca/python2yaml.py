@@ -32,7 +32,7 @@ from ._tosca import (
     EvalData,
     Namespace,
 )
-from .loader import restricted_exec, get_module_path
+from .loader import restricted_exec, get_module_path, get_allowed_modules
 
 
 class PythonToYaml:
@@ -441,7 +441,7 @@ def python_src_to_yaml_obj(
     import_resolver=None,
 ) -> dict:
     if modules is None:
-        modules = {}
+        modules = get_allowed_modules()
     global_state.modules = modules
     if namespace is None:
         namespace = {}

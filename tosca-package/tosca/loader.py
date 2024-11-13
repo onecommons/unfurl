@@ -25,6 +25,33 @@ from . import Namespace, global_state
 
 logger = logging.getLogger("tosca")
 
+# python standard library modules matches those added to utility_builtins
+ALLOWED_MODULES = (
+    "typing",
+    "typing_extensions",
+    "tosca",
+    "random",
+    "math",
+    "string",
+    "DateTime",
+    "unfurl",
+    "urllib.parse",
+)
+
+# XXX have the unfurl package set these:
+ALLOWED_PRIVATE_PACKAGES = [
+    "unfurl.tosca_plugins",
+    "unfurl.configurators.templates",
+]
+
+
+def get_allowed_modules() -> Dict[str, "ImmutableModule"]:
+    allowed = {}
+    for name in ALLOWED_MODULES:
+        if name in sys.modules:
+            allowed[name] = ImmutableModule(name, sys.modules[name])
+    return allowed
+
 
 def get_module_path(module) -> str:
     if getattr(module, "__spec__", None) and module.__spec__.origin:
@@ -68,7 +95,10 @@ class RepositoryFinder(PathFinder):
                         if os.path.exists(init_path):
                             loader = ToscaYamlLoader(fullname, init_path, modules)
                             return spec_from_file_location(
-                                fullname, init_path, loader=loader, submodule_search_locations=[repo_path]
+                                fullname,
+                                init_path,
+                                loader=loader,
+                                submodule_search_locations=[repo_path],
                             )
                         else:
                             return ModuleSpec(
@@ -88,7 +118,10 @@ class RepositoryFinder(PathFinder):
                         if os.path.exists(init_path):
                             loader = ToscaYamlLoader(fullname, init_path, modules)
                             return spec_from_file_location(
-                                fullname, init_path, loader=loader, submodule_search_locations=[origin_path]
+                                fullname,
+                                init_path,
+                                loader=loader,
+                                submodule_search_locations=[origin_path],
                             )
                         else:
                             return ModuleSpec(
@@ -162,7 +195,11 @@ class ToscaYamlLoader(Loader):
             python_filepath = str(path)
             with open(path) as f:
                 src = f.read()
-        safe_mode = import_resolver.get_safe_mode() if import_resolver else global_state.safe_mode
+        safe_mode = (
+            import_resolver.get_safe_mode()
+            if import_resolver
+            else global_state.safe_mode
+        )
         module.__dict__["__file__"] = python_filepath
         for i in range(self.full_name.count(".")):
             path = path.parent
@@ -183,13 +220,14 @@ class ImmutableModule(ModuleType):
 
     def __init__(self, name, module):
         super().__init__(name)
-        object.__getattribute__(self, "__dict__")["__protected_module__"] =  module
+        object.__getattribute__(self, "__dict__")["__protected_module__"] = module
 
     def __getattribute__(self, __name: str) -> Any:
         module = super().__getattribute__("__protected_module__")
         if (
             __name not in ImmutableModule.__always_safe__
-            and __name not in getattr(module, "__safe__", getattr(module, "__all__", ()))
+            and __name
+            not in getattr(module, "__safe__", getattr(module, "__all__", ()))
             and module.__name__ != "math"
         ):
             # special case "math", it doesn't have __all__
@@ -342,7 +380,7 @@ def __safe_import__(
                 for from_name in fromlist:
                     if not hasattr(module, from_name):
                         # e.g. from tosca_repositories.repo import module
-                        load_private_module(base_dir, modules, name+"."+from_name)
+                        load_private_module(base_dir, modules, name + "." + from_name)
             if name in ALLOWED_MODULES:
                 _check_fromlist(module, fromlist)
             elif "*" in fromlist:
@@ -392,6 +430,7 @@ def __safe_import__(
         )
     return module
 
+
 def _validate_star(module):
     # ok if there's no __all__ because default * will exclude names that start with "_"
     safe = getattr(module, "__safe__", None)
@@ -424,26 +463,6 @@ def get_descriptions(body):
             doc_strings[current_name] = doc_str(node)
         current_name = None
     return doc_strings
-
-
-# python standard library modules matches those added to utility_builtins
-ALLOWED_MODULES = (
-    "typing",
-    "typing_extensions",
-    "tosca",
-    "random",
-    "math",
-    "string",
-    "DateTime",
-    "unfurl",
-    "urllib.parse",
-)
-
-# XXX have the unfurl package set these:
-ALLOWED_PRIVATE_PACKAGES = [
-    "unfurl.tosca_plugins",
-    "unfurl.configurators.templates",
-]
 
 
 def default_guarded_getattr(ob, name):
@@ -593,10 +612,12 @@ installed = False
 import_resolver: Optional[ImportResolver] = None
 service_template_basedir = ""
 
+
 def _clear_special_modules():
     for name in list(sys.modules):
         if name.startswith("service_template") or name.startswith("tosca_repositories"):
             del sys.modules[name]
+
 
 def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     # insert the path hook ahead of other path hooks
@@ -735,7 +756,7 @@ def restricted_exec(
         # try to guess file path from module name
         if full_name.startswith("service_template."):
             # assume service_template is just our dummy package
-            module_name = full_name[len("service_template."):]
+            module_name = full_name[len("service_template.") :]
         else:
             module_name = full_name
         namespace["__file__"] = (

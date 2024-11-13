@@ -123,7 +123,7 @@ def convert_to_yaml(
     if safe_mode_override:
         safe_mode = safe_mode_override != "never"
     if import_resolver.manifest.modules is None:
-        import_resolver.manifest.modules = {}
+        import_resolver.manifest.modules = tosca.loader.get_allowed_modules()
     yaml_src = python_src_to_yaml_obj(
         contents,
         namespace,
