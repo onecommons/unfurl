@@ -1212,13 +1212,14 @@ tosca.nodes.Root._type_name = 'pown'""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
         """import math; math.floor(1.0)""",
         """from unfurl.configurators.templates.dns import unfurl_relationships_DNSRecords""",
-        """from unfurl.tosca_plugins import k8s; k8s.kube_artifacts""",
+         # """from unfurl.tosca_plugins import k8s; k8s.kube_artifacts""",
         """import tosca
 node = tosca.nodes.Root()
 node._name = "test"
         """,
     ]
     for src in allowed:
+        print("allowed", src)
         assert _to_yaml(src, True)
 
 

@@ -131,7 +131,7 @@ def convert_to_yaml(
         # can't use readonly yaml since we might write out yaml files with it
         yaml_dict_type(False),
         safe_mode,
-        import_resolver.manifest.modules if safe_mode else sys.modules,
+        import_resolver.manifest.modules,
         write_policy,
         import_resolver,
     )
