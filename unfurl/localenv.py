@@ -317,7 +317,8 @@ class Project:
         normalized = normalize_git_url_hard(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
-            assert repo
+            if not repo:
+                continue
             if repoURL.startswith("git-local://"):
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
                 match = initialCommit == repo.get_initial_revision()
@@ -364,9 +365,9 @@ class Project:
         candidate = None
         for dir in sorted(self.workingDirs.keys()):
             repo_view = self.workingDirs[dir]
-            repo = repo_view.repo
-            assert repo
-            filePath = repo.find_repo_path(path)
+            if not repo_view.repo:
+                continue
+            filePath = repo_view.repo.find_repo_path(path)
             if filePath is not None:
                 return repo_view, filePath, False
             #  XXX support bare repo and particular revisions
