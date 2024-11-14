@@ -2,7 +2,7 @@
 TOSCA Language Reference
 ================================
 
-This section describes the YAML syntax of the TOSCA :tosca_spec:`Service templates<DEFN_ELEMENT_SERVICE_TEMPLATE>` 
+This section describes the syntax of the TOSCA :tosca_spec:`Service templates<DEFN_ELEMENT_SERVICE_TEMPLATE>`
 
 A service template is comprised of several high level sections:
 

@@ -7,6 +7,7 @@
   <title>Changelog for Unfurl &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -48,22 +50,23 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Changelog for Unfurl</a><ul>
@@ -492,7 +495,7 @@ By default, don’t instantiate environment instances unless they are imported f
 <section id="embedded-blueprints-tosca-substitution-mapping">
 <h3>Embedded Blueprints (TOSCA substitution mapping)<a class="headerlink" href="#embedded-blueprints-tosca-substitution-mapping" title="Permalink to this headline"></a></h3>
 <p>Support for TOSCA substitution mapping has been stabilized and integrated into Unfurl Cloud.</p>
-<p>One new feature level enhancement an extension to TOSCA’s requirements mapping to that enables you to essentially parameterize an embedded template by letting the outer (the embedding template) substitute node templates in the embedded template.</p>
+<p>Support includes an extension to TOSCA’s requirements mapping that enables you to essentially parameterize an embedded template by letting the outer (the embedding template) substitute node templates in the embedded template.</p>
 <p>When substituted node template (in the outer topologies) declares requirements with whose name matches the name of a node template in the substituted (inner) topology then that node template will be replaced by the node template targeted by the requirement.</p>
 <p>For example, if the substituted (inner) topology looked like:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
@@ -637,7 +640,7 @@ By default, don’t instantiate environment instances unless they are imported f
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

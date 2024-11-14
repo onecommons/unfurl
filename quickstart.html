@@ -7,6 +7,7 @@
   <title>Quick start &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,11 +18,12 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Getting Started" href="get-started-step-by-step.html" />
+    <link rel="next" title="Solution Overview" href="solution-overview.html" />
     <link rel="prev" title="Introduction" href="README.html" /> 
 </head>
 
@@ -48,23 +50,31 @@
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Quick start</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#step-1-create-a-project">Step 1 Create a project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-2-describe-your-application">Step 2: Describe your application</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-3-instantiate-your-blueprint">Step 3 Instantiate your blueprint</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-4-deploy-and-manage">Step 4. Deploy and manage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-5-share-and-collaborate">Step 5. Share and Collaborate</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -96,33 +106,300 @@
              
   <section id="quick-start">
 <h1>Quick start<a class="headerlink" href="#quick-start" title="Permalink to this headline"></a></h1>
+<p>This section will introduce you to Unfurl by creating a simple project that deploys a web application. Once you get this working, you can customize it for your own application.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>The steps here follow the high-level overview of Unfurl found in the <a class="reference internal" href="solution-overview.html"><span class="doc">Solution Overview</span></a> section.</p>
+</div>
+<section id="step-1-create-a-project">
+<h2>Step 1 Create a project<a class="headerlink" href="#step-1-create-a-project" title="Permalink to this headline"></a></h2>
+<p>The first step is to create an Unfurl project to manage your deployments:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>myproject<span class="w"> </span>--empty
+</pre></div>
+</div>
+<p>This is will create an Unfurl project in directory “myproject”.  The <code class="docutils literal notranslate"><span class="pre">--empty</span></code> option skips creating an ensemble (a deployment) for now (we’ll add that later in <a class="reference internal" href="#step-3-instantiate-your-blueprint"><span class="std std-ref">step 3</span></a>).</p>
+<p>If this is the first time you’ve created a Unfurl project, you’ll notice a message like “Unfurl home created at ~/.unfurl_home”.  Unfurl home is an Unfurl project that contains local settings and resources that are shared with other projects on that machine, including an isolated execution environment to run Unfurl in. For more information, see <a class="reference internal" href="projects.html#unfurl-home"><span class="std std-ref">Unfurl Home</span></a>.</p>
+</section>
+<section id="step-2-describe-your-application">
+<h2>Step 2: Describe your application<a class="headerlink" href="#step-2-describe-your-application" title="Permalink to this headline"></a></h2>
+<p>Now that your project is set up, we’ll create an TOSCA <a class="reference internal" href="solution-overview.html#step-2-create-a-cloud-blueprint"><span class="std std-ref">blueprint</span></a> for deploying our application. In this example, its a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of things we need to do to deploy this web application:</p>
+<ul class="simple">
+<li><p>Create a service that can run the container image.</p></li>
+<li><p>Deploy a database and connect it to the web app.</p></li>
+<li><p>Consider DNS to resolve to the web app.</p></li>
+</ul>
+<p>We’ll add the blueprint to the project’s <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> file so that it can be reused by different <a class="reference internal" href="ensembles.html"><span class="doc">Ensembles</span></a>.</p>
+<p>The TOSCA specification defines types that provide basic abstractions for resources like compute instances and container images. In addition to TOSCA’s built-in types, we’ll use our <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard TOSCA library</a>, so first we need to import that:</p>
 <ol class="arabic simple">
-<li><p>After you’ve installed Unfurl, the first step is to create your “home” environment for Unfurl:</p></li>
+<li><p>Open <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> and uncomment these lines:</p></li>
 </ol>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>home<span class="w"> </span>--init
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">std</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://unfurl.cloud/onecommons/std.git</span>
 </pre></div>
 </div>
-<p>This will create an Unfurl project that, by default, is located at <code class="docutils literal notranslate"><span class="pre">~/.unfurl_home</span></code>. It will contain local configuration settings that will shared with your other projects and also creates an isolated environment to run Unfurl in. For more information, see <a class="reference internal" href="get-started-step-by-step.html#configure"><span class="std std-ref">.unfurl_home</span></a>.</p>
 <ol class="arabic simple" start="2">
-<li><p>Create an Unfurl project that will manage your deployment environments and record changes to your cloud accounts, for example:</p></li>
+<li><p>You can create your TOSCA blueprint in either YAML or Python. If you want to follow along using the Python examples, open <code class="docutils literal notranslate"><span class="pre">service_template.py</span></code> and uncomment these lines:</p></li>
 </ol>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>--create-environment<span class="w"> </span>aws-staging<span class="w"> </span>--skeleton<span class="w"> </span>aws
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca_repositories</span> <span class="kn">import</span> <span class="n">std</span>
 </pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">--skeleton</span></code> option lets you specify an alternative to the default project skeleton. A list of the currently available skeletons is <a class="reference external" href="https://github.com/onecommons/unfurl/tree/main/unfurl/skeletons">here</a> or use an absolute path to specify your own.</p>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p>Store the master password found in <code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> in a safe place! By default this password is used to encrypt any sensitive data committed to repository. See <a class="reference internal" href="secrets.html"><span class="doc">Managing Secrets</span></a> for more information.</p>
 </div>
 <ol class="arabic simple" start="3">
-<li><p>(Optional) Create a separate project to manage your application’s configuration and infrastructure-as-code files.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">validate</span></code>.</p></li>
 </ol>
-<p>You can add your infrastructure-as-code configuration directly into the environments project you just created but it can be more flexible to create separate projects for each application you are developing. For example, if you already have a git repository containing your application’s code, this command:</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>--existing<span class="w"> </span>--use-environment<span class="w"> </span>aws-staging
+<p>This will make sure the changes you just made are valid but more importantly, as a side effect, it will install the <code class="docutils literal notranslate"><span class="pre">std</span></code> repository so that if you open <code class="docutils literal notranslate"><span class="pre">service_template.py</span></code> in an Python IDE such as VS Code the Python import statements will resolve, enabling your editor’s type checking and code navigation.</p>
+<ol class="arabic simple" start="4">
+<li><p>Add the blueprint.</p></li>
+</ol>
+<p>Copy the code below to either service_template.py or ensemble-template.yaml. They are equivalent, in fact you can <a class="reference internal" href="dsl.html#usage"><span class="std std-ref">bi-directionally convert</span></a> them using the <a class="reference external" href="cli.html#unfurl-export">unfurl export</a> command.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-0">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">from</span> <span class="nn">unfurl.configurators.templates.docker</span> <span class="kn">import</span> <span class="n">unfurl_datatypes_DockerContainer</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Size</span><span class="p">,</span> <span class="n">TopologyInputs</span><span class="p">,</span> <span class="n">gb</span><span class="p">,</span> <span class="n">mb</span>
+<span class="kn">from</span> <span class="nn">tosca_repositories</span> <span class="kn">import</span> <span class="n">std</span>
+
+<span class="k">class</span> <span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
+    <span class="n">disk_size</span><span class="p">:</span> <span class="n">Size</span> <span class="o">=</span> <span class="mi">10</span> <span class="o">*</span> <span class="n">gb</span>
+    <span class="n">mem_size</span><span class="p">:</span> <span class="n">Size</span> <span class="o">=</span> <span class="mi">2048</span> <span class="o">*</span> <span class="n">mb</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">PostgresDB</span><span class="p">()</span>
+
+<span class="n">host</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">ContainerHost</span><span class="p">()</span>
+
+<span class="n">container</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">ContainerService</span><span class="p">(</span>
+    <span class="n">environment</span><span class="o">=</span><span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvironmentVariables</span><span class="p">(</span>
+        <span class="n">DBASE</span><span class="o">=</span><span class="n">db</span><span class="o">.</span><span class="n">url</span><span class="p">,</span> <span class="n">URL</span><span class="o">=</span><span class="n">std</span><span class="o">.</span><span class="n">SQLWebApp</span><span class="o">.</span><span class="n">url</span>
+    <span class="p">),</span>
+    <span class="n">host_requirement</span><span class="o">=</span><span class="n">host</span><span class="p">,</span>
+    <span class="n">container</span><span class="o">=</span><span class="n">unfurl_datatypes_DockerContainer</span><span class="p">(</span>
+        <span class="n">image</span><span class="o">=</span><span class="s2">&quot;registry.gitlab.com/gitlab-org/project-templates/express/main:latest&quot;</span><span class="p">,</span>
+        <span class="n">ports</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;5000:5000&quot;</span><span class="p">],</span>
+        <span class="n">deploy</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;resources&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;limits&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;memory&quot;</span><span class="p">:</span> <span class="n">Inputs</span><span class="o">.</span><span class="n">mem_size</span><span class="p">}}},</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">__root__</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">SQLWebApp</span><span class="p">(</span><span class="n">container</span><span class="o">=</span><span class="n">container</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="n">db</span><span class="p">,</span> <span class="n">subdomain</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>will commit an Unfurl project located at <code class="docutils literal notranslate"><span class="pre">.unfurl</span></code> in git repository the current directory is located in. By default, it will deploy into the environment you specified with <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> option (here, <code class="docutils literal notranslate"><span class="pre">aws-staging</span></code>) and those changes will be recorded in that environment’s repository.</p>
-<p>Now you are ready to start building your ensemble! For example, check out our examples for adding <a class="reference internal" href="configurators.html#ansible"><span class="std std-ref">Ansible</span></a> playbooks, <a class="reference internal" href="configurators.html#terraform"><span class="std std-ref">Terraform</span></a> modules or invoking <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell</span></a> commands. Or continue reading for a more in-depth Getting Started guide.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-1">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># add this to ensemble-template.yaml under</span>
+<span class="c1"># spec: </span>
+<span class="c1">#   service_template:</span>
+<span class="w">      </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">disk_size</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scalar-unit.size</span>
+<span class="w">            </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10 GB</span>
+<span class="w">          </span><span class="nt">mem_size</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scalar-unit.size</span>
+<span class="w">            </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048 MB</span>
+<span class="w">        </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDB</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_template</span>
+<span class="w">          </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerHost</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_template</span>
+<span class="w">          </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerService</span>
+<span class="w">            </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+<span class="w">            </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">DBASE</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::db::url</span>
+<span class="w">                </span><span class="nt">url</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::[.type=SQLWebApp]::url</span>
+<span class="w">              </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.gitlab.com/gitlab-org/project-templates/express/main:latest</span>
+<span class="w">                </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000:5000</span>
+<span class="w">                </span><span class="nt">deploy</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">resources</span><span class="p">:</span>
+<span class="w">                    </span><span class="nt">limits</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">memory</span><span class="p">:</span>
+<span class="w">                        </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mem_size</span>
+<span class="w">          </span><span class="nt">__root__</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SQLWebApp</span>
+<span class="w">            </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db</span>
+<span class="w">            </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">subdomain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span>
+<span class="w">        </span><span class="nt">root</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">__root__</span>
+<span class="w">      </span><span class="nt">imports</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configurators/templates/docker.yaml</span>
+<span class="w">        </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_repositories/std/generic_types.yaml</span>
+</pre></div>
+</div>
+</div>
+</div>
+<p>Here we declare a few abstract resources: a service to run the container, a Postgres database, and a web application as the public root of the blueprint, along with some <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a> to parameterize the blueprint. The parts of the blueprint that are not abstract are specific to our actual application: the container image we’ll use and the environment variables it expects.  In the next step we’ll instantiate those abstract types with implementations appropriate for the environment we’re deploying into.</p>
+</section>
+<section id="step-3-instantiate-your-blueprint">
+<h2>Step 3 Instantiate your blueprint<a class="headerlink" href="#step-3-instantiate-your-blueprint" title="Permalink to this headline"></a></h2>
+<p>Now that we have a model, we can customize for different environments.
+In this example, let’s suppose there are two types of environments we want to deploy this into:</p>
+<ul class="simple">
+<li><p>A production environment that deploys to AWS that installs the app on EC2 compute instance and deploys an AWS RDS database.</p></li>
+<li><p>A development environment that runs the app and Postgres as services on a local Kubernetes cluster.</p></li>
+</ul>
+<p>Let’s create those environments, along with a deployment for each:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>myproject
+unfurl<span class="w"> </span>init<span class="w"> </span>production<span class="w"> </span>--skeleton<span class="w"> </span>aws<span class="w"> </span>--use-environment<span class="w"> </span>production
+unfurl<span class="w"> </span>init<span class="w"> </span>development<span class="w"> </span>--skeleton<span class="w"> </span>k8s<span class="w"> </span>--use-environment<span class="w"> </span>development
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">--skeleton</span></code> option lets you specify an alternative to the default project skeleton. We’ll assume we’re deploying it into AWS so we will use the <code class="docutils literal notranslate"><span class="pre">aws</span></code> project skeleton. You can see all the built-in project skeletons <a class="reference external" href="https://github.com/onecommons/unfurl/tree/main/unfurl/skeletons">here</a> or use an absolute path to specify your own.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Store the master password found in <code class="docutils literal notranslate"><span class="pre">ensemble/local/unfurl.yaml</span></code> in a safe place! By default this password is used to encrypt any sensitive data committed to repository. See <a class="reference internal" href="secrets.html"><span class="doc">Managing Secrets</span></a> for more information.</p>
+</div>
+<p>There are different approaches to customize a blueprint for different environments but a simple one is to declare deployment blueprints. A <a class="reference internal" href="glossary.html#deployment-blueprint"><span class="std std-ref">Deployment blueprint</span></a> is a blueprint that is only applied when its criteria matches the deployment environment. It inherits from the service template’s blueprint and includes node templates that override the blueprint’s.  In YAML, they are declared in <code class="docutils literal notranslate"><span class="pre">deployment_blueprints</span></code> section of an ensemble. In Python, a <a class="reference internal" href="glossary.html#deployment-blueprint"><span class="std std-ref">Deployment blueprint</span></a> is represented as a Python class with the customized template objects as class attributes.</p>
+<p>Add the following code below the code from the previous step:</p>
+<div class="sd-tab-set docutils" id="deployment-blueprint-example">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-2">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca_repositories.std.aws.compute</span> <span class="kn">import</span> <span class="n">EC2Compute</span>
+<span class="kn">from</span> <span class="nn">tosca_repositories.std.aws.db</span> <span class="kn">import</span> <span class="n">AwsRdsPostgres</span>
+<span class="kn">from</span> <span class="nn">tosca_repositories.std</span> <span class="kn">import</span> <span class="n">k8s</span>
+<span class="kn">from</span> <span class="nn">tosca_repositories.std.dns_services</span> <span class="kn">import</span> <span class="n">Route53DNSZone</span>
+
+<span class="k">class</span> <span class="nc">production</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">DeploymentBlueprint</span><span class="p">):</span>
+    <span class="n">_cloud</span> <span class="o">=</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsToAWSAccount</span>
+
+    <span class="n">host</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">HttpsProxyContainerComputeHost</span><span class="p">(</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">EC2Compute</span><span class="p">(</span>
+            <span class="n">disk_size</span><span class="o">=</span><span class="n">Inputs</span><span class="o">.</span><span class="n">disk_size</span><span class="p">,</span>
+            <span class="n">num_cpus</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="n">mem_size</span><span class="o">=</span><span class="n">Inputs</span><span class="o">.</span><span class="n">mem_size</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">dns</span><span class="o">=</span><span class="n">Route53DNSZone</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;example.com&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">db</span> <span class="o">=</span> <span class="n">AwsRdsPostgres</span><span class="p">()</span>
+
+<span class="k">class</span> <span class="nc">dev</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">DeploymentBlueprint</span><span class="p">):</span>
+    <span class="c1"># unfurl_relationships_ConnectsTo_K8sCluster</span>
+    <span class="n">_cloud</span> <span class="o">=</span> <span class="s2">&quot;unfurl.relationships.ConnectsTo.K8sCluster&quot;</span>
+
+    <span class="n">host</span> <span class="o">=</span> <span class="n">k8s</span><span class="o">.</span><span class="n">PublicK8sContainerHost</span><span class="p">(</span>
+        <span class="n">labels</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;kompose.volume.size&quot;</span><span class="p">:</span> <span class="n">Inputs</span><span class="o">.</span><span class="n">disk_size</span><span class="p">}</span>
+    <span class="p">)</span>
+    <span class="n">db</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">PostgresDBInstance</span><span class="p">(</span>
+        <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;my_db&quot;</span><span class="p">,</span> <span class="n">host_requirement</span><span class="o">=</span><span class="n">k8s</span><span class="o">.</span><span class="n">PrivateK8sContainerHost</span><span class="p">()</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-3">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployment_blueprints</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">production</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">cloud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.ConnectsTo.AWSAccount</span>
+<span class="w">    </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerComputeHost</span>
+<span class="w">        </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_host</span>
+<span class="w">      </span><span class="nt">host_host</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EC2Compute</span>
+<span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">          </span><span class="nt">mem_size</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mem_size</span>
+<span class="w">          </span><span class="nt">disk_size</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">disk_size</span>
+<span class="w">      </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">AwsRdsPostgres</span>
+<span class="w">  </span><span class="nt">dev</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">cloud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.ConnectsTo.K8sCluster</span>
+<span class="w">    </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PublicK8sContainerHost</span>
+<span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">labels</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">kompose.volume.size</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">disk_size</span>
+<span class="w">      </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDBInstance</span>
+<span class="w">        </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db_host_requirement</span>
+<span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">database_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_db</span>
+<span class="w">      </span><span class="nt">db_host_requirement</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PrivateK8sContainerHost</span>
+<span class="nt">imports</span><span class="p">:</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aws/db.yaml</span>
+<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">std</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k8s.yaml</span>
+<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">std</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aws/compute.yaml</span>
+<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">std</span>
+</pre></div>
+</div>
+</div>
+</div>
+<p>Here, each deployment blueprint replaces the “host” and “db” node templates with subclasses of those abstract types that are specific to the cloud provider we want to deploy into.</p>
+<p>If you look at those <a class="reference external" href="https://unfurl.cloud/onecommons/std">implementations</a>, you’ll see they invoke Terraform, Ansible, and Kompose. If we defined our own types instead of using these predefined ones, we’d have to implement <a class="reference internal" href="tosca.html#interfaces-and-operations"><span class="std std-ref">operations</span></a> for deploying them. See the <a class="reference internal" href="glossary.html#configurators"><span class="std std-ref">Configurators</span></a> chapter to learn how to implement your own as <a class="reference internal" href="configurators.html#ansible"><span class="std std-ref">Ansible</span></a> playbooks, <a class="reference internal" href="configurators.html#terraform"><span class="std std-ref">Terraform</span></a> modules, or by invoking <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell</span></a> commands.</p>
+<p>You can use the <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command to review the scripts and artifact Unfurl generates to deploys your ensemble. For example if we run</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>plan<span class="w"> </span>production
+</pre></div>
+</div>
+<p>You’ll see something like this:</p>
+<figure class="align-center" id="id1">
+<img alt="_images/quickstart-aws-plan.png" src="_images/quickstart-aws-plan.png" />
+<figcaption>
+<p><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">plan</span> <span class="pre">production</span></code> output</span><a class="headerlink" href="#id1" title="Permalink to this image"></a></p>
+</figcaption>
+</figure>
+<p>The plan’s output includes the location of files that were generated (“rendered”) while creating the plan, for example, a Terraform module to deploy the AWS RDS database – see <a class="reference internal" href="jobs.html#generated-files"><span class="std std-ref">Generated Files</span></a>.</p>
+</section>
+<section id="step-4-deploy-and-manage">
+<h2>Step 4. Deploy and manage<a class="headerlink" href="#step-4-deploy-and-manage" title="Permalink to this headline"></a></h2>
+<p>Now we’re ready to deploy our application.  Run <a class="reference external" href="cli.html#unfurl-deploy">unfurl deploy development</a> from the command line to deploy the development ensemble. You can also use the <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> flag to simulate the deployment.</p>
+<p>After the job finishes, a summary is printed showing the results of each operation:</p>
+<figure class="align-center" id="id2">
+<img alt="" src="_images/quickstart-k8s-deploy.png" />
+<figcaption>
+<p><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span> <span class="pre">development</span></code> output</span><a class="headerlink" href="#id2" title="Permalink to this image"></a></p>
+</figcaption>
+</figure>
+<p>🎉 Congratulations on your first deployment with Unfurl! 🎉</p>
+<p>Now that you’ve deployed your ensemble, here are some ways you can manage your deployment:</p>
+<ul class="simple">
+<li><p>Commit your changes with <a class="reference external" href="cli.html#unfurl-commit">unfurl commit</a>. This will commit to git the latest configuration and history of changes made by the deployment, encrypting any sensitive data. (Or use <code class="docutils literal notranslate"><span class="pre">--commit</span></code> flag with the deploy <a class="reference external" href="cli.html#unfurl-deploy">unfurl deploy</a> command to do this automatically.)</p></li>
+<li><p>Run <a class="reference internal" href="projects.html#module-unfurl.server.gui"><span class="std std-ref">unfurl serve --gui</span></a> to view and manage your deployment. Or host your repositories on <a class="reference external" href="https://unfurl.cloud/">Unfurl Cloud</a> for a full-fledged, multi-user admin experience.</p></li>
+<li><p>Run <a class="reference internal" href="jobs.html#ad-hoc-jobs"><span class="std std-ref">Ad-hoc Jobs</span></a>.</p></li>
+<li><p>If you make changes to your deployment’s configuration, re-running <a class="reference internal" href="jobs.html#updating-a-deployment"><span class="std std-ref">unfurl deploy</span></a> will update the existing deployment.</p></li>
+<li><p>Delete it using the <a class="reference internal" href="jobs.html#undeploy-teardown"><span class="std std-ref">unfurl teardown</span></a> command.</p></li>
+</ul>
+</section>
+<section id="step-5-share-and-collaborate">
+<h2>Step 5. Share and Collaborate<a class="headerlink" href="#step-5-share-and-collaborate" title="Permalink to this headline"></a></h2>
+<p>To share your blueprint and deployment, push your repository to a git host service such as Github or Gitlab (or better yet, <a class="reference external" href="https://unfurl.cloud/">Unfurl Cloud</a>!). You just have to <a class="reference internal" href="projects.html#publishing-your-project"><span class="std std-ref">configure git remotes</span></a> for the git repositories we created.</p>
+<p>When we ran <a class="reference external" href="cli.html#unfurl-init">unfurl init</a>, we relied on the default behavior of creating a separate git repository for each ensemble. This allows the project’s blueprints and deployments to have separate histories and access control. This way we can make the blueprint repository public but limit access to the production repository to system admins. In either case, you’d use the <a class="reference internal" href="projects.html#cloning-projects-and-ensembles"><span class="std std-ref">unfurl clone</span></a> command to clone the blueprint or the ensemble.</p>
+<p>If you want to create a new deployment from the blueprint, clone the blueprint repository – by default, Unfurl will create a new ensemble using the blueprint unless the <code class="docutils literal notranslate"><span class="pre">--empty</span></code> flag is used.</p>
+<p>If you want to manage one of the deployments we already deployed, clone the repository that has that ensemble.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>If we had used <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> option with <a class="reference external" href="cli.html#unfurl-init">unfurl init</a> (or manually added a submodule using <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">submodule</span> <span class="pre">add</span></code>) then the unfurl clone command would have cloned those ensembles too as submodules.</p>
+</div>
+<p>Once multiple users are sharing your projects, start <a class="reference internal" href="solution-overview.html#step5"><span class="std std-ref">exploring</span></a> the different ways you can collaborate together to develop and manage your blueprints and deployments.</p>
+</section>
 </section>
 
 
@@ -130,13 +407,13 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="README.html" class="btn btn-neutral float-left" title="Introduction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="get-started-step-by-step.html" class="btn btn-neutral float-right" title="Getting Started" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="solution-overview.html" class="btn btn-neutral float-right" title="Solution Overview" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

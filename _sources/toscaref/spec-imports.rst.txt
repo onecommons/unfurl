@@ -40,10 +40,9 @@ for custom OpenStack plugin containing the
 
 A few important things to know about importing YAML files:
 
-* Imported files can be either relative to the service templates’s root directory or be a URL (as seen above).
+* Imported files can be either relative to the service templates’s root directory, to its declared repository, or be a URL (as seen above).
 * You can use imports within imported files and nest as many imports as you like.
-* An error will be raised if there are cyclic imports (i.e. a file is importing itself or importing a file which is importing the file that imported it, etc..)
-* Import only import the service template's type definitions, not the topology template or its contents. 
+* Import only makes available the imported type definitions, not the topology template. To access an imported topology use `Substitution Mappings`. 
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Import Section <_Toc50125256>`
 

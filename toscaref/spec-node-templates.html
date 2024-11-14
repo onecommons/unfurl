@@ -7,6 +7,7 @@
   <title>Node Templates &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="../_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="../_static/jquery.js"></script>
         <script src="../_static/underscore.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/design-tabs.js"></script>
         <script src="../_static/custom.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -49,21 +51,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../dsl.html">TOSCA as Python</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
 <li class="toctree-l2"><a class="reference internal" href="spec-repositories.html">Repositories</a></li>
@@ -91,6 +84,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -195,6 +198,10 @@ is a node template.</p>
 </section>
 <section id="example">
 <h2>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h2>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># The following node type is used in the node templates section</span>
 <span class="w">  </span><span class="nt">nodes.Nginx</span><span class="p">:</span>
@@ -239,6 +246,52 @@ is a node template.</p>
 <span class="w">        </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vm</span>
 </pre></div>
 </div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">Property</span>
+<span class="kn">import</span> <span class="nn">unfurl.configurators.shell</span>
+
+
+<span class="k">class</span> <span class="nc">NodesNginx</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">WebServer</span><span class="p">):</span>
+    <span class="n">port</span><span class="p">:</span> <span class="nb">int</span>
+
+    <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="s2">&quot;scripts/install-nginx.sh&quot;</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;process&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;env&quot;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="n">Eval</span><span class="p">({</span><span class="s2">&quot;get_property&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;SELF&quot;</span><span class="p">,</span> <span class="s2">&quot;port&quot;</span><span class="p">]})</span>
+                    <span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">},</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="s2">&quot;scripts/start-nginx.sh&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+
+<span class="n">vm</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span><span class="s2">&quot;vm&quot;</span><span class="p">)</span>
+<span class="n">vm</span><span class="o">.</span><span class="n">ip</span> <span class="o">=</span> <span class="s2">&quot;192.168.0.11&quot;</span>
+
+<span class="n">nginx</span> <span class="o">=</span> <span class="n">NodesNginx</span><span class="p">(</span><span class="s2">&quot;nginx&quot;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">80</span><span class="p">)</span>
+
+<span class="n">nginx</span><span class="o">.</span><span class="n">host</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">HostedOn</span><span class="p">()</span>
+<span class="n">nginx</span><span class="o">.</span><span class="n">host</span><span class="o">.</span><span class="n">target</span> <span class="o">=</span> <span class="n">vm</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;NodesNginx&quot;</span><span class="p">,</span> <span class="s2">&quot;vm&quot;</span><span class="p">,</span> <span class="s2">&quot;nginx&quot;</span><span class="p">]</span>
+
+</pre></div>
+</div>
+</div>
+</div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <p>For more information, refer to <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125410">TOSCA Node Templates Section</a></p>
@@ -257,7 +310,7 @@ is a node template.</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

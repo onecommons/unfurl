@@ -7,6 +7,7 @@
   <title>Interfaces &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="../_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="../_static/jquery.js"></script>
         <script src="../_static/underscore.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/design-tabs.js"></script>
         <script src="../_static/custom.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -47,22 +49,23 @@
 <li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -101,20 +104,17 @@
 <h3>Node Types and Interfaces<a class="headerlink" href="#node-types-and-interfaces" title="Permalink to this headline"></a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">some_type</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">interfaces</span><span class="p p-Indicator">:</span>
 <span class="w">      </span><span class="nt">interface1</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">op1</span><span class="p">:</span>
-<span class="w">          </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">        </span><span class="nt">op2</span><span class="p">:</span>
-<span class="w">          </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">      </span><span class="nt">interface2</span><span class="p">:</span>
-<span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="nt">requirements</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">some_requirement</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">source_interfaces</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">interface1</span><span class="p">:</span>
-<span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">    </span><span class="nt">target_interfaces</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;interface type name&gt;</span>
+<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">          </span><span class="l l-Scalar l-Scalar-Plain">..</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">           </span><span class="nt">op1</span><span class="p">:</span>
+<span class="w">             </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">           </span><span class="nt">op2</span><span class="p">:</span>
+<span class="w">             </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">      </span><span class="nt">interface2</span><span class="p">:</span>
 <span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 </pre></div>
@@ -127,10 +127,11 @@
 <span class="w">  </span><span class="nt">some_type</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">interface1</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">op1</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span>
-<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">           </span><span class="nt">op1</span><span class="p">:</span>
+<span class="w">             </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">             </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">               </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 </pre></div>
 </div>
 </section>
@@ -176,7 +177,7 @@
 </pre></div>
 </div>
 <p>When mapping an operation to an implementation, if there is no need to
-pass inputs or override the executor, the full mapping structure can be
+pass inputs the full mapping structure can be
 avoided and the implementation can be written directly.</p>
 </section>
 <section id="operation-input-schema-definition">
@@ -192,7 +193,6 @@ avoided and the implementation can be written directly.</p>
 <span class="w">              </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">              </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">              </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">          </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 </pre></div>
 </div>
 <table class="colwidths-given docutils align-default">
@@ -218,7 +218,7 @@ avoided and the implementation can be written directly.</p>
 <tr class="row-odd"><td><p>type</p></td>
 <td><p>no</p></td>
 <td><p>string</p></td>
-<td><p>stringInput type. Not specifying a data type means the type can be anything (also types not listed in the valid types). Valid types: string, integer, boolean</p></td>
+<td><p>Input type. Not specifying a data type means the type can be anything (also types not listed in the valid types). Valid types: string, integer, boolean</p></td>
 </tr>
 <tr class="row-even"><td><p>default</p></td>
 <td><p>no</p></td>
@@ -230,18 +230,6 @@ avoided and the implementation can be written directly.</p>
 </section>
 <section id="node-templates-interface-definition">
 <h2>Node Templates Interface Definition<a class="headerlink" href="#node-templates-interface-definition" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">some_node</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">  </span><span class="nt">requirements</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">      </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">      </span><span class="nt">source_interfaces</span><span class="p">:</span>
-<span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">      </span><span class="nt">target_interfaces</span><span class="p">:</span>
-<span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-</pre></div>
-</div>
 <section id="operation-inputs-in-node-templates-interfaces">
 <h3>Operation Inputs in Node Templates Interfaces<a class="headerlink" href="#operation-inputs-in-node-templates-interfaces" title="Permalink to this headline"></a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
@@ -249,14 +237,13 @@ avoided and the implementation can be written directly.</p>
 <span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">interface1</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">op1</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">plugin_name.path.to.module.task</span>
+<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myArtifact</span>
 <span class="w">          </span><span class="nt">inputs</span><span class="p">:</span>
 <span class="w">            </span><span class="nt">input1</span><span class="p">:</span>
 <span class="w">              </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">some mandatory input</span>
 <span class="w">            </span><span class="nt">input2</span><span class="p">:</span>
 <span class="w">              </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">some optional input with default</span>
 <span class="w">              </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000</span>
-<span class="w">          </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 
 <span class="nt">node_templates</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">some_node</span><span class="p">:</span>
@@ -288,11 +275,7 @@ avoided and the implementation can be written directly.</p>
 <section id="configuring-interfaces-in-node-types">
 <h3>Configuring Interfaces in Node Types<a class="headerlink" href="#configuring-interfaces-in-node-types" title="Permalink to this headline"></a></h3>
 <p>Configuring the master server:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">deployer</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
-
-<span class="nt">node_types</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">nodejs_app</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
@@ -313,15 +296,7 @@ avoided and the implementation can be written directly.</p>
 <li><p>Declared a <a class="reference internal" href="spec-node-types.html#node-types"><span class="std std-ref">node type</span></a> with a <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code> interface that has a single <code class="docutils literal notranslate"><span class="pre">configure</span></code> operation which is mapped to the <code class="docutils literal notranslate"><span class="pre">deployer.config_in_master.configure</span></code> task.</p></li>
 <li><p>Declared a <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node template of type <code class="docutils literal notranslate"><span class="pre">nodejs_app</span></code>.</p></li>
 </ul>
-</section>
-<section id="overriding-the-executor">
-<h3>Overriding the executor<a class="headerlink" href="#overriding-the-executor" title="Permalink to this headline"></a></h3>
-<p>In the above example we’ve declared an <code class="docutils literal notranslate"><span class="pre">executor</span></code> for our <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin. TOSCA enables declaring an <code class="docutils literal notranslate"><span class="pre">executor</span></code> for a single operation thus overriding the previous declaration.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">deployer</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
-
-<span class="nt">node_types</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">nodejs_app</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
@@ -332,7 +307,6 @@ avoided and the implementation can be written directly.</p>
 <span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deployer.config_in_master.configure</span>
 <span class="w">        </span><span class="nt">deploy</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deployer.deploy_framework.deploy</span>
-<span class="w">          </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_agent</span>
 
 <span class="nt">node_templates</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">vm</span><span class="p">:</span>
@@ -343,19 +317,11 @@ avoided and the implementation can be written directly.</p>
 </div>
 <p>Here we added a <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation to our <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code>
 interface.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Note that its <code class="docutils literal notranslate"><span class="pre">executor</span></code> attribute is configured to <code class="docutils literal notranslate"><span class="pre">host_agent</span></code> which means that even though the <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin is configured to execute operations on the <code class="docutils literal notranslate"><span class="pre">central_deployment_agent</span></code>, the <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation will be executed on hosts of the <code class="docutils literal notranslate"><span class="pre">nodejs_app</span></code> rather than the TOSCA manager.</p>
-</div>
 </section>
 <section id="declaring-an-operation-implementation-within-the-node">
 <h3>Declaring an operation implementation within the node<a class="headerlink" href="#declaring-an-operation-implementation-within-the-node" title="Permalink to this headline"></a></h3>
 <p>You can specify a full operation definition within the node’s interface under the node template itself.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">deployer</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
-
-<span class="nt">node_types</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">nodejs_app</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
@@ -397,7 +363,6 @@ interface.</p>
 <span class="w">          </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">        </span><span class="nt">deploy</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deployer.deploy_framework.deploy</span>
-<span class="w">          </span><span class="nt">executor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_agent</span>
 <span class="w">          </span><span class="nt">inputs</span><span class="p">:</span>
 <span class="w">            </span><span class="nt">source</span><span class="p">:</span>
 <span class="w">              </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deployment source</span>
@@ -422,10 +387,6 @@ interface.</p>
 </pre></div>
 </div>
 <p>Here, we added an input to the <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation under the <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code> interface in our <code class="docutils literal notranslate"><span class="pre">nodejs_app</span></code> node type and two inputs to the <code class="docutils literal notranslate"><span class="pre">start</span></code> operation in the <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node’s interface.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Note that interface inputs are NOT the same type of objects as the inputs defined in the <code class="docutils literal notranslate"><span class="pre">inputs</span></code> section of the service template. Interface inputs are passed directly to a plugin’s operation (as **kwargs to our <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation in the <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin) or, in the case of our <code class="docutils literal notranslate"><span class="pre">start</span></code> operations, to the Script Plugin.</p>
-</div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <p>For more information, refer to <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125307">TOSCA Interface Section</a></p>
@@ -442,7 +403,7 @@ interface.</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

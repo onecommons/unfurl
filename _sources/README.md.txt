@@ -8,9 +8,48 @@
 
 # Introduction
 
-Unfurl is a command line tool for managing your DevOps infrastructure. Unfurl lets you easily track configuration, secrets, software and code dependencies, and deployment history all in git.
+Unfurl is a command line tool for deploying services and applications.
 
-Unfurl can integrate with the DevOps tools you are already using -- like Terraform, Ansible, and Helm -- allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.
+Describe your application architecture at a high-level using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) standard and Unfurl creates a plan adapted to your deployment environment (e.g. your cloud provider, Kubernetes, or self-hosted machines), using artifacts such as shell scripts, Terraform modules or Ansible playbooks.
+
+After deployment, Unfurl records in git all the information needed for a reproducible deployment: the configuration, the artifacts and source repositories used in deployment, as well the state of the deployed resources. This enables intelligent updates as your configuration, dependencies, or environment changes.
+
+The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfurl.cloud), our open-source platform for collaboratively developing cloud applications.
+
+## Why use Unfurl?
+
+* You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can [manage that complexity without complicated DevOps processes](https://www.unfurl.cloud/blog/why-unfurl).
+
+* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it in a [Cloud Map](https://docs.unfurl.run/cloudmap.html) or on [Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
+
+* You want to use familiar coding practices and development processes to both develop blueprints and manage operations without depending on costly server infrastructure or having to rely on manual and proprietary admin UI.
+
+## How it works
+
+1. Create a project to manage your deployments. 
+
+Unfurl projects provide an easy way to track and organize all that goes into deploying an application, including configuration, secrets, and artifacts -- and track them in git. The goal is to provide isolation and reproducibility while maintaining human-scale, application-centric view of your resources.
+
+2. Create a cloud blueprint
+
+Avoid tedious and error prone low-level configuration by creating a cloud blueprint that describes your cloud application's architecture at a high-level in Python or YAML using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard. Blueprints includes the resources (e.g. compute instances), the services (e.g. a database) and the artifacts (e.g. a Docker container image or a software package).
+
+3. Instantiate your blueprint
+
+Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into. For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.  Or your can easily use your own implementations -- Unfurl integrates with tools like Terraform, Ansible, and Helm or you can encapsulate the scripts you already have.
+
+4. Deploy and manage. 
+
+Unfurl can automatically install missing dependencies.
+Deploy Use `unfurl deploy` to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.
+
+After the initial deployment, subsequent deployment plans take into account the current state of its resources. This way you can reduce errors by automatically reconfiguring as dependencies and environments change. You can also create custom operations or run ad-hoc commands in the ensemble's environment.
+
+5. Share and Collaborate
+
+Unfurl stores everything in git so git is all you need to share projects and collaboratively manage deployments.  Unfurl can use git lfs to provide locking during deployment and can automatically encrypts secrets. Or for ease of use and more advanced needs you can use [unfurl cloud](https://unfurl.cloud) to host and deploy.
+
+For complex applications and to enable open-source development and the integration of 3rd-party providers, Unfurl supports [design patterns](https://docs.unfurl.run/solution-overview.html#large-scale-collaboration) for integrating components and services that can be developed and deployed independently, such as [encapsulation](https://docs.unfurl.run/CHANGELOG.html#tosca-namespaces-and-global-type-identifiers), [composition](https://docs.unfurl.run/toscaref/spec-substitution-mapping.html), [loosely-coupled components](https://github.com/onecommons/unfurl/blob/main/rust/README.md), dependency injection, [semantic versioning](https://docs.unfurl.run/packages.html#package-resolution), and [component catalogs](https://docs.unfurl.run/cloudmap.html).
 
 ## Our Vision
 
@@ -19,25 +58,6 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live clo
 - Fully-functional and reproducible archives of web applications.
 - Location independence to decentralize cloud infrastructure.
 - Cooperatively build and run cloud services the same way we build open source software.
-
-## How it works
-
-1\. Use `unfurl init` to create an Unfurl-managed git repository. Or use `unfurl clone` to clone an existing one.
-
-2\. The repository will contain a few YAML files that you can edit. They will describe everything you'll need to deploy your application, such as:
-
-- Cloud provider and SaaS services account credentials and other secrets organized into environments.
-- Code repositories and container image registries.
-- A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard.
-- Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).
-
-3\. Use `unfurl deploy` to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.
-
-4\. Now you have a reproducible description of your cloud infrastructure stored in git! So you can:
-
-- Push your repository to a git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.
-- Pull incoming changes and review and approve pull requests before deploying.
-- Clone the repository and deploy to new environments even if they use different services -- because your model is adaptable, manual changes are minimized.
 
 ## Features
 
@@ -98,25 +118,26 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 # Installation
 
-`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pip` (or `pip3`):
+`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pipx` or `pip`:
 
 ```
-pip install unfurl
+pipx install unfurl
 ```
 
- Running `unfurl home --init` creates a virtual Python environment to run unfurl in so by default unfurl only installs the minimal requirements needed to run the command line. If you want to run unfurl using your system Python install it with the "full" option:
+By default, Unfurl creates an [Unfurl home](https://docs.unfurl.run/projects.html#unfurl-home) project with a virtual Python environment for deployments so Unfurl only installs the minimal requirements needed to run the command line. If you want to deploy in the same environment, install it with the "full" option:
 
 ```
-pip install unfurl[full]
+pipx install unfurl[full]
 ```
 
 You can also install `unfurl` directly from this repository to get the latest code:
 
 ```
-pip3 install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
+pipx install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
 ```
 
-Alternatively, you can use the [Unfurl container on Docker Hub](https://hub.docker.com/r/onecommons/unfurl):
+Alternatively, you can get the Unfurl container image from [GitHub](https://github.com/onecommons/unfurl/pkgs/container/unfurl) or [Docker Hub](https://hub.docker.com/r/onecommons
+/unfurl) and run Unfurl from the image:
 
 ```
 docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
@@ -128,7 +149,7 @@ The `stable` tag matches the version published to PyPi; `latest` is the latest c
 
 - Linux or MacOS
 - Git
-- Python (3.8, 3.9, 3.10, 3.11, 3.12)
+- Python (3.8, 3.9, 3.10, 3.11, 3.12, 3.13)
 
 Optional: Docker or Podman
 
@@ -145,24 +166,40 @@ Use the table below to activate shell autocompletion for the `unfurl`:
 | Fish  | Add this to `~/.config/fish/completions/unfurl.fish`: |
 |       | `eval (env _UNFURL_COMPLETE=fish_source unfurl)`      |
 
-## Developing
+## Development
+
+To hack on Unfurl:
+
+1. Clone this repository with its submodules:
+
+`git clone --recurse-submodules https://github.com/onecommons/unfurl /path/to/unfurl/`
+
+2. Install package dependencies and run Unfurl from source:
+
+`pip install -U -e /path/to/unfurl`
+
+3. Build the Rust extension (this is optional for developing or running Unfurl):
 
 ```
-git clone --recurse-submodules https://github.com/onecommons/unfurl
+pip install setuptools-rust>=1.7.0
+python setup.py build_rust --debug --inplace
 ```
 
-To build documentation: Run `tox -e docs`.
+Requires Rust >= 1.70.
 
-To build a distribution package run:
+4. To build documentation: Install tox (see below). Run `tox -e docs`.
 
-```
-python setup.py sdist bdist_wheel
-```
-
-You can now install this package with pip, for example:
+5. To build a distribution package run:
 
 ```
-pip install ./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl
+pip install build
+python -m build /path/to/unfurl/
+```
+
+You can now install this package with pip or pipx, for example:
+
+```
+pipx install ./dist/unfurl-1.1.1.dev219-cp38-abi3-macosx_12_0_arm64.whl
 ```
 
 ## Running unit tests
@@ -173,12 +210,13 @@ If you use `asdf` to manage multiple versions of Python, also install `tox-asdf`
 
 Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- tests/test_runtime.py`.
 
+When running unit tests, `tox` it will try to build the Rust extension first. To skip building and running associated tests, set the UNFURL_TEST_SKIP_BUILD_RUST=1 environment variable.
+
 ## Status and Caveats
 
 Be mindful of these limitations:
 
 - Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.
-- Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.
 - Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the `--force` and `--instance` [command line options](https://docs.unfurl.run/cli.html#unfurl-deploy).
 
 ## Unfurl Cloud

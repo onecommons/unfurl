@@ -27,7 +27,7 @@ Extensions
 * add "types" section to the service template can contain any entity type definition.
 * add "when" keyword to "imports" to allow conditional imports
 * add "decorators" section for rule-based enhancements of node templates
-* add "requirements" section to node_filters
+* add "requirements" and "properties" section to node_filters for applying constraints.
 * add "match" key to node_filters for selecting nodes
 * allow "root" to used as alias for the `substitution_mappings <substitution_mappings>` keyword.
 * add "node" keyword to `substitution_mappings <substitution_mappings>` section
@@ -41,7 +41,7 @@ Extensions
 * ``derived_from`` can accept a list types, enabling multiple inheritance.
 * add ``removed`` property status value
 * artifacts can be declared on node types.
-* add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts
+* add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts (see `Artifact enhancements`)
 
 
 Not yet implemented
@@ -53,7 +53,6 @@ conform with the TOSCA 1.3 specification:
 * The ``get_operation_output`` function (use :ref:`resultTemplate<resulttemplate>` instead)
 * "copy" keyword (use the ``dsl`` section or :ref:`merge directives<yaml_merge_directives>` instead)
 * the ``location`` and ``remove`` arguments to the `get_artifact` function
-* CSAR manifests and archives (implemented but untested)
 * substitution mappings: only input mappings are supported (set ``node`` to a node template instead)
 * triggers
 * notifications

@@ -10,7 +10,6 @@ Welcome! This is the documentation for **Unfurl**.
 **Unfurl** organizes your DevOps infrastructure into Git repositories and
 integrates with Terraform and Ansible. Use it to record `Ensembles`, reusable and sharable building blocks for deploying and managing your online creations.
 
-
 Table of Contents
 ===================================
 
@@ -21,21 +20,23 @@ Table of Contents
 
    quickstart.rst
 
-   get-started-step-by-step.rst
-
-   ensembles.rst
+   solution-overview.rst
 
    projects.rst
 
-   secrets.rst
+   ensembles.rst
+
+   jobs.rst
 
    tosca.rst
 
-   Python alternative to YAML <dsl.md>
+   TOSCA as Python <dsl.md>
+
+   toscaref.rst
 
    packages.rst
 
-   jobs.rst
+   secrets.rst
 
    runtime.rst
 
@@ -45,11 +46,11 @@ Table of Contents
 
    expressions.rst
 
+   cloudmap.md
+
    cli.rst
 
    jsonschema.rst
-
-   toscaref.rst
 
    glossary.rst
 

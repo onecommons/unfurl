@@ -7,6 +7,7 @@
   <title>Data Types &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="../_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="../_static/jquery.js"></script>
         <script src="../_static/underscore.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/design-tabs.js"></script>
         <script src="../_static/custom.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -49,21 +51,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../dsl.html">TOSCA as Python</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
 <li class="toctree-l2"><a class="reference internal" href="spec-repositories.html">Repositories</a></li>
@@ -93,6 +86,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -239,10 +242,13 @@ this type’s properties, we define an <code class="docutils literal notranslate
 the endpoint data type previously defined. Lastly, we define a node
 template with a <code class="docutils literal notranslate"><span class="pre">DatabaseService</span></code> type. This node template fully
 configures the endpoint properties (i.e. the <code class="docutils literal notranslate"><span class="pre">ip</span></code> and <code class="docutils literal notranslate"><span class="pre">port</span></code>).</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
 
 <span class="nt">data_types</span><span class="p">:</span>
-
 <span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Socket endpoint details</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
@@ -261,15 +267,51 @@ configures the endpoint properties (i.e. the <code class="docutils literal notr
 <span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
-
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
-<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">DataEntity</span>
+
+
+<span class="k">class</span> <span class="nc">my_datatypes_Endpoint</span><span class="p">(</span><span class="n">DataEntity</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Socket endpoint details&quot;&quot;&quot;</span>
+
+    <span class="n">_type_name</span> <span class="o">=</span> <span class="s2">&quot;my.datatypes.Endpoint&quot;</span>
+    <span class="n">ip</span><span class="p">:</span> <span class="nb">str</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;the endpoint IP&quot;&quot;&quot;</span>
+
+    <span class="n">port</span><span class="p">:</span> <span class="nb">int</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;the endpoint port&quot;&quot;&quot;</span>
+
+
+<span class="k">class</span> <span class="nc">DatabaseService</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
+    <span class="n">endpoint</span><span class="p">:</span> <span class="s2">&quot;my_datatypes_Endpoint&quot;</span>
+
+
+<span class="n">my_db_service</span> <span class="o">=</span> <span class="n">DatabaseService</span><span class="p">(</span>
+    <span class="s2">&quot;my_db_service&quot;</span><span class="p">,</span>
+    <span class="n">endpoint</span><span class="o">=</span><span class="n">my_datatypes_Endpoint</span><span class="p">(</span>
+        <span class="n">ip</span><span class="o">=</span><span class="s2">&quot;192.168.15.85&quot;</span><span class="p">,</span>
+        <span class="n">port</span><span class="o">=</span><span class="mi">2233</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 <section id="schema-validations">
 <h4>Schema Validations<a class="headerlink" href="#schema-validations" title="Permalink to this headline"></a></h4>
@@ -309,6 +351,10 @@ specified in <code class="docutils literal notranslate"><span class="pre">endpoi
 For example, consider the <code class="docutils literal notranslate"><span class="pre">my.datatypes.Endpoint</span></code> defined in the
 previous example. We can derive from it, to create an endpoint data type
 that also includes a user name.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-2">
+YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
 
 <span class="nt">data_types</span><span class="p">:</span>
@@ -331,16 +377,53 @@ that also includes a user name.</p>
 <span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.ExtendedEndpoint</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
-<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
-<span class="w">        </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span>
+<span class="w">      </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">            </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="w">            </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">DataEntity</span>
+
+
+<span class="k">class</span> <span class="nc">my_datatypes_Endpoint</span><span class="p">(</span><span class="n">DataEntity</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Socket endpoint details&quot;&quot;&quot;</span>
+
+    <span class="n">_type_name</span> <span class="o">=</span> <span class="s2">&quot;my.datatypes.Endpoint&quot;</span>
+    <span class="n">ip</span><span class="p">:</span> <span class="nb">str</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;the endpoint IP&quot;&quot;&quot;</span>
+
+    <span class="n">port</span><span class="p">:</span> <span class="nb">int</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;the endpoint port&quot;&quot;&quot;</span>
+
+
+<span class="k">class</span> <span class="nc">DatabaseService</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
+    <span class="n">endpoint</span><span class="p">:</span> <span class="s2">&quot;my_datatypes_Endpoint&quot;</span>
+
+
+<span class="n">my_db_service</span> <span class="o">=</span> <span class="n">DatabaseService</span><span class="p">(</span>
+    <span class="s2">&quot;my_db_service&quot;</span><span class="p">,</span>
+    <span class="n">endpoint</span><span class="o">=</span><span class="n">my_datatypes_Endpoint</span><span class="p">(</span>
+        <span class="n">ip</span><span class="o">=</span><span class="s2">&quot;192.168.15.85&quot;</span><span class="p">,</span>
+        <span class="n">port</span><span class="o">=</span><span class="mi">2233</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 <section id="composition">
@@ -349,8 +432,11 @@ that also includes a user name.</p>
 reuse the previously defined <code class="docutils literal notranslate"><span class="pre">my.datatypes.Endpoint</span></code>. This time, we
 will create a <code class="docutils literal notranslate"><span class="pre">my.datatypes.Connection</span></code> that will hold endpoint
 information + authentication details.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
-
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-4">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
 <span class="nt">data_types</span><span class="p">:</span>
 
 <span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span>
@@ -378,19 +464,59 @@ information + authentication details.</p>
 <span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Connection</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
-<span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
-<span class="w">        </span><span class="nt">auth</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span>
-<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
+<span class="w">    </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">            </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="w">          </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span>
+<span class="w">            </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Auth</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">username</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span>
+
+<span class="k">class</span> <span class="nc">Endpoint</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">ip</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">port</span><span class="p">:</span> <span class="nb">int</span>
+
+<span class="k">class</span> <span class="nc">Connection</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">endpoint</span><span class="p">:</span> <span class="n">Endpoint</span>
+    <span class="n">auth</span><span class="p">:</span> <span class="n">Auth</span>
+
+<span class="k">class</span> <span class="nc">DatabaseService</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
+    <span class="n">connection</span><span class="p">:</span> <span class="n">Connection</span>
+
+<span class="n">my_db_service</span> <span class="o">=</span> <span class="n">DatabaseService</span><span class="p">(</span>
+    <span class="s2">&quot;my_db_service&quot;</span><span class="p">,</span>
+    <span class="n">connection</span><span class="o">=</span><span class="n">Connection</span><span class="p">(</span>
+        <span class="n">endpoint</span><span class="o">=</span><span class="n">Endpoint</span><span class="p">(</span>
+            <span class="n">ip</span><span class="o">=</span><span class="s2">&quot;192.168.15.85&quot;</span><span class="p">,</span>
+            <span class="n">port</span><span class="o">=</span><span class="mi">2233</span>
+        <span class="p">),</span>
+        <span class="n">auth</span><span class="o">=</span><span class="n">Auth</span><span class="p">(</span>
+            <span class="n">username</span><span class="o">=</span><span class="s2">&quot;jimmy&quot;</span><span class="p">,</span>
+            <span class="n">password</span><span class="o">=</span><span class="s2">&quot;secret&quot;</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Endpoint&quot;</span><span class="p">,</span> <span class="s2">&quot;Connection&quot;</span><span class="p">,</span> <span class="s2">&quot;DatabaseService&quot;</span><span class="p">]</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 <section id="default-values">
@@ -400,10 +526,12 @@ by setting default values where it makes sense. Consider our previously
 defined <code class="docutils literal notranslate"><span class="pre">my.datatypes.Connection</span></code>. We can simplify its usage if we
 know that <code class="docutils literal notranslate"><span class="pre">port</span></code> by default will be <code class="docutils literal notranslate"><span class="pre">2233</span></code> and username by default
 will be <code class="docutils literal notranslate"><span class="pre">admin</span></code>.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
-
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-6" name="sd-tab-set-3" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-6">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
 <span class="nt">data_types</span><span class="p">:</span>
-
 <span class="w">  </span><span class="nt">my.datatypes.Connection</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
@@ -432,22 +560,60 @@ will be <code class="docutils literal notranslate"><span class="pre">admin</span
 <span class="nt">node_types</span><span class="p">:</span>
 
 <span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloudify.nodes.DBMS</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.DBMS</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Connection</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
-<span class="w">        </span><span class="nt">auth</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
+<span class="w">    </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">          </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-7" name="sd-tab-set-3" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-7">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Auth</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+  <span class="n">username</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;admin&quot;</span>
+  <span class="n">password</span><span class="p">:</span> <span class="nb">str</span>
+
+<span class="k">class</span> <span class="nc">Endpoint</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">ip</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2233</span>
+
+<span class="k">class</span> <span class="nc">Connection</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">endpoint</span><span class="p">:</span> <span class="n">Endpoint</span>
+    <span class="n">auth</span><span class="p">:</span> <span class="n">Auth</span>
+
+<span class="k">class</span> <span class="nc">DatabaseService</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
+    <span class="n">connection</span><span class="p">:</span> <span class="n">Connection</span>
+
+<span class="n">my_db_service</span> <span class="o">=</span> <span class="n">DatabaseService</span><span class="p">(</span>
+    <span class="s2">&quot;my_db_service&quot;</span><span class="p">,</span>
+    <span class="n">connection</span><span class="o">=</span><span class="n">Connection</span><span class="p">(</span>
+        <span class="n">endpoint</span><span class="o">=</span><span class="n">Endpoint</span><span class="p">(</span>
+            <span class="n">ip</span><span class="o">=</span><span class="s2">&quot;192.168.15.85&quot;</span>
+        <span class="p">),</span>
+        <span class="n">auth</span><span class="o">=</span><span class="n">Auth</span><span class="p">(</span>
+            <span class="n">password</span><span class="o">=</span><span class="s2">&quot;secret&quot;</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Endpoint&quot;</span><span class="p">,</span> <span class="s2">&quot;Connection&quot;</span><span class="p">,</span> <span class="s2">&quot;DatabaseService&quot;</span><span class="p">]</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 <p>Notice how the <code class="docutils literal notranslate"><span class="pre">my_db_service</span></code> node template only specified the
 <code class="docutils literal notranslate"><span class="pre">connection.endpoint.ip</span></code> and <code class="docutils literal notranslate"><span class="pre">connection.auth.password</span></code>. The other
@@ -485,10 +651,11 @@ type <code class="docutils literal notranslate"><span class="pre">nodes.MyApp</s
 template <code class="docutils literal notranslate"><span class="pre">my_app</span></code> of type <code class="docutils literal notranslate"><span class="pre">nodes.MyApp</span></code>. This node template
 overrides another single nested property <code class="docutils literal notranslate"><span class="pre">prop3</span></code> of the <code class="docutils literal notranslate"><span class="pre">data1</span></code>
 property.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
-
-<span class="nt">data_types</span><span class="p">:</span>
-
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-8" name="sd-tab-set-4" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-8">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">prop1</span><span class="p">:</span>
@@ -507,14 +674,40 @@ property.</p>
 <span class="w">        </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_app</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.MyApp</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">data1</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
+<span class="w">      </span><span class="nt">my_app</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.MyApp</span>
+<span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-9" name="sd-tab-set-4" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-9">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Data1</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">prop1</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prop1_default&quot;</span>
+    <span class="n">prop2</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prop2_default&quot;</span>
+    <span class="n">prop3</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prop3_default&quot;</span>
+
+<span class="k">class</span> <span class="nc">MyApp</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">data1</span><span class="p">:</span> <span class="n">Data1</span> <span class="o">=</span> <span class="n">Data1</span><span class="p">(</span><span class="n">prop2</span><span class="o">=</span><span class="s2">&quot;prop2_override&quot;</span><span class="p">)</span>
+
+<span class="n">my_app</span> <span class="o">=</span> <span class="n">MyApp</span><span class="p">(</span>
+    <span class="s2">&quot;my_app&quot;</span><span class="p">,</span>
+    <span class="n">data1</span><span class="o">=</span><span class="n">Data1</span><span class="p">(</span>
+        <span class="n">prop3</span><span class="o">=</span><span class="s2">&quot;prop3_override&quot;</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Data1&quot;</span><span class="p">,</span> <span class="s2">&quot;MyApp&quot;</span><span class="p">]</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 <p>After the service template is parsed, the <code class="docutils literal notranslate"><span class="pre">my_app</span></code> node template properties will be:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span>
@@ -551,8 +744,11 @@ will be:</p>
 property who’s type is a custom data type and keeps that type
 explicitly, a similar nested merging logic will apply as described
 previously. For example:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
-
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-10" name="sd-tab-set-5" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-10">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
 <span class="nt">data_types</span><span class="p">:</span>
 
 <span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span>
@@ -581,11 +777,34 @@ previously. For example:</p>
 <span class="w">        </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
+<span class="l l-Scalar l-Scalar-Plain">topology_template</span>
+<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">node_templates</span><span class="p p-Indicator">:</span>
 
-<span class="w">  </span><span class="nt">my_app</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.DerivedFromMyApp</span>
+<span class="w">    </span><span class="nt">my_app</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.DerivedFromMyApp</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-11" name="sd-tab-set-5" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-11">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Data1</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+  <span class="n">prop1</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prop1_default&quot;</span>
+  <span class="n">prop2</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prop2_default&quot;</span>
+  <span class="n">prop3</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prop3_default&quot;</span>
+
+<span class="k">class</span> <span class="nc">MyApp</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">data2</span><span class="p">:</span> <span class="n">Data1</span> <span class="o">=</span> <span class="n">Data1</span><span class="p">(</span><span class="n">prop2</span><span class="o">=</span><span class="s2">&quot;prop2_override&quot;</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">DerivedFromMyApp</span><span class="p">(</span><span class="n">MyApp</span><span class="p">):</span>
+    <span class="n">data2</span><span class="p">:</span> <span class="n">Data1</span> <span class="o">=</span> <span class="n">Data1</span><span class="p">(</span><span class="n">prop3</span><span class="o">=</span><span class="s2">&quot;prop3_override&quot;</span><span class="p">)</span>
+
+<span class="n">my_app</span> <span class="o">=</span> <span class="n">DerivedFromMyApp</span><span class="p">(</span><span class="s2">&quot;my_app&quot;</span><span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Data1&quot;</span><span class="p">,</span> <span class="s2">&quot;MyApp&quot;</span><span class="p">,</span> <span class="s2">&quot;DerivedFromMyApp&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+</div>
 </div>
 <p>After the service template is parsed, the <code class="docutils literal notranslate"><span class="pre">my_app</span></code> node template properties will be:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span>
@@ -614,7 +833,7 @@ previously. For example:</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

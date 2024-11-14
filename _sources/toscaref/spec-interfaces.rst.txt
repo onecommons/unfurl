@@ -17,20 +17,17 @@ Node Types and Interfaces
 
  node_types:
    some_type:
+     ...
      interfaces:
        interface1:
-         op1:
-           ...
-         op2:
-           ...
-       interface2:
-         ...
- requirements:
-   some_requirement:
-     source_interfaces:
-       interface1:
-         ...
-     target_interfaces:
+         type: <interface type name>
+         inputs:
+           ..
+         operations:
+            op1:
+              ...
+            op2:
+              ...
        interface2:
          ...
 
@@ -46,10 +43,11 @@ Operation Declaration in Node Types Interfaces
    some_type:
      interfaces:
        interface1:
-         op1:
-           implementation: ...
-           inputs:
-             ...
+         operations:
+            op1:
+              implementation: ...
+              inputs:
+                ...
 
 Definition
 ++++++++++
@@ -84,7 +82,7 @@ Simple Mapping
          op1: plugin_name.path.to.module.task
 
 When mapping an operation to an implementation, if there is no need to
-pass inputs or override the executor, the full mapping structure can be
+pass inputs the full mapping structure can be
 avoided and the implementation can be written directly.
 
 Operation Input Schema Definition
@@ -103,7 +101,6 @@ Operation Input Schema Definition
                description: ...
                type: ...
                default: ...
-           executor: ...
 
 
 .. list-table::
@@ -121,7 +118,7 @@ Operation Input Schema Definition
    * - type
      - no
      - string
-     - stringInput type. Not specifying a data type means the type can be anything (also types not listed in the valid types). Valid types: string, integer, boolean
+     - Input type. Not specifying a data type means the type can be anything (also types not listed in the valid types). Valid types: string, integer, boolean
    * - default
      - no
      - <any>
@@ -130,19 +127,6 @@ Operation Input Schema Definition
 
 Node Templates Interface Definition
 ++++++++++++++++++++++++++++++++++++
-
-.. code:: yaml
-
-   some_node:
-     interfaces:
-       ...
-     requirements:
-       - type: ...
-         target: ...
-         source_interfaces:
-           ...
-         target_interfaces:
-           ...
 
 
 Operation Inputs in Node Templates Interfaces
@@ -155,14 +139,13 @@ Operation Inputs in Node Templates Interfaces
      interfaces:
        interface1:
          op1:
-           implementation: plugin_name.path.to.module.task
+           implementation: myArtifact
            inputs:
              input1:
                description: some mandatory input
              input2:
                description: some optional input with default
                default: 1000
-           executor: ...
 
  node_templates:
    some_node:
@@ -199,10 +182,6 @@ Configuring the master server:
 
 .. code:: yaml
 
- plugins:
-   deployer:
-     executor: central_deployment_agent
-
  node_types:
    nodejs_app:
      derived_from: tosca.nodes.ApplicationModule
@@ -223,16 +202,8 @@ In this example, we’ve:
 * Declared a :ref:`node type<node_types>` with a ``my_deployment_interface`` interface that has a single ``configure`` operation which is mapped to the ``deployer.config_in_master.configure`` task.
 * Declared a ``nodejs`` node template of type ``nodejs_app``.
 
-Overriding the executor
------------------------
-
-In the above example we’ve declared an ``executor`` for our ``deployer`` plugin. TOSCA enables declaring an ``executor`` for a single operation thus overriding the previous declaration.
 
 .. code:: yaml
-
- plugins:
-   deployer:
-     executor: central_deployment_agent
 
  node_types:
    nodejs_app:
@@ -245,7 +216,6 @@ In the above example we’ve declared an ``executor`` for our ``deployer`` plugi
            implementation: deployer.config_in_master.configure
          deploy:
            implementation: deployer.deploy_framework.deploy
-           executor: host_agent
 
  node_templates:
    vm:
@@ -257,18 +227,12 @@ In the above example we’ve declared an ``executor`` for our ``deployer`` plugi
 Here we added a ``deploy`` operation to our ``my_deployment_interface``
 interface.
 
-.. note:: Note that its ``executor`` attribute is configured to ``host_agent`` which means that even though the ``deployer`` plugin is configured to execute operations on the ``central_deployment_agent``, the ``deploy`` operation will be executed on hosts of the ``nodejs_app`` rather than the TOSCA manager.
-
 Declaring an operation implementation within the node
 -----------------------------------------------------
 
 You can specify a full operation definition within the node’s interface under the node template itself.
 
 .. code:: yaml
-
- plugins:
-   deployer:
-     executor: central_deployment_agent
 
  node_types:
    nodejs_app:
@@ -318,7 +282,6 @@ Operations can specify inputs that will be passed to the implementation.
            ...
          deploy:
            implementation: deployer.deploy_framework.deploy
-           executor: host_agent
            inputs:
              source:
                description: deployment source
@@ -343,8 +306,5 @@ Operations can specify inputs that will be passed to the implementation.
 
 
 Here, we added an input to the ``deploy`` operation under the ``my_deployment_interface`` interface in our ``nodejs_app`` node type and two inputs to the ``start`` operation in the ``nodejs`` node’s interface.
-
-
-.. note:: Note that interface inputs are NOT the same type of objects as the inputs defined in the ``inputs`` section of the service template. Interface inputs are passed directly to a plugin’s operation (as \**kwargs to our ``deploy`` operation in the ``deployer`` plugin) or, in the case of our ``start`` operations, to the Script Plugin.
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Interface Section <_Toc50125307>`

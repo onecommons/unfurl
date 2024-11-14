@@ -7,6 +7,7 @@
   <title>Unfurl documentation &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -48,22 +50,23 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -104,62 +107,86 @@ integrates with Terraform and Ansible. Use it to record <a class="reference inte
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="README.html#our-vision">Our Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="README.html#why-use-unfurl">Why use Unfurl?</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#how-it-works">How it works</a></li>
+<li class="toctree-l2"><a class="reference internal" href="README.html#our-vision">Our Vision</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#features">Features</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="README.html#requirements">Requirements</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#shell-autocomplete">Shell autocomplete</a></li>
-<li class="toctree-l2"><a class="reference internal" href="README.html#developing">Developing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="README.html#development">Development</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#running-unit-tests">Running unit tests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#status-and-caveats">Status and Caveats</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#unfurl-cloud">Unfurl Cloud</a></li>
 <li class="toctree-l2"><a class="reference internal" href="README.html#get-started">Get Started</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="get-started-step-by-step.html#configure-your-home-environment">1. Configure your home environment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="get-started-step-by-step.html#create-a-project">2. Create a project</a></li>
-<li class="toctree-l2"><a class="reference internal" href="get-started-step-by-step.html#create-a-service-template">3. Create a service template</a></li>
-<li class="toctree-l2"><a class="reference internal" href="get-started-step-by-step.html#implementing-an-operation">4. Implementing an operation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="get-started-step-by-step.html#activate-your-ensemble">5 Activate your ensemble</a></li>
-<li class="toctree-l2"><a class="reference internal" href="get-started-step-by-step.html#publish-your-project">6. Publish your project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#step-1-create-a-project">Step 1 Create a project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#step-2-describe-your-application">Step 2: Describe your application</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#step-3-instantiate-your-blueprint">Step 3 Instantiate your blueprint</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#step-4-deploy-and-manage">Step 4. Deploy and manage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#step-5-share-and-collaborate">Step 5. Share and Collaborate</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="ensembles.html#repositories-and-history">Repositories and History</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ensembles.html#isolation-and-reproducibility">Isolation and Reproducibility</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ensembles.html#uris">URIs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ensembles.html#anatomy-of-a-manifest">Anatomy of a Manifest</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="solution-overview.html#step-1-create-an-unfurl-project">Step 1: Create an Unfurl Project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="solution-overview.html#step-2-create-a-cloud-blueprint">Step 2: Create a cloud blueprint</a></li>
+<li class="toctree-l2"><a class="reference internal" href="solution-overview.html#step-3-instantiate-your-blueprint">Step 3: Instantiate your blueprint</a></li>
+<li class="toctree-l2"><a class="reference internal" href="solution-overview.html#step-4-deploy-and-manage">Step 4: Deploy and manage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="solution-overview.html#step-5-share-and-collaborate">Step 5: Share and Collaborate</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#project-files">Project files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#git-repositories">Git Repositories</a></li>
 <li class="toctree-l2"><a class="reference internal" href="projects.html#environments">Environments</a></li>
 <li class="toctree-l2"><a class="reference internal" href="projects.html#external-ensembles">External ensembles</a></li>
-<li class="toctree-l2"><a class="reference internal" href="projects.html#project-defaults">Project defaults</a></li>
-<li class="toctree-l2"><a class="reference internal" href="projects.html#runtimes">Runtimes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#creating-projects">Creating projects</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#publishing-your-project">Publishing your project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#cloning-projects-and-ensembles">Cloning projects and ensembles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#module-unfurl.server.gui">Browser-based Admin User Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#unfurl-home">Unfurl Home</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html#execution-runtime">Execution Runtime</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="secrets.html#sensitive-values">Sensitive Values</a></li>
-<li class="toctree-l2"><a class="reference internal" href="secrets.html#creating-secrets">Creating secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ensembles.html#anatomy-of-a-manifest">Anatomy of a Manifest</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ensembles.html#repositories-and-history">Repositories and History</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ensembles.html#isolation-and-reproducibility">Isolation and Reproducibility</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ensembles.html#uris">URIs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#job-lifecycle">Job Lifecycle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#generated-files">Generated Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#updating-a-deployment">Updating a deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#undeploy-teardown">Undeploy (teardown)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#resource-discovery">Resource Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#checking-resources">Checking resources</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#ad-hoc-jobs">Ad-hoc Jobs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#locking">Locking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="jobs.html#operational-status-and-state">Operational status and state</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="tosca.html#introduction">Introduction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tosca.html#core-tosca-concepts">Core TOSCA Concepts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tosca.html#service-template">Service Template</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tosca.html#entity-types">Entity Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tosca.html#types">Types</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tosca.html#topology-template">Topology Template</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tosca.html#deployment-blueprints">Deployment blueprints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tosca.html#node-template">Node Template</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tosca.html#relationship-template">Relationship Template</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tosca.html#requirements-and-relationships">Requirements and Relationships</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tosca.html#artifacts">Artifacts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tosca.html#interfaces-and-operations">Interfaces and Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tosca.html#complete-example">Complete Example</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a><ul>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="dsl.html#why-a-dsl-domain-specic-language">Why a DSL (Domain Specic Language)?</a></li>
 <li class="toctree-l2"><a class="reference internal" href="dsl.html#installation">Installation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="dsl.html#status">Status</a></li>
@@ -167,6 +194,18 @@ integrates with Terraform and Ansible. Use it to record <a class="reference inte
 <li class="toctree-l2"><a class="reference internal" href="dsl.html#usage">Usage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="dsl.html#safe-mode">Safe Mode</a></li>
 <li class="toctree-l2"><a class="reference internal" href="dsl.html#api-documentation">API Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-tosca_def_version.html">Metadata</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-repositories.html">Repositories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-imports.html">Imports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-node-types.html">Node Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-data-types.html">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-other-types.html">Other Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-topology-template.html">Topology Templates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="extensions.html">Unfurl Specific</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a><ul>
@@ -178,16 +217,16 @@ integrates with Terraform and Ansible. Use it to record <a class="reference inte
 <li class="toctree-l2"><a class="reference internal" href="packages.html#package-rules">Package Rules</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="jobs.html#job-lifecycle">Job Lifecycle</a></li>
-<li class="toctree-l2"><a class="reference internal" href="jobs.html#operational-status-and-state">Operational status and state</a></li>
-<li class="toctree-l2"><a class="reference internal" href="jobs.html#changeids">ChangeIds</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="secrets.html#sensitive-values">Sensitive Values</a></li>
+<li class="toctree-l2"><a class="reference internal" href="secrets.html#creating-secrets">Creating secrets</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="runtime.html#job-variables">Job Variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runtime.html#connections">Connections</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runtime.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runtime.html#topology-inputs">Topology Inputs</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a><ul>
@@ -219,6 +258,14 @@ integrates with Terraform and Ansible. Use it to record <a class="reference inte
 <li class="toctree-l2"><a class="reference internal" href="expressions.html#special-keys">Special keys</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cloudmap.html#key-concepts">Key Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cloudmap.html#how-to">How To…</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cloudmap.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cloudmap.html#anatomy-of-a-cloud-map">Anatomy of a cloud map</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cloudmap.html#future-directions">Future directions</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cli.html#unfurl">unfurl</a></li>
 </ul>
@@ -227,18 +274,6 @@ integrates with Terraform and Ansible. Use it to record <a class="reference inte
 <li class="toctree-l2"><a class="reference internal" href="jsonschema.html#files">Files</a></li>
 <li class="toctree-l2"><a class="reference internal" href="jsonschema.html#sections">Sections</a></li>
 <li class="toctree-l2"><a class="reference internal" href="jsonschema.html#definitions">Definitions</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-tosca_def_version.html">Metadata</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-repositories.html">Repositories</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-imports.html">Imports</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-node-types.html">Node Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-data-types.html">Data Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-other-types.html">Other Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-topology-template.html">Topology Templates</a></li>
-<li class="toctree-l2"><a class="reference internal" href="extensions.html">Unfurl Specific</a></li>
-<li class="toctree-l2"><a class="reference internal" href="toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a><ul>
@@ -283,7 +318,7 @@ integrates with Terraform and Ansible. Use it to record <a class="reference inte
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

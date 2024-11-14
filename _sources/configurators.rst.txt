@@ -10,19 +10,25 @@ If you set an external command line directly as the ``implementation``, Unfurl w
 If ``operation_host`` is local it will use the `Shell` configurator, if it is remote,
 it will use the ``Ansible`` configurator and generate a playbook that invokes it on the remote machine:
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure: echo "abbreviated configuration"
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure: echo "abbreviated configuration"
+
+  .. literalinclude:: ./examples/configurators-1.py
+    :language: python
+
 
 Available configurators include:
 
@@ -40,30 +46,35 @@ The Ansible configurator executes the given playbook. You can access the same Un
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure:
-                  implementation: Ansible
-                  inputs:
-                    playbook:
-                      # quote this yaml so its templates are not evaluated before we pass it to Ansible
-                      q:
-                        - set_fact:
-                            fact1: "{{ '.name' | eval }}"
-                        - name: Hello
-                          command: echo "{{ fact1 }}"
-                  outputs:
-                    fact1:
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation: Ansible
+                    inputs:
+                      playbook:
+                        # quote this yaml so its templates are not evaluated before we pass it to Ansible
+                        q:
+                          - set_fact:
+                              fact1: "{{ '.name' | eval }}"
+                          - name: Hello
+                            command: echo "{{ fact1 }}"
+                    outputs:
+                      fact1:
+
+  .. literalinclude:: ./examples/configurators-2.py
+    :language: python
 
 Inputs
 ------
@@ -75,12 +86,17 @@ Inputs
   :playbookArgs: A list of strings that will be passed to ``ansible-playbook`` as command-line arguments
   :resultTemplate: Same behavior as defined for `Shell` but will also include ``outputs`` as a variable.
 
-Other ``implementation`` keys
+Outputs
+-------
+
+Keys declared as outputs are used as the names of the Ansible facts to be extracted after the playbook completes.
+
+``implementation`` key notes
 -----------------------------
 
-  :operation_host: If set, names the host.
-  :environment: If set, environment directives will processed and passed to the playbooks ``environment``
-  :outputs: A dictionary whose keys are the names of Ansible facts to be extracted after the playbook completes. If the value isn't null, it names the attribute to set with the Ansible fact's value.
+  :operation_host: If set, names the Ansible host.
+  :environment: If set, environment directives will processed and passed to the playbook's ``environment``
+
 
 Playbook processing
 -------------------
@@ -137,24 +153,29 @@ Example
 
 In this example, ``operation_host`` is set to a remote instance so the command is executed remotely using Ansible.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  apiVersion: unfurl/v1alpha1
-  kind: Ensemble
-  spec:
-    service_template:
-      topology_template:
-        node_templates:
-          test_remote:
-            type: tosca:Root
-            interfaces:
-              Standard:
-                configure:
-                  implementation:
-                    primary: Cmd
-                    operation_host: staging.example.com
-                  inputs:
-                    cmd: echo "test"
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            test_remote:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation:
+                      primary: Cmd
+                      operation_host: staging.example.com
+                    inputs:
+                      cmd: echo "test"
+
+  .. literalinclude:: ./examples/configurators-3.py
+    :language: python
 
 Delegate
 ========
@@ -170,7 +191,7 @@ Inputs
   :when: If set, only perform the delegated operation if its value evaluates to true.
 
 
-.. _shell:
+.. _shell_configurator:
 
 Shell
 =====
@@ -182,28 +203,34 @@ Inline shell script example
 
 This example executes an inline shell script and uses the ``cwd`` and ``shell`` input options.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        topology_template:
-          node_templates:
-            shellscript-example:
-              type: tosca:Root
-              interfaces:
-                Standard:
-                  configure:
-                    implementation: |
-                      if ! [ -x "$(command -v testvars)" ]; then
-                        source testvars.sh
-                      fi
-                    inputs:
-                        cwd: '{{ "project" | get_dir }}'
-                        keeplines: true
-                        # our script requires bash
-                        shell: '{{ "bash" | which }}'
+  .. code-block:: YAML
+
+      apiVersion: unfurl/v1alpha1
+      kind: Ensemble
+      spec:
+        service_template:
+          topology_template:
+            node_templates:
+              shellscript-example:
+                type: tosca:Root
+                interfaces:
+                  Standard:
+                    configure:
+                      implementation: |
+                        if ! [ -x "$(command -v testvars)" ]; then
+                          source testvars.sh
+                        fi
+                      inputs:
+                          cwd: '{{ "project" | get_dir }}'
+                          keeplines: true
+                          # our script requires bash
+                          shell: '{{ "bash" | which }}'
+
+  .. literalinclude:: ./examples/configurators-4.py
+    :language: python
+
 
 Example with artifact
 ---------------------
@@ -211,33 +238,13 @@ Example with artifact
 Declaring an artifact of a type that is associated with the shell configurator
 ensures Unfurl will install the artifact if necessary, before it runs the command.
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: tosca_plugins/artifacts.yaml
-        topology_template:
-          node_templates:
-            terraform-example:
-              type: tosca:Root
-              artifacts:
-                ripgrep:
-                  type: artifact.AsdfTool
-                  file: ripgrep
-                  properties:
-                    version: 13.0.0
-              interfaces:
-                Standard:
-                  configure:
-                    implementation: ripgrep
-                    inputs:
-                      cmd: rg search
+  .. literalinclude:: ./examples/configurators-5.yaml
+    :language: yaml
 
-
+  .. literalinclude:: ./examples/configurators-5.py
+    :language: python
 
 Inputs
 ------
@@ -255,7 +262,7 @@ Inputs
          (Doesn't affect the capture of stdout and stderr.)
   :keeplines: (*Default: false*) If true, preserve line breaks in the given command.
   :done: As as `done` defined by the `Template` configurator.
-  :resultTemplate: A Jinja2 template that is processed after shell command completes, it will have the following template variables:
+  :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` that is processed after shell command completes, it will have the following template variables:
 
 .. _resulttemplate:
 
@@ -271,6 +278,13 @@ All values will be either string or null unless otherwise noted.
   :error: Set if an exception was raised
   :timeout: (Null unless a timeout occurred)
 
+The processing the ``resultsTemplate`` is equivalent to passing its resulting YAML to `update_instances`.
+
+Outputs
+-------
+
+No outputs are set, use a ``resultsTemplate`` instead.
+
 Template
 =========
 
@@ -283,6 +297,11 @@ Inputs
   :dryrun: During a ``--dryrun`` job used instead of ``run``.
   :done:  If set, a map whose values passed as arguments to :py:meth:`unfurl.configurator.TaskView.done`
   :resultTemplate: A Jinja2 template that is processed with results of ``run`` as its variables.
+
+Outputs
+-------
+
+Operation outputs are set from the `outputs<operation_outputs>` key on the ``done`` input if present.
 
 .. _terraform:
 
@@ -304,34 +323,13 @@ You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node te
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-    apiVersion: unfurl/v1alpha1
-    kind: Ensemble
-    spec:
-      service_template:
-        imports:
-        - repository: unfurl
-          file: tosca_plugins/artifacts.yaml
-        topology_template:
-          node_templates:
+  .. literalinclude:: ./examples/configurators-6.yaml
+    :language: yaml
 
-            terraform-example:
-              type: unfurl.nodes.Installer.Terraform
-              interfaces:
-                defaults:
-                  inputs:
-                    tfvars:
-                      tag: test
-                    main: |
-
-                      variable "tag" {
-                        type        = string
-                      }
-
-                      output "name" {
-                        value = var.tag
-                      }
+  .. literalinclude:: ./examples/configurators-6.py
+    :language: python
 
 Inputs
 ------
@@ -347,11 +345,10 @@ Inputs
   :resultTemplate: A Jinja2 template that is processed with the Terraform state JSON file as its variables.
      See the Terraform providers' schema documentation for details but top-level keys will include "resources" and "outputs".
 
-Other ``implementation`` keys
------------------------------
+Outputs
+-------
 
-  :environment: This will set the environment variables exposed to Terraform.
-  :outputs: Specifies which outputs defined by the Terraform module that will be set as the operation's outputs. If omitted and the Terraform configuration is specified inline, all of the Terraform outputs will be included. But if a Terraform configuration directory was specified instead, its outputs need to be declared here to be exposed.
+Specifies which outputs defined by the Terraform module that will be set as the operation's outputs. If omitted and the Terraform configuration is specified inline, all of the Terraform outputs will be included. But if a Terraform configuration directory was specified instead, its outputs need to be declared here to be exposed.
 
 Environment Variables
 ---------------------
@@ -474,24 +471,13 @@ Inputs
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  node_templates:
-    hello-world-container:
-      type: unfurl.nodes.Container.Application.Docker
-      requirements:
-        - host: compute
-      artifacts:
-        image:
-          type: tosca.artifacts.Deployment.Image.Container.Docker
-          file: busybox
-      interfaces:
-        Standard:
-          inputs:
-            configuration:
-              command: ["echo", "hello world"]
-              detach:  no
-              output_logs: yes
+  .. literalinclude:: ./examples/configurators-7.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/configurators-7.py
+    :language: python
 
 DNS
 ====
@@ -534,33 +520,13 @@ Properties
 Example
 -------
 
-.. code-block:: YAML
+.. tab-set-code::
 
-  node_templates:
-    example_com_zone:
-      type: unfurl.nodes.DNSZone
-      properties:
-        name: example.com.
-        provider:
-          # Amazon Route53 (Note: this provider requires that the zone already exists.)
-          class: octodns.provider.route53.Route53Provider
+  .. literalinclude:: ./examples/configurators-8.yaml
+    :language: yaml
 
-    test_app:
-      type: tosca.nodes.WebServer
-      requirements:
-        - host: compute
-        - dns:
-            node: example_com_zone
-            relationship:
-               type:   unfurl.relationships.DNSRecords
-               properties:
-                 records:
-                  www:
-                    type: A
-                    value:
-                      # get the ip address of the Compute instance that this is hosted on
-                      eval: .source::.requirements::[.name=host]::.target::public_address
-
+  .. literalinclude:: ./examples/configurators-8.py
+    :language: python
 
 .. _helm:
 

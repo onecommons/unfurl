@@ -7,6 +7,7 @@
   <title>Getting Started &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,12 +18,11 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Ensembles" href="ensembles.html" />
-    <link rel="prev" title="Quick start" href="quickstart.html" /> 
+    <link rel="search" title="Search" href="search.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -45,38 +45,27 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <ul class="current">
+              <ul>
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#configure-your-home-environment">1. Configure your home environment</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#a-do-nothing-and-use-your-system-s-current-environment">A) Do nothing and use your system’s current environment</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#b-explicitly-create-and-edit-your-home-project">B) Explicitly create and edit your home project</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#create-a-project">2. Create a project</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#create-a-service-template">3. Create a service template</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#implementing-an-operation">4. Implementing an operation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#activate-your-ensemble">5 Activate your ensemble</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#publish-your-project">6. Publish your project</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -113,94 +102,9 @@
 <p class="admonition-title">Tip</p>
 <p>Before diving in, it is recommended that you read this high-level overview of <a class="reference external" href="https://unfurl.run/howitworks.html">How it works</a> section.</p>
 </div>
-<section id="configure-your-home-environment">
-<span id="configure"></span><h2>1. Configure your home environment<a class="headerlink" href="#configure-your-home-environment" title="Permalink to this headline"></a></h2>
-<p>Unfurl creates a “home” directory (by default at <code class="docutils literal notranslate"><span class="pre">~/.unfurl_home</span></code>) that contains the configuration settings and tools that you want shared by all your Unfurl projects. This is a good place to keep an inventory of the various account settings you’ll need to connect to your cloud resources. You can group these settings into <a class="reference internal" href="projects.html#environments"><span class="std std-ref">Environments</span></a> and <a class="reference internal" href="projects.html#unfurl-projects"><span class="std std-ref">Unfurl Projects</span></a> will inherit them – making it easy for different projects to switch between environments.</p>
-<p>The home project can also be used to isolate the  Unfurl runs in, enabling you set different versions of tools, create Python virtual environment or run Unfurl in a Docker container.</p>
-<p>Under the hood, Unfurl’s home is just a standard <a class="reference internal" href="cli.html#unfurl"><span class="std std-ref">unfurl</span></a> project modeling the local machine it is running on so you can customize it and deploy it like any other <a class="reference internal" href="cli.html#unfurl"><span class="std std-ref">unfurl</span></a> project.</p>
-<p>You have two options for setting up your Unfurl home:</p>
-<section id="a-do-nothing-and-use-your-system-s-current-environment">
-<h3>A) Do nothing and use your system’s current environment<a class="headerlink" href="#a-do-nothing-and-use-your-system-s-current-environment" title="Permalink to this headline"></a></h3>
-<p>By default, the first time you create an Unfurl project it will automatically generate a home project if it is missing.
-It will include configurations to the main cloud providers that will look for their standard environment variables
-such as <code class="docutils literal notranslate"><span class="pre">AWS_ACCESS_KEY_ID</span></code> and <code class="docutils literal notranslate"><span class="pre">AWS_SECRET_ACCESS_KEY</span></code>.
-Individual unfurl projects can filter or set the variables in its environment
-through the <a class="reference internal" href="projects.html#variables"><span class="std std-ref">Variables</span></a> subsection of the <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a> in the project file.</p>
-</section>
-<section id="b-explicitly-create-and-edit-your-home-project">
-<h3>B) Explicitly create and edit your home project<a class="headerlink" href="#b-explicitly-create-and-edit-your-home-project" title="Permalink to this headline"></a></h3>
-<p>Before you create your first Unfurl project, run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">home</span> <span class="pre">--init</span></code> to create the home project.
-It will be placed in <code class="docutils literal notranslate"><span class="pre">~/.unfurl_home</span></code> unless you specify otherwise using the <code class="docutils literal notranslate"><span class="pre">--home</span></code> option.</p>
-<p>Or if you have an existing home project you can just clone it like any other project and then create a new runtime
-using the <code class="docutils literal notranslate"><span class="pre">runtime</span></code> command, for example: <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">runtime</span> <span class="pre">--init</span> <span class="pre">~/.unfurl_home</span></code>.</p>
-<p>Now you can customize your home project, for example:</p>
-<ol class="arabic simple">
-<li><p>Edit the default environment and create new environments in <code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code></p></li>
-<li><p>Add secrets or configure secret manager</p></li>
-<li><p>Edit or add the connections in <a class="reference internal" href="jsonschema.html#id4"><span class="std std-ref">unfurl.yaml</span></a>
-to use environment variables or using secrets or just hard code the connection’s properties.</p></li>
-<li><p>Bootstrap dev tools</p></li>
-<li><p>Deploy local instances, like <a class="reference internal" href="configurators.html#supervisor"><span class="std std-ref">Supervisor</span></a>.</p></li>
-<li><p>Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125217">default directive</a> to indicate that template should only be used if it wasn’t already declared in the main project.</p></li>
-</ol>
-<p><code class="docutils literal notranslate"><span class="pre">~/.unfurl_home/ensemble.yaml</span></code> contains a template (<code class="docutils literal notranslate"><span class="pre">asdfBootstrap</span></code>) that will install
-local versions of the tools Unfurl’s <a class="reference internal" href="glossary.html#configurators"><span class="std std-ref">configurators</span></a> need (eg. asdf, Terraform, gcloud, and Helm)
-It install these tools, run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span> <span class="pre">~/.unfurl_home</span></code>.</p>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>Don’t worry about making mistakes – as a regular Unfurl project, your <a class="reference internal" href="#configure"><span class="std std-ref">.unfurl_home</span></a>
-contains a git repository so you can rollback to previous versions of your config files.</p>
-</div>
-</section>
-</section>
-<section id="create-a-project">
-<h2>2. Create a project<a class="headerlink" href="#create-a-project" title="Permalink to this headline"></a></h2>
-<p>Now you are ready to create your first Unfurl project.</p>
-<p>Run <a class="reference external" href="cli.html#unfurl-init">unfurl init</a></p>
-<p>This will create a new project and commit it to new git repository unless the
-<code class="docutils literal notranslate"><span class="pre">--existing</span></code> flag is used. If specified, Unfurl will search the current directory and its parents looking for the nearest existing git repository. It will then add the new project to that repository if one is found.</p>
-<p><a class="reference external" href="cli.html#unfurl-init">unfurl init</a> will also create an ensemble in the project unless the <code class="docutils literal notranslate"><span class="pre">--empty</span></code> flag used.
-By default, a separate, local git repository will be created for the ensemble. Use the <code class="docutils literal notranslate"><span class="pre">--mono</span></code> flag to add the ensemble to the project’s git repository or use the <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> flag to add the ensemble’s git repository as a submodule of the project’s git repository.</p>
-<p>Keeping the ensemble repository separate from the project repository is useful
-if the resources the ensemble creates are transitory or if you want to restrict access to them.
-Using the <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> option allows those repositories to be easily packaged and shared with the project repository
-but still maintain separate access control and git history for each ensemble.</p>
-<p>Once created, the project directory will look like:</p>
-<div class="line-block">
-<div class="line">├── .git</div>
-<div class="line">│   └── info/exclude</div>
-<div class="line">│   └── … (other git stuff)</div>
-<div class="line">├── .gitignore</div>
-<div class="line">├── .gitattributes</div>
-<div class="line">├── unfurl.yaml</div>
-<div class="line">├── secrets</div>
-<div class="line">│   └── secrets.yaml</div>
-<div class="line">├── local</div>
-<div class="line">│   └── unfurl.yaml</div>
-<div class="line">├── .unfurl-local-template.yaml</div>
-<div class="line">├── ensemble-template.yaml</div>
-<div class="line">├── ensemble</div>
-<div class="line">│   └── ensemble.yaml</div>
-</div>
-<p>In the folder structure above:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code> is the Unfurl project configuration file.</p></li>
-<li><p>Any files in <code class="docutils literal notranslate"><span class="pre">secrets</span></code> is automatically encrypted before committed.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">secrets/secrets.yaml</span></code> is included by <code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> is a template that is shared across ensembles in this project.</p></li>
-<li><p>Any files in``local`` is excluded from the git repository</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> is included by the parent <code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code>
-and is where you’ll put local or private settings you don’t want to commit.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">.unfurl-local-template.yaml</span></code> is the template used generate a new <code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> when the project is cloned.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ensemble</span></code> is the folder that contains the default ensemble
-(use the <code class="docutils literal notranslate"><span class="pre">--empty</span></code> flag to skip creating this).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ensemble/ensemble.yaml</span></code> is the manifest file for this ensemble. It includes <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code>.</p></li>
-<li><p>Private repository folders (like <code class="docutils literal notranslate"><span class="pre">ensemble</span></code>) are listed in <code class="docutils literal notranslate"><span class="pre">.git/info/exclude</span></code></p></li>
-</ul>
-</section>
 <section id="create-a-service-template">
 <span id="create-servicetemplate"></span><h2>3. Create a service template<a class="headerlink" href="#create-a-service-template" title="Permalink to this headline"></a></h2>
-<p>If you look at <a class="reference internal" href="jsonschema.html#ensemble-yaml"><span class="std std-ref">ensemble_template.yaml</span></a>, you’ll see that it contains a minimal template with one node template and one workflow.
+<p>If you look at <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">ensemble_template.yaml</span></a>, you’ll see that it contains a minimal template with one node template and one workflow.
 Workflows are optional but defining one is the simplest way to get started,
 because you just need to declare procedural steps instead of designing model of your topology.</p>
 <p>Topology and Orchestration Specification for Cloud Applications (TOSCA) is an OASIS standard language to describe a topology of cloud based web services,
@@ -208,125 +112,289 @@ their components, relationships, and the processes that manage them.
 The TOSCA standard includes specifications to describe processes that create or modify web services. You can read more about it on the OASIS website.</p>
 <p>You can find examples</p>
 <p><a class="reference external" href="https://github.com/oasis-open/tosca-community-contributions/tree/master/examples/1.3/tutorial">https://github.com/oasis-open/tosca-community-contributions/tree/master/examples/1.3/tutorial</a></p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-<span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span>
-<span class="w">        </span><span class="c1"># Host container properties</span>
-<span class="w">        </span><span class="nt">host</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">            </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span>
-<span class="w">            </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span>
-<span class="w">        </span><span class="c1"># Guest Operating System properties</span>
-<span class="w">        </span><span class="nt">os</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">            </span><span class="c1"># host Operating System image properties</span>
-<span class="w">            </span><span class="nt">architecture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x86_64</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">linux</span>
-<span class="w">            </span><span class="nt">distribution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu</span>
-<span class="w">            </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focal</span>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-YAML" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+<span class="w">            </span><span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">              </span><span class="c1"># Host container properties</span>
+<span class="w">              </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">                  </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span>
+<span class="w">                  </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span>
+<span class="w">              </span><span class="c1"># Guest Operating System properties</span>
+<span class="w">              </span><span class="nt">os</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                  </span><span class="c1"># host Operating System image properties</span>
+<span class="w">                  </span><span class="nt">architecture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x86_64</span>
+<span class="w">                  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">linux</span>
+<span class="w">                  </span><span class="nt">distribution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu</span>
+<span class="w">                  </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focal</span>
 </pre></div>
 </div>
-<p>A couple of things to note:
-* <code class="docutils literal notranslate"><span class="pre">tosca.nodes.Compute</span></code> on the these
-* In tosca dependencies</p>
-<blockquote>
-<div><ol class="upperalpha simple" start="4">
-<li><p>build-in types</p></li>
-<li><p>dependencies</p></li>
-</ol>
-</div></blockquote>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">my_server</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+<span class="s2">&quot;my_server&quot;</span><span class="p">,</span>
+<span class="n">host</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+    <span class="n">num_cpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">disk_size</span><span class="o">=</span><span class="mi">200</span> <span class="o">*</span> <span class="n">GB</span><span class="p">,</span>
+    <span class="n">mem_size</span><span class="o">=</span><span class="mi">512</span> <span class="o">*</span> <span class="n">MB</span><span class="p">,</span>
+  <span class="p">),</span>
+<span class="n">os</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">OperatingSystem</span><span class="p">(</span>
+    <span class="n">architecture</span><span class="o">=</span><span class="s2">&quot;x86_64&quot;</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;linux&quot;</span><span class="p">,</span>
+    <span class="n">distribution</span><span class="o">=</span><span class="s2">&quot;ubuntu&quot;</span><span class="p">,</span>
+    <span class="n">version</span><span class="o">=</span><span class="n">tosca_version</span><span class="p">(</span><span class="s2">&quot;focal&quot;</span><span class="p">),</span>
+  <span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
 </section>
 <section id="implementing-an-operation">
 <span id="implement-operation"></span><h2>4. Implementing an operation<a class="headerlink" href="#implementing-an-operation" title="Permalink to this headline"></a></h2>
 <p>Of course, we don’t have enough information “my_server” to actually create a compute instance – it could be, for example, a physical machine, a virtual machine, a docker image or Kubernetes pod.
 “my_server” are a set of abstract constraints that be applied to any number of</p>
 <p>It is the implementation that create (or discover) instances that conforms to this specification.
-Implementations are defined by specifying how to carry ouy operations that are applied to the node templates.
+Implementations are defined by specifying how to carry out operations that are applied to the node templates.
 TOSCA defines a vocabulary of a few standard operations such as “create” or “delete” and you can define your own.
 Their implementations can be a simple as the name of a shell script to invoke or yaml specification that is passed to a <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a>,
 which is Unfurl’s plugin system for implementing operations.
 Unfurl ships with several configurators, including ones for Ansible, Terraform and Kubernetes.</p>
 <p>We can implement <code class="docutils literal notranslate"><span class="pre">my_server</span></code> in just few lines of YAML by Google Cloud Platform by calling the <code class="docutils literal notranslate"><span class="pre">gcloud</span></code> tool.
 We’ll start with “delete” to make the</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-<span class="w">      </span><span class="c1"># details omitted, see example above</span>
-<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">delete</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
-<span class="w">      </span><span class="c1"># ... see example below for more operations</span>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-YAML" for="sd-tab-item-2">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+<span class="w">        </span><span class="c1"># details omitted, see example above</span>
+<span class="w">        </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">delete</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
+<span class="w">          </span><span class="c1"># ... see example below for more operations</span>
 </pre></div>
 </div>
-<p>Creates a little more verbose and illustrates how to pass input parameters and set attributes on the instance created from a template:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-<span class="w">      </span><span class="c1"># details omitted, see example above</span>
-<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">delete</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
-<span class="w">        </span><span class="nt">create</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<span class="w">            </span><span class="no">gcloud compute instances create {{ &#39;.name&#39; | eval }}</span>
-<span class="w">              </span><span class="no">--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | regex_replace(&quot; &quot;) }}</span>
-<span class="w">              </span><span class="no">--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: [&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span>
-<span class="w">                    </span><span class="no">--filter=name:focal --limit=1 --uri)</span>
-<span class="w">              </span><span class="no">--machine-type=e2-medium   &gt; /dev/null</span>
-<span class="w">            </span><span class="no">&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span>
-<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">resultTemplate</span><span class="p">:</span>
-<span class="w">              </span><span class="c1"># recursively merge the map with the yaml anchor &quot;gcloudStatusMap&quot;</span>
-<span class="w">              </span><span class="nt">+*gcloudStatusMap</span><span class="p">:</span>
-<span class="w">              </span><span class="nt">eval</span><span class="p">:</span>
-<span class="w">                </span><span class="nt">then</span><span class="p">:</span>
-<span class="w">                  </span><span class="nt">attributes</span><span class="p">:</span>
-<span class="w">                    </span><span class="nt">public_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].accessConfigs[0].natIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
-<span class="w">                    </span><span class="nt">private_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].networkIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
-<span class="w">                    </span><span class="nt">zone</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.zone</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">basename</span><span class="nv"> </span><span class="s">}}&quot;</span>
-<span class="w">                    </span><span class="nt">id</span><span class="p">:</span><span class="w">  </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.selfLink</span><span class="nv"> </span><span class="s">}}&quot;</span>
-<span class="w">          </span><span class="c1"># ...  see below</span>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;gcloud compute instances delete {{ &#39;.name&#39; | eval }}&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+
+<span class="n">my_server</span><span class="o">.</span><span class="n">delete</span> <span class="o">=</span> <span class="n">my_server_delete</span>
 </pre></div>
+</div>
+</div>
+</div>
+<p>Creates a little more verbose and illustrates how to pass input parameters and set attributes on the instance created from a template:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-YAML" for="sd-tab-item-4">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+<span class="w">          </span><span class="c1"># details omitted, see example above</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">delete</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
+<span class="w">              </span><span class="nt">create</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">                  </span><span class="no">gcloud compute instances create {{ &#39;.name&#39; | eval }}</span>
+<span class="w">                    </span><span class="no">--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | regex_replace(&quot; &quot;) }}</span>
+<span class="w">                    </span><span class="no">--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: [&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span>
+<span class="w">                          </span><span class="no">--filter=name:focal --limit=1 --uri)</span>
+<span class="w">                    </span><span class="no">--machine-type=e2-medium   &gt; /dev/null</span>
+<span class="w">                  </span><span class="no">&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">resultTemplate</span><span class="p">:</span>
+<span class="w">                    </span><span class="c1"># recursively merge the map with the yaml anchor &quot;gcloudStatusMap&quot;</span>
+<span class="w">                    </span><span class="nt">+*gcloudStatusMap</span><span class="p">:</span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">then</span><span class="p">:</span>
+<span class="w">                        </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">                          </span><span class="nt">public_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].accessConfigs[0].natIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">private_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].networkIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">zone</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.zone</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">basename</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">id</span><span class="p">:</span><span class="w">  </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.selfLink</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                </span><span class="c1"># ...  see below</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;gcloud compute instances delete {{ &#39;.name&#39; | eval }}&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;create&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_create</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="p">(</span>
+                <span class="s2">&quot;gcloud compute instances create {{ &#39;.name&#39; | eval }}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s1">&#39;--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | &#39;</span>
+                <span class="s1">&#39;regex_replace(&quot; &quot;) }}</span><span class="se">\n</span><span class="s1">&#39;</span>
+                <span class="s2">&quot;--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: &quot;</span>
+                <span class="s2">&quot;[&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;      --filter=name:focal --limit=1 --uri)</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;--machine-type=e2-medium   &gt; /dev/null</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">resultTemplate</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;eval&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;if&quot;</span><span class="p">:</span> <span class="s2">&quot;$result&quot;</span>
+                    <span class="s2">&quot;then&quot;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">&quot;attributes&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;public_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ &quot;</span>
+                            <span class="s2">&quot;result.networkInterfaces[0].accessConfigs[0].natIP &quot;</span>
+                            <span class="s2">&quot;}}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;private_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ &quot;</span>
+                            <span class="s2">&quot;result.networkInterfaces[0].networkIP &quot;</span>
+                            <span class="s2">&quot;}}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;zone&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ result.zone | basename }}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ result.selfLink }}&quot;</span><span class="p">,</span>
+                        <span class="p">}</span>
+                    <span class="p">}</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;vars&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="s2">&quot;{</span><span class="si">%i</span><span class="s2">f success %}{{ stdout | from_json }}{</span><span class="si">% e</span><span class="s2">ndif %}&quot;</span><span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+<span class="n">my_server</span><span class="o">.</span><span class="n">delete</span> <span class="o">=</span> <span class="n">my_server_delete</span>
+<span class="n">my_server</span><span class="o">.</span><span class="n">create</span> <span class="o">=</span> <span class="n">my_server_create</span>
+</pre></div>
+</div>
+</div>
 </div>
 <p>This implementation calls <code class="docutils literal notranslate"><span class="pre">gcloud</span> <span class="pre">compute</span> <span class="pre">instances</span> <span class="pre">create</span></code> to create the instance
 and then <code class="docutils literal notranslate"><span class="pre">gcloud</span> <span class="pre">compute</span> <span class="pre">instances</span> <span class="pre">describe</span></code>. The <code class="docutils literal notranslate"><span class="pre">resultTemplate</span></code> parses that json and</p>
-<p>One mysterious looking line is <code class="docutils literal notranslate"><span class="pre">+*gcloudStatusMap:</span></code> which is a merge directive
-That’s because its an anchor to a yaml map we haven’t defined yet.
+<p>One mysterious looking line is <code class="docutils literal notranslate"><span class="pre">+*gcloudStatusMap:</span></code> which is a <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directive</span></a>
+It’s referencing a yaml map we haven’t defined yet.
 We’ll see it when we finish off the implementation by defining the “check” operation:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-<span class="w">      </span><span class="c1"># details omitted...</span>
-<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">      </span><span class="c1"># other operations omitted, see example above</span>
-<span class="w">      </span><span class="nt">Install</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">check</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json</span>
-<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">resultTemplate</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;gcloudStatusMap</span>
-<span class="w">              </span><span class="nt">eval</span><span class="p">:</span>
-<span class="w">                </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$result</span>
-<span class="w">                </span><span class="nt">then</span><span class="p">:</span>
-<span class="w">                  </span><span class="nt">readyState</span><span class="p">:</span>
-<span class="w">                    </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;creating&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;starting&#39;,</span>
-<span class="w">                              </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;started&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
-<span class="w">                              </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;stopping&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;stopped&#39;,</span>
-<span class="w">                              </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;deleting&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;deleted&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-<span class="w">                    </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span>
-<span class="w">                              </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;ok&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
-<span class="w">                              </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span>
-<span class="w">                              </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-<span class="w">              </span><span class="nt">vars</span><span class="p">:</span>
-<span class="w">                </span><span class="nt">result</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{%if</span><span class="nv"> </span><span class="s">success</span><span class="nv"> </span><span class="s">%}{{</span><span class="nv"> </span><span class="s">stdout</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">from_json</span><span class="nv"> </span><span class="s">}}{%</span><span class="nv"> </span><span class="s">endif</span><span class="nv"> </span><span class="s">%}&quot;</span>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-6" name="sd-tab-set-3" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-YAML" for="sd-tab-item-6">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+<span class="w">          </span><span class="c1"># details omitted...</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="c1"># other operations omitted, see example above</span>
+<span class="w">            </span><span class="nt">Install</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">check</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">resultTemplate</span><span class="p">:</span>
+<span class="w">                    </span><span class="nt">+&amp;</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloudStatusMap</span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$result</span>
+<span class="w">                      </span><span class="nt">then</span><span class="p">:</span>
+<span class="w">                        </span><span class="nt">readyState</span><span class="p">:</span>
+<span class="w">                          </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;creating&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;starting&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;started&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
+<span class="w">                                    </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;stopping&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;stopped&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;deleting&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;deleted&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;ok&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
+<span class="w">                                    </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                    </span><span class="nt">vars</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">result</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{%if</span><span class="nv"> </span><span class="s">success</span><span class="nv"> </span><span class="s">%}{{</span><span class="nv"> </span><span class="s">stdout</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">from_json</span><span class="nv"> </span><span class="s">}}{%</span><span class="nv"> </span><span class="s">endif</span><span class="nv"> </span><span class="s">%}&quot;</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-7" name="sd-tab-set-3" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-7">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;check&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_check</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="s2">&quot;gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json&quot;</span>
+        <span class="p">),</span>
+        <span class="n">resultTemplate</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;eval&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;if&quot;</span><span class="p">:</span> <span class="s2">&quot;$result&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;then&quot;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">&quot;readyState&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ {&#39;PROVISIONING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;creating&#39;, &#39;STAGING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;starting&#39;, &#39;RUNNING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;started&#39;, &#39;REPAIRING&#39; &quot;</span>
+                            <span class="s2">&quot;&#39;error,&#39; &#39;SUSPENDING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;stopping&#39;,  &#39;SUSPENDED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;stopped&#39;, &#39;STOPPING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;deleting&#39;, &#39;TERMINATED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;deleted&#39;}[result.status] }}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ {&#39;PROVISIONING&#39;: &#39;pending&#39;, &quot;</span>
+                            <span class="s2">&quot;&#39;STAGING&#39;: &#39;pending&#39;, &quot;</span>
+                            <span class="s2">&quot;&#39;RUNNING&#39;: &#39;ok&#39;, &#39;REPAIRING&#39; &quot;</span>
+                            <span class="s2">&quot;&#39;error,&#39; &#39;SUSPENDING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;error&#39;,  &#39;SUSPENDED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;error&#39;, &#39;STOPPING&#39;: &#39;absent&#39;, &quot;</span>
+                            <span class="s2">&quot;&#39;TERMINATED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;absent&#39;}[result.status] }}&quot;</span><span class="p">,</span>
+                        <span class="p">}</span>
+                    <span class="p">},</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;vars&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="s2">&quot;{</span><span class="si">%i</span><span class="s2">f success %}{{ stdout | from_json }}{</span><span class="si">% e</span><span class="s2">ndif %}&quot;</span>
+                <span class="p">},</span>
+            <span class="p">}</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="n">my_server</span><span class="o">.</span><span class="n">check</span> <span class="o">=</span> <span class="n">my_server_check</span>
+</pre></div>
+</div>
+</div>
 </div>
 <p>The “check” operation is part of the <code class="docutils literal notranslate"><span class="pre">Install</span></code> interface, an Unfurl specific TOSCA extention.
 It defines a “check” operation for checking the status of an existing interface; a “discover” operation for discovering pre-existing instances
@@ -334,6 +402,192 @@ and a “revert” operation for reverting changes made by Unfurl on a pre-exist
 <p>The <code class="docutils literal notranslate"><span class="pre">resultTemplate</span></code> (shared with <code class="docutils literal notranslate"><span class="pre">create</span></code>) maps Google Compute [“status” enumeration](<a class="reference external" href="https://cloud.google.com/compute/docs/instances/instance-life-cycle">https://cloud.google.com/compute/docs/instances/instance-life-cycle</a>) to TOSCA’s node state and to Unfurl’s operation status.
 We can see that it uses TOSCA’s functions with Ansible’s Jinja2 expressions and filters, glued together using Unfurl’s expression syntax (<code class="docutils literal notranslate"><span class="pre">eval</span></code>)
 <a class="reference external" href="https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html">https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html</a></p>
+<p>All together we have created</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-8" name="sd-tab-set-4" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-YAML" for="sd-tab-item-8">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+<span class="w">          </span><span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">            </span><span class="c1"># Host container properties</span>
+<span class="w">            </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">                </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span>
+<span class="w">                </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span>
+<span class="w">            </span><span class="c1"># Guest Operating System properties</span>
+<span class="w">            </span><span class="nt">os</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                </span><span class="c1"># host Operating System image properties</span>
+<span class="w">                </span><span class="nt">architecture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x86_64</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">linux</span>
+<span class="w">                </span><span class="nt">distribution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu</span>
+<span class="w">                </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focal</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">delete</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
+<span class="w">              </span><span class="nt">create</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">                  </span><span class="no">gcloud compute instances create {{ &#39;.name&#39; | eval }}</span>
+<span class="w">                  </span><span class="no">--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | regex_replace(&quot; &quot;) }}</span>
+<span class="w">                  </span><span class="no">--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: [&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span>
+<span class="w">                        </span><span class="no">--filter=name:focal --limit=1 --uri)</span>
+<span class="w">                  </span><span class="no">--machine-type=e2-medium   &gt; /dev/null</span>
+<span class="w">                  </span><span class="no">&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">resultTemplate</span><span class="p">:</span>
+<span class="w">                    </span><span class="c1"># recursively merge the map with the yaml anchor &quot;gcloudStatusMap&quot;</span>
+<span class="w">                    </span><span class="c1"># +*gcloudStatusMap:</span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">then</span><span class="p">:</span>
+<span class="w">                        </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">                          </span><span class="nt">public_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].accessConfigs[0].natIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">private_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].networkIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">zone</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.zone</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">basename</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">id</span><span class="p">:</span><span class="w">  </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.selfLink</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">            </span><span class="nt">Install</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">check</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">resultTemplate</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;gcloudStatusMap</span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$result</span>
+<span class="w">                      </span><span class="nt">then</span><span class="p">:</span>
+<span class="w">                        </span><span class="nt">readyState</span><span class="p">:</span>
+<span class="w">                          </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;creating&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;starting&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;started&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
+<span class="w">                                    </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;stopping&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;stopped&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;deleting&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;deleted&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                          </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;ok&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
+<span class="w">                                    </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span>
+<span class="w">                                    </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                    </span><span class="nt">vars</span><span class="p">:</span>
+<span class="w">                      </span><span class="nt">result</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{%if</span><span class="nv"> </span><span class="s">success</span><span class="nv"> </span><span class="s">%}{{</span><span class="nv"> </span><span class="s">stdout</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">from_json</span><span class="nv"> </span><span class="s">}}{%</span><span class="nv"> </span><span class="s">endif</span><span class="nv"> </span><span class="s">%}&quot;</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-9" name="sd-tab-set-4" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-9">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">GB</span><span class="p">,</span> <span class="n">MB</span><span class="p">,</span> <span class="n">operation</span>
+<span class="kn">import</span> <span class="nn">unfurl.configurators.shell</span>
+
+
+<span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;check&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_check</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="s2">&quot;gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json&quot;</span>
+        <span class="p">),</span>
+        <span class="n">resultTemplate</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;eval&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;if&quot;</span><span class="p">:</span> <span class="s2">&quot;$result&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;then&quot;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">&quot;readyState&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ {&#39;PROVISIONING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;creating&#39;, &#39;STAGING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;starting&#39;, &#39;RUNNING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;started&#39;, &#39;REPAIRING&#39; &quot;</span>
+                            <span class="s2">&quot;&#39;error,&#39; &#39;SUSPENDING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;stopping&#39;,  &#39;SUSPENDED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;stopped&#39;, &#39;STOPPING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;deleting&#39;, &#39;TERMINATED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;deleted&#39;}[result.status] }}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ {&#39;PROVISIONING&#39;: &#39;pending&#39;, &quot;</span>
+                            <span class="s2">&quot;&#39;STAGING&#39;: &#39;pending&#39;, &quot;</span>
+                            <span class="s2">&quot;&#39;RUNNING&#39;: &#39;ok&#39;, &#39;REPAIRING&#39; &quot;</span>
+                            <span class="s2">&quot;&#39;error,&#39; &#39;SUSPENDING&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;error&#39;,  &#39;SUSPENDED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;error&#39;, &#39;STOPPING&#39;: &#39;absent&#39;, &quot;</span>
+                            <span class="s2">&quot;&#39;TERMINATED&#39;: &quot;</span>
+                            <span class="s2">&quot;&#39;absent&#39;}[result.status] }}&quot;</span><span class="p">,</span>
+                        <span class="p">}</span>
+                    <span class="p">},</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;vars&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="s2">&quot;{</span><span class="si">%i</span><span class="s2">f success %}{{ stdout | from_json }}{</span><span class="si">% e</span><span class="s2">ndif %}&quot;</span>
+                <span class="p">},</span>
+            <span class="p">}</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;gcloud compute instances delete {{ &#39;.name&#39; | eval }}&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;create&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">my_server_create</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="p">(</span>
+                <span class="s2">&quot;gcloud compute instances create {{ &#39;.name&#39; | eval }}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s1">&#39;--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | &#39;</span>
+                <span class="s1">&#39;regex_replace(&quot; &quot;) }}</span><span class="se">\n</span><span class="s1">&#39;</span>
+                <span class="s2">&quot;--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: &quot;</span>
+                <span class="s2">&quot;[&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;      --filter=name:focal --limit=1 --uri)</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;--machine-type=e2-medium   &gt; /dev/null</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">resultTemplate</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;eval&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;then&quot;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">&quot;attributes&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;public_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ &quot;</span>
+                            <span class="s2">&quot;result.networkInterfaces[0].accessConfigs[0].natIP &quot;</span>
+                            <span class="s2">&quot;}}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;private_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ &quot;</span>
+                            <span class="s2">&quot;result.networkInterfaces[0].networkIP &quot;</span>
+                            <span class="s2">&quot;}}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;zone&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ result.zone | basename }}&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;{{ result.selfLink }}&quot;</span><span class="p">,</span>
+                        <span class="p">}</span>
+                    <span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="n">my_server</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+    <span class="s2">&quot;my_server&quot;</span><span class="p">,</span>
+    <span class="n">host</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+        <span class="n">num_cpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">disk_size</span><span class="o">=</span><span class="mi">200</span> <span class="o">*</span> <span class="n">GB</span><span class="p">,</span>
+        <span class="n">mem_size</span><span class="o">=</span><span class="mi">512</span> <span class="o">*</span> <span class="n">MB</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">os</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">OperatingSystem</span><span class="p">(</span>
+        <span class="n">architecture</span><span class="o">=</span><span class="s2">&quot;x86_64&quot;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;linux&quot;</span><span class="p">,</span>
+        <span class="n">distribution</span><span class="o">=</span><span class="s2">&quot;ubuntu&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+<span class="n">my_server</span><span class="o">.</span><span class="n">check</span> <span class="o">=</span> <span class="n">my_server_check</span>
+<span class="n">my_server</span><span class="o">.</span><span class="n">delete</span> <span class="o">=</span> <span class="n">my_server_delete</span>
+<span class="n">my_server</span><span class="o">.</span><span class="n">create</span> <span class="o">=</span> <span class="n">my_server_create</span>
+</pre></div>
+</div>
+</div>
+</div>
 </section>
 <section id="activate-your-ensemble">
 <h2>5 Activate your ensemble<a class="headerlink" href="#activate-your-ensemble" title="Permalink to this headline"></a></h2>
@@ -342,37 +596,17 @@ We can see that it uses TOSCA’s functions with Ansible’s Jinja2 expressions 
 <li><p>Commit your changes</p></li>
 </ol>
 </section>
-<section id="publish-your-project">
-<span id="publish-project"></span><h2>6. Publish your project<a class="headerlink" href="#publish-your-project" title="Permalink to this headline"></a></h2>
-<p>You can publish and share your projects like any git repository.
-If you want to publish local git repositories on a git hosting service like github.com
-(e.g. ones created by <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code>) follow these steps:</p>
-<ol class="arabic">
-<li><p>Create corresponding empty remote git repositories.</p></li>
-<li><p>Set the new repositories as the remote origins for your local repositories
-with this command:</p>
-<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">remote</span> <span class="pre">set-url</span> <span class="pre">origin</span> <span class="pre">&lt;remote-url&gt;</span></code></p>
-<p>Or, if the repository is a git submodule set the URL use:</p>
-<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">submodule</span> <span class="pre">set-url</span> <span class="pre">&lt;path&gt;</span> <span class="pre">&lt;remote-url&gt;</span></code></p>
-</li>
-<li><p>Commit any needed changes in the repositories.</p></li>
-<li><p>Running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">git</span> <span class="pre">push</span></code> will push all the repositories in the project.</p></li>
-</ol>
-</section>
 </section>
 
 
            </div>
           </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="quickstart.html" class="btn btn-neutral float-left" title="Quick start" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="ensembles.html" class="btn btn-neutral float-right" title="Ensembles" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
+          <footer>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

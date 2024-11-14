@@ -7,6 +7,7 @@
   <title>Jobs and Workflows &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,12 +18,13 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Runtime Environment" href="runtime.html" />
-    <link rel="prev" title="Repositories and Packages" href="packages.html" /> 
+    <link rel="next" title="TOSCA" href="tosca.html" />
+    <link rel="prev" title="Ensembles" href="ensembles.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -49,30 +51,42 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Jobs and Workflows</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#job-lifecycle">Job Lifecycle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#generated-files">Generated Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#updating-a-deployment">Updating a deployment</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#applying-configuration-changes">Applying configuration changes.</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#undeploy-teardown">Undeploy (teardown)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#resource-discovery">Resource Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#checking-resources">Checking resources</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ad-hoc-jobs">Ad-hoc Jobs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#locking">Locking</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#operational-status-and-state">Operational status and state</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#node-state">Node state</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#changeids">ChangeIds</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#yaml-example">YAML example</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#changeids">ChangeIds</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -104,30 +118,206 @@
              
   <section id="jobs-and-workflows">
 <h1>Jobs and Workflows<a class="headerlink" href="#jobs-and-workflows" title="Permalink to this headline"></a></h1>
-<p>The core behavior of Unfurl is to run a <a class="reference internal" href="glossary.html#job"><span class="std std-ref">Job</span></a> that executes a <a class="reference internal" href="glossary.html#workflow"><span class="std std-ref">Workflow</span></a> on a given topology instance.
-There are two fundamental workflows (“normative workflows” in TOSCA terminology):
-<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, which installs the topology, and <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, which uninstalls it.</p>
-<p>There are also <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> and  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> workflows which update the status of
-instances the based on their current live state.
-Users can also define custom workflows but they do not affect the change history of the topology.</p>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#job-lifecycle" id="id2">Job Lifecycle</a></p></li>
+<li><p><a class="reference internal" href="#generated-files" id="id3">Generated Files</a></p></li>
+<li><p><a class="reference internal" href="#updating-a-deployment" id="id4">Updating a deployment</a></p>
+<ul>
+<li><p><a class="reference internal" href="#applying-configuration-changes" id="id5">Applying configuration changes.</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#undeploy-teardown" id="id6">Undeploy (teardown)</a></p></li>
+<li><p><a class="reference internal" href="#resource-discovery" id="id7">Resource Discovery</a></p></li>
+<li><p><a class="reference internal" href="#checking-resources" id="id8">Checking resources</a></p></li>
+<li><p><a class="reference internal" href="#ad-hoc-jobs" id="id9">Ad-hoc Jobs</a></p></li>
+<li><p><a class="reference internal" href="#locking" id="id10">Locking</a></p></li>
+<li><p><a class="reference internal" href="#operational-status-and-state" id="id11">Operational status and state</a></p>
+<ul>
+<li><p><a class="reference internal" href="#node-state" id="id12">Node state</a></p></li>
+<li><p><a class="reference internal" href="#changeids" id="id13">ChangeIds</a></p></li>
+<li><p><a class="reference internal" href="#yaml-example" id="id14">YAML example</a></p></li>
+</ul>
+</li>
+</ul>
+</div>
+<p>The core behavior of Unfurl is to run a <a class="reference internal" href="glossary.html#job"><span class="std std-ref">Job</span></a> that executes a <a class="reference internal" href="glossary.html#workflow"><span class="std std-ref">Workflow</span></a> on a given topology instance.</p>
+<p>There are two fundamental workflows (“normative workflows” in TOSCA terminology):
+<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, which installs the topology, and <a class="reference internal" href="cli.html#unfurl-teardown"><span class="std std-ref">undeploy</span></a>, which uninstalls it.</p>
+<p>There are also <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> and  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> workflows which update the status of instances the based on their current live state.</p>
+<p>Each of these workflows can be triggered with the equivalently named  <a class="reference external" href="cli.html#unfurl-deploy-commands">commands</a>.  You can run custom workflows using <a class="reference external" href="cli.html#unfurl-run">unfurl run</a>.</p>
 <section id="job-lifecycle">
-<h2>Job Lifecycle<a class="headerlink" href="#job-lifecycle" title="Permalink to this headline"></a></h2>
-<p>When a command that invokes a workflow is executed (<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a>,  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> and <a class="reference internal" href="cli.html#unfurl-run"><span class="std std-ref">run</span></a>)
+<h2><a class="toc-backref" href="#id2">Job Lifecycle</a><a class="headerlink" href="#job-lifecycle" title="Permalink to this headline"></a></h2>
+<p>When a command that invokes a workflow is executed (<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, <a class="reference internal" href="cli.html#unfurl-teardown"><span class="std std-ref">undeploy</span></a>, <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a>,  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> and <a class="reference internal" href="cli.html#unfurl-run"><span class="std std-ref">run</span></a>)
 a job is created and run. Running a job entails these steps:</p>
 <ol class="arabic simple">
-<li><p>YAML parsed and <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directives</span></a> are processed</p></li>
+<li><p>YAML parsed and <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directives</span></a> are processed, including converting <a class="reference internal" href="dsl.html#a-tosca-python-based-dsl"><span class="std std-ref">Python DSL</span></a> code to TOSCA YAML.</p></li>
 <li><p>Schema is validated and model instantiated. The command will exit if there are errors.</p></li>
 <li><p>A plan is constructed based on the selected workflow and job options (use <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command to preview) and the job begins.</p></li>
 <li><p>For each operation a task is generated and the operation’s <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a> are lazily evaluated
 if referenced, including Unfurl expressions, TOSCA functions, and template strings.</p></li>
-<li><p>After the job completes, <a class="reference internal" href="jsonschema.html#id2"><span class="std std-ref">ensemble.yaml</span></a> is updated with any changes to its instances status.
-<code class="docutils literal notranslate"><span class="pre">jobs.tsv</span></code> will also be updated with line for each task run and a new <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">job.yaml</span></a> file is created in the <code class="docutils literal notranslate"><span class="pre">jobs</span></code> folder.</p></li>
-<li><p>Depending on the commit options of the job, the ensemble’s git repository will see a new commit,
-along with any other repository that had changes to it (e.g. files in the <code class="docutils literal notranslate"><span class="pre">spec</span></code> directory).</p></li>
+<li><p>If planned tasks require local dependencies to be installed, such as tool artifacts, run an external job to install them.</p></li>
+<li><p>Render the plan. The command will exit if there are unrecoverable errors. Render operations that depend on live attributes that will be deferred until those attributes are set when the task is executed.</p></li>
+<li><p>Execute the plan. You will be prompted with a plan summary to approve unless the <code class="docutils literal notranslate"><span class="pre">--approve</span></code> flag was used. As it runs, it tracks dependencies and changes to resource attributes and status.</p></li>
+<li><p>Re-execute steps 5 and 6 to render and run any deferred operations if needed. Repeat until all operations complete.</p></li>
+<li><p>After the job completes, <a class="reference internal" href="jsonschema.html#id2"><span class="std std-ref">ensemble.yaml</span></a> is updated with any changes to its instances status. It’s <code class="docutils literal notranslate"><span class="pre">jobs</span></code> folder with have new <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">job.yaml</span></a> file and associated log files.</p></li>
+<li><p>If the <code class="docutils literal notranslate"><span class="pre">--commit</span></code> flag was set, the ensemble’s git repository will see a new commit containing changes to any files touched by the job, along with commits to any other project repositories that had changes to it. And if the <code class="docutils literal notranslate"><span class="pre">--push</span></code> flag was set, the commits will be automatically pushed.</p></li>
 </ol>
+<p>After the job finishes, a summary is printed showing the results of each operation along with any <a class="reference internal" href="toscaref/spec-outputs.html#outputs"><span class="std std-ref">Outputs</span></a> defined in the model.</p>
+<figure class="align-center" id="id1">
+<img alt="_images/job-summary.png" src="_images/job-summary.png" />
+<figcaption>
+<p><span class="caption-text">Example deploy job output</span><a class="headerlink" href="#id1" title="Permalink to this image"></a></p>
+</figcaption>
+</figure>
+</section>
+<section id="generated-files">
+<h2><a class="toc-backref" href="#id3">Generated Files</a><a class="headerlink" href="#generated-files" title="Permalink to this headline"></a></h2>
+<p>When a job runs it creates several directories and files, some of which are committed to the ensemble’s git repository.</p>
+<p>During the planning stage, tasks can generate (“render”) files that are used during deployment. They are saved in the <code class="docutils literal notranslate"><span class="pre">planned</span></code> directory in one of the subdirectories described below. It is the task’s <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a>’s responsibility to creates the files it needs – for example, the Terraform configurator might generate a terraform module.</p>
+<p>During the deployment stage, those files are moved to the <code class="docutils literal notranslate"><span class="pre">active</span></code> directory after the task completes successfully. If it fails, they are moved to a directory named <code class="docutils literal notranslate"><span class="pre">failed.&lt;taskid&gt;</span></code>.</p>
+<p>When the job completes, <code class="docutils literal notranslate"><span class="pre">job.tsv</span></code> is updated and files for that job are added to <code class="docutils literal notranslate"><span class="pre">changes</span></code> and <code class="docutils literal notranslate"><span class="pre">jobs</span></code> directories.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">planned</span></code> and <code class="docutils literal notranslate"><span class="pre">active</span></code> directories can have the following subdirectories:</p>
+<dl class="field-list simple">
+<dt class="field-odd">artifacts</dt>
+<dd class="field-odd"><p>Persistent artifacts required for deployment.</p>
+</dd>
+<dt class="field-even">secrets</dt>
+<dd class="field-even"><p>Sensitive artifacts (e.g. certificates). They are vault encrypted in the repository.</p>
+</dd>
+<dt class="field-odd">tasks</dt>
+<dd class="field-odd"><p>Transient generated configuration files (excluded from repository).</p>
+</dd>
+</dl>
+<p>Below is an example showing the directory of a simple ensemble with one resource templates (ec2compute) that has been deployed once (with a <a class="reference internal" href="#changeids"><span class="std std-ref">job id</span></a> of A41VNXbB).</p>
+<div class="line-block">
+<div class="line">├── ensemble.yaml</div>
+<div class="line">├── changes</div>
+<div class="line">│   ├── job2024-01-31-23-33-37-A41VNXbB.yaml</div>
+<div class="line">├── jobs</div>
+<div class="line">│   ├── job2024-01-31-23-33-37-A41VNXbB.yaml</div>
+<div class="line">│   └── job2024-01-31-23-33-37-A41VNXbB.log</div>
+<div class="line">├── jobs.tsv</div>
+<div class="line">├── active</div>
+<div class="line">│   ├── artifacts</div>
+<div class="line">│   ├── secrets</div>
+<div class="line">│   │   ├── ec2compute</div>
+<div class="line">│   │   │   └── terraform.tfstate.yaml</div>
+<div class="line">│   └── tasks</div>
+<div class="line">│       ├── ec2compute</div>
+<div class="line">│       │   ├── main.unfurl.tmp.tf</div>
+<div class="line">│       │   ├── terraform.tfstate</div>
+<div class="line">│       │   └── vars.tmp.tfvars.json</div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">jobs.tsv</span></code>: a tab separated file with a line for each task and job designed for fast loading and conflict free merging.</p>
+<p><code class="docutils literal notranslate"><span class="pre">job2024-01-31-23-33-37-A41VNXbB.yaml</span></code> is a <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">job.yaml</span></a> file. The one is in <code class="docutils literal notranslate"><span class="pre">changes</span></code> is committed, while the one is <code class="docutils literal notranslate"><span class="pre">jobs</span></code> is not. The latter is more verbose and may contain content that is not safe to commit.</p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">jobs/job2024-01-31-23-33-37-A41VNXbB.log</span></code> is a copy of the log messages logged to console when the job was run.</p>
+</div></blockquote>
+<p><code class="docutils literal notranslate"><span class="pre">active/secrets/ec2compute/terraform.tfstate.yaml</span></code> – the Terraform configurator needs to commit its Terraform state as a secret because it may contain confidential data.</p>
+<p>The files in <code class="docutils literal notranslate"><span class="pre">active/tasks/ec2compute</span></code> are used during deployment by Terraform and left in place for review even though they not committed and will be regenerated if missing.</p>
+<p>See <a class="reference internal" href="api.html#module-unfurl.projectpaths"><span class="std std-ref">Project folders</span></a> for the API configurators use to manage the files they need and <a class="reference internal" href="expressions.html#get-dir"><span class="std std-ref">get_dir</span></a> and <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a> for expression functions that provide access to this directories.</p>
+<p>Of the above files and directories only
+<code class="docutils literal notranslate"><span class="pre">ensemble.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">jobs.tsv</span></code>, <code class="docutils literal notranslate"><span class="pre">changes</span></code>, <code class="docutils literal notranslate"><span class="pre">active/artifacts</span></code> and <code class="docutils literal notranslate"><span class="pre">active/secrets</span></code> are committed to git, the rest are excluded in the project’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> file. Files excluded from git are safe to delete after the job completes.</p>
+</section>
+<section id="updating-a-deployment">
+<h2><a class="toc-backref" href="#id4">Updating a deployment</a><a class="headerlink" href="#updating-a-deployment" title="Permalink to this headline"></a></h2>
+<p>After ensemble is created, running a job will compared with the current state of its resources.</p>
+<p>The deploy workflow follows these rules:</p>
+<ul class="simple">
+<li><p>Any existing instance that not at the expecting status or state. (this is controlled by the –repair option). (reason: repair)</p></li>
+<li><p>Previously created resources already in their desired state are evaluated to see if their configuration changed (controlled by the –change-detection option) (reason: reconfigure).</p></li>
+<li><p>New templates will create new resources (reason “new”) (disabled by the –skip-new flag)</p></li>
+<li><p>If the –check flag is set, the <code class="docutils literal notranslate"><span class="pre">&quot;check&quot;</span> <span class="pre">operation</span></code> will be run before trying to create the instance.</p></li>
+<li><p>Existing resources no longer referenced by the model are not removed unless the –prune flag is used. When –prune is used, deletion follows the rules of the <a class="reference internal" href="#undeploy-teardown"><span class="std std-ref">Undeploy (teardown)</span></a> workflow described below.</p></li>
+</ul>
+<section id="applying-configuration-changes">
+<h3><a class="toc-backref" href="#id5">Applying configuration changes.</a><a class="headerlink" href="#applying-configuration-changes" title="Permalink to this headline"></a></h3>
+<p>By default, deploy jobs have the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-change-detection">–change-detection</a> job option is set to “evaluate”, which means the job will check if deployed resources need to updated because their configuration changed.
+Unfurl checks if they need to be updated by comparing a resource’s current state as recorded in <code class="docutils literal notranslate"><span class="pre">ensemble.yaml</span></code> to the expected state given the current service template. If it differs, a configure operation will be added to the plan with the reason set to “reconfigure”.</p>
+<p>Note that it doesn’t determine the state from live resources, just from the last known state recorded in the ensemble.</p>
+<p>You can skip this check per resource by setting the “customized” field to true in the instance’s status.
+This indicates that the resource has intentionally diverged from its template and shouldn’t be set back to that configuration. It is automatically set when a custom operation (including “discover” operations) modifies an attribute that was previously set or used by a configure operation – Unfurl marks the instance as customized to prevent a future configure operation from overwriting those changes.</p>
+<p>Setting the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-change-detection">–change-detection</a> job option to “always” will ignore the “customized” field and potentially the configure operation will re-run and overwrite custom changes to the instance. Setting the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-change-detection">–change-detection</a> job option to “skip” disables this check.</p>
+<p>Changes are detected by comparing a digest of the values of the inputs and properties accessed the last time a configuration operation was run with a digest of their current values. (This is saved in the <a class="reference internal" href="glossary.html#config-change"><span class="std std-ref">Config Change</span></a> record.)  Changes to referenced files, directories, and container images are also included in the digest (via Unfurl’s <a class="reference internal" href="glossary.html#external-values"><span class="std std-ref">External values</span></a> API). Note that sensitive values are excluded from the digest.</p>
+</section>
+</section>
+<section id="undeploy-teardown">
+<h2><a class="toc-backref" href="#id6">Undeploy (teardown)</a><a class="headerlink" href="#undeploy-teardown" title="Permalink to this headline"></a></h2>
+<p>The undeploy workflow (invoked by the <a class="reference external" href="cli.html#unfurl-teardown">unfurl teardown</a> command) builds a plan where resources are deleted from the edges to the root, based on the topology’s dependency graph – essentially the reverse order of how it was deployed.</p>
+<p>A resource will be excluded from deletion if any of the following are true:</p>
+<ul class="simple">
+<li><p>It was not created by the deployment (e.g. it was <a class="reference internal" href="solution-overview.html#resource-discovery"><span class="std std-ref">discovered</span></a>). This can be overridden by the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-destroyunmanaged">–destroyunmanaged</a> job option. This is by the determined by the <code class="docutils literal notranslate"><span class="pre">created</span></code> field in the resource’s status.</p></li>
+<li><p>It is managed by another resource. In that case, the name of the resource that manages it is the value of its <code class="docutils literal notranslate"><span class="pre">created</span></code> field. In this case, it is the responsibility of the managing resource’s delete operation to also delete this resource.</p></li>
+<li><p>Its status has <code class="docutils literal notranslate"><span class="pre">protected</span></code> set to true.</p></li>
+<li><p>Its node template has the <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.protected" title="tosca.NodeTemplateDirective.protected"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">&quot;protected&quot;</span> <span class="pre">directive</span></code></a> set.</p></li>
+<li><p>It is a abstract, virtual, or imported resource.</p></li>
+<li><p>Resources whose removal will break required resources that we want to keep operational. The <code class="docutils literal notranslate"><span class="pre">--force</span></code> job option disables this check. Individual dependent resources can be excluded from this check by changing either their status or their <a class="reference internal" href="api.html#unfurl.runtime.OperationalInstance.priority" title="unfurl.runtime.OperationalInstance.priority"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">priority</span></code></a> from “required” to “optional” or “ignore”.</p></li>
+</ul>
+</section>
+<section id="resource-discovery">
+<h2><a class="toc-backref" href="#id7">Resource Discovery</a><a class="headerlink" href="#resource-discovery" title="Permalink to this headline"></a></h2>
+<p>If a node template has a <code class="docutils literal notranslate"><span class="pre">discover</span></code> operation associated with it, Unfurl can use that operation to discover existing resources that match the template instead of creating a new resource.</p>
+<p>Those operations will be invoked when by running the <a class="reference external" href="cli.html#unfurl-discover">unfurl-discover</a> command, which trigger the “discover” workflow.</p>
+<p>When running the deploy workflow, you can indicate that individual node templates should discover its resource instead of creating it by setting the <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.discover" title="tosca.NodeTemplateDirective.discover"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">discover</span> <span class="pre">node</span> <span class="pre">template</span> <span class="pre">directive</span></code></a>.</p>
+</section>
+<section id="checking-resources">
+<h2><a class="toc-backref" href="#id8">Checking resources</a><a class="headerlink" href="#checking-resources" title="Permalink to this headline"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">check</span></code> operation checks and updates the live state and status of a resource. It is typically run right before a deploy operation (e.g. create or configure) to check if that operation should be run or skipped. If any of the following are true, a check operation (if found) will be scheduled for a resource when running a deploy job:</p>
+<ul class="simple">
+<li><p>If the –check job option is set, check operations will be run first if the resource hasn’t been created yet.</p></li>
+<li><p>the resource’s status is set to “unknown”</p></li>
+<li><p>the resource’s node template has the <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.discover" title="tosca.NodeTemplateDirective.discover"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">&quot;check&quot;</span> <span class="pre">directive</span></code></a></p></li>
+</ul>
+<p>You can also use the <a class="reference external" href="cli.html#unfurl-check">unfurl check</a> command to the run the “check” workflow, which runs the “check” operation on all resources that have that operation defined.</p>
+</section>
+<section id="ad-hoc-jobs">
+<h2><a class="toc-backref" href="#id9">Ad-hoc Jobs</a><a class="headerlink" href="#ad-hoc-jobs" title="Permalink to this headline"></a></h2>
+<p>You can execute any operation across your ensemble using the <a class="reference external" href="cli.html#unfurl-run">unfurl run</a> command. That command will create a job that executes the given operation on any instance that has that operation defined. Instance selection can be limited using the generic job filter options (e.g. <a class="reference external" href="cli.html#cmdoption-unfurl-run-instance">–operation</a>).</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>&gt;<span class="w"> </span>unfurl<span class="w"> </span>run<span class="w"> </span>--operation<span class="w"> </span>Standard.start
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">run</span></code> can also execute ad hoc shell command in the context of your ensemble’s environment.</p>
+<p>You can run an ad-hoc shell command in the context of your ensemble’s environment. In place of the <a class="reference external" href="cli.html#cmdoption-unfurl-run-operation">–operation</a> option, use <code class="docutils literal notranslate"><span class="pre">--</span></code> to separate the given shell command, for example:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>&gt;<span class="w"> </span>unfurl<span class="w"> </span>run<span class="w"> </span>--<span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;hello!&#39;</span>
+</pre></div>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">--host</span></code> or <code class="docutils literal notranslate"><span class="pre">--module</span></code> is set, the <a class="reference internal" href="CHANGELOG.html#ansible-configurator"><span class="std std-ref">Ansible configurator</span></a> will be used to execute the shell command on the give host (or localhost if omitted). For example:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>&gt;<span class="w"> </span>unfurl<span class="w"> </span>run<span class="w"> </span>--host<span class="o">=</span>my_server<span class="w"> </span>--<span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;hello!&#39;</span>
+</pre></div>
+</div>
+<p>This will use ansible to connect to the resource named “my_server” in your ensemble and execute the shell command there.</p>
+<p>Running an shell command will be executed once for each given <code class="docutils literal notranslate"><span class="pre">--instance</span></code>, in that instance’s context. The shell command will be evaluated in Jinj2a expressions. For example, this will the current instance’s name: <code class="docutils literal notranslate"><span class="pre">echo</span> <span class="pre">&quot;hello</span> <span class="pre">{{</span> <span class="pre">'.name'</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}'&quot;</span></code>.  If none are present, the shell command will be executed once in the global context of the ensemble. (e.g. environment variables, executable versions via asdf). It can be saved in the job history with the <code class="docutils literal notranslate"><span class="pre">--save</span></code> flag.</p>
+</section>
+<section id="locking">
+<h2><a class="toc-backref" href="#id10">Locking</a><a class="headerlink" href="#locking" title="Permalink to this headline"></a></h2>
+<p>When a job is running Unfurl will lock the ensemble to prevent other instances of Unfurl from modifying the same ensemble.
+There are two kinds of locks: a local lock that prevents access to the same local copy of an ensemble and a global lock which takes a <a class="reference external" href="https://git-lfs.com/">git lfs</a> lock to prevent access to the ensemble across remote servers.
+Note that locks don’t cause the job to block, instead the job will just abort when it starts if the lock was already taken. If a job aborts due to a lock, it is up to the user to re-run the job when the lock is free.</p>
+<p>Local locks are a pid file based on the ensemble’s path with “.lock” extension, e.g. “/path/to/ensemble/ensemble.yaml.lock”. Local locking is per ensemble and is always enabled. Local locks can be manually freed by deleting that file.</p>
+<p>Global remote locks need to be enabled via the <code class="docutils literal notranslate"><span class="pre">lfs_lock</span></code> section in your project’s <a class="reference internal" href="jsonschema.html#environment-schema"><span class="std std-ref">environments</span></a> configuration. The following settings are available:</p>
+<dl class="field-list">
+<dt class="field-odd">lock</dt>
+<dd class="field-odd"><p>Whether to use git lfs when locking an ensemble, it can be set to one of:</p>
+<p>“no”, don’t try to lock (the default if missing)</p>
+<p>“try”, take a lock if th e git lfs server is available</p>
+<p>“require”, abort job if unable to take a git lfs lock</p>
+</dd>
+<dt class="field-even">url</dt>
+<dd class="field-even"><p>The URL of the Git LFS server to use. If missing, the ensemble’s git repository’s “origin” remote will be used.</p>
+</dd>
+<dt class="field-odd">name</dt>
+<dd class="field-odd"><p>Name of the lock file to use. Note that with git lfs, the file doesn’t need to exist in in the git repository. If omitted, the local lock’s file path will be used.
+By setting this you can set the scope to be coarser (or narrower) than each individual ensemble as any ensemble using the same name will be locked.</p>
+<p>The following string substitutions are available to dynamically generate the name: <code class="docutils literal notranslate"><span class="pre">$ensemble_uri</span></code>, <code class="docutils literal notranslate"><span class="pre">$environment</span></code>, and <code class="docutils literal notranslate"><span class="pre">$local_lock_path</span></code>. For example, setting a name like “group1/$environment” would prevent jobs from simultaneously running for ensemble with the lock name “group1” and in same the environment.</p>
+</dd>
+</dl>
+<p>As these settings are <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a> settings, they will be merged with the current project, home project, and the ensemble’s environment sections. Unlike most other environment settings, the ensemble’s settings takes priority and overrides the project’s settings.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">lfs</span> <span class="pre">locks</span></code> to see existing locks in a git repository and <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">lfs</span> <span class="pre">unlock</span></code> to manually remove a lock.</p>
+<p>In additional to locking, to ensure local deployments are in sync with each, when Unfurl starts and loads an ensemble it checks the project and ensemble’s upstream repositories for changes. The <a class="reference external" href="cli.html#unfurl">–skip-upstream-check</a> global option and the <code class="docutils literal notranslate"><span class="pre">UNFURL_SKIP_UPSTREAM_CHECK</span></code> environment variable disables this behavior.</p>
 </section>
 <section id="operational-status-and-state">
-<h2>Operational status and state<a class="headerlink" href="#operational-status-and-state" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id11">Operational status and state</a><a class="headerlink" href="#operational-status-and-state" title="Permalink to this headline"></a></h2>
 <p>When a workflow job is run, it updates the status of its affected instances.
 Each <a class="reference internal" href="jsonschema.html#instance"><span class="std std-ref">Instance</span></a> represented in a manifest has a status that indicates
 its relationship to its specification:</p>
@@ -157,29 +347,27 @@ its relationship to its specification:</p>
 the desired status (either “OK” or “Absent”). If its status is <code class="docutils literal notranslate"><span class="pre">Unknown</span></code>,
 <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> will be run first. Otherwise the workflow will be applied by executing one or more <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> on a target instance.</p>
 <p>If it succeeds, the target instance status will be set to either <code class="docutils literal notranslate"><span class="pre">OK</span></code> or <code class="docutils literal notranslate"><span class="pre">Absent</span></code>
-for <a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a> and <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, respectively.
+for <a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a> and <a class="reference internal" href="cli.html#unfurl-teardown"><span class="std std-ref">undeploy</span></a>, respectively.
 If it fails, the status will depend on whether the instance was modified by the operation.
 If it has been, the status is set to <code class="docutils literal notranslate"><span class="pre">Error</span></code> (or to <code class="docutils literal notranslate"><span class="pre">Degraded</span></code> the task was optional);
 if the operation didn’t report whether or not it was modified, it is set to <code class="docutils literal notranslate"><span class="pre">Unknown</span></code>.
 Otherwise, the status won’t be changed.</p>
 <section id="node-state">
-<h3>Node state<a class="headerlink" href="#node-state" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id12">Node state</a><a class="headerlink" href="#node-state" title="Permalink to this headline"></a></h3>
 <p>In addition, each instance has a <code class="docutils literal notranslate"><span class="pre">node</span> <span class="pre">state</span></code> which indicates where the instance is in
 it deployment lifecycle. Node states are defined by TOSCA and include:
 <code class="docutils literal notranslate"><span class="pre">initial</span></code>, <code class="docutils literal notranslate"><span class="pre">creating</span></code>, <code class="docutils literal notranslate"><span class="pre">created</span></code>, <code class="docutils literal notranslate"><span class="pre">configuring</span></code>, <code class="docutils literal notranslate"><span class="pre">configured</span></code>,
 <code class="docutils literal notranslate"><span class="pre">starting</span></code>, <code class="docutils literal notranslate"><span class="pre">started</span></code>, <code class="docutils literal notranslate"><span class="pre">stopping</span></code>, <code class="docutils literal notranslate"><span class="pre">deleting</span></code>, <code class="docutils literal notranslate"><span class="pre">deleted</span></code>, and <code class="docutils literal notranslate"><span class="pre">error</span></code>.</p>
+<p>As <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> are executed during a job, the target instance’s <code class="docutils literal notranslate"><span class="pre">node</span> <span class="pre">state</span></code> is updated.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <p><a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc454457724">TOSCA 1.3, §3.4.1</a> for a complete definitions</p>
 </div>
-<p>As <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> are executed during a job, the target instance’s <a class="reference internal" href="#node-state"><span class="std std-ref">Node state</span></a> is updated.</p>
-</section>
 </section>
 <section id="changeids">
-<h2>ChangeIds<a class="headerlink" href="#changeids" title="Permalink to this headline"></a></h2>
+<h3><a class="toc-backref" href="#id13">ChangeIds</a><a class="headerlink" href="#changeids" title="Permalink to this headline"></a></h3>
 <p>Each <a class="reference internal" href="glossary.html#tasks"><span class="std std-ref">task</span></a> in a <a class="reference internal" href="glossary.html#job"><span class="std std-ref">Job</span></a> corresponds to an operation that was executed and is assigned a
-<a class="reference internal" href="jsonschema.html#changeid"><span class="std std-ref">changeId</span></a>. Each task is recorded in the job’s <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">changelog</span></a> as a <a class="reference internal" href="api.html#unfurl.job.ConfigChange" title="unfurl.job.ConfigChange"><code class="xref any py py-class docutils literal notranslate"><span class="pre">ConfigChange</span></code></a>,
-which designed so that it can replayed to reproduce the instance.</p>
+<a class="reference internal" href="jsonschema.html#changeid"><span class="std std-ref">changeId</span></a>. Each task is recorded in the job’s <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">changelog</span></a> as a <a class="reference internal" href="glossary.html#config-change"><span class="std std-ref">Config Change</span></a>, which designed so that it can replayed to reproduce the instance.</p>
 <p>ChangeIds are unique within the lifespan of an ensemble and sortable using an encoded timestamp.
 All copies of an ensemble maintain a consistent view of time to ensure proper serialization and easy of merging of changes
 (using locking if necessary).</p>
@@ -188,16 +376,23 @@ task that observed changes to the internal state of the instance (which may or m
 reflected in attributes exposed in the topology model). Tracking internal state
 is useful because dependent instances may need to know when it has changed and to know
 if it is safe to delete an instance.</p>
+</section>
+<section id="yaml-example">
+<h3><a class="toc-backref" href="#id14">YAML example</a><a class="headerlink" href="#yaml-example" title="Permalink to this headline"></a></h3>
 <p>When status of an instance is saved in the manifest, the attributes described above
-can be found in its <a class="reference internal" href="jsonschema.html#readystate"><span class="std std-ref">readyState</span></a> section, for example:</p>
+can be found in the <a class="reference internal" href="jsonschema.html#status"><span class="std std-ref">Status</span></a> section of the instance, for example:</p>
 <div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">readyState</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span><span class="w"> </span><span class="c1"># the explicit status of this instance</span>
-<span class="w">  </span><span class="nt">effective</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span><span class="w"> </span><span class="c1"># its status with its dependencies&#39; statuses considered</span>
-<span class="w">  </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">started</span><span class="w"> </span><span class="c1"># node state</span>
+<span class="w">  </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span><span class="w"> </span><span class="c1"># the explicit `status` of this instance</span>
+<span class="w">  </span><span class="nt">effective</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span><span class="w"> </span><span class="c1">#  `status` with dependencies&#39; statuses considered</span>
+<span class="w">  </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">started</span><span class="w"> </span><span class="c1"># Node state</span>
 <span class="nt">lastConfigChange</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A0AP4P9C0001</span><span class="w"> </span><span class="c1"># change id of the last ConfigChange that was applied</span>
-<span class="nt">lastStateChange</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A0DEVF0003</span><span class="w"> </span><span class="c1"># change id of the last detected change to the instance</span>
+<span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;optional&quot;</span><span class="w">  </span><span class="c1"># default Priority is &quot;required&quot;</span>
+<span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A0AP4P9C0001</span><span class="w"> </span><span class="c1"># change id that created this or name of instance that manages this resource</span>
+<span class="nt">protected</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># (optional) prevents deletion</span>
+<span class="nt">customized</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># (optional) prevents reconfiguring from spec</span>
 </pre></div>
 </div>
+</section>
 </section>
 </section>
 
@@ -205,14 +400,14 @@ can be found in its <a class="reference internal" href="jsonschema.html#readysta
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="packages.html" class="btn btn-neutral float-left" title="Repositories and Packages" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="runtime.html" class="btn btn-neutral float-right" title="Runtime Environment" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="ensembles.html" class="btn btn-neutral float-left" title="Ensembles" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tosca.html" class="btn btn-neutral float-right" title="TOSCA" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

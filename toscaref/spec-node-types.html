@@ -7,6 +7,7 @@
   <title>Node Types &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="../_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="../_static/jquery.js"></script>
         <script src="../_static/underscore.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/design-tabs.js"></script>
         <script src="../_static/custom.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -49,21 +51,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../dsl.html">TOSCA as Python</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
 <li class="toctree-l2"><a class="reference internal" href="spec-repositories.html">Repositories</a></li>
@@ -86,6 +79,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -276,6 +279,10 @@ node templates.</p>
 </div>
 <section id="examples">
 <h4>Examples<a class="headerlink" href="#examples" title="Permalink to this headline"></a></h4>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">nodecellar.nodes.MongoDatabase</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span>
@@ -290,16 +297,38 @@ node templates.</p>
 <span class="w">        </span><span class="nt">stop</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/stop-mongo.sh</span>
 </pre></div>
 </div>
-<p>An example of how to use this type follows:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">MongoDB1</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span>
-<span class="w">  </span><span class="nt">MongoDB2</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MongoDatabase</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
+  <span class="n">port</span><span class="p">:</span> <span class="nb">int</span>
+  <span class="s2">&quot;MongoDB port&quot;</span>
+
+  <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/install-mongo.sh&quot;</span><span class="p">]</span>
+      <span class="p">)</span>
+
+  <span class="k">def</span> <span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/start-mongo.sh&quot;</span><span class="p">]</span>
+      <span class="p">)</span>
+
+  <span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/stop-mongo.sh&quot;</span><span class="p">]</span>
+      <span class="p">)</span>
+
 </pre></div>
 </div>
-<p>Each of these two nodes will now have both the <code class="docutils literal notranslate"><span class="pre">port</span></code> property and the three operations defined for the <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabase</span></code> type.</p>
+</div>
+</div>
 <p>Finally, an example on how to extend an existing type by deriving from it:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-2">
+YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">nodecellar.nodes.MongoDatabaseExtended</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span>
@@ -313,6 +342,28 @@ node templates.</p>
 <span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo-extended.sh</span>
 <span class="w">        </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/configure-mongo-extended.sh</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MongoDatabaseExtended</span><span class="p">(</span><span class="n">MongoDatabase</span><span class="p">):</span>
+  <span class="n">enable_replication</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+  <span class="s2">&quot;MongoDB replication enabling flag&quot;</span>
+
+  <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/install-mongo-extended.sh&quot;</span><span class="p">]</span>
+      <span class="p">)</span>
+
+  <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">congifurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+        <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/configure-mongo-extended.sh&quot;</span><span class="p">]</span>
+      <span class="p">)</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabaseExtended</span></code> type derives from the <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabase</span></code> type which was defined in the previous example; As such, it derives its properties and interfaces definitions, which get either merged or overridden by the ones it defines itself.</p>
 <p>A node template whose type is <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabaseExtended</span></code> will therefore have both the <code class="docutils literal notranslate"><span class="pre">port</span></code> and <code class="docutils literal notranslate"><span class="pre">enable_replication</span></code> properties, as well as the following interfaces mapping:</p>
@@ -345,7 +396,7 @@ node templates.</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

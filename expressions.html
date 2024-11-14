@@ -7,6 +7,7 @@
   <title>Expression Functions &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,11 +18,12 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Command Line" href="cli.html" />
+    <link rel="next" title="Cloud Maps" href="cloudmap.html" />
     <link rel="prev" title="Template Processing" href="processing.html" /> 
 </head>
 
@@ -49,14 +51,15 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
@@ -71,7 +74,6 @@
 <li class="toctree-l3"><a class="reference internal" href="#get-nodes-of-type">get_nodes_of_type</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#get-property">get_property</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#has-env">has_env</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#join">join</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#q">q</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#token">token</a></li>
 </ul>
@@ -82,6 +84,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#eq">eq</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#external">external</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#file">file</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-ensemble-metadata">get_ensemble_metadata</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#foreach">foreach</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#get-dir">get_dir</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#if">if</a></li>
@@ -106,9 +109,9 @@
 <li class="toctree-l2"><a class="reference internal" href="#special-keys">Special keys</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -140,8 +143,15 @@
              
   <section id="expression-functions">
 <h1>Expression Functions<a class="headerlink" href="#expression-functions" title="Permalink to this headline"></a></h1>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#tosca-functions-and-other-stand-alone-functions" id="id3">TOSCA functions and other stand-alone functions</a></p></li>
+<li><p><a class="reference internal" href="#id2" id="id4">Expression Functions</a></p></li>
+<li><p><a class="reference internal" href="#special-keys" id="id5">Special keys</a></p></li>
+</ul>
+</div>
 <section id="tosca-functions-and-other-stand-alone-functions">
-<h2>TOSCA functions and other stand-alone functions<a class="headerlink" href="#tosca-functions-and-other-stand-alone-functions" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id3">TOSCA functions and other stand-alone functions</a><a class="headerlink" href="#tosca-functions-and-other-stand-alone-functions" title="Permalink to this headline"></a></h2>
 <p>Stand-alone functions don’t need to be wrapped in an “eval”.</p>
 <blockquote>
 <div><table class="docutils align-default">
@@ -179,13 +189,10 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="#has-env"><span class="std std-ref">has_env</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#join"><span class="std std-ref">join</span></a></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">string+,</span> <span class="pre">delimiter?</span> <span class="pre">]</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#q"><span class="std std-ref">q</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#q"><span class="std std-ref">q</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">any</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#token"><span class="std std-ref">token</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#token"><span class="std std-ref">token</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">string,</span> <span class="pre">token,</span> <span class="pre">index]</span></code></p></td>
 </tr>
 </tbody>
@@ -204,7 +211,7 @@
 <div><p>The <code class="docutils literal notranslate"><span class="pre">get_artifact</span></code> function returns the location of the referenced artifact.
 The location depends on the type of artifact. If the artifact is a Docker container image, return the image name in the form of
 “registry/repository/name:tag” or “registry/repository/name&#64;sha256:digest”.
-If it is a file, return a local file path that is resolvable while the unfurl is running.
+If it is a file, return a local file path that is resolvable while unfurl is running.
 In this case, calling get_artifact may have the side effect of downloading the file or cloning a git repository.</p>
 <p>The first argument is either a string or a instance reference (from an <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">eval expression</span></a>).</p>
 <p>If it is a string it should be the name of a node template or one of <code class="docutils literal notranslate"><span class="pre">SELF</span></code>, <code class="docutils literal notranslate"><span class="pre">SOURCE</span></code>, <code class="docutils literal notranslate"><span class="pre">TARGET</span></code>, <code class="docutils literal notranslate"><span class="pre">HOST</span></code>.
@@ -256,12 +263,6 @@ See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-o
 <div><p>The <code class="docutils literal notranslate"><span class="pre">has_env</span></code> function returns a boolean indicating whether the given variable is found in the current environment.</p>
 </div></blockquote>
 </section>
-<section id="join">
-<h3>join<a class="headerlink" href="#join" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>The join function is used to join an array of strings into a single string with optional delimiter. See</p>
-</div></blockquote>
-</section>
 <section id="q">
 <h3>q<a class="headerlink" href="#q" title="Permalink to this headline"></a></h3>
 <blockquote>
@@ -288,12 +289,12 @@ For example:</p>
 </section>
 </section>
 <section id="id2">
-<h2>Expression Functions<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id4">Expression Functions</a><a class="headerlink" href="#id2" title="Permalink to this headline"></a></h2>
 <blockquote>
 <div><table class="docutils align-default">
 <colgroup>
-<col style="width: 38%" />
-<col style="width: 62%" />
+<col style="width: 39%" />
+<col style="width: 61%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Key</p></th>
@@ -319,58 +320,61 @@ For example:</p>
 <tr class="row-odd"><td><p>foreach</p></td>
 <td><p>{key?, value?}</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#get-ensemble-metadata"><span class="std std-ref">get_ensemble_metadata</span></a></p></td>
+<td><p>key?</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a></p></td>
 <td><p>location | [location, mkdir?]</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#is-function-defined"><span class="std std-ref">is_function_defined</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#is-function-defined"><span class="std std-ref">is_function_defined</span></a></p></td>
 <td><p>function name</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-odd"><td><p>local</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#local"><span class="std std-ref">local</span></a></p></td>
 <td><p>name</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
 <td><p>[test+]</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#not"><span class="std std-ref">not</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#not"><span class="std std-ref">not</span></a></p></td>
 <td><p>expr</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
 <td><p>path#function_name | module.function_name</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
 <td><p>name</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
 <td><p>any</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#tempfile"><span class="std std-ref">tempfile</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#tempfile"><span class="std std-ref">tempfile</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#template"><span class="std std-ref">template</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#template"><span class="std std-ref">template</span></a></p></td>
 <td><p>contents</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#to-dns-label"><span class="std std-ref">to_dns_label</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#to-dns-label"><span class="std std-ref">to_dns_label</span></a></p></td>
 <td><p>string or map or lists</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#to-googlecloud-label"><span class="std std-ref">to_googlecloud_label</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#to-googlecloud-label"><span class="std std-ref">to_googlecloud_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#to-kubernetes-label"><span class="std std-ref">to_kubernetes_label</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#to-kubernetes-label"><span class="std std-ref">to_kubernetes_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#to-label"><span class="std std-ref">to_label</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#to-label"><span class="std std-ref">to_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#urljoin"><span class="std std-ref">urljoin</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#urljoin"><span class="std std-ref">urljoin</span></a></p></td>
 <td><p>[scheme, host, port?, path?, query?, fragment?]</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#validate"><span class="std std-ref">validate</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#validate"><span class="std std-ref">validate</span></a></p></td>
 <td><p>[contents, schema]</p></td>
 </tr>
 </tbody>
@@ -414,8 +418,7 @@ returns the result of the last expression evaluated.</p>
 <section id="file">
 <h3>file<a class="headerlink" href="#file" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>Read or write a file. If the <code class="docutils literal notranslate"><span class="pre">contents</span></code> keyword argument is present, a file will be written
-upon evaluation of this function, otherwise it will be read.</p>
+<div><p>Read or write a file.</p>
 <div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="c1"># read</span>
 <span class="nt">eval</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">foo/local.config</span>
@@ -440,11 +443,11 @@ upon evaluation of this function, otherwise it will be read.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>file:</p></td>
+<tr class="row-even"><td><p>file</p></td>
 <td><p>path</p></td>
 </tr>
-<tr class="row-odd"><td><p>dir?:</p></td>
-<td><p>path</p></td>
+<tr class="row-odd"><td><p>dir?</p></td>
+<td><p>directory path</p></td>
 </tr>
 <tr class="row-even"><td><p>encoding?</p></td>
 <td><p>“binary” | “vault” | “json” | “yaml” | “env” | python_text_encoding</p></td>
@@ -454,12 +457,15 @@ upon evaluation of this function, otherwise it will be read.</p>
 </tr>
 </tbody>
 </table>
+<p>Optional keyword arguments:</p>
+<p><code class="docutils literal notranslate"><span class="pre">dir</span></code> Base dir for <code class="docutils literal notranslate"><span class="pre">file</span></code></p>
 <p><code class="docutils literal notranslate"><span class="pre">encoding</span></code> can be “binary”, “vault”, “json”, “yaml”, “env” or an encoding registered with the Python codec registry</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">select</span></code> clause can evaluate the following keys:</p>
+<p><code class="docutils literal notranslate"><span class="pre">contents</span></code> If present, the contents will be written to the file, if missing the file will be read.</p>
+<p>The <a class="reference internal" href="processing.html#expression-function-syntax"><span class="std std-ref">select</span></a> clause can evaluate the following keys:</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 82%" />
+<col style="width: 25%" />
+<col style="width: 75%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Key</p></th>
@@ -467,17 +473,63 @@ upon evaluation of this function, otherwise it will be read.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>path:</p></td>
-<td><p>absolute path of the file</p></td>
+<tr class="row-even"><td><p>path</p></td>
+<td><p>Absolute path of the file</p></td>
 </tr>
 <tr class="row-odd"><td><p>encoding</p></td>
-<td><p>encoding of the file</p></td>
+<td><p>Encoding of the file</p></td>
 </tr>
-<tr class="row-even"><td><p>contents?</p></td>
-<td><p>file contents (None if it doesn’t exist)</p></td>
+<tr class="row-even"><td><p>contents</p></td>
+<td><p>File contents (Null if it doesn’t exist)</p></td>
+</tr>
+<tr class="row-odd"><td><p>artifact_keys</p></td>
+<td><p>Dict with “file” and “repository” keys</p></td>
 </tr>
 </tbody>
 </table>
+</div></blockquote>
+</section>
+<section id="get-ensemble-metadata">
+<h3>get_ensemble_metadata<a class="headerlink" href="#get-ensemble-metadata" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Return metadata about the current ensemble and job.</p>
+<p>If one of the keys below if given as an argument, return its value;
+if no argument is given, return a map with all the metadata.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 24%" />
+<col style="width: 76%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>deployment</p></td>
+<td><p>Name of the ensemble</p></td>
+</tr>
+<tr class="row-odd"><td><p>job</p></td>
+<td><p><a class="reference internal" href="jobs.html#changeids"><span class="std std-ref">Change Id</span></a> of the current job</p></td>
+</tr>
+<tr class="row-even"><td><p>revision</p></td>
+<td><p>Current git commit of the ensemble</p></td>
+</tr>
+<tr class="row-odd"><td><p>environment</p></td>
+<td><p>Name of the current environment</p></td>
+</tr>
+<tr class="row-even"><td><p>unfurlproject</p></td>
+<td><p>Name of the project</p></td>
+</tr>
+</tbody>
+</table>
+<p>This example evaluates to a map of strings that conform to DNS name syntax.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">to_dns_label</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">get_ensemble_metadata</span><span class="p">:</span>
+</pre></div>
+</div>
 </div></blockquote>
 </section>
 <section id="foreach">
@@ -640,6 +692,9 @@ kwargs*: value}</p></td>
 </section>
 <section id="local">
 <h3>local<a class="headerlink" href="#local" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Return the value of the given <a class="reference internal" href="projects.html#locals"><span class="std std-ref">local</span></a> declared in the current environment.</p>
+</div></blockquote>
 </section>
 <section id="or">
 <h3>or<a class="headerlink" href="#or" title="Permalink to this headline"></a></h3>
@@ -700,7 +755,7 @@ If <code class="docutils literal notranslate"><span class="pre">args</span></cod
 <section id="secret">
 <h3>secret<a class="headerlink" href="#secret" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>Return the value of the given secret. It will be marked as sensitive.</p>
+<div><p>Return the value of the given <a class="reference internal" href="projects.html#secrets"><span class="std std-ref">secret</span></a> declared in the current environment. It will be marked as sensitive.</p>
 </div></blockquote>
 </section>
 <section id="sensitive">
@@ -876,7 +931,7 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 </section>
 </section>
 <section id="special-keys">
-<h2>Special keys<a class="headerlink" href="#special-keys" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id5">Special keys</a><a class="headerlink" href="#special-keys" title="Permalink to this headline"></a></h2>
 <p>Built-in keys start with a leading <strong>.</strong>:</p>
 <table class="docutils align-default">
 <colgroup>
@@ -927,7 +982,7 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 <td><p>list of requirements</p></td>
 </tr>
 <tr class="row-odd"><td><p>.relationships</p></td>
-<td><p>relationships that target this capability</p></td>
+<td><p>list of relationships that target this capability</p></td>
 </tr>
 <tr class="row-even"><td><p>.targets</p></td>
 <td><p>map with requirement names as keys and target instances as values</p></td>
@@ -935,20 +990,32 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 <tr class="row-odd"><td><p>.sources</p></td>
 <td><p>map with requirement names as keys and source instances as values</p></td>
 </tr>
-<tr class="row-even"><td><p>.repository</p></td>
+<tr class="row-even"><td><p>.artifacts</p></td>
+<td><p>map with artifact names as keys and artifact instances as values</p></td>
+</tr>
+<tr class="row-odd"><td><p>.repository</p></td>
 <td><p>repository associated with this artifact or resource</p></td>
 </tr>
-<tr class="row-odd"><td><p>.hosted_on</p></td>
+<tr class="row-even"><td><p>.hosted_on</p></td>
 <td><p>Follow .targets, filtering by the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship</p></td>
 </tr>
-<tr class="row-even"><td><p>.configured_by</p></td>
+<tr class="row-odd"><td><p>.configured_by</p></td>
 <td><p>Follow .sources, filtering by the <code class="docutils literal notranslate"><span class="pre">Configures</span></code> relationship</p></td>
 </tr>
-<tr class="row-odd"><td><p>.descendants</p></td>
+<tr class="row-even"><td><p>.descendants</p></td>
 <td><p>(including self)</p></td>
 </tr>
-<tr class="row-even"><td><p>.all</p></td>
-<td><p>dictionary of child resources with their names as keys</p></td>
+<tr class="row-odd"><td><p>.all</p></td>
+<td><p>Dictionary of child resources with their names as keys</p></td>
+</tr>
+<tr class="row-even"><td><p>.uri</p></td>
+<td><p>Unique URI for this instance (<a class="reference internal" href="ensembles.html#uris"><span class="std std-ref">URI</span></a> plus the tosca_id)</p></td>
+</tr>
+<tr class="row-odd"><td><p>.deployment</p></td>
+<td><p>Name of the ensemble</p></td>
+</tr>
+<tr class="row-even"><td><p>.apex</p></td>
+<td><p>Root ancestor of the outermost topology</p></td>
 </tr>
 </tbody>
 </table>
@@ -960,13 +1027,13 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="processing.html" class="btn btn-neutral float-left" title="Template Processing" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="cli.html" class="btn btn-neutral float-right" title="Command Line" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="cloudmap.html" class="btn btn-neutral float-right" title="Cloud Maps" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

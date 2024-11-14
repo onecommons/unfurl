@@ -7,6 +7,7 @@
   <title>Glossary &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,12 +18,13 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Python API" href="api.html" />
-    <link rel="prev" title="Type Definitions" href="toscadef.html" /> 
+    <link rel="prev" title="Configuration Files" href="jsonschema.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -49,22 +51,23 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Glossary</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#terminology-from-tosca">Terminology from TOSCA</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#service-template">Service Template</a></li>
@@ -74,9 +77,12 @@
 <li class="toctree-l3"><a class="reference internal" href="#properties">Properties</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#attributes">Attributes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#topology">Topology</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#relationships-and-requirements">Relationships and Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#artifact">Artifact</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#repository">Repository</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#requirement">Requirement</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#relationship-template">Relationship Template</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#capabilities">Capabilities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interface">Interface</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#operation">Operation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#workflow">Workflow</a></li>
 </ul>
@@ -86,6 +92,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#configurators">Configurators</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#installations">Installations</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#installers">Installers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#deployment-blueprint">Deployment blueprint</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#eval-expressions">Eval expressions</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#job">Job</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#tasks">Tasks</a></li>
@@ -133,76 +140,63 @@
 <h2>Terminology from TOSCA<a class="headerlink" href="#terminology-from-tosca" title="Permalink to this headline"></a></h2>
 <section id="service-template">
 <h3>Service Template<a class="headerlink" href="#service-template" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Services templates specify how resources should be configured using the <a class="reference internal" href="tosca.html#tosca"><span class="std std-ref">TOSCA</span></a> standard. Templates can live in their own git repositories.</p>
-</div></blockquote>
+<p>Services templates specify how resources should be configured using the <a class="reference internal" href="tosca.html#tosca"><span class="std std-ref">TOSCA</span></a> standard.</p>
 </section>
 <section id="node-template">
 <h3>Node Template<a class="headerlink" href="#node-template" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>A Node Template specifies the occurrence of a component node as part of a <a class="reference internal" href="#topology"><span class="std std-ref">Topology</span></a> Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.</p>
-</div></blockquote>
+<p>A Node Template defines a node that gets instantiated into an instance (or resource) when the service template is deployed.  A node template uses its node type as a prototype and can define properties, capabilities, artifacts, and requirements specific to the template.</p>
 </section>
 <section id="entity-types">
 <h3>Entity Types<a class="headerlink" href="#entity-types" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the <a class="reference internal" href="tosca.html#service-template"><span class="std std-ref">Service Template</span></a>.</p>
-</div></blockquote>
+<p>Every entity in TOSCA has a declared type (including node types, relationship types, Artifact types, and data types) and type inheritance hierarchies can be defined in the <a class="reference internal" href="tosca.html#service-template"><span class="std std-ref">Service Template</span></a>.</p>
 </section>
 <section id="instance">
 <h3>Instance<a class="headerlink" href="#instance" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>The running instance of a <a class="reference internal" href="tosca.html#node-template"><span class="std std-ref">Node Template</span></a>, typically instantiated when running the deployment workflow.</p>
-</div></blockquote>
+<p>The running instance of a <a class="reference internal" href="tosca.html#node-template"><span class="std std-ref">Node Template</span></a>, typically instantiated by the deployment workflow.</p>
 </section>
 <section id="properties">
 <h3>Properties<a class="headerlink" href="#properties" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Name values that are declared in the specification of the node and relationship templates.</p>
-</div></blockquote>
+<p>Name values that are declared in the specification of the node and relationship templates.</p>
 </section>
 <section id="attributes">
 <h3>Attributes<a class="headerlink" href="#attributes" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Attribute refer to the actual values of an instance. They may be a reflect declared properties’ values or they may be determined at runtime.</p>
-</div></blockquote>
+<p>Attribute refer to the actual values of an instance. They may be a reflect declared properties’ values or they may be determined at runtime.</p>
 </section>
 <section id="topology">
-<span id="id1"></span><h3>Topology<a class="headerlink" href="#topology" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>The set of Node Template and Relationship Template definitions that together define the topology model of a service as a (not necessarily connected) directed graph.</p>
-</div></blockquote>
+<h3>Topology<a class="headerlink" href="#topology" title="Permalink to this headline"></a></h3>
+<p>The set of node templates and other components along with their relationships and dependencies and that together define the model of the service being deployed.</p>
 </section>
-<section id="relationships-and-requirements">
-<h3>Relationships and Requirements<a class="headerlink" href="#relationships-and-requirements" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Relationships between nodes are specified in the <em>requirements</em> section of a <em>node template</em>.</p>
-</div></blockquote>
+<section id="artifact">
+<h3>Artifact<a class="headerlink" href="#artifact" title="Permalink to this headline"></a></h3>
+<p>A representation of assets such as files, container images, or software packages that need to be deployed or used by an implementation of an operation.</p>
+</section>
+<section id="repository">
+<h3>Repository<a class="headerlink" href="#repository" title="Permalink to this headline"></a></h3>
+<p>A TOSCA abstraction that can represent any collection of artifacts. For example, a repository can be git repository, an OCI (Docker) container registry, or a local file directory</p>
+</section>
+<section id="requirement">
+<h3>Requirement<a class="headerlink" href="#requirement" title="Permalink to this headline"></a></h3>
+<p>A requirement is description of a dependency between two node templates.</p>
 </section>
 <section id="relationship-template">
 <h3>Relationship Template<a class="headerlink" href="#relationship-template" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Specifies the occurrence of a relationship between nodes in a Topology Template. Each Relationship Template refers to a Relationship Type that defines the semantics relationship (e.g., properties, attributes, interfaces, etc.). Relationship Types are defined separately for reuse purposes.</p>
-</div></blockquote>
+<p>A relationship template is used to provide additional information about a requirement, for example how to establish a connection between two nodes.</p>
 </section>
 <section id="capabilities">
 <h3>Capabilities<a class="headerlink" href="#capabilities" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>Nodes can specify the types of capabilities they may have and the relationships between nodes can target specific capabilities.</p>
-</div></blockquote>
+<p>Nodes can specify the types of capabilities they may have and requirements can target specific capabilities.</p>
+</section>
+<section id="interface">
+<h3>Interface<a class="headerlink" href="#interface" title="Permalink to this headline"></a></h3>
+<p>A collections of <a class="reference internal" href="tosca.html#interfaces-and-operations"><span class="std std-ref">operations</span></a> associated with a node template or other TOSCA types.</p>
 </section>
 <section id="operation">
-<span id="id2"></span><h3>Operation<a class="headerlink" href="#operation" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>The basic unit of work invoked by an TOSCA orchestrator such as Unfurl. Interfaces associated with TOSCA types define a collections of operations and Node and Relationship templates specify their implementation.</p>
-</div></blockquote>
+<h3>Operation<a class="headerlink" href="#operation" title="Permalink to this headline"></a></h3>
+<p>A definition of an invocation of an artifact or a configurator. A TOSCA orchestrator like Unfurl instantiates a service template by executing operations.</p>
 </section>
 <section id="workflow">
 <h3>Workflow<a class="headerlink" href="#workflow" title="Permalink to this headline"></a></h3>
-<blockquote>
-<div><p>A plan for executing operations on instances. Predefined workflows include <em>deploy</em> for instantiating a topology, <em>undeploy</em> for destroying it, <em>discover</em> for discovering existing instances, and <em>check</em> for checking the status of existing instances.
-Custom workflows can be defined in a service template.</p>
-</div></blockquote>
+<p>A plan for executing operations on instances. <a class="reference internal" href="jobs.html#jobs-and-workflows"><span class="std std-ref">Predefined workflows</span></a> include <em>deploy</em> for instantiating a topology, <em>undeploy</em> for destroying it, <em>discover</em> for discovering existing instances, and <em>check</em> for checking the status of existing instances. Custom workflows can be defined in a service template.</p>
 </section>
 </section>
 <section id="unfurl-specific">
@@ -231,6 +225,10 @@ Custom workflows can be defined in a service template.</p>
 <div><p>A node template represents the software that creates and manages installations. Installers allow implementations to be reified as first-class instances so they can be instantiated and configured themselves, enabling the local client environment to be bootstrapped as well.</p>
 </div></blockquote>
 </section>
+<section id="deployment-blueprint">
+<h3>Deployment blueprint<a class="headerlink" href="#deployment-blueprint" title="Permalink to this headline"></a></h3>
+<p>A deployment blueprint is a blueprint that is only applied when its criteria matches the deployment environment. It inherits from a topology template and includes node templates that override the topology template’s.</p>
+</section>
 <section id="eval-expressions">
 <h3>Eval expressions<a class="headerlink" href="#eval-expressions" title="Permalink to this headline"></a></h3>
 <blockquote>
@@ -240,19 +238,19 @@ Custom workflows can be defined in a service template.</p>
 <section id="job">
 <h3>Job<a class="headerlink" href="#job" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>A jobs executes a <em>workflow</em> by instantiating a plan of tasks to run.</p>
+<div><p>A jobs executes a <a class="reference internal" href="#workflow"><span class="std std-ref">Workflow</span></a> by instantiating a plan of tasks to run.</p>
 </div></blockquote>
 </section>
 <section id="tasks">
-<span id="id3"></span><h3>Tasks<a class="headerlink" href="#tasks" title="Permalink to this headline"></a></h3>
+<span id="id1"></span><h3>Tasks<a class="headerlink" href="#tasks" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>Instantiates a configurator to carry out the given <em>operation</em>.</p>
+<div><p>Instantiates a <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a> to carry out the given <a class="reference internal" href="#operation"><span class="std std-ref">Operation</span></a>.</p>
 </div></blockquote>
 </section>
 <section id="config-change">
 <h3>Config Change<a class="headerlink" href="#config-change" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>A persistent record of the changes made by a task.</p>
+<div><p>A persistent record of the changes made by a <a class="reference internal" href="#tasks"><span class="std std-ref">task</span></a>.</p>
 </div></blockquote>
 </section>
 <section id="changelog">
@@ -292,14 +290,14 @@ Custom workflows can be defined in a service template.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="toscadef.html" class="btn btn-neutral float-left" title="Type Definitions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="jsonschema.html" class="btn btn-neutral float-left" title="Configuration Files" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="api.html" class="btn btn-neutral float-right" title="Python API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

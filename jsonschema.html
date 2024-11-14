@@ -7,6 +7,7 @@
   <title>Configuration Files &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,11 +18,12 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="TOSCA Language Reference" href="toscaref.html" />
+    <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Command Line" href="cli.html" /> 
 </head>
 
@@ -49,19 +51,21 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Configuration Files</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#files">Files</a><ul>
@@ -75,6 +79,10 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#unfurl-yaml">unfurl.yaml</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#id4">unfurl.yaml</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cloudmap-yaml">cloudmap.yaml</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cloudmap-schema">CloudMap Schema</a></li>
 </ul>
 </li>
 </ul>
@@ -113,7 +121,6 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -150,7 +157,7 @@
 <section id="files">
 <h2>Files<a class="headerlink" href="#files" title="Permalink to this headline"></a></h2>
 <section id="ensemble-yaml">
-<span id="id1"></span><h3>ensemble.yaml<a class="headerlink" href="#ensemble-yaml" title="Permalink to this headline"></a></h3>
+<h3>ensemble.yaml<a class="headerlink" href="#ensemble-yaml" title="Permalink to this headline"></a></h3>
 <p>Example:</p>
 <div class="code YAML highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">apiVersion</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">/</span><span class="n">v1alpha1</span>
 <span class="n">kind</span><span class="p">:</span> <span class="n">Ensemble</span>
@@ -215,7 +222,7 @@
       <span class="n">tag</span><span class="p">:</span> <span class="n">v1</span><span class="mf">.0.0</span> <span class="c1"># current commit is on this tag</span>
 </pre></div>
 </div>
-<p>JSON Schema:</p>
+<p id="id1">JSON Schema:</p>
 <section id="id2">
 <h4>ensemble.yaml<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h4>
 <table class="docutils align-default">
@@ -290,122 +297,127 @@
 <tr class="row-even"><td><p>format</p></td>
 <td><p>uri</p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p>environment</p></li>
 </ul>
 </td>
-<td colspan="4"><p><a class="reference internal" href="##/definitions/environment"><span class="std std-ref">environment</span></a></p></td>
+<td colspan="4"><p>Environment defaults</p></td>
 </tr>
-<tr class="row-even"><td rowspan="8"><ul class="simple">
+<tr class="row-even"><td colspan="4"><p><a class="reference internal" href="##/definitions/environment"><span class="std std-ref">environment</span></a></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="10"><ul class="simple">
 <li><p><strong>spec</strong></p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td colspan="4"><p>properties</p></td>
+<tr class="row-even"><td colspan="4"><p>properties</p></td>
 </tr>
-<tr class="row-even"><td rowspan="2"><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p>service_template</p></li>
 </ul>
 </td>
-<td colspan="3"><p>a TOSCA service template</p></td>
+<td colspan="3"><p>A TOSCA service template</p></td>
 </tr>
-<tr class="row-odd"><td><p>type</p></td>
+<tr class="row-even"><td><p>type</p></td>
 <td colspan="2"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>inputs</p></li>
 </ul>
 </td>
 <td colspan="3"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>instances</p></li>
 </ul>
 </td>
 <td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>deployment_blueprints</p></li>
 </ul>
 </td>
 <td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>resource_templates</p></li>
 </ul>
 </td>
 <td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-even"><td rowspan="7"><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>discovered</p></li>
+</ul>
+</td>
+<td colspan="3"><p>Discovered Node Templates</p></td>
+</tr>
+<tr class="row-even"><td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="7"><ul class="simple">
 <li><p>status</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td><p>default</p></td>
+<tr class="row-even"><td><p>default</p></td>
 <td colspan="3"><p>{}</p></td>
 </tr>
-<tr class="row-even"><td rowspan="5"><p>allOf</p></td>
+<tr class="row-odd"><td rowspan="5"><p>allOf</p></td>
 <td rowspan="4"><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td colspan="2"><p>properties</p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>inputs</p></li>
 </ul>
 </td>
 <td><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>outputs</p></li>
 </ul>
 </td>
 <td><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>instances</p></li>
 </ul>
 </td>
 <td><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td colspan="2"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>lastJob</p></li>
 </ul>
 </td>
 <td colspan="4"><p><a class="reference internal" href="##/definitions/job"><span class="std std-ref">Job Record</span></a></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>jobsLog</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>string</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
-<li><p>jobsFolder</p></li>
-</ul>
-</td>
-<td><p>type</p></td>
-<td colspan="3"><p><em>string</em></p></td>
-</tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-even"><td rowspan="2"><ul class="simple">
 <li><p>changes</p></li>
 </ul>
 </td>
-<td colspan="4"><p><a class="reference internal" href="##/definitions/changes"><span class="std std-ref">Changes</span></a></p></td>
+<td colspan="4"><p>Optional list of changes. If missing, changes are saved as separate <a class="reference internal" href="#id3"><span class="std std-ref">files</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-odd"><td colspan="4"><p><a class="reference internal" href="##/definitions/changes"><span class="std std-ref">Changes</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
 <li><p>lock</p></li>
 </ul>
 </td>
@@ -668,28 +680,30 @@
 <td><p>type</p></td>
 <td colspan="4"><p><em>null</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p>default_environment</p></li>
 </ul>
 </td>
-<td><p>type</p></td>
+<td colspan="7"><p>The name of the environment to deploy into if none was specified for the ensemble in its configuration or by the command line).</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
 <td colspan="6"><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="8"><ul class="simple">
+<tr class="row-odd"><td rowspan="8"><ul class="simple">
 <li><p>projects</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="6"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td rowspan="7"><p>allOf</p></td>
+<tr class="row-even"><td rowspan="7"><p>allOf</p></td>
 <td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td colspan="5"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-even"><td rowspan="6"><ul class="simple">
+<tr class="row-odd"><td rowspan="6"><ul class="simple">
 <li></li>
 </ul>
 </td>
@@ -697,46 +711,444 @@
 <td><p>type</p></td>
 <td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td colspan="4"><p>properties</p></td>
+<tr class="row-even"><td colspan="4"><p>properties</p></td>
 </tr>
-<tr class="row-even"><td rowspan="2"><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p>url</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="2"><p><em>string</em></p></td>
 </tr>
-<tr class="row-odd"><td><p>format</p></td>
+<tr class="row-even"><td><p>format</p></td>
 <td colspan="2"><p>uri</p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>initial</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="2"><p><em>string</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>file</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="2"><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="3"><ul class="simple">
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
 <li><p>localRepositories</p></li>
 </ul>
 </td>
 <td colspan="7"><p>Map of file paths located outside of the project</p></td>
 </tr>
-<tr class="row-odd"><td><p>type</p></td>
+<tr class="row-even"><td><p>type</p></td>
 <td colspan="6"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td><p>additionalProperties</p></td>
+<tr class="row-odd"><td><p>additionalProperties</p></td>
 <td colspan="6"><p><a class="reference internal" href="##/definitions/repositories"><span class="std std-ref">repositories</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><p>additionalProperties</p></td>
+<tr class="row-even"><td><p>additionalProperties</p></td>
 <td colspan="7"><p>False</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="cloudmap-yaml">
+<h3>cloudmap.yaml<a class="headerlink" href="#cloudmap-yaml" title="Permalink to this headline"></a></h3>
+<p>Example (from <a class="reference external" href="https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml">https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml</a>):</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CloudMap</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">unfurl.cloud/onecommons/blueprints/mediawiki</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">git</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.cloud/onecommons/blueprints/mediawiki.git</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">onecommons/blueprints/mediawiki</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MediaWiki</span>
+<span class="w">    </span><span class="nt">protocols</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ssh</span>
+<span class="w">    </span><span class="nt">internal_id</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;35&#39;</span>
+<span class="w">    </span><span class="nt">project_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://unfurl.cloud/onecommons/blueprints/mediawiki</span>
+<span class="w">    </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MediaWiki is free and open-source wiki software used in Wikipedia,</span>
+<span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">Wiktionary, and many other online encyclopedias.</span>
+<span class="w">      </span><span class="nt">issues_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://unfurl.cloud/onecommons/blueprints/mediawiki/-/issues</span>
+<span class="w">      </span><span class="nt">homepage_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://unfurl.cloud/onecommons/blueprints/mediawiki</span>
+<span class="w">    </span><span class="nt">default_branch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
+<span class="w">    </span><span class="nt">branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0fc60cb3afd06ae2c4abe038007e9ff4db398662</span>
+<span class="w">    </span><span class="nt">tags</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">v1.0.0</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0fc60cb3afd06ae2c4abe038007e9ff4db398662</span>
+<span class="w">      </span><span class="nt">v0.1.0</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">225932bc2a45473d682e48f272bc48fcd83909bb</span>
+<span class="w">    </span><span class="nt">notable</span><span class="p">:</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">ensemble-template.yaml#spec/service_template</span><span class="p p-Indicator">:</span>
+<span class="w">        </span><span class="nt">artifact_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">artifact.tosca.ServiceTemplate</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Mediawiki</span>
+<span class="w">        </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MediaWiki is free and open-source wiki software used in Wikipedia,</span>
+<span class="w">          </span><span class="l l-Scalar l-Scalar-Plain">Wiktionary, and many other online encyclopedias.</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki</span>
+<span class="w">          </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Mediawiki</span>
+<span class="w">          </span><span class="nt">extends</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SQLWebApp@unfurl.cloud/onecommons/std:generic_types</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">WebApp@unfurl.cloud/onecommons/std:generic_types</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">App@unfurl.cloud/onecommons/std:generic_types</span>
+<span class="w">        </span><span class="nt">dependencies</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MySQLDB@unfurl.cloud/onecommons/std:generic_types</span>
+<span class="w">        </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker.io/bitnami/mediawiki</span>
+<span class="nn">...</span>
+<span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">docker.io/bitnami/mediawiki</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">artifacts.OCIImage</span>
+</pre></div>
+</div>
+<p>JSON Schema:</p>
+<section id="cloudmap-schema">
+<h4>CloudMap Schema<a class="headerlink" href="#cloudmap-schema" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="9"><p>CloudMap Schema</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="8"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="9"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p><strong>apiVersion</strong></p></li>
+</ul>
+</td>
+<td><p>const</p></td>
+<td colspan="7"><p>“unfurl/v1alpha1”</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p><strong>kind</strong></p></li>
+</ul>
+</td>
+<td><p>const</p></td>
+<td colspan="7"><p>“CloudMap”</p></td>
+</tr>
+<tr class="row-even"><td rowspan="46"><ul class="simple">
+<li><p><strong>repositories</strong></p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="7"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>propertyNames</p></td>
+<td><p>pattern</p></td>
+<td colspan="6"><p>^[^s]*$</p></td>
+</tr>
+<tr class="row-even"><td rowspan="44"><p>additionalProperties</p></td>
+<td><p>type</p></td>
+<td colspan="6"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="7"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>git</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>path</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>initial_revision</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>name</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="3"><ul class="simple">
+<li><p>protocols</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>array</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="6"><p>items</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>internal_id</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>project_url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>mirror_of</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>fork_of</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>private</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>default_branch</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="13"><ul class="simple">
+<li><p>metadata</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="6"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>description</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="3"><ul class="simple">
+<li><p>topics</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>array</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="5"><p>items</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>spdx_license_id</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>license_url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>issues_url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>homepage_url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>avatar_url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>lastupdate_time</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>lastupdate_digest</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>branches</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>additionalProperties</p></td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>tags</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>additionalProperties</p></td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="12"><ul class="simple">
+<li><p>notable</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="11"><p>additionalProperties</p></td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="5"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>artifact_type</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>name</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>version</p></li>
+</ul>
+</td>
+<td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>number</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>description</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>schema</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
+<li><p>artifacts</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>array</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="4"><p>items</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="5"><ul class="simple">
+<li><p>artifacts</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="7"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>propertyNames</p></td>
+<td><p>pattern</p></td>
+<td colspan="6"><p>^[^s]*$</p></td>
+</tr>
+<tr class="row-even"><td rowspan="3"><p>additionalProperties</p></td>
+<td><p>type</p></td>
+<td colspan="6"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="7"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>type</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>string</em></p></td>
 </tr>
 </tbody>
 </table>
@@ -746,7 +1158,7 @@
 <section id="sections">
 <h2>Sections<a class="headerlink" href="#sections" title="Permalink to this headline"></a></h2>
 <section id="environment">
-<span id="#/definitions/environment"></span><span id="./manifest-schema.json#/definitions/environment"></span><h3>environment<a class="headerlink" href="#environment" title="Permalink to this headline"></a></h3>
+<span id="#/definitions/environment"></span><span id="./manifest-schema.json#/definitions/environment"></span><span id="environment-schema"></span><h3>environment<a class="headerlink" href="#environment" title="Permalink to this headline"></a></h3>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 20%" />
@@ -852,40 +1264,103 @@
 <tr class="row-odd"><td><p>type</p></td>
 <td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-even"><td rowspan="4"><ul class="simple">
 <li><p>cloudmaps</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>object</em></p></td>
 </tr>
+<tr class="row-odd"><td colspan="4"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>repositories</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
 <tr class="row-odd"><td><ul class="simple">
+<li><p>hosts</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
 <li><p>imports</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>array</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="3"><ul class="simple">
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
 <li><p>external</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td rowspan="2"><p>allOf</p></td>
+<tr class="row-even"><td rowspan="2"><p>allOf</p></td>
 <td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td><p>additionalProperties</p></td>
 <td><p><a class="reference internal" href="##/definitions/external"><span class="std std-ref">External</span></a></p></td>
+</tr>
+<tr class="row-even"><td rowspan="12"><ul class="simple">
+<li><p>lfs_lock</p></li>
+</ul>
+</td>
+<td colspan="4"><p>Configure the global git lfs lock for jobs. See Job <a class="reference internal" href="jobs.html#locking"><span class="std std-ref">Locking</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="3"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="4"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="4"><ul class="simple">
+<li><p>lock</p></li>
+</ul>
+</td>
+<td colspan="3"><p>Whether to use git lfs when locking an ensemble. ‘try’ use locking if lfs is available; ‘require’ means error if unable to lock</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>enum</p></td>
+<td colspan="2"><p>no, try, require</p></td>
+</tr>
+<tr class="row-even"><td><p>default</p></td>
+<td colspan="2"><p>no</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>name</p></li>
+</ul>
+</td>
+<td colspan="3"><p>Name of the lock file</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
+<li><p>url</p></li>
+</ul>
+</td>
+<td colspan="3"><p>Git LFS server url; if missing, use the ensemble’s git repository</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>format</p></td>
+<td colspan="2"><p>uri</p></td>
 </tr>
 </tbody>
 </table>
@@ -906,8 +1381,8 @@
 <tr class="row-odd"><td><p>type</p></td>
 <td colspan="6"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="16"><p>allOf</p></td>
-<td rowspan="15"><ul class="simple">
+<tr class="row-even"><td rowspan="13"><p>allOf</p></td>
+<td rowspan="12"><ul class="simple">
 <li></li>
 </ul>
 </td>
@@ -982,32 +1457,6 @@
 <td colspan="3"><p><em>string</em></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
-<li><p>protected</p></li>
-</ul>
-</td>
-<td><p>type</p></td>
-<td colspan="3"><p><em>boolean</em></p></td>
-</tr>
-<tr class="row-odd"><td rowspan="2"><ul class="simple">
-<li><p>created</p></li>
-</ul>
-</td>
-<td rowspan="2"><p>anyOf</p></td>
-<td><ul class="simple">
-<li></li>
-</ul>
-</td>
-<td><p>type</p></td>
-<td><p><em>boolean</em></p></td>
-</tr>
-<tr class="row-even"><td><ul class="simple">
-<li></li>
-</ul>
-</td>
-<td><p>type</p></td>
-<td><p><em>string</em></p></td>
-</tr>
-<tr class="row-odd"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
@@ -1206,64 +1655,116 @@
 <span id="#/definitions/status"></span><h3>Status<a class="headerlink" href="#status" title="Permalink to this headline"></a></h3>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
 </colgroup>
 <tbody>
 <tr class="row-odd"><td><p>type</p></td>
-<td colspan="2"><p><em>object</em></p></td>
+<td colspan="4"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="3"><p>properties</p></td>
+<tr class="row-even"><td colspan="5"><p>properties</p></td>
 </tr>
 <tr class="row-odd"><td rowspan="5"><ul class="simple">
 <li><p>readyState</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td><p><em>object</em></p></td>
+<td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="2"><p>properties</p></td>
+<tr class="row-even"><td colspan="4"><p>properties</p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>effective</p></li>
 </ul>
 </td>
-<td><p><a class="reference internal" href="##/definitions/readystate"><span class="std std-ref">readyState</span></a></p></td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/readystate"><span class="std std-ref">readyState</span></a></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li><p>local</p></li>
 </ul>
 </td>
-<td><p><a class="reference internal" href="##/definitions/readystate"><span class="std std-ref">readyState</span></a></p></td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/readystate"><span class="std std-ref">readyState</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>state</p></li>
 </ul>
 </td>
-<td><p><a class="reference internal" href="##/definitions/state"><span class="std std-ref">state</span></a></p></td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/state"><span class="std std-ref">state</span></a></p></td>
 </tr>
 <tr class="row-even"><td rowspan="2"><ul class="simple">
 <li><p>priority</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td><p><em>string</em></p></td>
+<td colspan="3"><p><em>string</em></p></td>
 </tr>
 <tr class="row-odd"><td><p>enum</p></td>
-<td><p>ignore, optional, required</p></td>
+<td colspan="3"><p>ignore, optional, required, critical</p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li><p>lastStateChange</p></li>
 </ul>
 </td>
-<td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>lastConfigChange</p></li>
 </ul>
 </td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>protected</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>boolean</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
+<li><p>created</p></li>
+</ul>
+</td>
+<td rowspan="3"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
 <td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>boolean</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>customized</p></li>
+</ul>
+</td>
+<td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>boolean</em></p></td>
 </tr>
 </tbody>
 </table>
@@ -1389,8 +1890,8 @@
 <tr class="row-odd"><td><p>type</p></td>
 <td colspan="6"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="21"><p>allOf</p></td>
-<td rowspan="20"><ul class="simple">
+<tr class="row-even"><td rowspan="23"><p>allOf</p></td>
+<td rowspan="22"><ul class="simple">
 <li></li>
 </ul>
 </td>
@@ -1416,77 +1917,91 @@
 <td colspan="4"><p><a class="reference internal" href="##/definitions/configurationspec"><span class="std std-ref">implementation definition</span></a></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
+<li><p>reason</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
 <li><p>inputs</p></li>
 </ul>
 </td>
 <td colspan="4"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
-<tr class="row-odd"><td rowspan="3"><ul class="simple">
+<tr class="row-even"><td rowspan="3"><ul class="simple">
 <li><p>changes</p></li>
 </ul>
 </td>
 <td><p>default</p></td>
 <td colspan="3"><p>{}</p></td>
 </tr>
-<tr class="row-even"><td rowspan="2"><p>allOf</p></td>
+<tr class="row-odd"><td rowspan="2"><p>allOf</p></td>
 <td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td><p>additionalProperties</p></td>
 <td><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-even"><td rowspan="9"><ul class="simple">
+<tr class="row-odd"><td rowspan="10"><ul class="simple">
 <li><p>dependencies</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>array</em></p></td>
 </tr>
-<tr class="row-odd"><td colspan="4"><p>items</p></td>
+<tr class="row-even"><td colspan="4"><p>items</p></td>
 </tr>
-<tr class="row-even"><td rowspan="7"><ul class="simple">
+<tr class="row-odd"><td rowspan="8"><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="2"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td colspan="3"><p>properties</p></td>
+<tr class="row-even"><td colspan="3"><p>properties</p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>name</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>ref</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="3"><ul class="simple">
+<tr class="row-odd"><td colspan="3"><ul class="simple">
 <li><p>expected</p></li>
 </ul>
 </td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>schema</p></li>
 </ul>
 </td>
 <td colspan="2"><p><a class="reference internal" href="##/definitions/schema"><span class="std std-ref">schema</span></a></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>required</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>boolean</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>writeOnly</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
@@ -1833,7 +2348,7 @@
 <col style="width: 50%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td colspan="2"><p>the operational state of the instance</p></td>
+<tr class="row-odd"><td colspan="2"><p>the <a class="reference internal" href="jobs.html#node-state"><span class="std std-ref">Node state</span></a> of the instance</p></td>
 </tr>
 <tr class="row-even"><td><p>type</p></td>
 <td><p><em>string</em></p></td>
@@ -2023,13 +2538,13 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="cli.html" class="btn btn-neutral float-left" title="Command Line" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="toscaref.html" class="btn btn-neutral float-right" title="TOSCA Language Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="glossary.html" class="btn btn-neutral float-right" title="Glossary" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

@@ -7,6 +7,7 @@
   <title>Inputs &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="../_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="../_static/jquery.js"></script>
         <script src="../_static/underscore.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/design-tabs.js"></script>
         <script src="../_static/custom.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -49,21 +51,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../dsl.html">TOSCA as Python</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
 <li class="toctree-l2"><a class="reference internal" href="spec-repositories.html">Repositories</a></li>
@@ -91,6 +84,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -123,17 +126,21 @@
            <div itemprop="articleBody">
              
   <section id="inputs">
-<span id="inputs-spec"></span><h1>Inputs<a class="headerlink" href="#inputs" title="Permalink to this headline"></a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">inputs</span></code> are parameters injected into the service template upon deployment creation/initiation. These parameters can be referenced by using the <a class="reference internal" href="../expressions.html#get-input"><span class="std std-ref">get_input</span></a> TOSCA function.</p>
-<p>Inputs are useful when there’s a need to inject parameters to the service template which were unknown when the service template was created and can be used for distinction between different deployments of the same service template.</p>
+<h1>Inputs<a class="headerlink" href="#inputs" title="Permalink to this headline"></a></h1>
+<p><a class="reference internal" href="../runtime.html#topology-inputs"><span class="std std-ref">inputs</span></a> are parameters passed to a service template when it is instantiated. These parameters can be referenced by using the <a class="reference internal" href="../expressions.html#get-input"><span class="std std-ref">get_input</span></a> TOSCA function.</p>
+<p>Inputs are useful when there’s a need to inject parameters to the service template which were unknown when the service template was created and can vary across different deployments of the same service template.</p>
+<p>See <a class="reference internal" href="../runtime.html#topology-inputs"><span class="std std-ref">Topology Inputs</span></a> on how to pass inputs to a service template.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">inputs</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">input1</span><span class="p">:</span>
-<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
-<span class="w">  </span><span class="nt">input2</span><span class="p">:</span>
-<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">    </span><span class="nt">input1</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">    </span><span class="nt">input2</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 </pre></div>
 </div>
 </section>
@@ -162,7 +169,7 @@
 <tr class="row-odd"><td><p>type</p></td>
 <td><p>no</p></td>
 <td><p>string</p></td>
-<td><p>Represents the required data type of the input. Not specifying a data type means the type can be anything. Valid types: string, integer, boolean</p></td>
+<td><p>Represents the required data type of the input. Not specifying a data type means the type can be anything.</p></td>
 </tr>
 <tr class="row-even"><td><p>default</p></td>
 <td><p>no</p></td>
@@ -171,28 +178,48 @@
 </tr>
 </tbody>
 </table>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For the full specification, see the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125461">TOSCA Input section</a>.</p>
+</div>
 </section>
 <section id="example">
 <h2>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">inputs</span><span class="p">:</span>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">image_name</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The image name of the server</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
-<span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Ubuntu</span><span class="nv"> </span><span class="s">12.04&quot;</span>
+<span class="w">    </span><span class="nt">image_name</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The image name of the server</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Ubuntu</span><span class="nv"> </span><span class="s">12.04&quot;</span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">vm</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.openstack.nodes.Server</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">server</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">image_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">image_name</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">vm</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyVM</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">image_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">image_name</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </pre></div>
 </div>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p><a class="reference internal" href="../expressions.html#get-input"><span class="std std-ref">get_input</span></a> is a TOSCA function which allows the user to use inputs throughout the service templates. For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125461">TOSCA Input section</a></p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">TopologyInputs</span>
+
+<span class="k">class</span> <span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
+    <span class="n">image_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;Ubuntu 12.04&quot;</span>
+
+<span class="n">vm</span> <span class="o">=</span> <span class="n">MyVM</span><span class="p">(</span><span class="n">image_name</span><span class="o">=</span><span class="n">Inputs</span><span class="o">.</span><span class="n">image_name</span><span class="p">)</span>
+
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 </section>
@@ -208,7 +235,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

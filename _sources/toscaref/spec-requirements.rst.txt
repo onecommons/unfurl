@@ -19,8 +19,10 @@ Declaration
 
    node: <node_type_name>
 
-   relationship: <relationship_type_name>
+   relationship: <relationship_type or template name or inline relationship template>
 
    occurrences: [ <min_occurrences>, <max_occurrences> ]
+
+   node_filter: <node_filter>
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Requirement Section <DEFN_ELEMENT_REQUIREMENT_DEF>`

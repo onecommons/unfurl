@@ -7,6 +7,7 @@
   <title>Solution Overview &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,10 +18,13 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" /> 
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Unfurl Projects" href="projects.html" />
+    <link rel="prev" title="Quick start" href="quickstart.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -43,26 +47,48 @@
   </form>
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <ul>
+              <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Solution Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#step-1-create-an-unfurl-project">Step 1: Create an Unfurl Project</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-home">.unfurl_home</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-runtimes">Unfurl Runtimes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#step-2-create-a-cloud-blueprint">Step 2: Create a cloud blueprint</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-3-instantiate-your-blueprint">Step 3: Instantiate your blueprint</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-4-deploy-and-manage">Step 4: Deploy and manage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#updating-your-deployment">Updating your deployment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#resource-discovery">Resource Discovery</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#day-two-operations">Day-two Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#step-5-share-and-collaborate">Step 5: Share and Collaborate</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#collaborative-development">Collaborative Development</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#collaborative-operations">Collaborative Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#large-scale-collaboration">Large-scale Collaboration</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -94,126 +120,146 @@
              
   <section id="solution-overview">
 <h1>Solution Overview<a class="headerlink" href="#solution-overview" title="Permalink to this headline"></a></h1>
-<p>Before getting started, it is important to get yourself familiar with the overall Unfurl solution.</p>
-<p>Unfurl is a tool that allows you to keep track of the changes to your DevOps infrastructure and deploy it. This information can come in handy if you ever want to go back and see exactly how did you make those configuration changes along with what results did you get with that configuration. All this information can help with recreating that environment again.</p>
-<p>Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into Ensembles, shareable abstractions that ease migrations to new environments as well as share and reuse your work.</p>
-<p>Let’s dive a bit deeper into the solution.</p>
-<section id="how-it-works">
-<span id="id1"></span><h2>How It Works<a class="headerlink" href="#how-it-works" title="Permalink to this headline"></a></h2>
 <p>In this section, we will go through each step involved in whole process from deploying the changes to production to pushing everything on git. The figure below gives a high level overview of each step.</p>
 <img alt="_images/unfurl_overview.png" class="align-center" src="_images/unfurl_overview.png" />
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<p>We will go through each step in this section.</p>
 <ul class="simple">
-<li><p><a class="reference internal" href="#step1"><span class="std std-ref">Step 1: Organize your deployment environment</span></a></p></li>
-<li><p><a class="reference internal" href="#step2"><span class="std std-ref">Step 2: Model your cloud infrastructure</span></a></p></li>
-<li><p><a class="reference internal" href="#step3"><span class="std std-ref">Step 3: Implement your model</span></a></p></li>
-<li><p><a class="reference internal" href="#step4"><span class="std std-ref">Step 4: Activate and manage</span></a></p></li>
-<li><p><a class="reference internal" href="#step5"><span class="std std-ref">Step 5: Publish, share and clone</span></a></p></li>
+<li><p><a class="reference internal" href="#step1"><span class="std std-ref">Step 1: Create an Unfurl Project</span></a></p></li>
+<li><p><a class="reference internal" href="#step2"><span class="std std-ref">Step 2: Create a cloud blueprint</span></a></p></li>
+<li><p><a class="reference internal" href="#step3"><span class="std std-ref">Step 3: Instantiate blueprint</span></a></p></li>
+<li><p><a class="reference internal" href="#step4"><span class="std std-ref">Step 4: Deploy and manage</span></a></p></li>
+<li><p><a class="reference internal" href="#step5"><span class="std std-ref">Step 5: Share and Collaborate</span></a></p></li>
 </ul>
-<section id="step-1-organize-your-deployment-environment">
-<span id="step1"></span><h3>Step 1: Organize your deployment environment<a class="headerlink" href="#step-1-organize-your-deployment-environment" title="Permalink to this headline"></a></h3>
-<p>Unfurl allows you to collect your configuration information and organize them into contexts.
-Contexts are used to create isolated environments that the Unfurl deployment process runs in. For example, you might create different context for different projects or different deployment environments such as <strong>production</strong> or <strong>staging</strong>.</p>
-<p>Unfurl stores the local contexts such as environment variables in an <code class="docutils literal notranslate"><span class="pre">.unfurl_home</span></code> ensemble that represents its local environment. So you can use all its functionality to manage the local machine it is running on, for example, it can:</p>
-<ul class="simple">
-<li><p>Automatically install project dependencies such as packages and executables.</p></li>
-<li><p>Store configuration history in the ensemble’s local git repository</p></li>
-<li><p>Manage external git repositories needed for development and deployment (e.g. automatically clone remote repositories)</p></li>
-</ul>
+<section id="step-1-create-an-unfurl-project">
+<span id="step1"></span><h2>Step 1: Create an Unfurl Project<a class="headerlink" href="#step-1-create-an-unfurl-project" title="Permalink to this headline"></a></h2>
 <a class="reference internal image-reference" href="_images/step1.png"><img alt="_images/step1.png" class="align-center" src="_images/step1.png" style="width: 400px;" /></a>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>To setup your environment, refer to the <a class="reference internal" href="get-started-step-by-step.html#configure"><span class="std std-ref">Configure your home environment</span></a> section.</p>
-</div>
-</section>
-<section id="step-2-model-your-cloud-infrastructure">
-<span id="step2"></span><h3>Step 2: Model your cloud infrastructure<a class="headerlink" href="#step-2-model-your-cloud-infrastructure" title="Permalink to this headline"></a></h3>
-<p>Specify your servers, applications, network, etc. with a declarative model that describes resources and their properties, dependencies, and relationships using the OASIS’s Topology and Orchestration Specification for Cloud Applications (TOSCA) standard. Leverage the TOSCA ecosystem of existing model libraries and tools.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
+<p>At the center of Unfurl are Unfurl projects. They provide an easy way to track and organize all that goes into deploying an application, including configuration, secrets, and artifacts – and record them in git. The goal is to provide isolation and reproducibility while maintaining human-scale, application-centric view of your resources.</p>
+<p>Unfurl projects are self-contained – a project is just a collection of files in a directory. The main components of an Unfurl project are blueprints, environments, and ensembles (deployments):</p>
+<p><strong>Blueprints</strong> are the models described in the <a class="reference internal" href="#step2"><span class="std std-ref">next step</span></a>, <strong>ensembles</strong> are described in <a class="reference internal" href="#step-4-deploy-and-manage"><span class="std std-ref">Step 4: Deploy and manage</span></a>. <strong>Environments</strong> are used to create isolated contexts that deployment process runs in. For example, you might create different context for different projects or different deployment environments such as <strong>production</strong> or <strong>staging</strong>.</p>
+<p>Some of supported configuration including:</p>
 <ul class="simple">
-<li><p>TOSCA supports abstract type hierarchies and reusable templates for resources and relationships so your models can be truly cloud-agnostic.</p></li>
-<li><p>For more information, refer to <a class="reference internal" href="tosca.html#tosca"><span class="std std-ref">TOSCA</span></a> section.</p></li>
-</ul>
-</div>
-<p>The following key points are important to note:</p>
-<ul class="simple">
-<li><p>Topology also can describe its surrounding cloud environment such as required external resources so the deployment process can validate and adapt to its environment.</p></li>
-<li><p>Models can be vague with ad-hoc properties or they can be detailed and precise with strongly typed nodes and relationships, depending on need, and they can be incrementally refined over time.</p></li>
-<li><p>Models can be dynamically generated and updated as part of the deployment process, for example from Helm charts or Terraform modules.</p></li>
-</ul>
-<a class="reference internal image-reference" href="_images/step2.png"><img alt="_images/step2.png" class="align-center" src="_images/step2.png" style="width: 400px;" /></a>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>To model your cloud infrastructure using TOSCA, refer to the <a class="reference internal" href="get-started-step-by-step.html#create-servicetemplate"><span class="std std-ref">Create a service template</span></a> section.</p>
-</div>
-</section>
-<section id="step-3-implement-your-model">
-<span id="step3"></span><h3>Step 3: Implement your model<a class="headerlink" href="#step-3-implement-your-model" title="Permalink to this headline"></a></h3>
-<p>Once you’ve specified the model, you can now associate it with operations and workflows in YAML using plugins called <strong>configurators</strong>, which integrate configuration tools, such as <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell scripts</span></a>, <a class="reference internal" href="configurators.html#terraform"><span class="std std-ref">Terraform</span></a>, <a class="reference internal" href="configurators.html#ansible"><span class="std std-ref">Ansible</span></a> and <a class="reference internal" href="expressions.html#python"><span class="std std-ref">Python</span></a>.</p>
-<p>Among the domain-specific configurators, <a class="reference internal" href="projects.html#docker"><span class="std std-ref">Docker</span></a>, <a class="reference internal" href="configurators.html#kubernetes"><span class="std std-ref">Kubernetes</span></a>, <a class="reference internal" href="configurators.html#helm"><span class="std std-ref">Helm</span></a> and <a class="reference internal" href="configurators.html#sup"><span class="std std-ref">Supervisor</span></a> are included.</p>
-<p>The YAML configuration language covers for multiple facilities for processing an operation’s inputs and outputs, including:</p>
-<ul class="simple">
-<li><p>A path based expression language for querying resources and configuration</p></li>
-<li><p>Apply Jinja2 templates with Ansible filters.</p></li>
+<li><p>Cloud provider and other services’ account settings and credentials.</p></li>
+<li><p>environment variables</p></li>
+<li><p>secrets which can be managed in a variety of ways including support for secret managers such as Hashicorp Vault or Amazon Secret Manager or transparently encrypting them using Ansible Vault.</p></li>
 <li><p>Mark values and files as sensitive so they can be treated as secrets.</p></li>
-<li><p>Files touched by the configurators are automatically committed to the repository and their changes are included in dependency analysis.</p></li>
+<li><p>pointers to external ensembles, providing a principled way to connect deployed services and applications.</p></li>
 </ul>
+<p>All of these settings are exposed as TOSCA objects, providing type safety.</p>
+<p>As you use Unfurl to deploy applications, it updates the project:</p>
+<ul class="simple">
+<li><p>Manage one or more local git repositories to store configuration and deployment history.</p></li>
+<li><p>Automatically install dependencies such as packages and executables and track the exact version used.</p></li>
+<li><p>Track and manages external git repositories needed for development and deployment (e.g. automatically clone remote repositories).</p></li>
+</ul>
+<section id="unfurl-home">
+<h3>.unfurl_home<a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h3>
+<p>Unfurl stores the local contexts such as environment variables in an <code class="docutils literal notranslate"><span class="pre">.unfurl_home</span></code> ensemble that represents its local environment. So you can use all Unfurl functionality to bootstrap your deployment environment and manage the local machine it is running on.</p>
+<p>When an unfurl_home exists, other Unfurl projects will inherit the project settings defined there.</p>
+</section>
+<section id="unfurl-runtimes">
+<h3>Unfurl Runtimes<a class="headerlink" href="#unfurl-runtimes" title="Permalink to this headline"></a></h3>
+<p>Unfurl home and other Unfurl projects can include a Unfurl execution runtime which is an isolated execution environment that Unfurl can run in. This can be a Python virtual environment or a Docker container. Unfurl cli commands that executes jobs (such as <a class="reference external" href="cli.html#unfurl-deploy">unfurl deploy</a> or <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a>)  will proxy that command to the runtime and execute it there.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Read more To setup your environment, refer to the <a class="reference internal" href="projects.html#unfurl-home"><span class="std std-ref">Configure your home environment</span></a> section.</p>
+</div>
+</section>
+</section>
+<section id="step-2-create-a-cloud-blueprint">
+<span id="step2"></span><h2>Step 2: Create a cloud blueprint<a class="headerlink" href="#step-2-create-a-cloud-blueprint" title="Permalink to this headline"></a></h2>
+<a class="reference internal image-reference" href="_images/step2.png"><img alt="_images/step2.png" class="align-center" src="_images/step2.png" style="width: 400px;" /></a>
+<p>The next step after creating a project is to create a blueprint that describe your application’s architecture in terms its resources it consumes (e.g. compute instances), the services it requires (e.g. a database) and the artifacts it consists of (e.g. a Docker container image or a software package).</p>
+<p>These components can be declared in YAML or <a class="reference internal" href="dsl.html"><span class="doc">python</span></a> using OASIS’s Topology and Orchestration Specification for Cloud Applications (<a class="reference internal" href="tosca.html#tosca"><span class="std std-ref">TOSCA</span></a>) standard.</p>
+<p>TOSCA is a simple, declarative, object-oriented language for specifying a graph (a “topology”) of resources.</p>
+<p>Resources are specified with “node templates” that defined the properties, requirements, and operations needed to instantiate and manage the resource.</p>
+<p>These can be declared directly on a template or by defining reusable types. So, depending on your needs, you can use TOSCA to provide ad-hoc, simple encapsulation of configuration files. Or you can use it to define a graph of strongly-typed nodes and relationships with a type hierarchy to enable reusable, cloud-provider agnostic models.</p>
+<p>TOSCA is an abstract model: it doesn’t specify what a node template or resource might correspond to in the real world. But the TOSCA 1.3 specification does define an optional set of abstract types for common resources and Unfurl extends those with its on built-in types.  In addition, the <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard TOSCA library</a> provides concrete types with implementations for common cloud providers like AWS and Kubernetes clusters.</p>
+<p>Using our <a class="reference internal" href="dsl.html"><span class="doc">Python DSL</span></a> we can leverage Python’s IDE and tooling integrations and take advantage of the rich ecosystem that already exists, for example, for code completion and navigation or for unit testing. See <a class="reference external" href="https://www.unfurl.cloud/blog/why-unfurl">https://www.unfurl.cloud/blog/why-unfurl</a> for more.</p>
+</section>
+<section id="step-3-instantiate-your-blueprint">
+<span id="step3"></span><h2>Step 3: Instantiate your blueprint<a class="headerlink" href="#step-3-instantiate-your-blueprint" title="Permalink to this headline"></a></h2>
 <a class="reference internal image-reference" href="_images/step3.png"><img alt="_images/step3.png" class="align-center" src="_images/step3.png" style="width: 210px;" /></a>
+<p>Now that we created a project with an environment and a blueprint, we are ready to translate the abstract blueprint into a concrete plan with enough detail so that it can be deployed in the targeted environment.</p>
+<p>TOSCA lets you define CRUD (Create/Update/Delete) operations that are associated with resource definitions. Then a TOSCA orchestrator, such as Unfurl, builds a plan that selects operations for your target environment (e.g your cloud provider, or Kubernetes).</p>
+<p>These operations may already be defined if you are using types from a predefined TOSCA library – for example the <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard TOSCA library</a> provides implementations for common cloud providers – but if you’ve defined your own, you’ll have to implement these yourself.</p>
+<p>Operation can implemented as templatized <a class="reference internal" href="configurators.html#terraform"><span class="std std-ref">Terraform</span></a> modules, <a class="reference internal" href="configurators.html#ansible"><span class="std std-ref">Ansible</span></a> playbooks, or Python or <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell</span></a> scripts.  Or Unfurl can be taught to understand domain-specific configuration files using Unfurl’s <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a> plugin system – built-in configurators include <a class="reference internal" href="projects.html#docker"><span class="std std-ref">Docker</span></a>, <a class="reference internal" href="configurators.html#kubernetes"><span class="std std-ref">Kubernetes</span></a>, <a class="reference internal" href="configurators.html#helm"><span class="std std-ref">Helm</span></a> and <a class="reference internal" href="configurators.html#sup"><span class="std std-ref">Supervisor</span></a>.</p>
+<p>You can customize the blueprint’s resource templates per environment with a <a class="reference internal" href="glossary.html#deployment-blueprint"><span class="std std-ref">Deployment blueprint</span></a>. A deployment blueprint extends your blueprint with templates that are only applied when they match the deployment environment.</p>
+<p>When you’re ready to deploy, you can preview the deployment plan by running <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a>, which will output the plan and output (“render”) any configuration files and scripts that will be used for deployment in <a class="reference internal" href="jobs.html#generated-files"><span class="std std-ref">directory structure</span></a>.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
-<p>To know more about implementing your model using TOSCA, refer to the <a class="reference internal" href="get-started-step-by-step.html#implement-operation"><span class="std std-ref">Implementing an operation</span></a> section.</p>
+<p>To learn more about implementing your model using TOSCA, refer to the <a class="reference internal" href="get-started-step-by-step.html#implement-operation"><span class="std std-ref">Implementing an operation</span></a> section.</p>
 </div>
 </section>
-<section id="step-4-activate-and-manage">
-<span id="step4"></span><h3>Step 4: Activate and manage<a class="headerlink" href="#step-4-activate-and-manage" title="Permalink to this headline"></a></h3>
-<p>At this stage, you are ready to deploy your model. Run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> from the command line and it will execute a plan. As it is running it tracks changes resource attributes and status and when it is complete it commits that to a Git repository. mirror not just the configuration but the state and status of live running services.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<ul class="simple">
-<li><p>If you are already have live resources Unfurl supports <strong>discover</strong> and <strong>check</strong> workflows for detecting and syncing resources and operational state.</p></li>
-<li><p>Unfurl supports incremental deployment and has a repair mode which can greatly accelerate development and testing development.</p></li>
-</ul>
-</div>
-<p>Unfurl excels at <strong>day two</strong> operations such as backups, repairs and upgrades:</p>
-<ul class="simple">
-<li><p>It is easy to define your own workflows, interfaces and operations.</p></li>
-<li><p>You can also execute ad-hoc operations that will be recorded in git.</p></li>
-<li><p>Intelligent and fast incremental updates: Because Unfurl maintains a history of configuration changes and live operational state it can more employ more effective incremental update strategies.</p></li>
-<li><p>Maintaining an operational history makes it easier to diagnose and rollback problems.</p></li>
-</ul>
+<section id="step-4-deploy-and-manage">
+<span id="step4"></span><h2>Step 4: Deploy and manage<a class="headerlink" href="#step-4-deploy-and-manage" title="Permalink to this headline"></a></h2>
 <a class="reference internal image-reference" href="_images/step4.png"><img alt="_images/step4.png" class="align-center" src="_images/step4.png" style="width: 500px;" /></a>
-</section>
-<section id="step-5-publish-share-and-clone">
-<span id="step5"></span><h3>Step 5: Publish, share and clone<a class="headerlink" href="#step-5-publish-share-and-clone" title="Permalink to this headline"></a></h3>
-<p>You can share and clone Unfurl projects and ensembles just like you share and clone git repositories. Because Unfurl cleanly separates secrets and local settings Unfurl repositories are self-contained and location independent.</p>
-<p>Like a git repository your Unfurl repository can be private or public, but either way, when you publish your ensemble the real power of Unfurl kicks in. Now other Unfurl projects can import and reference it, much like you import a module or package in a software program.</p>
-<p>Once imported, other ensembles can reference the ensemble’s exported api endpoints, network resources or artifacts in their models, selecting them based on their type and other declared constraints.</p>
-<a class="reference internal image-reference" href="_images/step5.png"><img alt="_images/step5.png" class="align-center" src="_images/step5.png" style="width: 500px;" /></a>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>To know more about publishing your project, refer to the <a class="reference internal" href="get-started-step-by-step.html#publish-project"><span class="std std-ref">Publish your project</span></a> section.</p>
-</div>
-</section>
-</section>
-<section id="what-does-that-mean">
-<h2>What Does That Mean<a class="headerlink" href="#what-does-that-mean" title="Permalink to this headline"></a></h2>
-<p>Whereas the possibilities are endless with such an open source cloud infrastructure, here are a few use cases associated with Unfurl.</p>
-<section id="cloud-agnostic-and-location-independent">
-<h3>Cloud agnostic and location independent<a class="headerlink" href="#cloud-agnostic-and-location-independent" title="Permalink to this headline"></a></h3>
-<p>And because Ensembles maintain a persistent identity you can maintain these relationships as their internal implementations change – even if their locations change, even if they migrate to different cloud providers using a very different implementations. Or not: these references can also detect changes that violate the declared contracts between ensembles.</p>
-</section>
-<section id="cloud-as-code">
-<h3>Cloud as code<a class="headerlink" href="#cloud-as-code" title="Permalink to this headline"></a></h3>
-<p>Because Ensembles not just contain configuration but also reflects the state of live instances you can use the same development processes you for coding to also manage your IT infrastructure, for example:</p>
+<p>Now we’re ready to deploy the ensemble.</p>
+<p>During the deploy stage, a <a class="reference internal" href="glossary.html#tasks"><span class="std std-ref">task</span></a> is run for each operation in the plan, instantiating resources as needed. When an <a class="reference internal" href="glossary.html#tasks"><span class="std std-ref">task</span></a> finishes, a <a class="reference internal" href="glossary.html#config-change"><span class="std std-ref">Config Change</span></a> record is created that records the changes to resources by made by the operation as well as the attributes it accessed. Tracking these dependencies enables efficient updates as the model changes. For more details, see <a class="reference internal" href="jobs.html#job-lifecycle"><span class="std std-ref">Job Lifecycle</span></a>.</p>
+<p>After deployment, Unfurl records in git all the info you need for a reproducible deployment: the configuration, the artifacts used in deployment, their versions and code dependencies, and deploy, records history, as well the state of the deployment resources. This enables intelligent updates as your dependencies or environment changes.</p>
+<p>The <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">ensemble</span></a> and <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">change log</span></a> is updated with the status and state of each resource affected. Learn more about <a class="reference internal" href="jobs.html#jobs-and-workflows"><span class="std std-ref">Jobs and Workflows</span></a>.</p>
+<section id="updating-your-deployment">
+<h3>Updating your deployment<a class="headerlink" href="#updating-your-deployment" title="Permalink to this headline"></a></h3>
+<p>After the initial deployment, subsequent deployment plans take into account the current state of its resources.</p>
 <ul class="simple">
-<li><p>Use pull requests and sign-offs to manage updates and changes.</p></li>
-<li><p>Use feature branches and forks to manage deployment strategies</p></li>
-<li><p>Use CI/CD tests to validate changes</p></li>
-<li><p>Use git web hooks to trigger automated deployment to enable secure resource isolation</p></li>
+<li><p>will add, delete, or update resources if the blueprint definition changed.</p></li>
+<li><p>will reconfigure resources if changes to their dependencies impact configuration values.</p></li>
+<li><p>Will attempt to repair if they were left in a bad state</p></li>
+<li><p>You can manually force and filter</p></li>
+<li><p><a class="reference internal" href="cli.html#unfurl-teardown"><span class="std std-ref">Unfurl teardown</span></a> will destroy deployed resources.</p></li>
+</ul>
+</section>
+<section id="resource-discovery">
+<span id="resource-drift"></span><h3>Resource Discovery<a class="headerlink" href="#resource-discovery" title="Permalink to this headline"></a></h3>
+<p>You can create an ensemble from existing resources instead of deploying new ones using the discover command. You can do this for entire blueprint or individual resources:</p>
+<ul class="simple">
+<li><p>Use the <a class="reference external" href="cli.html#unfurl-discover">unfurl discover</a> command to discover an entire blueprint</p></li>
+<li><p>Individual resources will be discovered instead of created when deploying a blueprint by setting the <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.discover" title="tosca.NodeTemplateDirective.discover"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">discover</span> <span class="pre">node</span> <span class="pre">directive</span></code></a>.</p></li>
+<li><p>Pre-defined resources (as part of the “spec”). Use the <a class="reference external" href="cli.html#unfurl-check">unfurl check</a> command to check that those resources actually exist.</p></li>
+</ul>
+<p>See <a class="reference internal" href="#resource-discovery"><span class="std std-ref">Resource Discovery</span></a> and <a class="reference internal" href="jobs.html#checking-resources"><span class="std std-ref">Checking resources</span></a> for more info.</p>
+</section>
+<section id="day-two-operations">
+<h3>Day-two Operations<a class="headerlink" href="#day-two-operations" title="Permalink to this headline"></a></h3>
+<p>Unfurl supports <strong>day two</strong> operations such as backups, repairs and upgrades:
+- It is easy to define your own workflows, interfaces and operations.
+- You can also execute ad-hoc operations that will be recorded in git (see <a class="reference internal" href="jobs.html#ad-hoc-jobs"><span class="std std-ref">Ad-hoc Jobs</span></a>)
+You can define your own interfaces and operations.</p>
+</section>
+</section>
+<section id="step-5-share-and-collaborate">
+<span id="step5"></span><h2>Step 5: Share and Collaborate<a class="headerlink" href="#step-5-share-and-collaborate" title="Permalink to this headline"></a></h2>
+<a class="reference internal image-reference" href="_images/step5.png"><img alt="_images/step5.png" class="align-center" src="_images/step5.png" style="width: 500px;" /></a>
+<p>Cloud services don’t exist in isolation and neither do developers. Unfurl makes it easy to share and connect blueprints and ensembles while managing integration and dependencies.</p>
+<p>And the design of Unfurl enables open, collaborative processes built around familiar git workflows and package manager concepts.</p>
+<section id="collaborative-development">
+<h3>Collaborative Development<a class="headerlink" href="#collaborative-development" title="Permalink to this headline"></a></h3>
+<p>Unfurl stores everything in git as human readable and editable source code so you can use your favorite developer tools and workflows such as pull requests. For example, using the Python DSL allows you to use popular testing frameworks like pytest. And when modifying YAML files like ensemble.yaml, Unfurl preserves comments and formatting.</p>
+<p>Unfurl commands for managing Unfurl projects are modeled after git’s but works with multiple git repositories in tandem and includes Unfurl-specific logic such as handling encrypted content. For example, <a class="reference external" href="cli.html#unfurl-clone">unfurl clone</a> can clone an Unfurl project or clone blueprints and ensembles into an existing project.</p>
+<p>You can host an unfurl project on any git hosting service like Github or Gitlab; setup is no different than hosting a code repository – See <a class="reference internal" href="projects.html#publish-project"><span class="std std-ref">Publish your project</span></a>. Or you can use <a class="reference external" href="https://unfurl.cloud/">Unfurl Cloud</a>, our open-source deployment platform.</p>
+</section>
+<section id="collaborative-operations">
+<h3>Collaborative Operations<a class="headerlink" href="#collaborative-operations" title="Permalink to this headline"></a></h3>
+<p>Managing a live, production deployment collaboratively has different challenges than collaborative development. For example, uptime and access control for specific resources is more important and errors have greater consequences.</p>
+<p>Unfurl goes beyond configuration-as-code by also recording resources’ state and status as human-readable text in git. This enables operations to be managed in much the similar development process – pull requests, reviews and approvals, CI pipelines. Simplify and accelerating development.</p>
+<p>All the management features described in the <a class="reference internal" href="#step-4-deploy-and-manage"><span class="std std-ref">previous step</span></a> work in collaborative as they commit to git and designed for merging and review.</p>
+<p>Some other features designed for collaborative operations:</p>
+<ul class="simple">
+<li><p>Use <a class="reference internal" href="jobs.html#locking"><span class="std std-ref">remote locking</span></a> to synchronize changes to resources.</p></li>
+<li><p><a class="reference internal" href="cli.html#unfurl-clone"><span class="std std-ref">clone</span></a> and deploy ensembles in different environments to replicate deployments for testing and development thanks to the <a class="reference internal" href="packages.html#locked-ensembles"><span class="std std-ref">lock section</span></a>.</p></li>
+<li><p>Unfurl can generate unique but <a class="reference internal" href="expressions.html#get-ensemble-metadata"><span class="std std-ref">semantically readable identifiers</span></a> and use them as cloud provider tags and labels when creating resources. These can resolve to a particular ensemble and changeset, providing clarity and easing diagnostics.</p></li>
+<li><p>Use application-centric management UI local or on unfurl cloud – all stored in git.</p></li>
+<li><p>unfurl cloud – access control, secrets, scheduled operations</p></li>
+</ul>
+</section>
+<section id="large-scale-collaboration">
+<h3>Large-scale Collaboration<a class="headerlink" href="#large-scale-collaboration" title="Permalink to this headline"></a></h3>
+<p>As the complexity of your cloud application increases you’ll want to move beyond monolithic deployments to components and services that can be developed and deployed independently. Unfurl provides several facilities that encourage and support the composability and integration of services. Here’s how you can use Unfurl to implement common strategies for building complex, maintainable systems:</p>
+<ul class="simple">
+<li><p>Encapsulation and Composition. You maintain separate ensembles and blueprints for encapsulation and rely on various facilities for integrating them: import resources from <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">External ensembles</span></a>, <a class="reference internal" href="toscaref/spec-imports.html#imports"><span class="std std-ref">import</span></a> TOSCA libraries across repositories with isolation through <a class="reference internal" href="CHANGELOG.html#tosca-namespaces-and-global-type-identifiers"><span class="std std-ref">TOSCA namespaces and global type identifiers</span></a>, and embed blueprints inside other blueprints using <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">substitution mappings</span></a>.</p></li>
+<li><p>Loosely-coupled Components. TOSCA has features such as node filters that allows to the selection and integration of resource templates in a dynamic, loosely-coupled way – so you can avoid hard-coding connections between components.  Unfurl’s <a class="reference internal" href="CHANGELOG.html#python-dsl"><span class="std std-ref">Python DSL</span></a> allows you to express these constraints as simple generic Python.</p></li>
+<li><p>Dependency Injection / Inversion of Control (DI/IoC). Ensembles can use several mechanisms that support this design pattern: the <a class="reference internal" href="projects.html#environment-sections"><span class="std std-ref">environment</span></a> provides configuration including <a class="reference internal" href="glossary.html#deployment-blueprint"><span class="std std-ref">deployment blueprints</span></a> to replace templates; <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">substitution mappings</span></a> can override embedded blueprints; the select node directive defines injection points.</p></li>
+<li><p>Modular architectures such as microservices or service-oriented architectures: The <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard TOSCA library</a> provides high-level abstractions for services, making it easier to integrate blueprints that use them.</p></li>
+<li><p>Semantic versioning: Unfurl tracks the upstream repositories that contain the TOSCA templates, artifacts, and code used during deployment and can apply semantic versioning to detecting conflicts and potentially breaking changes – see <a class="reference internal" href="packages.html#repositories-and-packages"><span class="std std-ref">Repositories and Packages</span></a>.</p></li>
+<li><p>Component catalogs and repository management. Unfurl can generate a <a class="reference internal" href="cloudmap.html"><span class="doc">Cloud Maps</span></a> of repositories, blueprints and artifacts. You can use it as a catalog for cloning blueprints and for synchronizing multiple repositories and projects. Unfurl and Unfurl Cloud’s user interfaces uses it to find compatible types and applications when building blueprints and deployments.</p></li>
 </ul>
 </section>
 </section>
@@ -222,12 +268,15 @@ Contexts are used to create isolated environments that the Unfurl deployment pro
 
            </div>
           </div>
-          <footer>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="quickstart.html" class="btn btn-neutral float-left" title="Quick start" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="projects.html" class="btn btn-neutral float-right" title="Unfurl Projects" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

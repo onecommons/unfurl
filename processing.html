@@ -7,6 +7,7 @@
   <title>Template Processing &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -49,14 +51,15 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
@@ -83,9 +86,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -122,18 +125,23 @@
 <p>When a YAML configuration is loaded, will look for dictionary keys that match the following pattern:</p>
 <p><code class="docutils literal notranslate"><span class="pre">'+'['?']['include'][*anchor][relative</span> <span class="pre">path][absolute</span> <span class="pre">path]</span></code></p>
 <p>and treat them as merge directives that update the dictionary by processing the directive and merging in its resolved value.</p>
-<p>Merge directives can have the following components:</p>
+<p>Merge keys can have the following components:</p>
 <pre>
-<strong id="grammar-token-merge-key">merge key    </strong> ::=  &quot;+&quot;[&quot;?&quot;][&quot;include&quot;][anchor][relative_path][absolute_path]
-<strong id="grammar-token-anchor">anchor       </strong> ::=  &quot;*&quot;[PCHAR]*[PCHAR except &quot;.&quot;]
-<strong id="grammar-token-relative_path"><span id="grammar-token-relative-path"></span>relative_path</strong> ::=  &quot;.&quot;+
-<strong id="grammar-token-absolute_path"><span id="grammar-token-absolute-path"></span>absolute_path</strong> ::=  [&quot;/&quot; PCHAR*]+
-<strong id="grammar-token-PCHAR"><span id="grammar-token-pchar"></span>PCHAR        </strong> ::=  any printable character except &quot;/&quot;
+<strong id="grammar-token-merge-key">merge key      </strong> ::=  merge_directive | merge_anchor | merge_strategy
+<strong id="grammar-token-merge_directive"><span id="grammar-token-merge-directive"></span>merge_directive</strong> ::=  &quot;+&quot;[&quot;?&quot;][include][alias][relative_path][absolute_path]
+<strong id="grammar-token-include">include        </strong> ::=  &quot;include&quot;[ALPHNUM]*
+<strong id="grammar-token-alias">alias          </strong> ::=  &quot;*&quot;[PCHAR]*[PCHAR except &quot;.&quot;]
+<strong id="grammar-token-relative_path"><span id="grammar-token-relative-path"></span>relative_path  </strong> ::=  &quot;.&quot;+
+<strong id="grammar-token-absolute_path"><span id="grammar-token-absolute-path"></span>absolute_path  </strong> ::=  [&quot;/&quot; PCHAR*]+
+<strong id="grammar-token-ALPHNUM"><span id="grammar-token-alphnum"></span>ALPHNUM        </strong> ::=  a-z, A-Z, 0-9, _, -
+<strong id="grammar-token-PCHAR"><span id="grammar-token-pchar"></span>PCHAR          </strong> ::=  any printable character except &quot;/&quot;
+<strong id="grammar-token-merge_anchor"><span id="grammar-token-merge-anchor"></span>merge_anchor   </strong> ::=  &quot;+&amp;&quot;
+<strong id="grammar-token-merge_strategy"><span id="grammar-token-merge-strategy"></span>merge_strategy </strong> ::=  &quot;+%&quot;
 </pre>
 <p>Each of these components are optional but at least one needs to be present, otherwise the key is ignored and included in the final document.</p>
 <p>A leading ‘?’ indicates that reference maybe missing, otherwise the processing will abort with an error.</p>
-<p><code class="docutils literal notranslate"><span class="pre">include</span></code> indicates that value of the merge key includes a yaml or json file to load.</p>
-<p><code class="docutils literal notranslate"><span class="pre">*anchor</span></code>: a reference to YAML anchor that appears in either the current document or, a file was specified, from that file.</p>
+<p><code class="docutils literal notranslate"><span class="pre">include</span></code> indicates that value of the merge key includes a yaml or json file to load. Can have optional trailing alphanumeric characters to ensure key is unique.</p>
+<p><code class="docutils literal notranslate"><span class="pre">*alias</span></code>: a reference to merge anchor that appears in either the current document or, a file was specified, from that file.</p>
 <p><code class="docutils literal notranslate"><span class="pre">relative</span> <span class="pre">path</span></code>: ‘.’+ The path starting at current location this key appears in.</p>
 <p><code class="docutils literal notranslate"><span class="pre">absolute</span> <span class="pre">path</span></code>: [/path]+ A path that is resolved following &lt;jsonpointer&gt; RFC</p>
 <p>If the directive contains “include”, its value can be a map or a string. If it is a string, treat the value as a file path or a URL to a YAML or JSON file.
@@ -340,8 +348,8 @@ If the right side is not a variable, that string will be coerced to left side’
 If the left-side expression is omitted, the value of the segment’s key is used and if that is missing, the current value is used.</p>
 <p>If the current value is a list and the key looks like an integer
 it will be treated like a zero-based index into the list.
-Otherwise the segment is evaluated again all values in the list and resulting value is a list.
-If the current value is a dictionary and the key is <code class="docutils literal notranslate"><span class="pre">*</span></code>, all values will be selected.</p>
+Otherwise the segment is evaluated again all values in the list and resulting value is a list.</p>
+<p>If the current value is a dictionary (a map), the next segment will match the keys in the map or use <code class="docutils literal notranslate"><span class="pre">*</span></code> to match all values. So to filter on the values in a map, select them all first before applying the filter, for example: <code class="docutils literal notranslate"><span class="pre">.artifacts::*::[type=MyArtifactType]</span></code>.</p>
 <p>If a segment ends in <code class="docutils literal notranslate"><span class="pre">?</span></code>, it will only include the first match.
 In other words, <code class="docutils literal notranslate"><span class="pre">a?::b::c</span></code> is a shorthand for <code class="docutils literal notranslate"><span class="pre">a[b::c]::0::b::c</span></code>.
 This is useful to guarantee the result of evaluating expression is always a single result.</p>
@@ -390,7 +398,7 @@ of which parent value or resource) use a less deep path and iterate over results
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

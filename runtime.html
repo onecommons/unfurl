@@ -7,6 +7,7 @@
   <title>Runtime Environment &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,12 +18,13 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Configurators" href="configurators.html" />
-    <link rel="prev" title="Jobs and Workflows" href="jobs.html" /> 
+    <link rel="prev" title="Managing Secrets" href="secrets.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -49,14 +51,15 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Runtime Environment</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#job-variables">Job Variables</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#task-keys"><code class="docutils literal notranslate"><span class="pre">task</span></code> Keys</a></li>
@@ -64,15 +67,16 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#connections">Connections</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#topology-inputs">Topology Inputs</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -185,7 +189,7 @@ it need to connect to resources. It does so by adding a <code class="docutils li
 doesn’t need to be explicitly referenced in the <code class="docutils literal notranslate"><span class="pre">requirements</span></code> section of a node template as regular relationship templates
 must be, but instead is applied to any target node that matches the relationship type’s specification.</p>
 <p>Because credentials likely are specific to the user or machine running Unfurl
-you can define them with the <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble in <a class="reference internal" href="get-started-step-by-step.html#configure"><span class="std std-ref">.unfurl_home</span></a> and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the <a class="reference internal" href="#connections"><span class="std std-ref">Connections</span></a> key as described in the <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">External ensembles</span></a> section.</p>
+you can define them with the <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble in <a class="reference internal" href="projects.html#unfurl-home"><span class="std std-ref">.unfurl_home</span></a> and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the <a class="reference internal" href="#connections"><span class="std std-ref">Connections</span></a> key as described in the <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">External ensembles</span></a> section.</p>
 <p>As described in <a class="reference internal" href="get-started-step-by-step.html#getting-started"><span class="std std-ref">Getting Started</span></a>, the <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble provides several connection relationship templates for connecting to the the most common cloud providers.</p>
 <p>When Unfurl executes an operation it looks for relationship templates between the <code class="docutils literal notranslate"><span class="pre">OPERATION_HOST</span></code> and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:</p>
 <dl class="field-list simple">
@@ -210,8 +214,9 @@ The keys are the name of the relationship template or the name of the type of th
 <p>You can set the environment variables that are available while Unfurl is running
 in the <code class="docutils literal notranslate"><span class="pre">variables</span></code> section when declaring an <code class="docutils literal notranslate"><span class="pre">environment</span></code>.
 These global directives can be overridden when executing an individual operation by
-by adding an <code class="docutils literal notranslate"><span class="pre">environment</span></code> section to an operation’s <code class="docutils literal notranslate"><span class="pre">implementation</span></code> declaration.</p>
-<p>In either case, the directives makes a copy of the current environment and applied each of its keys
+by adding an <code class="docutils literal notranslate"><span class="pre">environment</span></code> section to an operation’s <a class="reference internal" href="tosca.html#implementation"><span class="std std-ref">Implementation</span></a> declaration.
+This environment is used when an operation invokes a external process such as a shell command.</p>
+<p>When applying these directives, Unfurl makes a copy of the current environment and applied each of its keys
 in the order they are declared, adding the given key and value as
 environment variables except keys starting with “+” and “-”
 will copy or remove the variable from the current into environment
@@ -219,6 +224,7 @@ into the new one. In that case “*” and “?” are treated like filename wil
 <div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">value</span><span class="w">    </span><span class="c1"># add name=value</span>
 <span class="nt">+name</span><span class="p">:</span><span class="w">         </span><span class="c1"># copy name into the enviroment</span>
 <span class="nt">+name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w"> </span><span class="c1"># copy value, set it to &quot;default&quot; if not present</span>
+<span class="nt">+prefix*</span><span class="p">:</span><span class="w">      </span><span class="c1"># copy all variables matching &quot;prefix*&quot;</span>
 <span class="nt">+!prefix*</span><span class="p">:</span><span class="w">     </span><span class="c1"># copy all except variables matching &quot;prefix*&quot;</span>
 <span class="nt">-!name</span><span class="p">:</span><span class="w">        </span><span class="c1"># remove all except name</span>
 <span class="nt">-!prefix*</span><span class="p">:</span><span class="w">     </span><span class="c1"># remove all except variables matching &quot;prefix*&quot;</span>
@@ -288,30 +294,60 @@ into the new one. In that case “*” and “?” are treated like filename wil
 </tr>
 <tr class="row-even"><td><p>UNFURL_SKIP_UPSTREAM_CHECK</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_SEARCH_ROOT</p></td>
+<tr class="row-odd"><td><p>UNFURL_SKIP_SAVE</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_CLOUD_SERVER</p></td>
+<tr class="row-even"><td><p>UNFURL_SEARCH_ROOT</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_VALIDATION_MODE</p></td>
+<tr class="row-odd"><td><p>UNFURL_CLOUD_SERVER</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_PACKAGE_RULES</p></td>
+<tr class="row-even"><td><p>UNFURL_VALIDATION_MODE</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_LOG_FORMAT</p></td>
+<tr class="row-odd"><td><p>UNFURL_PACKAGE_RULES</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_RAISE_LOGGING_EXCEPTIONS</p></td>
+<tr class="row-even"><td><p>UNFURL_LOG_FORMAT</p></td>
 </tr>
-<tr class="row-odd"><td><p>PY_COLORS</p></td>
+<tr class="row-odd"><td><p>UNFURL_RAISE_LOGGING_EXCEPTIONS</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_OVERWRITE_POLICY</p></td>
+<tr class="row-even"><td><p>PY_COLORS</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_EXPORT_LOCALNAMES</p></td>
+<tr class="row-odd"><td><p>UNFURL_OVERWRITE_POLICY</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_GLOBAL_NAMESPACE_PACKAGES</p></td>
+<tr class="row-even"><td><p>UNFURL_EXPORT_LOCALNAMES</p></td>
+</tr>
+<tr class="row-odd"><td><p>UNFURL_GLOBAL_NAMESPACE_PACKAGES</p></td>
 </tr>
 </tbody>
 </table>
 <p>If the <code class="docutils literal notranslate"><span class="pre">ASDF_DATA_DIR</span></code> environment variable is set or the <code class="docutils literal notranslate"><span class="pre">https://github.com/asdf-vm/asdf.git</span></code> repository is part of a current project
 and a <code class="docutils literal notranslate"><span class="pre">.tool-versions</span></code> file exists (or <code class="docutils literal notranslate"><span class="pre">$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME</span></code>) in the root of a current project, then <code class="docutils literal notranslate"><span class="pre">PATH</span></code> environment variable will be configured to include the paths to the tools listed in that file.</p>
+</section>
+<section id="topology-inputs">
+<h2>Topology Inputs<a class="headerlink" href="#topology-inputs" title="Permalink to this headline"></a></h2>
+<p>Topology <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a> are parameters passed to a service template when it is instantiated. They made available at runtime via the <a class="reference internal" href="expressions.html#get-input"><span class="std std-ref">get_input</span></a> expression function.</p>
+<p>Inputs can come from any of the following sources, and are merged together:</p>
+<ul>
+<li><p>The <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">spec/inputs</span></a> section of the ensemble’s manifest. For example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">foo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+</li>
+<li><p>When creating or cloning an ensemble, the default <a class="reference internal" href="projects.html#project-skeletons"><span class="std std-ref">project skeleton</span></a> will write inputs into this section using skeleton variables that start with <code class="docutils literal notranslate"><span class="pre">input_</span></code>, for example, this command will render the yaml in the example above:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>--var<span class="w"> </span>input_foo<span class="w"> </span><span class="m">0</span>
+</pre></div>
+</div>
+</li>
+<li><p>The <a class="reference internal" href="projects.html#environment-inputs"><span class="std std-ref">Inputs section</span></a> of the current environment.</p></li>
+<li><p>From the command line:</p></li>
+</ul>
+<p>You can add or override inputs when a job is run from the command line by passing job vars that start with <code class="docutils literal notranslate"><span class="pre">input_</span></code>. For example, deploying with this command:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>deploy<span class="w"> </span>--var<span class="w"> </span>input_foo<span class="w"> </span><span class="m">1</span>
+</pre></div>
+</div>
+<p>will set <code class="docutils literal notranslate"><span class="pre">foo</span></code> to 1, overriding <code class="docutils literal notranslate"><span class="pre">spec\inputs</span></code>.</p>
 </section>
 </section>
 
@@ -319,14 +355,14 @@ and a <code class="docutils literal notranslate"><span class="pre">.tool-version
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="jobs.html" class="btn btn-neutral float-left" title="Jobs and Workflows" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="secrets.html" class="btn btn-neutral float-left" title="Managing Secrets" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="configurators.html" class="btn btn-neutral float-right" title="Configurators" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

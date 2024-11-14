@@ -7,6 +7,7 @@
   <title>Introduction &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -47,8 +49,9 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Introduction</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#our-vision">Our Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#why-use-unfurl">Why use Unfurl?</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#how-it-works">How it works</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#our-vision">Our Vision</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#features">Features</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#no-server-agentless">No server, agentless</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#deploy-infrastructure-from-simple-application-centric-descriptions">Deploy infrastructure from simple, application-centric descriptions</a></li>
@@ -64,7 +67,7 @@
 <li class="toctree-l1"><a class="reference internal" href="#installation">Installation</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#shell-autocomplete">Shell autocomplete</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#developing">Developing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#development">Development</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#running-unit-tests">Running unit tests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#status-and-caveats">Status and Caveats</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#unfurl-cloud">Unfurl Cloud</a></li>
@@ -72,22 +75,23 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -125,8 +129,44 @@
 </p>
 <section id="introduction">
 <h1>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline"></a></h1>
-<p>Unfurl is a command line tool for managing your DevOps infrastructure. Unfurl lets you easily track configuration, secrets, software and code dependencies, and deployment history all in git.</p>
-<p>Unfurl can integrate with the DevOps tools you are already using – like Terraform, Ansible, and Helm – allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.</p>
+<p>Unfurl is a command line tool for deploying services and applications.</p>
+<p>Describe your application architecture at a high-level using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> standard and Unfurl creates a plan adapted to your deployment environment (e.g. your cloud provider, Kubernetes, or self-hosted machines), using artifacts such as shell scripts, Terraform modules or Ansible playbooks.</p>
+<p>After deployment, Unfurl records in git all the information needed for a reproducible deployment: the configuration, the artifacts and source repositories used in deployment, as well the state of the deployed resources. This enables intelligent updates as your configuration, dependencies, or environment changes.</p>
+<p>The best way to manage your Unfurl project is to use <a class="reference external" href="https://unfurl.cloud">Unfurl Cloud</a>, our open-source platform for collaboratively developing cloud applications.</p>
+<section id="why-use-unfurl">
+<h2>Why use Unfurl?<a class="headerlink" href="#why-use-unfurl" title="Permalink to this headline"></a></h2>
+<ul class="simple">
+<li><p>You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can <a class="reference external" href="https://www.unfurl.cloud/blog/why-unfurl">manage that complexity without complicated DevOps processes</a>.</p></li>
+<li><p>You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it in a <a class="reference external" href="https://docs.unfurl.run/cloudmap.html">Cloud Map</a> or on <a class="reference external" href="https://unfurl.cloud">Unfurl Cloud</a>, our open-source deployment platform.</p></li>
+<li><p>You want to use familiar coding practices and development processes to both develop blueprints and manage operations without depending on costly server infrastructure or having to rely on manual and proprietary admin UI.</p></li>
+</ul>
+</section>
+<section id="how-it-works">
+<h2>How it works<a class="headerlink" href="#how-it-works" title="Permalink to this headline"></a></h2>
+<ol class="arabic simple">
+<li><p>Create a project to manage your deployments.</p></li>
+</ol>
+<p>Unfurl projects provide an easy way to track and organize all that goes into deploying an application, including configuration, secrets, and artifacts – and track them in git. The goal is to provide isolation and reproducibility while maintaining human-scale, application-centric view of your resources.</p>
+<ol class="arabic simple" start="2">
+<li><p>Create a cloud blueprint</p></li>
+</ol>
+<p>Avoid tedious and error prone low-level configuration by creating a cloud blueprint that describes your cloud application’s architecture at a high-level in Python or YAML using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard. Blueprints includes the resources (e.g. compute instances), the services (e.g. a database) and the artifacts (e.g. a Docker container image or a software package).</p>
+<ol class="arabic simple" start="3">
+<li><p>Instantiate your blueprint</p></li>
+</ol>
+<p>Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into. For predefined types you can use our <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard library</a> for common cloud providers, kubernetes, and self-hosted instances.  Or your can easily use your own implementations – Unfurl integrates with tools like Terraform, Ansible, and Helm or you can encapsulate the scripts you already have.</p>
+<ol class="arabic simple" start="4">
+<li><p>Deploy and manage.</p></li>
+</ol>
+<p>Unfurl can automatically install missing dependencies.
+Deploy Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
+<p>After the initial deployment, subsequent deployment plans take into account the current state of its resources. This way you can reduce errors by automatically reconfiguring as dependencies and environments change. You can also create custom operations or run ad-hoc commands in the ensemble’s environment.</p>
+<ol class="arabic simple" start="5">
+<li><p>Share and Collaborate</p></li>
+</ol>
+<p>Unfurl stores everything in git so git is all you need to share projects and collaboratively manage deployments.  Unfurl can use git lfs to provide locking during deployment and can automatically encrypts secrets. Or for ease of use and more advanced needs you can use <a class="reference external" href="https://unfurl.cloud">unfurl cloud</a> to host and deploy.</p>
+<p>For complex applications and to enable open-source development and the integration of 3rd-party providers, Unfurl supports <a class="reference external" href="https://docs.unfurl.run/solution-overview.html#large-scale-collaboration">design patterns</a> for integrating components and services that can be developed and deployed independently, such as <a class="reference external" href="https://docs.unfurl.run/CHANGELOG.html#tosca-namespaces-and-global-type-identifiers">encapsulation</a>, <a class="reference external" href="https://docs.unfurl.run/toscaref/spec-substitution-mapping.html">composition</a>, <a class="reference external" href="https://github.com/onecommons/unfurl/blob/main/rust/README.md">loosely-coupled components</a>, dependency injection, <a class="reference external" href="https://docs.unfurl.run/packages.html#package-resolution">semantic versioning</a>, and <a class="reference external" href="https://docs.unfurl.run/cloudmap.html">component catalogs</a>.</p>
+</section>
 <section id="our-vision">
 <h2>Our Vision<a class="headerlink" href="#our-vision" title="Permalink to this headline"></a></h2>
 <p>The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git. So that we can have:</p>
@@ -134,24 +174,6 @@
 <li><p>Fully-functional and reproducible archives of web applications.</p></li>
 <li><p>Location independence to decentralize cloud infrastructure.</p></li>
 <li><p>Cooperatively build and run cloud services the same way we build open source software.</p></li>
-</ul>
-</section>
-<section id="how-it-works">
-<h2>How it works<a class="headerlink" href="#how-it-works" title="Permalink to this headline"></a></h2>
-<p>1. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> to create an Unfurl-managed git repository. Or use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code> to clone an existing one.</p>
-<p>2. The repository will contain a few YAML files that you can edit. They will describe everything you’ll need to deploy your application, such as:</p>
-<ul class="simple">
-<li><p>Cloud provider and SaaS services account credentials and other secrets organized into environments.</p></li>
-<li><p>Code repositories and container image registries.</p></li>
-<li><p>A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard.</p></li>
-<li><p>Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).</p></li>
-</ul>
-<p>3. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
-<p>4. Now you have a reproducible description of your cloud infrastructure stored in git! So you can:</p>
-<ul class="simple">
-<li><p>Push your repository to a git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.</p></li>
-<li><p>Pull incoming changes and review and approve pull requests before deploying.</p></li>
-<li><p>Clone the repository and deploy to new environments even if they use different services – because your model is adaptable, manual changes are minimized.</p></li>
 </ul>
 </section>
 <section id="features">
@@ -233,19 +255,20 @@
 </section>
 <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline"></a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">unfurl</span></code> is available on <a class="reference external" href="https://pypi.org/project/unfurl/">PyPI</a>. You can install using <code class="docutils literal notranslate"><span class="pre">pip</span></code> (or <code class="docutils literal notranslate"><span class="pre">pip3</span></code>):</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">unfurl</span>
+<p><code class="docutils literal notranslate"><span class="pre">unfurl</span></code> is available on <a class="reference external" href="https://pypi.org/project/unfurl/">PyPI</a>. You can install using <code class="docutils literal notranslate"><span class="pre">pipx</span></code> or <code class="docutils literal notranslate"><span class="pre">pip</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipx</span> <span class="n">install</span> <span class="n">unfurl</span>
 </pre></div>
 </div>
-<p>Running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">home</span> <span class="pre">--init</span></code> creates a virtual Python environment to run unfurl in so by default unfurl only installs the minimal requirements needed to run the command line. If you want to run unfurl using your system Python install it with the “full” option:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">unfurl</span><span class="p">[</span><span class="n">full</span><span class="p">]</span>
+<p>By default, Unfurl creates an <a class="reference external" href="https://docs.unfurl.run/projects.html#unfurl-home">Unfurl home</a> project with a virtual Python environment for deployments so Unfurl only installs the minimal requirements needed to run the command line. If you want to deploy in the same environment, install it with the “full” option:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipx</span> <span class="n">install</span> <span class="n">unfurl</span><span class="p">[</span><span class="n">full</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>You can also install <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> directly from this repository to get the latest code:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip3</span> <span class="n">install</span> <span class="s2">&quot;git+https://github.com/onecommons/unfurl.git#egg=unfurl&quot;</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipx</span> <span class="n">install</span> <span class="s2">&quot;git+https://github.com/onecommons/unfurl.git#egg=unfurl&quot;</span>
 </pre></div>
 </div>
-<p>Alternatively, you can use the <a class="reference external" href="https://hub.docker.com/r/onecommons/unfurl">Unfurl container on Docker Hub</a>:</p>
+<p>Alternatively, you can get the Unfurl container image from <a class="reference external" href="https://github.com/onecommons/unfurl/pkgs/container/unfurl">GitHub</a> or [Docker Hub](https://hub.docker.com/r/onecommons
+/unfurl) and run Unfurl from the image:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
 </pre></div>
 </div>
@@ -255,7 +278,7 @@
 <ul class="simple">
 <li><p>Linux or MacOS</p></li>
 <li><p>Git</p></li>
-<li><p>Python (3.8, 3.9, 3.10, 3.11, 3.12)</p></li>
+<li><p>Python (3.8, 3.9, 3.10, 3.11, 3.12, 3.13)</p></li>
 </ul>
 <p>Optional: Docker or Podman</p>
 </section>
@@ -290,18 +313,35 @@
 </tbody>
 </table>
 </section>
-<section id="developing">
-<h2>Developing<a class="headerlink" href="#developing" title="Permalink to this headline"></a></h2>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="o">--</span><span class="n">recurse</span><span class="o">-</span><span class="n">submodules</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">onecommons</span><span class="o">/</span><span class="n">unfurl</span>
+<section id="development">
+<h2>Development<a class="headerlink" href="#development" title="Permalink to this headline"></a></h2>
+<p>To hack on Unfurl:</p>
+<ol class="arabic simple">
+<li><p>Clone this repository with its submodules:</p></li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">clone</span> <span class="pre">--recurse-submodules</span> <span class="pre">https://github.com/onecommons/unfurl</span> <span class="pre">/path/to/unfurl/</span></code></p>
+<ol class="arabic simple" start="2">
+<li><p>Install package dependencies and run Unfurl from source:</p></li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-U</span> <span class="pre">-e</span> <span class="pre">/path/to/unfurl</span></code></p>
+<ol class="arabic simple" start="3">
+<li><p>Build the Rust extension (this is optional for developing or running Unfurl):</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">setuptools</span><span class="o">-</span><span class="n">rust</span><span class="o">&gt;=</span><span class="mf">1.7.0</span>
+<span class="n">python</span> <span class="n">setup</span><span class="o">.</span><span class="n">py</span> <span class="n">build_rust</span> <span class="o">--</span><span class="n">debug</span> <span class="o">--</span><span class="n">inplace</span>
 </pre></div>
 </div>
-<p>To build documentation: Run <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">-e</span> <span class="pre">docs</span></code>.</p>
-<p>To build a distribution package run:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">setup</span><span class="o">.</span><span class="n">py</span> <span class="n">sdist</span> <span class="n">bdist_wheel</span>
+<p>Requires Rust &gt;= 1.70.</p>
+<ol class="arabic simple" start="4">
+<li><p>To build documentation: Install tox (see below). Run <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">-e</span> <span class="pre">docs</span></code>.</p></li>
+<li><p>To build a distribution package run:</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">build</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">build</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">unfurl</span><span class="o">/</span>
 </pre></div>
 </div>
-<p>You can now install this package with pip, for example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">./</span><span class="n">dist</span><span class="o">/</span><span class="n">unfurl</span><span class="o">-</span><span class="mf">0.2.2</span><span class="o">.</span><span class="n">dev3</span><span class="o">-</span><span class="n">py2</span><span class="o">.</span><span class="n">py3</span><span class="o">-</span><span class="n">none</span><span class="o">-</span><span class="nb">any</span><span class="o">.</span><span class="n">whl</span>
+<p>You can now install this package with pip or pipx, for example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipx</span> <span class="n">install</span> <span class="o">./</span><span class="n">dist</span><span class="o">/</span><span class="n">unfurl</span><span class="o">-</span><span class="mf">1.1.1</span><span class="o">.</span><span class="n">dev219</span><span class="o">-</span><span class="n">cp38</span><span class="o">-</span><span class="n">abi3</span><span class="o">-</span><span class="n">macosx_12_0_arm64</span><span class="o">.</span><span class="n">whl</span>
 </pre></div>
 </div>
 </section>
@@ -311,13 +351,13 @@
 Install tox <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tox==3.28.0</span></code> and then run <code class="docutils literal notranslate"><span class="pre">tox</span></code> in source root. To install the dependencies you may need header files installed by the following OS packages: <code class="docutils literal notranslate"><span class="pre">python-dev</span></code>, <code class="docutils literal notranslate"><span class="pre">libcrypt-dev</span></code>, <code class="docutils literal notranslate"><span class="pre">openssl-dev</span></code>. (Note: if installation of a dependency fails, reinvoke <code class="docutils literal notranslate"><span class="pre">tox</span></code> with <code class="docutils literal notranslate"><span class="pre">-r</span></code> to recreate the test environment.)
 If you use <code class="docutils literal notranslate"><span class="pre">asdf</span></code> to manage multiple versions of Python, also install <code class="docutils literal notranslate"><span class="pre">tox-asdf</span></code>: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tox-asdf</span></code>.</p>
 <p>Arguments after <code class="docutils literal notranslate"><span class="pre">--</span></code> are passed to the test runner, e.g. to run an individual test: <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">--</span> <span class="pre">tests/test_runtime.py</span></code>.</p>
+<p>When running unit tests, <code class="docutils literal notranslate"><span class="pre">tox</span></code> it will try to build the Rust extension first. To skip building and running associated tests, set the UNFURL_TEST_SKIP_BUILD_RUST=1 environment variable.</p>
 </section>
 <section id="status-and-caveats">
 <h2>Status and Caveats<a class="headerlink" href="#status-and-caveats" title="Permalink to this headline"></a></h2>
 <p>Be mindful of these limitations:</p>
 <ul class="simple">
 <li><p>Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.</p></li>
-<li><p>Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.</p></li>
 <li><p>Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the <code class="docutils literal notranslate"><span class="pre">--force</span></code> and <code class="docutils literal notranslate"><span class="pre">--instance</span></code> <a class="reference external" href="https://docs.unfurl.run/cli.html#unfurl-deploy">command line options</a>.</p></li>
 </ul>
 </section>
@@ -342,7 +382,7 @@ If you use <code class="docutils literal notranslate"><span class="pre">asdf</sp
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

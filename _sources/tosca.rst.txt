@@ -5,23 +5,14 @@ TOSCA
 =====
 
 .. contents::
+   :local:
 
 Introduction
 ^^^^^^^^^^^^
 
 The Topology and Orchestration Specification for Cloud Applications (TOSCA) is an `OASIS open standard <https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca>`_ that provides language to describe a topology of cloud based web services, their components, relationships, and the processes that manage them. TOSCA provides mechanisms for abstraction and composition, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
  
-The TOSCA specification allows the user to define a `service template` which describes an online application or service and how to deploy it. In order to successfully author a TOSCA service template, it is important to understand the various components used within the TOSCA specification and how are they interlinked:
-
-* *Node templates* describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.
-* *Relationship templates* can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.
-* *Interfaces* that define operations on nodes that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management (deploying, starting, stopping and destroying resources) and the user can define additional interfaces for "Day Two" operations, such as maintainence tasks.
-* *Artifacts* such as container images, software packages, or files that need to be deployed or used as an implementation for an operation. 
-* *Policies* which define a condition or a set of actions for a Node. The orchestrator evaluates the conditions within the Policy against events that trigger. The required actions are then performed against the corresponding Interfaces.
-* *Workflows* allows you to define a set of manually defined tasks to run in a sequential order.
-* *Type definitons* TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types.
-
-.. seealso:: For more information, see the full `TOSCA Language Reference`.
+The TOSCA specification allows the user to define a `service template` which describes an online application or service and how to deploy it.
 
 Core TOSCA Concepts
 ^^^^^^^^^^^^^^^^^^^
@@ -36,6 +27,16 @@ The Node Template and a Relationship Template are the building blocks of any TOS
    :width: 90%
    :align: center
 
+
+* *Node templates* describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.
+* *Relationship templates* can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.
+* *Interfaces* are a collections of user-defined *operations* that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management operations (creating, starting, stopping and destroying resources) and the user can define additional interfaces for "Day Two" operations, such as maintenance tasks.
+* *Artifacts* such as container images, software packages, or files that need to be deployed or used as an implementation for an operation. 
+* *Workflows* allows you to define a set of manually defined operations to run in a sequential order.
+* *Type definitions* TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types that provide validation for properties and parameters.
+
+.. seealso:: For more information, see the full `TOSCA Language Reference` and the :ref:`Glossary<glossary>` section.
+
 Service Template
 ^^^^^^^^^^^^^^^^^
 
@@ -46,7 +47,7 @@ A service template has the following sections:
 * :doc:`Metadata <toscaref/spec-tosca_def_version>` sections, which includes the ``tosca_definitions_version``, ``description``, ``metadata``, ``dsl_definitions``
 * `imports` and `repositories` sections 
 * Types sections that contain types of Node, Relationships, Capabilities, Artifacts, Interfaces, Policy and Groups
-* Topology Template which include sections for :std:ref:`Inputs`, ``outputs``, Node and relationship templates, :ref:`substitution_mappings`, `groups`, :ref:`policies<policy>` and `workflows`.
+* Topology Template which include sections for :std:ref:`Inputs`, `outputs`, Node and relationship templates, :ref:`substitution_mappings`, `groups`, :ref:`policies<policy>` and `workflows`.
 
 Example
 -------
@@ -64,15 +65,6 @@ Example
      tosca-community-contributions:
        url: https://github.com/oasis-open/tosca-community-contributions.git
    
-     docker_hub:
-       url: https://registry.hub.docker.com/
-       credential:
-           user: user1
-           token:
-             eval: # eval is an Unfurl extension
-               secret:
-                 dockerhub_user1_pw
-   
    imports:
    
    - file: my-shared-types.yaml
@@ -81,7 +73,7 @@ Example
      repository: tosca-community-contributions
    
   node_types:
-     # ... see the "entity types” section below
+     # ... see the "types” section below
 
   topology_template:    
      # ... see the “topology_templates” section below
@@ -91,74 +83,74 @@ Example
      # ... see the relationship_templates section below
 
 
+Types
+^^^^^
 
-Entity Types
-^^^^^^^^^^^^
-
-Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the `Service Template`.
-Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, ``node_types``, ``relationship_types``, ``data_types``,``artifact_types``, ``interface_types``, etc.
+Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type. custom type hierarchies can be defined in the `Service Template`.
+Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, ``node_types``, ``relationship_types``, ``data_types``, ``artifact_types``, ``interface_types``, etc. but type names all are share one namespace in the YAML document or Python module they are defined in.
 
 Example
 -------
+
+This example defines a node type named "MyApplication" that inherits from the "tosca.nodes.SoftwareComponent" node type.
 
 .. code:: yaml
 
  node_types:
-      myApplication:
-        derived_from: tosca.nodes.SoftwareComponent
-        attributes:
-          private_address:
-            type: string
-        properties:
-         domain:
+    MyApplication:
+      derived_from: tosca.nodes.SoftwareComponent
+      attributes:
+        private_address:
           type: string
-          default: { get_input: domain }
-          ports:
-            type: tosca.datatypes.network.PortSpec
-        requirements:
-          - host:
-              capabilities: tosca.capabilities.Compute
-              relationship: tosca.relationships.HostedOn
-          - db:
-              capabilities: base:capabilities.postgresdb
-              relationship: tosca.relationships.ConnectsTo
-        interfaces:
-          # TOSCA defines Standard interface for lifecycle management but you can define your own too
-          Standard:
-            create: create.sh
-            configure: configure.sh
-            delete: delete.sh
+      properties:
+        domain:
+        type: string
+        default: { get_input: domain }
+        ports:
+          type: tosca.datatypes.network.PortSpec
+      requirements:
+        - host:
+            capabilities: tosca.capabilities.Compute
+            relationship: tosca.relationships.HostedOn
+        - db:
+            capabilities: capabilities.postgresdb
+            relationship: tosca.relationships.ConnectsTo
+      interfaces:
+        # TOSCA defines Standard interface for lifecycle management but you can define your own too
+        Standard:
+          create: create.sh
+          configure: configure.sh
+          delete: delete.sh
 
 Topology Template
 ^^^^^^^^^^^^^^^^^^
 
-Topology Template refers to the topology model of a service. This model consists of node template and relationship template that are linked together to translate and structure the application.
+The topology Template defines the components of the service being deployed. It can be thought of as a graph of node templates and other components along with their relationships and dependencies.
+
+Topologies can parameterized with :std:ref:`inputs`, define `outputs<operation_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
+
+Topologies can be embedded in other topologies via `substitution_mappings`.
 
 Example
 -------
 
-.. code:: yaml
+.. tab-set-code::
 
- topology_template:
+  .. literalinclude:: ./examples/topology-template.yaml
+    :language: yaml
 
-   inputs:
-     domain:
-       type: string
+  .. literalinclude:: ./examples/topology-template.py
+    :language: python
 
-   outputs:
-     url:
-       type: string
-       value: { concat: [ https://, { get_input: domain }, ':',  { get_attribute: [ myapp, portspec, source ] }, '/api/events'] }
-       # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:
-       value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events
+Deployment blueprints
+^^^^^^^^^^^^^^^^^^^^^
 
+A deployment blueprint is an Unfurl extension that allows you to define blueprint that is only applied when its criteria matches the deployment environment. It inherits from the main topology template and node templates with matching names replace the ones in the topology template's. For example, see this `example<deployment_blueprint_example>`.
 
 Node Template
 ^^^^^^^^^^^^^
 
-A Node Template defines an instance or a component of the application in the service template. Where a node type refers to the class or family of component at a high level that your resource belongs to, a node template makes use of the components defined in the node type and customizes the predefined properties and operations based upon the use case.
-
-.. seealso:: To know more about these terminologies, refer to the :ref:`Glossary<glossary>` section.
+A Node Template defines a node that gets instantiated into an instance (or resource) when the service template is deployed.  A node template uses its node type as a prototype and can define properties, capabilities, artifacts, and requirements specific to the template.
 
 Example
 -------
@@ -181,7 +173,7 @@ Example
              relationship: mydb_connection
                
      mydb:
-       type: base:postgresdb
+       type: PostgresDB
        properties:
           name: mydb
 
@@ -195,34 +187,208 @@ Example
              mem_size: 512MB
 
 
-Relationship Template
-^^^^^^^^^^^^^^^^^^^^^
+Requirements and Relationships
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-A Relationship Template specifies the relationship between the components defined in the node templates and how the various nodes are connected to each other. Apart from the connections, relationship templates also include information regarding the dependencies and the order of the deployment that should be followed to instantiate a service template.
+Requirements let you define relationships between nodes and must be assigned a relationship type. Requirements are declared as a list on the node template, allowing multiple requirements with the same name, whose number is constrained by the :tosca_spec:`occurrences<_Toc50125352>` keyword in the requirement's :tosca_spec:`definition<_Toc50125352>`.
 
-An important thing to notice here is, in a relationship, it is important for the node requirements of a component to match the capabilities of the node it is being linked to.
+Relationship types can have properties and have interfaces and operations associated with them. For example, the orchestrator will use operations defined for the built-in :tosca_spec:`Configure<_Toc50125679>` interface to create or remove the relationship.
+
+Requirements :tosca_spec:`declared on a node type<_Toc50125352>` define the constraints for that requirement, for example the type of node it can target or the number of target matches each node template can have for that requirement.
+
+Requirements :tosca_spec:`declared on a node template<_Toc50125406>` define the node that the requirement is targeting, either directly by naming that node template, or by defining the search criteria for finding the match, for example by including a ``node_filter``. 
+
+So when the ``node`` field refers to an node type in requirement defined on a node template its defining a search criteria for finding a matching node template, but when the requirement is on node type, it is only defining a validation constraint where the node template's match must implement that type -- it won't use that field to search for a match.
+
+Relationship templates can be declared to provide specific information about the requirement's relationship with its target node.  Relationship templates can be defined directly inline in the requirement or they can be declared separately in the ``relationship_templates`` section of the topology and referenced by name.
+
+Examples
+--------
+
+This simple example using built-in TOSCA types that defines the "host" requirement as using the ``tosca.relationships.hostedOn`` relationship, so we can define the requirement with just the name of the target node template:
+
+.. code:: yaml
+
+  topology_template:
+    node_templates:
+      myApp:
+        type: tosca.nodes.SoftwareComponent
+        requirements:
+          - host: another_node
+
+
+The following more complex example first defines a "MyApplication" node type that requires one "db" relationship of type "DatabaseConnection".  Then it defines a node template ("myApp") with that node type with a "db" requirement that uses a node filter to find the matching target node and a named relationship template of type "DatabaseConnection" with properties for connecting to the database. 
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/tosca-requirements.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/tosca-requirements.py
+    :language: python
+
+
+Artifacts
+^^^^^^^^^
+
+An artifact is an entity that represents an asset such as files, container images, or software packages that need to be deployed or used by an implementation of an operation. Like other TOSCA entities, artifacts have a type and can have properties, attributes, and operations associated with it.
+
+Artifacts are declared in the ``artifacts`` section of node templates and node types, and can refer to the `repository<repositories>` that it is part of.
+
+This example defines an artifact that is a container image, along with a `repository<repositories>` that represents the image registry that manages it:
+
+.. code:: yaml
+
+     docker_hub:
+       url: https://registry.hub.docker.com/
+       credential:
+          user: user1
+          token:
+            eval:
+              secret:
+                dockerhub_user1_pw
+
+    topology_template:
+      node_templates:
+        myApp:
+          type: MyApplication
+          artifacts:
+            image:
+              type: tosca.artifacts.Deployment.Image.Container.Docker
+              file: myapp:latest
+              repository: docker_hub
+
+Artifacts can be used in the following ways:
+
+* An operation's `implementation's<implementation>`, ``primary`` field can be assigned an artifact which will be used to execute the operation. Artifacts derived from ``unfurl.artifacts.HasConfigurator`` will use configurator set on its type, otherwise it will treated as a shell script unless the ``className`` field is set in the implementation.
+* An implementation can also list artifacts in the ``dependencies`` field which will be installed if necessary.
+* The `get_artifact` TOSCA function to reference to artifact's URL or local location (if available).
+* An artifact and its properties can be accessed in `Eval Expressions` via the `.artifacts<Special keys>` key. (see `Artifact enhancements`) or as :py:class:`Node` attributes when using the `Python DSL`. 
+
+Artifacts that are referenced in an operation's implementation will be installed on the operation's :tosca_spec:`operation_host<_Toc50125294>` (by default, where Unfurl is running) as part of the `Job Lifecycle` if the artifact has ``Standard`` operations (``create`` or ``configure``) defined for it.
+
+.. seealso:: For more information, refer to :tosca_spec:`TOSCA Artifact Section <_Toc50125252>`
+
+Interfaces and Operations
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+An :tosca_spec:`Operations<DEFN_ELEMENT_OPERATION_DEF>` defines an invocation on an artifact or `configurator`. A TOSCA orchestrator like Unfurl instantiates a service template by executing operations. An operation has an `implementation`, `inputs<operation_inputs>`, and `outputs<operation_outputs>`. 
+
+Conceptually an operation is comparable to method in an object-oriented language where the implementation is the object upon which the method is invoked, the inputs are the method's arguments, and its outputs are the method's return values.
+
+An :tosca_spec:`Interface<_Toc50125307>` is a collections of :std:ref:`operations<operation>` that can be defined in the ``interfaces`` section on TOSCA types or directly on TOSCA templates for nodes, relationships, and artifacts.
 
 Example
 -------
 
-.. code:: yaml
+.. code-block:: yaml
 
-  relationship_templates:
-    mydb_connection:
-      type: base:relationships.dbconnection
-      properties:
-        username: myapp
-        password:
-          eval:
-            secret:
-              myapp_db_pw
+    interfaces:
+      Standard:  # this is a built-in interface type so the "type" field is not required
+        inputs:  
+          # inputs defined at this level will be made available to all operations
+          foo: bar
+        operations:
+          # in the simplest case an operation can just be the name of an artifact or shell command
+          create: ./myscript.sh
+          # a more complex operation:
+          configure:
+            implementation:
+              primary: my_ansible_playbook 
+              dependencies:
+                  # unfurl will install artifacts listed as dependencies if they are missing
+                - a_ansible_collection
+              # Unfurl extensions:
+              className: Ansible # the configurator class to use (redundant in this example)
+              environment: # environment variables to set when executing the operation
+                 AN_ENV_VAR: 1
+            inputs:
+              foo: baz  # overrides the above definition of "foo"
+            outputs:
+              an_ansible_fact: an_attribute
+        # an Unfurl extension for specifying the connections that the operations need to function:
+        requirements:
+          - unfurl.relationships.ConnectsTo.GoogleCloudProject
+
+Operations can be invoked in the following ways:
+
+* The built-in :tosca_spec:`Standard<_Toc50125674>` and :tosca_spec:`Configure<_Toc50125679>` interfaces are invoked during deploy and undeploy workflows
+* Unfurl's built-in Install are invoked for check and discovery.
+* Custom operations can be invoked with `run<Ad-hoc Jobs>` workflow.
+* Operations can be invoked directly by custom `workflows`, the `delegate` configurator, or using Unfurl's Python `apis<api>`.
+
+Implementation
+---------------
+
+As the example above illustrates, an operation's :tosca_spec:`implementation<_Toc50125293>` field describes which artifacts or :std:ref:`configurator<configurators>` (Unfurl's plugin system for implementing operations) to use to execute the operation.
+
+As an Unfurl extension, an implementation section can also include an `environment` key with `Environment Variables` directives and a ``className`` field to explicitly name the configurator.
+
+.. _operation_inputs:
+
+Inputs
+-------
+
+Inputs are passed to the implementation of the operation.
+A TOSCA type can (optionally) define the expected inputs on a operation in much like a property definition. In Unfurl, inputs are evaluated lazily as needed by the operation's configurator.
+Default inputs can defined directly on the interface and will be made available to all operations in that interface.
+If inputs are defined on multiple types in a type hierarchy for the same operation, they are merged together along with any inputs for that operation defined on directly on the template.
+
+.. _operation_outputs:
+
+Outputs
+-------
+
+An operation can define an :tosca_spec:`attribute mapping<_Toc50125291>` that specifies how to apply the operation's outputs. The meaning of keys in the mapping depends on the operation's configurator, for example, a Ansible fact or a Terraform output.
+If mapping's value is a string, it names the attribute on the instance where the output will be saved.
+If the value is null, no attribute mapping will be made but the output will be available to the ``resultTemplate`` and saved in the ensemble. 
+
+Interface types
+---------------
+
+Interface types define names of the operations in an interface along with their inputs and outputs. TOSCA defines a `built-in interface types<built-in interfaces>` for lifecycle management operations and additional interface types can be declared in the service template for "Day Two" operations, such as maintenance tasks.
+
+For example, Unfurl adds a built-in interface type for discovering resources, which it defines as:
+
+.. _install_interface:
+
+.. code-block:: yaml
+
+  interface_types:
+    unfurl.interfaces.Install:
+      derived_from: tosca.interfaces.Root
+      operations:
+        check:
+          description: Checks and sets the status and attributes of the instance
+        discover:
+          description: Discovers current state of the current instance and (possibly) related instances, updates the spec as needed.
+        revert:
+          description: Restore the instance to the state it was original found in.
+        connect:
+          description: Connect to a pre-existing resource.
+        restart:
+          description: Restart the resource.
+
+Built-in interfaces
+-------------------
+
+TOSCA defines two built-in interface types that are invoked to deploy a topology: the :tosca_spec:`Standard<#_Toc50125669>` interface for node templates and :tosca_spec:`Configure<_Toc50125679>` interface for relationships templates.
+
+The former defines lifecycle management operations (creating, starting, stopping and destroying resources) that are invoked when creating and deleting node instances and latter for configuring the `requirements` between nodes.
+
+It is not a requirement to define every operation for every template; the operation will be silently skipped if not defined. With the Standard interface, only the ``configure`` operation needs to be defined to instantiate a node, if the ``create`` operation isn't defined, Unfurl will assume that ``configure`` will both create and configure the resource (and reconfigure when updating an existing deployment).
+
+In addition, Unfurl provides a built-in `Install<install_interface>` interface which is invoked when running `check<Checking resources>` and `discover<Resource Discovery>` workflows.
 
 Complete Example
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Combining the above examples into one file, we have a complete service template:
 
-.. include:: examples/service-template.yaml
-   :literal:
-   :code: YAML
+.. tab-set-code::
 
+  .. literalinclude:: ./examples/service-template.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/service_template.py
+    :language: python

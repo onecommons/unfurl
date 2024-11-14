@@ -7,6 +7,7 @@
   <title>Repositories &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="../_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,6 +18,7 @@
         <script src="../_static/jquery.js"></script>
         <script src="../_static/underscore.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/design-tabs.js"></script>
         <script src="../_static/custom.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -49,21 +51,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../dsl.html">Python alternative to YAML</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../dsl.html">TOSCA as Python</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Repositories</a><ul>
@@ -80,6 +73,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../packages.html">Repositories and Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -112,8 +115,9 @@
              
   <section id="repositories">
 <span id="tosca-repositories"></span><h1>Repositories<a class="headerlink" href="#repositories" title="Permalink to this headline"></a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">repositories</span></code> refers to a named <a class="reference internal" href="../packages.html#repository"><span class="std std-ref">repository</span></a> which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.</p>
-<p>If the repository name matches the package id syntax, Unfurl will treat repository declaration as a package rule.</p>
+<p><code class="docutils literal notranslate"><span class="pre">repositories</span></code> refers to a named <a class="reference internal" href="../glossary.html#repository"><span class="std std-ref">Repository</span></a> which contains deployment and implementation artifacts that are referenced within the TOSCA Service Template.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">repository</span></code> is a TOSCA abstraction that can represent any collection of artifacts. For example, a repository can be git repository, an OCI (Docker) container registry, or a local file directory – see the <a class="reference internal" href="../glossary.html#repository"><span class="std std-ref">Repository</span></a> section on using them with Unfurl.</p>
+<p>If the repository name matches the package id syntax, Unfurl will treat repository declarations as a <a class="reference internal" href="../packages.html#package-rules"><span class="std std-ref">package rule</span></a>.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;repository_name&gt;</span><span class="p">:</span>
@@ -145,6 +149,10 @@
 <span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/my-project/</span>
 </pre></div>
 </div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125248">TOSCA Repository Section</a></p>
+</div>
 </section>
 </section>
 
@@ -159,7 +167,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

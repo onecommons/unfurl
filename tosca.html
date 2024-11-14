@@ -7,6 +7,7 @@
   <title>TOSCA &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,12 +18,13 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="A TOSCA Python-based DSL" href="dsl.html" />
-    <link rel="prev" title="Managing Secrets" href="secrets.html" /> 
+    <link rel="prev" title="Jobs and Workflows" href="jobs.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -49,10 +51,10 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">TOSCA</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#core-tosca-concepts">Core TOSCA Concepts</a></li>
@@ -60,7 +62,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#example">Example</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#entity-types">Entity Types</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#types">Types</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id2">Example</a></li>
 </ul>
 </li>
@@ -68,28 +70,40 @@
 <li class="toctree-l3"><a class="reference internal" href="#id3">Example</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#deployment-blueprints">Deployment blueprints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#node-template">Node Template</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id4">Example</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#relationship-template">Relationship Template</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#requirements-and-relationships">Requirements and Relationships</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#artifacts">Artifacts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#interfaces-and-operations">Interfaces and Operations</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id5">Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#implementation">Implementation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#inputs">Inputs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#outputs">Outputs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interface-types">Interface types</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#built-in-interfaces">Built-in interfaces</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#complete-example">Complete Example</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="dsl.html">Python alternative to YAML</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dsl.html">TOSCA as Python</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
-<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -120,81 +134,87 @@
            <div itemprop="articleBody">
              
   <section id="tosca">
-<span id="id1"></span><h1><a class="toc-backref" href="#id6">TOSCA</a><a class="headerlink" href="#tosca" title="Permalink to this headline"></a></h1>
-<div class="contents topic" id="contents">
-<p class="topic-title">Contents</p>
+<span id="id1"></span><h1>TOSCA<a class="headerlink" href="#tosca" title="Permalink to this headline"></a></h1>
+<div class="contents local topic" id="contents">
 <ul class="simple">
-<li><p><a class="reference internal" href="#tosca" id="id6">TOSCA</a></p>
+<li><p><a class="reference internal" href="#introduction" id="id6">Introduction</a></p></li>
+<li><p><a class="reference internal" href="#core-tosca-concepts" id="id7">Core TOSCA Concepts</a></p></li>
+<li><p><a class="reference internal" href="#service-template" id="id8">Service Template</a></p>
 <ul>
-<li><p><a class="reference internal" href="#introduction" id="id7">Introduction</a></p></li>
-<li><p><a class="reference internal" href="#core-tosca-concepts" id="id8">Core TOSCA Concepts</a></p></li>
-<li><p><a class="reference internal" href="#service-template" id="id9">Service Template</a></p>
-<ul>
-<li><p><a class="reference internal" href="#example" id="id10">Example</a></p></li>
+<li><p><a class="reference internal" href="#example" id="id9">Example</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#entity-types" id="id11">Entity Types</a></p>
+<li><p><a class="reference internal" href="#types" id="id10">Types</a></p>
 <ul>
-<li><p><a class="reference internal" href="#id2" id="id12">Example</a></p></li>
+<li><p><a class="reference internal" href="#id2" id="id11">Example</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#topology-template" id="id13">Topology Template</a></p>
+<li><p><a class="reference internal" href="#topology-template" id="id12">Topology Template</a></p>
 <ul>
-<li><p><a class="reference internal" href="#id3" id="id14">Example</a></p></li>
+<li><p><a class="reference internal" href="#id3" id="id13">Example</a></p></li>
 </ul>
 </li>
+<li><p><a class="reference internal" href="#deployment-blueprints" id="id14">Deployment blueprints</a></p></li>
 <li><p><a class="reference internal" href="#node-template" id="id15">Node Template</a></p>
 <ul>
 <li><p><a class="reference internal" href="#id4" id="id16">Example</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#relationship-template" id="id17">Relationship Template</a></p>
+<li><p><a class="reference internal" href="#requirements-and-relationships" id="id17">Requirements and Relationships</a></p>
 <ul>
-<li><p><a class="reference internal" href="#id5" id="id18">Example</a></p></li>
+<li><p><a class="reference internal" href="#examples" id="id18">Examples</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#complete-example" id="id19">Complete Example</a></p></li>
+<li><p><a class="reference internal" href="#artifacts" id="id19">Artifacts</a></p></li>
+<li><p><a class="reference internal" href="#interfaces-and-operations" id="id20">Interfaces and Operations</a></p>
+<ul>
+<li><p><a class="reference internal" href="#id5" id="id21">Example</a></p></li>
+<li><p><a class="reference internal" href="#implementation" id="id22">Implementation</a></p></li>
+<li><p><a class="reference internal" href="#inputs" id="id23">Inputs</a></p></li>
+<li><p><a class="reference internal" href="#outputs" id="id24">Outputs</a></p></li>
+<li><p><a class="reference internal" href="#interface-types" id="id25">Interface types</a></p></li>
+<li><p><a class="reference internal" href="#built-in-interfaces" id="id26">Built-in interfaces</a></p></li>
 </ul>
 </li>
+<li><p><a class="reference internal" href="#complete-example" id="id27">Complete Example</a></p></li>
 </ul>
 </div>
 <section id="introduction">
-<h2><a class="toc-backref" href="#id7">Introduction</a><a class="headerlink" href="#introduction" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id6">Introduction</a><a class="headerlink" href="#introduction" title="Permalink to this headline"></a></h2>
 <p>The Topology and Orchestration Specification for Cloud Applications (TOSCA) is an <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS open standard</a> that provides language to describe a topology of cloud based web services, their components, relationships, and the processes that manage them. TOSCA provides mechanisms for abstraction and composition, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure.</p>
-<p>The TOSCA specification allows the user to define a <a class="reference internal" href="#service-template"><span class="std std-ref">Service Template</span></a> which describes an online application or service and how to deploy it. In order to successfully author a TOSCA service template, it is important to understand the various components used within the TOSCA specification and how are they interlinked:</p>
-<ul class="simple">
-<li><p><em>Node templates</em> describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.</p></li>
-<li><p><em>Relationship templates</em> can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.</p></li>
-<li><p><em>Interfaces</em> that define operations on nodes that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management (deploying, starting, stopping and destroying resources) and the user can define additional interfaces for “Day Two” operations, such as maintainence tasks.</p></li>
-<li><p><em>Artifacts</em> such as container images, software packages, or files that need to be deployed or used as an implementation for an operation.</p></li>
-<li><p><em>Policies</em> which define a condition or a set of actions for a Node. The orchestrator evaluates the conditions within the Policy against events that trigger. The required actions are then performed against the corresponding Interfaces.</p></li>
-<li><p><em>Workflows</em> allows you to define a set of manually defined tasks to run in a sequential order.</p></li>
-<li><p><em>Type definitons</em> TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types.</p></li>
-</ul>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>For more information, see the full <a class="reference internal" href="toscaref.html#tosca-language-reference"><span class="std std-ref">TOSCA Language Reference</span></a>.</p>
-</div>
+<p>The TOSCA specification allows the user to define a <a class="reference internal" href="#service-template"><span class="std std-ref">Service Template</span></a> which describes an online application or service and how to deploy it.</p>
 </section>
 <section id="core-tosca-concepts">
-<h2><a class="toc-backref" href="#id8">Core TOSCA Concepts</a><a class="headerlink" href="#core-tosca-concepts" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id7">Core TOSCA Concepts</a><a class="headerlink" href="#core-tosca-concepts" title="Permalink to this headline"></a></h2>
 <p>The figure below illustrates the core components of a TOSCA service template.
 At the heart of a TOSCA service template is a <a class="reference internal" href="toscaref/spec-topology-template.html#topology-template"><span class="std std-ref">Topology Template</span></a> that describes a model of the service’s online resources, including how they connect together and how they should be deployed. These resources are represented by a <a class="reference internal" href="#node-template"><span class="std std-ref">Node Template</span></a>.
 The Node Template and a Relationship Template are the building blocks of any TOSCA Specification.</p>
 <a class="reference internal image-reference" href="_images/service_template.svg"><img alt="_images/service_template.svg" class="align-center" src="_images/service_template.svg" width="90%" /></a>
+<ul class="simple">
+<li><p><em>Node templates</em> describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.</p></li>
+<li><p><em>Relationship templates</em> can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.</p></li>
+<li><p><em>Interfaces</em> are a collections of user-defined <em>operations</em> that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management operations (creating, starting, stopping and destroying resources) and the user can define additional interfaces for “Day Two” operations, such as maintenance tasks.</p></li>
+<li><p><em>Artifacts</em> such as container images, software packages, or files that need to be deployed or used as an implementation for an operation.</p></li>
+<li><p><em>Workflows</em> allows you to define a set of manually defined operations to run in a sequential order.</p></li>
+<li><p><em>Type definitions</em> TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types that provide validation for properties and parameters.</p></li>
+</ul>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, see the full <a class="reference internal" href="toscaref.html#tosca-language-reference"><span class="std std-ref">TOSCA Language Reference</span></a> and the <a class="reference internal" href="glossary.html#glossary"><span class="std std-ref">Glossary</span></a> section.</p>
+</div>
 </section>
 <section id="service-template">
-<h2><a class="toc-backref" href="#id9">Service Template</a><a class="headerlink" href="#service-template" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id8">Service Template</a><a class="headerlink" href="#service-template" title="Permalink to this headline"></a></h2>
 <p>A TOSCA service template contains all the information needed to deploy the service it describes. In Unfurl, a service template can be a stand-alone YAML file that is included in the <a class="reference internal" href="jsonschema.html#id2"><span class="std std-ref">ensemble.yaml</span></a> configuration file or embedded directly in that file as a child of the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#DEFN_ELEMENT_SERVICE_TEMPLATE">Service templates</a> element.</p>
 <p>A service template has the following sections:</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="toscaref/spec-tosca_def_version.html"><span class="doc">Metadata</span></a> sections, which includes the <code class="docutils literal notranslate"><span class="pre">tosca_definitions_version</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">dsl_definitions</span></code></p></li>
 <li><p><a class="reference internal" href="toscaref/spec-imports.html#imports"><span class="std std-ref">Imports</span></a> and <a class="reference internal" href="toscaref/spec-repositories.html#repositories"><span class="std std-ref">Repositories</span></a> sections</p></li>
 <li><p>Types sections that contain types of Node, Relationships, Capabilities, Artifacts, Interfaces, Policy and Groups</p></li>
-<li><p>Topology Template which include sections for <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a>, <code class="docutils literal notranslate"><span class="pre">outputs</span></code>, Node and relationship templates, <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">Substitution Mappings</span></a>, <a class="reference internal" href="toscaref/spec-groups.html#groups"><span class="std std-ref">Groups</span></a>, <a class="reference internal" href="toscaref/spec-policy.html#policy"><span class="std std-ref">policies</span></a> and <a class="reference internal" href="toscaref/spec-imperative-workflow.html#workflows"><span class="std std-ref">Workflows</span></a>.</p></li>
+<li><p>Topology Template which include sections for <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a>, <a class="reference internal" href="toscaref/spec-outputs.html#outputs"><span class="std std-ref">Outputs</span></a>, Node and relationship templates, <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">Substitution Mappings</span></a>, <a class="reference internal" href="toscaref/spec-groups.html#groups"><span class="std std-ref">Groups</span></a>, <a class="reference internal" href="toscaref/spec-policy.html#policy"><span class="std std-ref">policies</span></a> and <a class="reference internal" href="toscaref/spec-imperative-workflow.html#workflows"><span class="std std-ref">Workflows</span></a>.</p></li>
 </ul>
 <section id="example">
-<h3><a class="toc-backref" href="#id10">Example</a><a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id9">Example</a><a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span><span class="w"> </span><span class="c1"># or use the standard tosca_simple_yaml_1_3</span>
 <span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">An illustrative TOSCA service template</span>
 <span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="c1"># the following metadata keys are defined in the TOSCA specification:</span>
@@ -206,15 +226,6 @@ The Node Template and a Relationship Template are the building blocks of any TOS
 <span class="w">   </span><span class="nt">tosca-community-contributions</span><span class="p">:</span>
 <span class="w">     </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/oasis-open/tosca-community-contributions.git</span>
 
-<span class="w">   </span><span class="nt">docker_hub</span><span class="p">:</span>
-<span class="w">     </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://registry.hub.docker.com/</span>
-<span class="w">     </span><span class="nt">credential</span><span class="p">:</span>
-<span class="w">         </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user1</span>
-<span class="w">         </span><span class="nt">token</span><span class="p">:</span>
-<span class="w">           </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="c1"># eval is an Unfurl extension</span>
-<span class="w">             </span><span class="nt">secret</span><span class="p">:</span>
-<span class="w">               </span><span class="l l-Scalar l-Scalar-Plain">dockerhub_user1_pw</span>
-
 <span class="w w-Error"> </span><span class="nt">imports</span><span class="p">:</span>
 
 <span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-shared-types.yaml</span>
@@ -223,7 +234,7 @@ The Node Template and a Relationship Template are the building blocks of any TOS
 <span class="w">   </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca-community-contributions</span>
 
 <span class="nt">node_types</span><span class="p">:</span>
-<span class="w">   </span><span class="c1"># ... see the &quot;entity types” section below</span>
+<span class="w">   </span><span class="c1"># ... see the &quot;types” section below</span>
 
 <span class="nt">topology_template</span><span class="p">:</span>
 <span class="w">   </span><span class="c1"># ... see the “topology_templates” section below</span>
@@ -235,69 +246,96 @@ The Node Template and a Relationship Template are the building blocks of any TOS
 </div>
 </section>
 </section>
-<section id="entity-types">
-<h2><a class="toc-backref" href="#id11">Entity Types</a><a class="headerlink" href="#entity-types" title="Permalink to this headline"></a></h2>
-<p>Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the <a class="reference internal" href="#service-template"><span class="std std-ref">Service Template</span></a>.
-Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, <code class="docutils literal notranslate"><span class="pre">node_types</span></code>, <code class="docutils literal notranslate"><span class="pre">relationship_types</span></code>, <code class="docutils literal notranslate"><span class="pre">data_types</span></code>,``artifact_types``, <code class="docutils literal notranslate"><span class="pre">interface_types</span></code>, etc.</p>
+<section id="types">
+<h2><a class="toc-backref" href="#id10">Types</a><a class="headerlink" href="#types" title="Permalink to this headline"></a></h2>
+<p>Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type. custom type hierarchies can be defined in the <a class="reference internal" href="#service-template"><span class="std std-ref">Service Template</span></a>.
+Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, <code class="docutils literal notranslate"><span class="pre">node_types</span></code>, <code class="docutils literal notranslate"><span class="pre">relationship_types</span></code>, <code class="docutils literal notranslate"><span class="pre">data_types</span></code>, <code class="docutils literal notranslate"><span class="pre">artifact_types</span></code>, <code class="docutils literal notranslate"><span class="pre">interface_types</span></code>, etc. but type names all are share one namespace in the YAML document or Python module they are defined in.</p>
 <section id="id2">
-<h3><a class="toc-backref" href="#id12">Example</a><a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id11">Example</a><a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
+<p>This example defines a node type named “MyApplication” that inherits from the “tosca.nodes.SoftwareComponent” node type.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
-<span class="w">     </span><span class="nt">myApplication</span><span class="p">:</span>
-<span class="w">       </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
-<span class="w">       </span><span class="nt">attributes</span><span class="p">:</span>
-<span class="w">         </span><span class="nt">private_address</span><span class="p">:</span>
-<span class="w">           </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
-<span class="w">       </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">domain</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">MyApplication</span><span class="p">:</span>
+<span class="w">     </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
+<span class="w">     </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">       </span><span class="nt">private_address</span><span class="p">:</span>
 <span class="w">         </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
-<span class="w">         </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">}</span>
-<span class="w">         </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">           </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span>
-<span class="w">       </span><span class="nt">requirements</span><span class="p">:</span>
-<span class="w">         </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span>
-<span class="w">             </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span>
-<span class="w">             </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span>
-<span class="w">         </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
-<span class="w">             </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base:capabilities.postgresdb</span>
-<span class="w">             </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
-<span class="w">       </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">         </span><span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
-<span class="w">         </span><span class="nt">Standard</span><span class="p">:</span>
-<span class="w">           </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create.sh</span>
-<span class="w">           </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configure.sh</span>
-<span class="w">           </span><span class="nt">delete</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">delete.sh</span>
+<span class="w">     </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">       </span><span class="nt">domain</span><span class="p">:</span>
+<span class="w">       </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">       </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">       </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">         </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span>
+<span class="w">     </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">       </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">           </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span>
+<span class="w">           </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span>
+<span class="w">       </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">           </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">capabilities.postgresdb</span>
+<span class="w">           </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
+<span class="w">     </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">       </span><span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
+<span class="w">       </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">         </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create.sh</span>
+<span class="w">         </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configure.sh</span>
+<span class="w">         </span><span class="nt">delete</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">delete.sh</span>
 </pre></div>
 </div>
 </section>
 </section>
 <section id="topology-template">
-<h2><a class="toc-backref" href="#id13">Topology Template</a><a class="headerlink" href="#topology-template" title="Permalink to this headline"></a></h2>
-<p>Topology Template refers to the topology model of a service. This model consists of node template and relationship template that are linked together to translate and structure the application.</p>
+<h2><a class="toc-backref" href="#id12">Topology Template</a><a class="headerlink" href="#topology-template" title="Permalink to this headline"></a></h2>
+<p>The topology Template defines the components of the service being deployed. It can be thought of as a graph of node templates and other components along with their relationships and dependencies.</p>
+<p>Topologies can parameterized with <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a>, define <a class="reference internal" href="#operation-outputs"><span class="std std-ref">outputs</span></a>, and contains <a class="reference internal" href="toscaref/spec-node-templates.html#node-templates"><span class="std std-ref">Node Templates</span></a>, <a class="reference internal" href="toscaref/spec-relationship-templates.html#relationship-templates"><span class="std std-ref">Relationship Templates</span></a>, <a class="reference internal" href="toscaref/spec-groups.html#groups"><span class="std std-ref">Groups</span></a>, <a class="reference internal" href="toscaref/spec-policy.html#policy"><span class="std std-ref">policies</span></a>, and <a class="reference internal" href="toscaref/spec-imperative-workflow.html#workflows"><span class="std std-ref">Workflows</span></a>.</p>
+<p>Topologies can be embedded in other topologies via <a class="reference internal" href="toscaref/spec-substitution-mapping.html#substitution-mappings"><span class="std std-ref">Substitution Mappings</span></a>.</p>
 <section id="id3">
-<h3><a class="toc-backref" href="#id14">Example</a><a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id13">Example</a><a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
 
 <span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">domain</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.com</span>
 
 <span class="w">  </span><span class="nt">outputs</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">url</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
-<span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> concat</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">},</span><span class="w"> </span><span class="s">&#39;:&#39;</span><span class="p p-Indicator">,</span><span class="w">  </span><span class="p p-Indicator">{</span><span class="nt"> get_attribute</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">myapp</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">portspec</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">source</span><span class="w"> </span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">},</span><span class="w"> </span><span class="s">&#39;/api/events&#39;</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span>
-<span class="w">      </span><span class="c1"># Unfurl also support ansible-enhanced jinja2 template so you could write this instead:</span>
+<span class="w">      </span><span class="c1"># value: { concat: [ https://, { get_input: domain }, &#39;:&#39;,  { get_attribute: [ myapp, portspec, source ] }, &#39;/api/events&#39;] }</span>
+<span class="w">      </span><span class="c1"># # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:</span>
 <span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events</span>
 </pre></div>
 </div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">TopologyInputs</span><span class="p">,</span> <span class="n">TopologyOutputs</span>
+
+
+<span class="k">class</span> <span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
+    <span class="n">domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;example.com&quot;</span>
+
+
+<span class="k">class</span> <span class="nc">Outputs</span><span class="p">(</span><span class="n">TopologyOutputs</span><span class="p">):</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Eval</span><span class="p">(</span>
+        <span class="s2">&quot;https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events&quot;</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
 </section>
+</section>
+<section id="deployment-blueprints">
+<h2><a class="toc-backref" href="#id14">Deployment blueprints</a><a class="headerlink" href="#deployment-blueprints" title="Permalink to this headline"></a></h2>
+<p>A deployment blueprint is an Unfurl extension that allows you to define blueprint that is only applied when its criteria matches the deployment environment. It inherits from the main topology template and node templates with matching names replace the ones in the topology template’s. For example, see this <a class="reference internal" href="quickstart.html#deployment-blueprint-example"><span class="std std-ref">example</span></a>.</p>
 </section>
 <section id="node-template">
 <h2><a class="toc-backref" href="#id15">Node Template</a><a class="headerlink" href="#node-template" title="Permalink to this headline"></a></h2>
-<p>A Node Template defines an instance or a component of the application in the service template. Where a node type refers to the class or family of component at a high level that your resource belongs to, a node template makes use of the components defined in the node type and customizes the predefined properties and operations based upon the use case.</p>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>To know more about these terminologies, refer to the <a class="reference internal" href="glossary.html#glossary"><span class="std std-ref">Glossary</span></a> section.</p>
-</div>
+<p>A Node Template defines a node that gets instantiated into an instance (or resource) when the service template is deployed.  A node template uses its node type as a prototype and can define properties, capabilities, artifacts, and requirements specific to the template.</p>
 <section id="id4">
 <h3><a class="toc-backref" href="#id16">Example</a><a class="headerlink" href="#id4" title="Permalink to this headline"></a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
@@ -316,7 +354,7 @@ Types declare the required properties, default definitions, and interface operat
 <span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb_connection</span>
 
 <span class="w">  </span><span class="nt">mydb</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base:postgresdb</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDB</span>
 <span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
 <span class="w">       </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span>
 
@@ -332,133 +370,439 @@ Types declare the required properties, default definitions, and interface operat
 </div>
 </section>
 </section>
-<section id="relationship-template">
-<h2><a class="toc-backref" href="#id17">Relationship Template</a><a class="headerlink" href="#relationship-template" title="Permalink to this headline"></a></h2>
-<p>A Relationship Template specifies the relationship between the components defined in the node templates and how the various nodes are connected to each other. Apart from the connections, relationship templates also include information regarding the dependencies and the order of the deployment that should be followed to instantiate a service template.</p>
-<p>An important thing to notice here is, in a relationship, it is important for the node requirements of a component to match the capabilities of the node it is being linked to.</p>
-<section id="id5">
-<h3><a class="toc-backref" href="#id18">Example</a><a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">relationship_templates</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">mydb_connection</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base:relationships.dbconnection</span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span>
-<span class="w">      </span><span class="nt">password</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">eval</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">secret</span><span class="p">:</span>
-<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">myapp_db_pw</span>
+<section id="requirements-and-relationships">
+<h2><a class="toc-backref" href="#id17">Requirements and Relationships</a><a class="headerlink" href="#requirements-and-relationships" title="Permalink to this headline"></a></h2>
+<p>Requirements let you define relationships between nodes and must be assigned a relationship type. Requirements are declared as a list on the node template, allowing multiple requirements with the same name, whose number is constrained by the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125352">occurrences</a> keyword in the requirement’s <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125352">definition</a>.</p>
+<p>Relationship types can have properties and have interfaces and operations associated with them. For example, the orchestrator will use operations defined for the built-in <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125679">Configure</a> interface to create or remove the relationship.</p>
+<p>Requirements <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125352">declared on a node type</a> define the constraints for that requirement, for example the type of node it can target or the number of target matches each node template can have for that requirement.</p>
+<p>Requirements <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125406">declared on a node template</a> define the node that the requirement is targeting, either directly by naming that node template, or by defining the search criteria for finding the match, for example by including a <code class="docutils literal notranslate"><span class="pre">node_filter</span></code>.</p>
+<p>So when the <code class="docutils literal notranslate"><span class="pre">node</span></code> field refers to an node type in requirement defined on a node template its defining a search criteria for finding a matching node template, but when the requirement is on node type, it is only defining a validation constraint where the node template’s match must implement that type – it won’t use that field to search for a match.</p>
+<p>Relationship templates can be declared to provide specific information about the requirement’s relationship with its target node.  Relationship templates can be defined directly inline in the requirement or they can be declared separately in the <code class="docutils literal notranslate"><span class="pre">relationship_templates</span></code> section of the topology and referenced by name.</p>
+<section id="examples">
+<h3><a class="toc-backref" href="#id18">Examples</a><a class="headerlink" href="#examples" title="Permalink to this headline"></a></h3>
+<p>This simple example using built-in TOSCA types that defines the “host” requirement as using the <code class="docutils literal notranslate"><span class="pre">tosca.relationships.hostedOn</span></code> relationship, so we can define the requirement with just the name of the target node template:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">myApp</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">another_node</span>
 </pre></div>
+</div>
+<p>The following more complex example first defines a “MyApplication” node type that requires one “db” relationship of type “DatabaseConnection”.  Then it defines a node template (“myApp”) with that node type with a “db” requirement that uses a node filter to find the matching target node and a named relationship template of type “DatabaseConnection” with properties for connecting to the database.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-2">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">MyApplication</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseConnection</span>
+<span class="w">          </span><span class="nt">occurrences</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">]</span>
+
+<span class="nt">relationship_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">DatabaseConnection</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">sensitive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">topology_template</span><span class="p">:</span>
+
+<span class="w">  </span><span class="nt">relationship_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">mydb_connection</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseConnection</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span>
+<span class="w">        </span><span class="nt">password</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">secret</span><span class="p">:</span>
+<span class="w">              </span><span class="l l-Scalar l-Scalar-Plain">myapp_db_pw</span>
+
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">myApp</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyApplication</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb_connection</span>
+<span class="w">            </span><span class="nt">node_filter</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">Node</span><span class="p">,</span> <span class="n">Property</span><span class="p">,</span> <span class="n">Relationship</span>
+
+<span class="k">class</span> <span class="nc">DatabaseConnection</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="p">):</span>
+    <span class="n">username</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Property</span><span class="p">(</span><span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;sensitive&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+
+
+<span class="k">class</span> <span class="nc">MyApplication</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">SoftwareComponent</span><span class="p">):</span>
+    <span class="n">db</span><span class="p">:</span> <span class="s2">&quot;DatabaseConnection | tosca.nodes.DBMS&quot;</span>
+
+
+<span class="n">mydb_connection</span> <span class="o">=</span> <span class="n">DatabaseConnection</span><span class="p">(</span>
+    <span class="s2">&quot;mydb_connection&quot;</span><span class="p">,</span>
+    <span class="n">username</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span>
+    <span class="n">password</span><span class="o">=</span><span class="n">Eval</span><span class="p">({</span><span class="s2">&quot;eval&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;secret&quot;</span><span class="p">:</span> <span class="s2">&quot;myapp_db_pw&quot;</span><span class="p">}}),</span>
+<span class="p">)</span>
+<span class="n">myApp</span> <span class="o">=</span> <span class="n">MyApplication</span><span class="p">(</span>
+    <span class="s2">&quot;myApp&quot;</span><span class="p">,</span>
+    <span class="n">db</span><span class="o">=</span><span class="n">mydb_connection</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 </section>
-<section id="complete-example">
-<h2><a class="toc-backref" href="#id19">Complete Example</a><a class="headerlink" href="#complete-example" title="Permalink to this headline"></a></h2>
-<p>Combining the above examples into one file, we have a complete service template:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tosca_definitions_version</span><span class="p">:</span> <span class="n">tosca_simple_unfurl_1_0_0</span> <span class="c1"># or use the standard tosca_simple_yaml_1_3</span>
-<span class="n">description</span><span class="p">:</span> <span class="n">An</span> <span class="n">illustrative</span> <span class="n">TOSCA</span> <span class="n">service</span> <span class="n">template</span>
-<span class="n">metadata</span><span class="p">:</span> <span class="c1"># the following metadata keys are defined in the TOSCA specification:</span>
-  <span class="n">template_name</span><span class="p">:</span> <span class="n">hello</span> <span class="n">world</span>
-  <span class="n">template_author</span><span class="p">:</span> <span class="n">onecommons</span>
-  <span class="n">template_version</span><span class="p">:</span> <span class="mf">1.0.0</span>
+<section id="artifacts">
+<h2><a class="toc-backref" href="#id19">Artifacts</a><a class="headerlink" href="#artifacts" title="Permalink to this headline"></a></h2>
+<p>An artifact is an entity that represents an asset such as files, container images, or software packages that need to be deployed or used by an implementation of an operation. Like other TOSCA entities, artifacts have a type and can have properties, attributes, and operations associated with it.</p>
+<p>Artifacts are declared in the <code class="docutils literal notranslate"><span class="pre">artifacts</span></code> section of node templates and node types, and can refer to the <a class="reference internal" href="toscaref/spec-repositories.html#repositories"><span class="std std-ref">repository</span></a> that it is part of.</p>
+<p>This example defines an artifact that is a container image, along with a <a class="reference internal" href="toscaref/spec-repositories.html#repositories"><span class="std std-ref">repository</span></a> that represents the image registry that manages it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="w"> </span><span class="nt">docker_hub</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://registry.hub.docker.com/</span>
+<span class="w">   </span><span class="nt">credential</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user1</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">secret</span><span class="p">:</span>
+<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">dockerhub_user1_pw</span>
 
-<span class="n">repositories</span><span class="p">:</span>
-  <span class="n">tosca</span><span class="o">-</span><span class="n">community</span><span class="o">-</span><span class="n">contributions</span><span class="p">:</span>
-    <span class="n">url</span><span class="p">:</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">oasis</span><span class="o">-</span><span class="nb">open</span><span class="o">/</span><span class="n">tosca</span><span class="o">-</span><span class="n">community</span><span class="o">-</span><span class="n">contributions</span><span class="o">.</span><span class="n">git</span>
-
-  <span class="n">docker_hub</span><span class="p">:</span>
-    <span class="n">url</span><span class="p">:</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">registry</span><span class="o">.</span><span class="n">hub</span><span class="o">.</span><span class="n">docker</span><span class="o">.</span><span class="n">com</span><span class="o">/</span>
-    <span class="n">credential</span><span class="p">:</span>
-        <span class="n">user</span><span class="p">:</span> <span class="n">user1</span>
-        <span class="n">token</span><span class="p">:</span>
-          <span class="nb">eval</span><span class="p">:</span> <span class="c1"># eval is an Unfurl extension</span>
-            <span class="n">secret</span><span class="p">:</span>
-              <span class="n">dockerhub_user1_pw</span>
-
-<span class="n">imports</span><span class="p">:</span>
-
-<span class="o">-</span> <span class="n">file</span><span class="p">:</span> <span class="n">my</span><span class="o">-</span><span class="n">shared</span><span class="o">-</span><span class="n">types</span><span class="o">.</span><span class="n">yaml</span>
-  <span class="n">namespace_prefix</span><span class="p">:</span> <span class="n">base</span> <span class="c1"># optional</span>
-<span class="o">-</span> <span class="n">file</span><span class="p">:</span> <span class="n">profiles</span><span class="o">/</span><span class="n">orchestration</span><span class="o">/</span><span class="mf">1.0</span><span class="o">/</span><span class="n">profile</span><span class="o">.</span><span class="n">yaml</span>
-  <span class="n">repository</span><span class="p">:</span> <span class="n">tosca</span><span class="o">-</span><span class="n">community</span><span class="o">-</span><span class="n">contributions</span>
-
-<span class="n">node_types</span><span class="p">:</span>
-      <span class="n">myApplication</span><span class="p">:</span>
-        <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">SoftwareComponent</span>
-        <span class="n">attributes</span><span class="p">:</span>
-          <span class="n">private_address</span><span class="p">:</span>
-            <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-        <span class="n">properties</span><span class="p">:</span>
-         <span class="n">domain</span><span class="p">:</span>
-          <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-          <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_input</span><span class="p">:</span> <span class="n">domain</span> <span class="p">}</span>
-          <span class="n">ports</span><span class="p">:</span>
-            <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">PortSpec</span>
-        <span class="n">requirements</span><span class="p">:</span>
-          <span class="o">-</span> <span class="n">host</span><span class="p">:</span>
-              <span class="n">capabilities</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Compute</span>
-              <span class="n">relationship</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">HostedOn</span>
-          <span class="o">-</span> <span class="n">db</span><span class="p">:</span>
-              <span class="n">capabilities</span><span class="p">:</span> <span class="n">base</span><span class="p">:</span><span class="n">capabilities</span><span class="o">.</span><span class="n">postgresdb</span>
-              <span class="n">relationship</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span>
-        <span class="n">interfaces</span><span class="p">:</span>
-          <span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
-          <span class="n">Standard</span><span class="p">:</span>
-            <span class="n">create</span><span class="p">:</span> <span class="n">create</span><span class="o">.</span><span class="n">sh</span>
-            <span class="n">configure</span><span class="p">:</span> <span class="n">configure</span><span class="o">.</span><span class="n">sh</span>
-            <span class="n">delete</span><span class="p">:</span> <span class="n">delete</span><span class="o">.</span><span class="n">sh</span>
-
-<span class="n">topology_template</span><span class="p">:</span>
-
-  <span class="n">inputs</span><span class="p">:</span>
-    <span class="n">domain</span><span class="p">:</span>
-      <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-
-  <span class="n">outputs</span><span class="p">:</span>
-    <span class="n">url</span><span class="p">:</span>
-      <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
-      <span class="n">value</span><span class="p">:</span> <span class="p">{</span> <span class="n">concat</span><span class="p">:</span> <span class="p">[</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="p">,</span> <span class="p">{</span> <span class="n">get_input</span><span class="p">:</span> <span class="n">domain</span> <span class="p">},</span> <span class="s1">&#39;:&#39;</span><span class="p">,</span>  <span class="p">{</span> <span class="n">get_attribute</span><span class="p">:</span> <span class="p">[</span> <span class="n">myapp</span><span class="p">,</span> <span class="n">portspec</span><span class="p">,</span> <span class="n">source</span> <span class="p">]</span> <span class="p">},</span> <span class="s1">&#39;/api/events&#39;</span><span class="p">]</span> <span class="p">}</span>
-      <span class="c1"># Unfurl also support ansible-enhanced jinja2 template so you could write this instead:</span>
-      <span class="c1"># value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events</span>
-
-  <span class="n">node_templates</span><span class="p">:</span>
-
-    <span class="n">myApp</span><span class="p">:</span>
-      <span class="nb">type</span><span class="p">:</span> <span class="n">myApplication</span>
-      <span class="n">artifacts</span><span class="p">:</span>
-        <span class="n">image</span><span class="p">:</span>
-          <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Deployment</span><span class="o">.</span><span class="n">Image</span><span class="o">.</span><span class="n">Container</span><span class="o">.</span><span class="n">Docker</span>
-          <span class="n">file</span><span class="p">:</span> <span class="n">myapp</span><span class="p">:</span><span class="n">latest</span>
-          <span class="n">repository</span><span class="p">:</span> <span class="n">docker_hub</span>
-      <span class="n">requirements</span><span class="p">:</span>
-        <span class="o">-</span> <span class="n">host</span><span class="p">:</span> <span class="n">compute</span>
-        <span class="o">-</span> <span class="n">db</span><span class="p">:</span>
-            <span class="n">node</span><span class="p">:</span> <span class="n">mydb</span>
-            <span class="n">relationship</span><span class="p">:</span> <span class="n">mydb_connection</span>
-
-    <span class="n">mydb</span><span class="p">:</span>
-      <span class="nb">type</span><span class="p">:</span> <span class="n">base</span><span class="p">:</span><span class="n">postgresdb</span>
-      <span class="n">properties</span><span class="p">:</span>
-        <span class="n">name</span><span class="p">:</span> <span class="n">mydb</span>
-
-    <span class="n">compute</span><span class="p">:</span>
-      <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span>
-      <span class="n">capabilities</span><span class="p">:</span>
-        <span class="n">host</span><span class="p">:</span>
-          <span class="n">properties</span><span class="p">:</span>
-            <span class="n">num_cpus</span><span class="p">:</span> <span class="mi">1</span>
-            <span class="n">disk_size</span><span class="p">:</span> <span class="mi">200</span><span class="n">GB</span>
-            <span class="n">mem_size</span><span class="p">:</span> <span class="mi">512</span><span class="n">MB</span>
-
-<span class="n">relationship_templates</span><span class="p">:</span>
-  <span class="n">mydb_connection</span><span class="p">:</span>
-    <span class="nb">type</span><span class="p">:</span> <span class="n">base</span><span class="p">:</span><span class="n">relationships</span><span class="o">.</span><span class="n">dbconnection</span>
-    <span class="n">properties</span><span class="p">:</span>
-      <span class="n">username</span><span class="p">:</span> <span class="n">myapp</span>
-      <span class="n">password</span><span class="p">:</span>
-        <span class="nb">eval</span><span class="p">:</span>
-          <span class="n">secret</span><span class="p">:</span>
-            <span class="n">myapp_db_pw</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">myApp</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyApplication</span>
+<span class="w">      </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">image</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span>
+<span class="w">          </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp:latest</span>
+<span class="w">          </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker_hub</span>
 </pre></div>
+</div>
+<p>Artifacts can be used in the following ways:</p>
+<ul class="simple">
+<li><p>An operation’s <a class="reference internal" href="#implementation"><span class="std std-ref">implementation's</span></a>, <code class="docutils literal notranslate"><span class="pre">primary</span></code> field can be assigned an artifact which will be used to execute the operation. Artifacts derived from <code class="docutils literal notranslate"><span class="pre">unfurl.artifacts.HasConfigurator</span></code> will use configurator set on its type, otherwise it will treated as a shell script unless the <code class="docutils literal notranslate"><span class="pre">className</span></code> field is set in the implementation.</p></li>
+<li><p>An implementation can also list artifacts in the <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> field which will be installed if necessary.</p></li>
+<li><p>The <a class="reference internal" href="expressions.html#get-artifact"><span class="std std-ref">get_artifact</span></a> TOSCA function to reference to artifact’s URL or local location (if available).</p></li>
+<li><p>An artifact and its properties can be accessed in <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">Eval Expressions</span></a> via the <a class="reference internal" href="expressions.html#special-keys"><span class="std std-ref">.artifacts</span></a> key. (see <a class="reference internal" href="CHANGELOG.html#artifact-enhancements"><span class="std std-ref">Artifact enhancements</span></a>) or as <code class="xref py py-class docutils literal notranslate"><span class="pre">Node</span></code> attributes when using the <a class="reference internal" href="CHANGELOG.html#python-dsl"><span class="std std-ref">Python DSL</span></a>.</p></li>
+</ul>
+<p>Artifacts that are referenced in an operation’s implementation will be installed on the operation’s <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125294">operation_host</a> (by default, where Unfurl is running) as part of the <a class="reference internal" href="jobs.html#job-lifecycle"><span class="std std-ref">Job Lifecycle</span></a> if the artifact has <code class="docutils literal notranslate"><span class="pre">Standard</span></code> operations (<code class="docutils literal notranslate"><span class="pre">create</span></code> or <code class="docutils literal notranslate"><span class="pre">configure</span></code>) defined for it.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125252">TOSCA Artifact Section</a></p>
+</div>
+</section>
+<section id="interfaces-and-operations">
+<h2><a class="toc-backref" href="#id20">Interfaces and Operations</a><a class="headerlink" href="#interfaces-and-operations" title="Permalink to this headline"></a></h2>
+<p>An <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#DEFN_ELEMENT_OPERATION_DEF">Operations</a> defines an invocation on an artifact or <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a>. A TOSCA orchestrator like Unfurl instantiates a service template by executing operations. An operation has an <a class="reference internal" href="#implementation"><span class="std std-ref">Implementation</span></a>, <a class="reference internal" href="#operation-inputs"><span class="std std-ref">inputs</span></a>, and <a class="reference internal" href="#operation-outputs"><span class="std std-ref">outputs</span></a>.</p>
+<p>Conceptually an operation is comparable to method in an object-oriented language where the implementation is the object upon which the method is invoked, the inputs are the method’s arguments, and its outputs are the method’s return values.</p>
+<p>An <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125307">Interface</a> is a collections of <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> that can be defined in the <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> section on TOSCA types or directly on TOSCA templates for nodes, relationships, and artifacts.</p>
+<section id="id5">
+<h3><a class="toc-backref" href="#id21">Example</a><a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Standard</span><span class="p">:</span><span class="w">  </span><span class="c1"># this is a built-in interface type so the &quot;type&quot; field is not required</span>
+<span class="w">    </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># inputs defined at this level will be made available to all operations</span>
+<span class="w">      </span><span class="nt">foo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bar</span>
+<span class="w">    </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># in the simplest case an operation can just be the name of an artifact or shell command</span>
+<span class="w">      </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./myscript.sh</span>
+<span class="w">      </span><span class="c1"># a more complex operation:</span>
+<span class="w">      </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">implementation</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">primary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_ansible_playbook</span>
+<span class="w">          </span><span class="nt">dependencies</span><span class="p">:</span>
+<span class="w">              </span><span class="c1"># unfurl will install artifacts listed as dependencies if they are missing</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">a_ansible_collection</span>
+<span class="w">          </span><span class="c1"># Unfurl extensions:</span>
+<span class="w">          </span><span class="nt">className</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ansible</span><span class="w"> </span><span class="c1"># the configurator class to use (redundant in this example)</span>
+<span class="w">          </span><span class="nt">environment</span><span class="p">:</span><span class="w"> </span><span class="c1"># environment variables to set when executing the operation</span>
+<span class="w">             </span><span class="nt">AN_ENV_VAR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">foo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baz</span><span class="w">  </span><span class="c1"># overrides the above definition of &quot;foo&quot;</span>
+<span class="w">        </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">an_ansible_fact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">an_attribute</span>
+<span class="w">    </span><span class="c1"># an Unfurl extension for specifying the connections that the operations need to function:</span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.ConnectsTo.GoogleCloudProject</span>
+</pre></div>
+</div>
+<p>Operations can be invoked in the following ways:</p>
+<ul class="simple">
+<li><p>The built-in <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125674">Standard</a> and <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125679">Configure</a> interfaces are invoked during deploy and undeploy workflows</p></li>
+<li><p>Unfurl’s built-in Install are invoked for check and discovery.</p></li>
+<li><p>Custom operations can be invoked with <a class="reference internal" href="jobs.html#ad-hoc-jobs"><span class="std std-ref">run</span></a> workflow.</p></li>
+<li><p>Operations can be invoked directly by custom <a class="reference internal" href="toscaref/spec-imperative-workflow.html#workflows"><span class="std std-ref">Workflows</span></a>, the <a class="reference internal" href="configurators.html#delegate"><span class="std std-ref">Delegate</span></a> configurator, or using Unfurl’s Python <a class="reference internal" href="api.html"><span class="doc">apis</span></a>.</p></li>
+</ul>
+</section>
+<section id="implementation">
+<h3><a class="toc-backref" href="#id22">Implementation</a><a class="headerlink" href="#implementation" title="Permalink to this headline"></a></h3>
+<p>As the example above illustrates, an operation’s <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125293">implementation</a> field describes which artifacts or <a class="reference internal" href="glossary.html#configurators"><span class="std std-ref">configurator</span></a> (Unfurl’s plugin system for implementing operations) to use to execute the operation.</p>
+<p>As an Unfurl extension, an implementation section can also include an <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a> key with <a class="reference internal" href="runtime.html#environment-variables"><span class="std std-ref">Environment Variables</span></a> directives and a <code class="docutils literal notranslate"><span class="pre">className</span></code> field to explicitly name the configurator.</p>
+</section>
+<section id="inputs">
+<span id="operation-inputs"></span><h3><a class="toc-backref" href="#id23">Inputs</a><a class="headerlink" href="#inputs" title="Permalink to this headline"></a></h3>
+<p>Inputs are passed to the implementation of the operation.
+A TOSCA type can (optionally) define the expected inputs on a operation in much like a property definition. In Unfurl, inputs are evaluated lazily as needed by the operation’s configurator.
+Default inputs can defined directly on the interface and will be made available to all operations in that interface.
+If inputs are defined on multiple types in a type hierarchy for the same operation, they are merged together along with any inputs for that operation defined on directly on the template.</p>
+</section>
+<section id="outputs">
+<span id="operation-outputs"></span><h3><a class="toc-backref" href="#id24">Outputs</a><a class="headerlink" href="#outputs" title="Permalink to this headline"></a></h3>
+<p>An operation can define an <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125291">attribute mapping</a> that specifies how to apply the operation’s outputs. The meaning of keys in the mapping depends on the operation’s configurator, for example, a Ansible fact or a Terraform output.
+If mapping’s value is a string, it names the attribute on the instance where the output will be saved.
+If the value is null, no attribute mapping will be made but the output will be available to the <code class="docutils literal notranslate"><span class="pre">resultTemplate</span></code> and saved in the ensemble.</p>
+</section>
+<section id="interface-types">
+<h3><a class="toc-backref" href="#id25">Interface types</a><a class="headerlink" href="#interface-types" title="Permalink to this headline"></a></h3>
+<p>Interface types define names of the operations in an interface along with their inputs and outputs. TOSCA defines a <a class="reference internal" href="#built-in-interfaces"><span class="std std-ref">built-in interface types</span></a> for lifecycle management operations and additional interface types can be declared in the service template for “Day Two” operations, such as maintenance tasks.</p>
+<p>For example, Unfurl adds a built-in interface type for discovering resources, which it defines as:</p>
+<div class="highlight-yaml notranslate" id="install-interface"><div class="highlight"><pre><span></span><span class="nt">interface_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">unfurl.interfaces.Install</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.interfaces.Root</span>
+<span class="w">    </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">check</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Checks and sets the status and attributes of the instance</span>
+<span class="w">      </span><span class="nt">discover</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Discovers current state of the current instance and (possibly) related instances, updates the spec as needed.</span>
+<span class="w">      </span><span class="nt">revert</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Restore the instance to the state it was original found in.</span>
+<span class="w">      </span><span class="nt">connect</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Connect to a pre-existing resource.</span>
+<span class="w">      </span><span class="nt">restart</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Restart the resource.</span>
+</pre></div>
+</div>
+</section>
+<section id="built-in-interfaces">
+<h3><a class="toc-backref" href="#id26">Built-in interfaces</a><a class="headerlink" href="#built-in-interfaces" title="Permalink to this headline"></a></h3>
+<p>TOSCA defines two built-in interface types that are invoked to deploy a topology: the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html##_Toc50125669">Standard</a> interface for node templates and <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125679">Configure</a> interface for relationships templates.</p>
+<p>The former defines lifecycle management operations (creating, starting, stopping and destroying resources) that are invoked when creating and deleting node instances and latter for configuring the <a class="reference internal" href="toscaref/spec-requirements.html#requirements"><span class="std std-ref">Requirements</span></a> between nodes.</p>
+<p>It is not a requirement to define every operation for every template; the operation will be silently skipped if not defined. With the Standard interface, only the <code class="docutils literal notranslate"><span class="pre">configure</span></code> operation needs to be defined to instantiate a node, if the <code class="docutils literal notranslate"><span class="pre">create</span></code> operation isn’t defined, Unfurl will assume that <code class="docutils literal notranslate"><span class="pre">configure</span></code> will both create and configure the resource (and reconfigure when updating an existing deployment).</p>
+<p>In addition, Unfurl provides a built-in <a class="reference internal" href="#install-interface"><span class="std std-ref">Install</span></a> interface which is invoked when running <a class="reference internal" href="jobs.html#checking-resources"><span class="std std-ref">check</span></a> and <a class="reference internal" href="solution-overview.html#resource-discovery"><span class="std std-ref">discover</span></a> workflows.</p>
+</section>
+</section>
+<section id="complete-example">
+<h2><a class="toc-backref" href="#id27">Complete Example</a><a class="headerlink" href="#complete-example" title="Permalink to this headline"></a></h2>
+<p>Combining the above examples into one file, we have a complete service template:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-4">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span><span class="w"> </span><span class="c1"># or use the standard tosca_simple_yaml_1_3</span>
+<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">An illustrative TOSCA service template</span>
+<span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="c1"># the following metadata keys are defined in the TOSCA specification:</span>
+<span class="w">  </span><span class="nt">template_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello world</span>
+<span class="w">  </span><span class="nt">template_author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">onecommons</span>
+<span class="w">  </span><span class="nt">template_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0.0</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">docker_hub</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://registry.hub.docker.com/</span>
+<span class="w">    </span><span class="nt">credential</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user1</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="c1"># eval is an Unfurl extension</span>
+<span class="w">          </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dockerhub_user1_pw</span>
+
+<span class="nt">relationship_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">DatabaseConnection</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">sensitive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">MyApplication</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
+<span class="w">    </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">private_address</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">domain</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">capability</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseConnection</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create.sh</span>
+<span class="w">        </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configure.sh</span>
+<span class="w">        </span><span class="nt">delete</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">delete.sh</span>
+
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">domain</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+
+<span class="w">  </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">value</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">{</span>
+<span class="nt">          concat</span><span class="p">:</span>
+<span class="w">            </span><span class="p p-Indicator">[</span>
+<span class="w">              </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//</span><span class="p p-Indicator">,</span>
+<span class="w">              </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">},</span>
+<span class="w">              </span><span class="nv">/api/events</span>
+<span class="w">            </span><span class="p p-Indicator">],</span>
+<span class="w">        </span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="c1"># Unfurl also support ansible-enhanced jinja2 template so you could write this instead:</span>
+<span class="w">      </span><span class="c1"># value: https://{{ TOPOLOGY.inputs.domain }}</span>
+
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">myApp</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyApplication</span>
+<span class="w">      </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">image</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span>
+<span class="w">          </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp:latest</span>
+<span class="w">          </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker_hub</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span>
+<span class="w">            </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb_connection</span>
+
+<span class="w">    </span><span class="nt">mydb</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Database</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span>
+
+<span class="w">    </span><span class="nt">compute</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+<span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">            </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span>
+<span class="w">            </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span>
+
+<span class="w">  </span><span class="nt">relationship_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">mydb_connection</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseConnection</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span>
+<span class="w">        </span><span class="nt">password</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp_db_pw</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generated by tosca.yaml2python from docs/examples/service-template.yaml at 2024-07-26T13:42:20 overwrite not modified (change to &quot;overwrite ok&quot; to allow)</span>
+<span class="sd">&quot;&quot;&quot;An illustrative TOSCA service template&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Sequence</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Attribute</span><span class="p">,</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">GB</span><span class="p">,</span> <span class="n">MB</span><span class="p">,</span> <span class="n">Property</span><span class="p">,</span> <span class="n">TopologyInputs</span><span class="p">,</span> <span class="n">TopologyOutputs</span>
+<span class="kn">import</span> <span class="nn">unfurl.configurators.shell</span>
+<span class="kn">from</span> <span class="nn">unfurl.tosca_plugins.expr</span> <span class="kn">import</span> <span class="n">concat</span>
+
+
+<span class="k">class</span> <span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
+    <span class="n">domain</span><span class="p">:</span> <span class="nb">str</span>
+
+
+<span class="k">class</span> <span class="nc">Outputs</span><span class="p">(</span><span class="n">TopologyOutputs</span><span class="p">):</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">concat</span><span class="p">(</span><span class="s2">&quot;https://&quot;</span><span class="p">,</span> <span class="n">Inputs</span><span class="o">.</span><span class="n">domain</span><span class="p">,</span> <span class="s2">&quot;/api/events&quot;</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">DatabaseConnection</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="p">):</span>
+    <span class="n">username</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Property</span><span class="p">(</span><span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;sensitive&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+
+
+<span class="k">class</span> <span class="nc">MyApplication</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">SoftwareComponent</span><span class="p">):</span>
+    <span class="n">domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Inputs</span><span class="o">.</span><span class="n">domain</span>
+
+    <span class="n">private_address</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Attribute</span><span class="p">()</span>
+
+    <span class="n">host</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span>
+        <span class="s2">&quot;tosca.relationships.HostedOn | tosca.nodes.Compute | tosca.capabilities.Compute&quot;</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+
+    <span class="n">db</span><span class="p">:</span> <span class="s2">&quot;DatabaseConnection&quot;</span>
+
+    <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;create.sh&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;configure.sh&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;delete.sh&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+
+
+<span class="n">compute</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+    <span class="s2">&quot;compute&quot;</span><span class="p">,</span>
+    <span class="n">host</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+        <span class="n">num_cpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">disk_size</span><span class="o">=</span><span class="mi">200</span> <span class="o">*</span> <span class="n">GB</span><span class="p">,</span>
+        <span class="n">mem_size</span><span class="o">=</span><span class="mi">512</span> <span class="o">*</span> <span class="n">MB</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">mydb</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Database</span><span class="p">(</span>
+    <span class="s2">&quot;mydb&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;mydb&quot;</span><span class="p">,</span>
+    <span class="n">host</span><span class="o">=</span><span class="p">[</span><span class="n">compute</span><span class="p">],</span>
+<span class="p">)</span>
+
+<span class="n">mydb_connection</span> <span class="o">=</span> <span class="n">DatabaseConnection</span><span class="p">(</span>
+    <span class="s2">&quot;mydb_connection&quot;</span><span class="p">,</span>
+    <span class="n">username</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span>
+    <span class="n">password</span><span class="o">=</span><span class="n">Eval</span><span class="p">({</span><span class="s2">&quot;eval&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;secret&quot;</span><span class="p">:</span> <span class="s2">&quot;myapp_db_pw&quot;</span><span class="p">}}),</span>
+<span class="p">)</span>
+<span class="n">myApp</span> <span class="o">=</span> <span class="n">MyApplication</span><span class="p">(</span>
+    <span class="s2">&quot;myApp&quot;</span><span class="p">,</span>
+    <span class="n">host</span><span class="o">=</span><span class="p">[</span><span class="n">compute</span><span class="p">],</span>
+    <span class="n">db</span><span class="o">=</span><span class="n">mydb_connection</span><span class="p">[</span><span class="n">mydb</span><span class="p">],</span>
+<span class="p">)</span>
+<span class="n">myApp</span><span class="o">.</span><span class="n">image</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">DeploymentImageContainerDocker</span><span class="p">(</span>
+    <span class="s2">&quot;image&quot;</span><span class="p">,</span>
+    <span class="n">file</span><span class="o">=</span><span class="s2">&quot;myapp:latest&quot;</span><span class="p">,</span>
+    <span class="n">repository</span><span class="o">=</span><span class="s2">&quot;docker_hub&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 </section>
@@ -467,14 +811,14 @@ Types declare the required properties, default definitions, and interface operat
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="secrets.html" class="btn btn-neutral float-left" title="Managing Secrets" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="jobs.html" class="btn btn-neutral float-left" title="Jobs and Workflows" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="dsl.html" class="btn btn-neutral float-right" title="A TOSCA Python-based DSL" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

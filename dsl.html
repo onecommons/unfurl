@@ -7,6 +7,7 @@
   <title>A TOSCA Python-based DSL &mdash; Unfurl Documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" type="text/css" />
       <link rel="stylesheet" href="_static/custom.css" type="text/css" />
     <link rel="shortcut icon" href="_static/favicon32.png"/>
   <!--[if lt IE 9]>
@@ -17,11 +18,12 @@
         <script src="_static/jquery.js"></script>
         <script src="_static/underscore.js"></script>
         <script src="_static/doctools.js"></script>
+        <script src="_static/design-tabs.js"></script>
         <script src="_static/custom.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Repositories and Packages" href="packages.html" />
+    <link rel="next" title="TOSCA Language Reference" href="toscaref.html" />
     <link rel="prev" title="TOSCA" href="tosca.html" /> 
 </head>
 
@@ -49,12 +51,12 @@
 <li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solution-overview.html">Solution Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
-<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Python alternative to YAML</a><ul>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">TOSCA as Python</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#why-a-dsl-domain-specic-language">Why a DSL (Domain Specic Language)?</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#why-python">Why Python?</a></li>
 </ul>
@@ -78,16 +80,17 @@
 <li class="toctree-l2"><a class="reference internal" href="#api-documentation">API Documentation</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="packages.html">Repositories and Packages</a></li>
-<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="CHANGELOG.html">Changelog for Unfurl</a></li>
@@ -443,7 +446,7 @@ Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):</p>
                                   <span class="n">Overwrite</span> <span class="n">existing</span> <span class="n">files</span> <span class="p">(</span><span class="n">Default</span><span class="p">:</span> <span class="n">auto</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>The conversion process will follow TOSCA imports and generate Python files alongside the imported YAML files. The <code class="docutils literal notranslate"><span class="pre">--overwrite</span></code> controls what happens when a file with the same name already exists; its values can be:</p>
+<p>The conversion process will follow TOSCA imports and generate Python files alongside the imported YAML files. The <code class="docutils literal notranslate"><span class="pre">--overwrite</span></code> option controls what happens when a file with the same name already exists; its values can be:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">older</span></code> will only overwrite the output file if it is older than the source file.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">never</span></code> will never overwrite an existing file.</p></li>
@@ -473,6 +476,11 @@ Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):</p>
 <li><p>Disallowed imports will only raise <code class="docutils literal notranslate"><span class="pre">ImportError</span></code> when an imported module’s attribute is accessed.</p></li>
 <li><p>In safe mode, <code class="docutils literal notranslate"><span class="pre">python_to_yaml</span></code> will not invoke Python methods when convert operations to YAML. Since <code class="docutils literal notranslate"><span class="pre">ImportError</span></code>s are deferred until the imported module’s attributes are accessed, this allows safe mode to parse Python code with unsafe imports in global scope as long as they aren’t accessed while declaring types and templates in global scope.</p></li>
 </ul>
+<p>IMPORTANT CAVEATS:</p>
+<ul class="simple">
+<li><p>Safe mode does not attempt to protect against denial-of-service attacks.</p></li>
+<li><p>The generated YAML should be treated as untrusted.</p></li>
+</ul>
 </section>
 <section id="api-documentation">
 <h2>API Documentation<a class="headerlink" href="#api-documentation" title="Permalink to this headline"></a></h2>
@@ -485,13 +493,13 @@ Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="tosca.html" class="btn btn-neutral float-left" title="TOSCA" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="packages.html" class="btn btn-neutral float-right" title="Repositories and Packages" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="toscaref.html" class="btn btn-neutral float-right" title="TOSCA Language Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2023, OneCommons Co..</p>
+    <p>&#169; Copyright 2024, OneCommons Co..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

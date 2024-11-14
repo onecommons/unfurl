@@ -5,7 +5,7 @@ Topology Template
 This section defines the topology template of your application. 
 The main ingredients of the topology template are node templates 
 representing components of the application and relationship templates representing links between the components. 
-These elements are defined in the nested node_templates section and the nested relationship_templates sections, respectively.  
+These elements are defined in the ``node_templates`` section and the ``relationship_templates`` sections, respectively.
 Furthermore, a topology template allows for defining input parameters, output parameters as well as grouping of node templates.
 
 .. toctree::
