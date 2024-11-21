@@ -244,6 +244,7 @@ def convert(
     )
     for name, req_dict in node_template.all_requirements:
         type_req_dict: Optional[Dict[str, Any]] = type_requirements.get(name)
+        # req_dict will be empty if only defined on the type
         on_type_only = not bool(req_dict)
         if type_req_dict:
             type_req_dict = type_req_dict.copy()
@@ -256,9 +257,9 @@ def convert(
             upper = sys.maxsize
         else:
             required = bool(req_dict["occurrences"][0])
-            max_occurences = req_dict["occurrences"][1]
+            max_occurrences = req_dict["occurrences"][1]
             upper = (
-                sys.maxsize if max_occurences == "UNBOUNDED" else int(max_occurences)
+                sys.maxsize if max_occurrences == "UNBOUNDED" else int(max_occurrences)
             )
         # note: ok if multiple requirements with same name on the template, then occurrences should be on type
         entity._reqs[name] = upper
@@ -342,9 +343,8 @@ def get_req_terms(
             terms.append(CriteriaTerm.CapabilityTypeGroup([capability]))
     rel_type = None
     relationship = req_dict.get("relationship")
-    if relationship:
+    if relationship and match_type:
         relname = node_template.get_rel_typename(name, req_dict)
-        # print("!relname", name, relationship, relname)
         if relname:
             rel = cast(
                 Optional[RelationshipType],
@@ -352,7 +352,6 @@ def get_req_terms(
                     relname, req_dict.get("!namespace-relationship")
                 ),
             )
-            # print("!relname2", rel, rel and rel.valid_target_types)
             if rel:
                 rel_type = rel.type
                 types[rel.type] = [p.type for p in rel.ancestors()]
@@ -368,31 +367,30 @@ def get_req_terms(
         elif match_type:
             # only match by type if the template declared the requirement
             terms.append(CriteriaTerm.NodeType(node))
-        node_filter = req_dict.get("node_filter")
-        if node_filter:
-            # print("node_filter", node_filter)
-            match = node_filter.get("match")
-            if match:
-                add_match(terms, match)
-            if not filter2term(terms, node_filter, None):
-                return None, False
-            for cap_filters in node_filter.get("capabilities", []):
-                cap_name, cap_filter = list(cap_filters.items())[0]
-                if not filter2term(terms, cap_filter, cap_name):
-                    return None, False
-            for req_req in node_filter.get("requirements") or []:
-                req_req_name = list(req_req)[0]
-                req_field, _ = get_req_terms(
-                    node_template,
-                    types,
-                    topology_template,
-                    req_req_name,
-                    req_req[req_req_name],
-                    True,
-                )
-                if req_field:
-                    restrictions.append(req_field)
-            # XXX add properties that are value constraints
+    node_filter = req_dict.get("node_filter")
+    if node_filter:
+        match = node_filter.get("match")
+        if match:
+            add_match(terms, match)
+        if not filter2term(terms, node_filter, None):
+            return None, False  # has an unsupported constraint, bail
+        for cap_filters in node_filter.get("capabilities", []):
+            cap_name, cap_filter = list(cap_filters.items())[0]
+            if not filter2term(terms, cap_filter, cap_name):
+                return None, False  # has an unsupported constraint, bail
+        for req_req in node_filter.get("requirements") or []:
+            req_req_name = list(req_req)[0]
+            req_field, _ = get_req_terms(
+                node_template,
+                types,
+                topology_template,
+                req_req_name,
+                req_req[req_req_name],
+                True,
+            )
+            if req_field:
+                restrictions.append(req_field)
+        # XXX add properties that are value constraints
     if terms:
         return Field(name, FieldValue.Requirement(terms, rel_type, restrictions)), bool(
             restrictions
