@@ -1,0 +1,31 @@
+topology_template:
+ node_templates:
+  myApp:
+    type: MyApplication
+    properties:
+      ports: 
+        eval:
+          portspec: "80:8080"
+    artifacts:
+      image:
+        type: tosca.artifacts.Deployment.Image.Container.Docker
+        file: myapp:latest
+        repository: docker_hub
+    requirements:
+      - host: compute
+      - db:
+          node: mydb
+
+  mydb:
+    type: PostgresDB
+    properties:
+       name: mydb
+
+  compute:
+    type: tosca.nodes.Compute
+    capabilities:
+      host:
+        properties:
+          num_cpus: 1
+          disk_size: 200GB
+          mem_size: 512MB

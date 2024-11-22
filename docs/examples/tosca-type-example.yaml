@@ -1,0 +1,26 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  MyApplication:
+    derived_from: tosca.nodes.SoftwareComponent
+    attributes:
+      private_address:
+        type: string
+    properties:
+      domain:
+        type: string
+        default: { get_input: domain }
+      ports:
+        type: tosca.datatypes.network.PortSpec
+    requirements:
+      - host:
+          capability: tosca.capabilities.Compute
+          relationship: tosca.relationships.HostedOn
+      - db:
+          capability: capabilities.postgresdb
+          relationship: tosca.relationships.ConnectsTo
+    interfaces:
+      # TOSCA defines Standard interface for lifecycle management but you can define your own too
+      Standard:
+        create: create.sh
+        configure: configure.sh
+        delete: delete.sh

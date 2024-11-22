@@ -43,7 +43,7 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
 """
 
         def skip(py_file):
-            for skip in ["*quickstart_*", "*inputs.py", "*node-types-2.py"]:
+            for skip in ["*quickstart_*", "*inputs.py", "*node-types-2.py", "*tosca-node-template.py"]:
                 if fnmatch.fnmatch(py_file, skip):
                     return True
             return False
