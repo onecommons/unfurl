@@ -3,14 +3,14 @@ Solution Overview
 
 In this section, we will go through each step involved in whole process from deploying the changes to production to pushing everything on git. The figure below gives a high level overview of each step.
 
-.. image:: images/unfurl_overview.png
+.. figure:: images/unfurl_overview.png
    :align: center
 
-* :ref:`Step 1: Create an Unfurl Project<step1>`
-* :ref:`Step 2: Create a cloud blueprint<step2>`
-* :ref:`Step 3: Instantiate blueprint<step3>`
-* :ref:`Step 4: Deploy and manage<step4>`
-* :ref:`Step 5: Share and Collaborate<step5>`
+   Solution overview
+
+.. contents::
+   :local:
+   :depth: 1
 
 .. _step1:
 
@@ -25,7 +25,7 @@ At the center of Unfurl are Unfurl projects. They provide an easy way to track a
 
 Unfurl projects are self-contained -- a project is just a collection of files in a directory. The main components of an Unfurl project are blueprints, environments, and ensembles (deployments):
 
-**Blueprints** are the models described in the `next step <step2>`, **ensembles** are described in `Step 4: Deploy and manage`. **Environments** are used to create isolated contexts that deployment process runs in. For example, you might create different context for different projects or different deployment environments such as **production** or **staging**.
+**Blueprints** are the models described in the `next step <step2>`, **ensembles** are described in `Step 4: Deploy and Manage`. **Environments** are used to create isolated contexts that deployment process runs in. For example, you might create different context for different projects or different deployment environments such as **production** or **staging**.
 
 Some of supported configuration including:
 
@@ -59,7 +59,7 @@ Unfurl home and other Unfurl projects can include a Unfurl execution runtime whi
 
 .. _step2:
 
-Step 2: Create a cloud blueprint
+Step 2: Create a Cloud Blueprint
 ---------------------------------------
 
 .. image:: images/step2.png
@@ -68,21 +68,17 @@ Step 2: Create a cloud blueprint
 
 The next step after creating a project is to create a blueprint that describe your application's architecture in terms its resources it consumes (e.g. compute instances), the services it requires (e.g. a database) and the artifacts it consists of (e.g. a Docker container image or a software package).
 
-These components can be declared in YAML or `python <dsl>` using OASIS’s Topology and Orchestration Specification for Cloud Applications (`TOSCA`) standard.
-
-TOSCA is a simple, declarative, object-oriented language for specifying a graph (a "topology") of resources. 
-
-Resources are specified with "node templates" that defined the properties, requirements, and operations needed to instantiate and manage the resource.
+These components can be declared in YAML or `Python <dsl>` using OASIS’s Topology and Orchestration Specification for Cloud Applications (`TOSCA`) standard. TOSCA is a simple, declarative, object-oriented language for specifying a graph (a "topology") of resources. Resources are specified with "node templates" that defined the properties, requirements, and operations needed to instantiate and manage the resource.
 
 These can be declared directly on a template or by defining reusable types. So, depending on your needs, you can use TOSCA to provide ad-hoc, simple encapsulation of configuration files. Or you can use it to define a graph of strongly-typed nodes and relationships with a type hierarchy to enable reusable, cloud-provider agnostic models.
 
-TOSCA is an abstract model: it doesn't specify what a node template or resource might correspond to in the real world. But the TOSCA 1.3 specification does define an optional set of abstract types for common resources and Unfurl extends those with its on built-in types.  In addition, the |stdlib|_ provides concrete types with implementations for common cloud providers like AWS and Kubernetes clusters.
+TOSCA is an abstract model: it doesn't specify what a node template or resource might correspond to in the real world. But the TOSCA 1.3 specification does define an optional set of abstract types for common resources and Unfurl extends those with its own built-in types.  In addition, the |stdlib|_ provides concrete types with implementations for common cloud providers like AWS and Kubernetes clusters. And you don't need to build a blueprint from scratch -- you can start with one of our `project templates <https://unfurl.cloud/onecommons/project-templates>`_ or fork an existing `blueprint <https://unfurl.cloud/explore/blueprints>`_.
 
-Using our `Python DSL<dsl>` we can leverage Python's IDE and tooling integrations and take advantage of the rich ecosystem that already exists, for example, for code completion and navigation or for unit testing. See https://www.unfurl.cloud/blog/why-unfurl for more.
+By using our `Python DSL<dsl>` we can leverage Python's IDE and tooling integrations and give you access to the same tools you have available to you when working with a `modern programming language and development environment <https://www.unfurl.cloud/blog/why-unfurl>`_ -- for example, for code completion and navigation or unit testing.
 
 .. _step3:
 
-Step 3: Instantiate your blueprint
+Step 3: Instantiate your Blueprint
 ----------------------------------
 
 .. image:: images/step3.png
@@ -105,7 +101,7 @@ When you're ready to deploy, you can preview the deployment plan by running :cli
 
 .. _step4:
 
-Step 4: Deploy and manage
+Step 4: Deploy and Manage
 -------------------------
 
 .. image:: images/step4.png
@@ -178,9 +174,9 @@ Collaborative Operations
 
 Managing a live, production deployment collaboratively has different challenges than collaborative development. For example, uptime and access control for specific resources is more important and errors have greater consequences. 
 
-Unfurl goes beyond configuration-as-code by also recording resources' state and status as human-readable text in git. This enables operations to be managed in much the similar development process -- pull requests, reviews and approvals, CI pipelines. Simplify and accelerating development.
+Unfurl goes beyond configuration-as-code by also recording resources' state and status as human-readable text in git. This enables operations to be managed in much the similar development process -- pull requests, reviews and approvals, CI pipelines -- simplifying and accelerating development.
 
-All the management features described in the `previous step<Step 4: Deploy and manage>` work in collaborative as they commit to git and designed for merging and review. 
+All the management features described in the `previous step<Step 4: Deploy and Manage>` work in collaborative as they commit to git and designed for merging and review.
 
 Some other features designed for collaborative operations:
 

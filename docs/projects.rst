@@ -283,15 +283,13 @@ By default, a separate, local git repository will be created for the ensemble. U
 
 Keeping the ensemble repository separate from the project repository is useful
 if the resources the ensemble creates are transitory or if you want to restrict access to them.
-Using the ``--submodule`` option allows those repositories to be easily packaged and shared with the project repository
-but still maintain separate access control and git history for each ensemble.
+Using the ``--submodule`` option allows those repositories to be easily packaged and shared with the project repository but still maintain separate access control and git history for each ensemble.
 
-Ensemble will have a vault password created.
-Only add a vault password to local/unfurl.yaml and secrets/secrets.yaml if the VAULT_PASSWORD skeleton variable is set or if the project is in a repository containing an ensemble or ensemble submodule. If VAULT_PASSWORD is missing or empty, autogenerate the password.
+Creating an ensemble in a new repository will add a ``vault_secrets`` secret with a generated password to ``local/unfurl.yaml`` and add a ``secrets/secrets.yaml`` file to the repository.  Or in any new project by setting the `VAULT_PASSWORD skeleton variable <vault_password_var>`.
 
 .. important::
 
-  Store the vault password found in ``ensemble/local/unfurl.yaml`` in a safe place! By default this password is used to encrypt any sensitive data committed to repository. See :doc:`secrets` for more information.
+  Store the vault password found in ``ensemble/local/unfurl.yaml`` in a safe place! This password is used to encrypt any sensitive data committed to repository. See :doc:`secrets` for more information.
 
 Project Skeletons
 -----------------
@@ -301,29 +299,6 @@ New Unfurl projects and ensembles are created from a ``project skeleton``, which
 The ``--skeleton`` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
 
 You can pass skeleton variables to the skeleton Jinj2a templates using the ``--var`` option, like the example `below<vault_password_var>`.
-
-.. _publish_project:
-
-Publishing your project
-=======================
-
-You can publish and share your projects like any git repository.
-If you want to publish local git repositories on a git hosting service like github.com
-(e.g. ones created by ``unfurl init`` or ``unfurl clone``) follow these steps:
-
-1. Create corresponding empty remote git repositories.
-2. Set the new repositories as the remote origins for your local repositories
-   with this command:
-
-   ``git remote set-url origin <remote-url>``
-
-   Or, if the repository is a git submodule (see :cli:`--submodule<unfurl-init>`) use:
-
-   ``git submodule set-url <submodule-path> <remote-url>``
-
-3. Commit any needed changes in the repositories with ``unfurl commit``.  (Use ``unfurl git-status`` to see the uncommitted files across the project's repositories.)
-
-4. Running ``unfurl git push`` will push all the repositories in the project.
 
 
 Cloning projects and ensembles
@@ -377,7 +352,7 @@ Create a new project from a CSAR archive
 Create a new ensemble from source
 ----------------------------------
 
-A new ensemble is created when:
+Clone can create a new ensemble when:
 
 * ``<source>`` explicitly points to an ensemble template or a TOSCA service template, a new ensemble is created from the template.
 * ``<source>`` explicitly points to an ensemble. A new ensemble is created from that source (just the "spec" section is copied, not the status and it will have new `uri<uris>`).
@@ -407,10 +382,35 @@ Notes
 
 * This step can be skipped if your project is hosted on `Unfurl Cloud`_, clone will retrieve the value password from `Unfurl Cloud`_. 
 
+.. _publish_project:
+
+Publishing your project
+=======================
+
+You can publish and share your projects like any git repository.
+If you want to publish local git repositories on a git hosting service like github.com
+(e.g. ones created by ``unfurl init`` or ``unfurl clone``) follow these steps:
+
+1. Create corresponding empty remote git repositories.
+2. Set the new repositories as the remote origins for your local repositories
+   with this command:
+
+   ``git remote set-url origin <remote-url>``
+
+   Or, if the repository is a git submodule (see :cli:`--submodule<unfurl-init>`) use:
+
+   ``git submodule set-url <submodule-path> <remote-url>``
+
+3. Commit any needed changes in the repositories with ``unfurl commit``.  (Use ``unfurl git-status`` to see the uncommitted files across the project's repositories.)
+
+4. Running ``unfurl git push`` will push all the repositories in the project.
+
 Browser-based Admin User Interface
 ==================================
 
 .. automodule:: unfurl.server.gui
+
+See `Browser-based UI (experimental)` for more information.
 
 Unfurl Home
 ===========

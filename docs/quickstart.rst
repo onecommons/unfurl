@@ -4,7 +4,7 @@ Quick start
 This section will introduce you to Unfurl by creating a simple project that deploys a web application. Once you get this working, you can customize it for your own application. 
 
 .. tip::
-  The steps here follow the high-level overview of Unfurl found in the `solution-overview` section.
+  The steps here follow the high-level overview of Unfurl found in the `solution-overview` chapter.
 
 Step 1 Create a project
 -----------------------

@@ -27,7 +27,7 @@ Luckily, by eschewing negation and quantification we can avoid the need for a fu
 
 ## Why?
 
-One of Unfurl's goal is to enable adaptable blueprints that can easily compose independent, open-source components -- imagine something like a [package manager for the cloud](https://github.com/onecommons/cloudmap). This crate allows blueprints can express their requirements in a loosely-coupled, generic manner.
+One of Unfurl's goal is to enable adaptable blueprints that can easily compose independent, open-source components -- imagine something like a [package manager for the cloud](https://github.com/onecommons/cloudmap). This crate allows blueprints to express their requirements in a loosely-coupled, generic manner.
 
 ## Development
 

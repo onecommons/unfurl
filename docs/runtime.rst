@@ -144,3 +144,5 @@ You can add or override inputs when a job is run from the command line by passin
 
 will set ``foo`` to 1, overriding ``spec\inputs``.
 
+Note that inputs passed via ``--var`` on the command line as parsed as YAML strings, as if they were embedded in the ensemble's YAML file.
+
