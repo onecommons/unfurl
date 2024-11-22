@@ -1,6 +1,6 @@
 [project]
 name = "tosca"
-version = "0.0.8"
+version = "0.1.0"
 requires-python = ">=3.8"
 authors = [
   { name="Adam Souzis", email="adam@onecommons.org" },
@@ -11,6 +11,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
   "black>=24.3.0",
@@ -27,5 +33,6 @@ build-backend = "setuptools.build_meta"
 
 [project.urls]
 Homepage = "https://www.unfurl.cloud"
-Documentation = "https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md"
+Documentation = "https://docs.unfurl.run/dsl.html"
 Repository = "https://github.com/onecommons/unfurl/tree/main/tosca-package"
+Changelog = "https://github.com/onecommons/unfurl/blob/main/CHANGELOG.md"
