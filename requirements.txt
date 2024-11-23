@@ -17,5 +17,5 @@ flask-caching<=2.0.1 # BSD 3-clause
 flask_cors==5.0.0
 waitress  # Zope ZPL 2.1
 python-gitlab==3.13.0
-tosca>=0.0.8
+tosca>=0.1.0
 tenacity>=6.1.0 # Apache-2.0

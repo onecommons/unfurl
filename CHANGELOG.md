@@ -1,5 +1,159 @@
 # Changelog for Unfurl
 
+## v1.2.0 - 2024-11-22
+
+<small>[Compare with 1.1.0](https://github.com/onecommons/unfurl/compare/v1.1.0...v1.2.0) </small>
+
+### Major changes
+
+#### Browser-based UI (experimental)
+
+This release contains an experimental local port of Unfurl Cloud's [dashboard](https://unfurl.cloud/dashboard) UI, allowing you to view and edit the blueprints and ensembles in a project.
+
+It is enabled using the new ``--gui`` option on the [unfurl serve](https://docs.unfurl.run/cli.html#unfurl-serve) command, for example:
+
+``unfurl serve --gui /path/to/your/project``
+
+Functionality includes:
+
+* Adding new deployments (ensembles) to the project and updating the YAML of existing ensembles. Edits are automatically committed to git if the git worktree is clean when the update is saved.
+* Edits to environment variables are synchronized with Unfurl Cloud if the local project was cloned from Unfurl Cloud. Otherwise, environment variables are saved in the project's "unfurl.yaml" except ones marked as masked -- in that case they will be saved in "secrets/secrets.yaml" (or in "local/unfurl.yaml" if the project doesn't use vault encryption).
+* When creating and editing deployments, the environment's [cloud map](https://docs.unfurl.run/cloudmap.html) (defaults to the [public one](https://github.com/onecommons/cloudmap)) is used as the catalog of blueprint and TOSCA types to search.
+* Note that Unfurl's built-in web server is intended for local use only. For more robust scenarios you can run Unfurl as a WSGI app (`unfurl.server.serve:app`) and set the `UNFURL_SERVE_GUI` environment variable to enable GUI mode. Or host your project on an Unfurl Cloud instance.
+
+#### Rust-based inference engine
+
+Unfurl now includes a scalable (Rust-based) inference engine that tries to match node templates with missing requirements [TOSCA](https://docs.unfurl.run/tosca.html) based on a requirement's:
+
+* node and capability types
+* relationship's valid_target_types
+* node_filter property and capabilities
+* node_filter match expressions
+
+Finding the match for a TOSCA requirement can't be determined with a simple algorithm. For example, a requirement node_filter's match can depend on a property value that is itself computed from a requirement (e.g. via TOSCA's ``get_property`` function). So finding a node filter match might change a property's value, which in turn could affect the node_filter match.  Similarly, the inference engine supports Unfurl's `node_filter/requirements` extension, which allows additional constraints to be applied to a target node upon match.
+
+This extension is optional -- if the extension binary is not found or fails to load, a warning will logged and the TOSCA parser will fall-back to previous behavior. However, topologies that rely on multi-step inference to find matching requirements will fail to find them and report validation errors.
+
+#### Documentation
+
+Documentation at [docs.unfurl.run](https://docs.unfurl.run/) has been revamped and expanded. New [Quick Start](https://docs.unfurl.run/quickstart.html) and [Solution Overview](https://docs.unfurl.run/solution-overview.html) chapters have been added and the reference documentation in other chapters has been greatly expanded.
+
+#### Project creation improvements
+
+* The unfurl clone command now supports two new sources: TOSCA Cloud Service Archives (CSAR) (a file path with a .csar or .zip extension) and [cloudmap](https://docs.unfurl.run/cloudmap.html) URLs like ``cloudmap:<package_id>``, which will resolve to a git URL.
+
+* Improved support for managing projects that keep their ensembles in separate git repositories:
+
+  - Stop registering the ensemble with the project when its in a separate repository.
+  - When creating an ensemble-only repository, add an unfurl.yaml and use that to record the default environment for the ensemble.  Add 'ensemble_repository_config' to skeleton vars when creating that file.
+  - Allow unfurl.yaml files that are alongside ensemble.yaml to be nested inside another Unfurl project.
+  - Cloning a remote repository containing ensembles will no longer create a new ensemble unless the clone source explicitly pointed at one.
+
+The net effect of these changes is that the outer and inner repositories can be cloned separately without requiring manual reconfiguration.
+
+* Support source URLs with a relative "file:" scheme and an URL fragment like `#ref:file/path` to enable remote clone semantics for local git repos.
+
+* When adding a ensemble to an existing project, if the `--use-environment` option names an environment that doesn't exist, it will now be added to the project's unfurl.yaml.
+
+* A blueprint project (a project created with --empty) will no longer have a vault password created unless a VAULT_PASSWORD skeleton var is set.
+
+* You can now hard-code TOSCA topology inputs when creating an ensemble by passing skeleton vars prefixed with "input_", e.g. `--var input_foo 0`.
+
+* Creating the unfurl home project is now a monorepo project by default (use `unfurl home` command's new `--poly` option to override).
+
+* Custom project skeletons can now skip creating a particular file by including a 0 byte file of that name.
+
+See the updated [documentation](https://docs.unfurl.run/projects.html#cloning-projects-and-ensembles) for more information.
+
+#### CLI Command-line enhancements
+
+* Colorize and format cli help output.
+* `unfurl validate` will now validate cloudmap files, TOSCA service templates, and TOSCA DSL Python files.  Also added is new `--as-template` option to explicitly treat a file as a blueprint template, as opposed an ensemble (eg. like ensemble-template.yaml).
+* Rename ``unfurl undeploy`` to ``unfurl teardown`` ("undeploy" stills works but is now undocumented).
+* The [Job family](https://docs.unfurl.run/cli.html#unfurl-deploy-commands) of commands now accept multiple `--instance` options
+* `unfurl run` adds a `--save` option.
+* `unfurl home --init` now accepts the `--var`, `--skeleton`, and `--poly`x options.
+* When running an unreleased version of Unfurl, `unfurl version` will append prerelease and build id segments conforming to the semantic version 2.0 syntax.
+
+#### TOSCA Python DSL
+
+Update the tosca package to v0.1.0, which includes the following fixes and enhancements:
+
+New TOSCA syntax support in the Python DSL:
+
+* Topology inputs and outputs (TopologyInputs and TopologyOutputs classes)
+* Node templates with "substitute" and "select" directives:
+   - Allow nodes with those directives to be constructed with missing fields.
+   - Add Node.substitute() method and substitute_node() and select_node() factory functions to avoid static type errors
+   - Add "_node_filter" attribute for node templates with the "select" directive.
+* Serialize attributes that match the pattern "{interface_name}_default_inputs" as interface level operation inputs on TOSCA types or templates.
+* Add set_operation() method for setting TOSCA operation definitions directly on template objects.
+* Deployment blueprints with the DeploymentBlueprint class.
+* The "concat" and "token" TOSCA functions.
+* Better support for TOSCA data types that allow undeclared properties:
+  - Allow EnvironmentVariables constructor to accept undeclared properties.
+  - Add OpenDataType.extend() helper method to add undeclared properties.
+
+Other DSL fixes and changes:
+
+* loader: support "from tosca_repositories.repo import module" pattern in safe mode.
+* support string type annotations containing '|'.
+* loader: simplify logic and enhance private module separation.
+* loader: have install() always set service template basedir.
+* Rename Python base classes for TOSCA types. Deprecate old names but keep them as aliases for backwards compatibility.
+* loader: execute `__init__.py` when loading packages in tosca_repositories.
+* Fix instance check with ValueTypes (simple TOSCA data types).
+* Make sure YAML import statements are generated for templates that reference imported types.
+* Have the `to_label` family of functions evaluate arguments as needed.
+
+YAML to Python DSL conversion improvements:
+
+* Conversion for the new TOSCA syntax described above.
+* Convert templates in the `relationship_templates` section.
+* Convert operations declared directly on a template.
+* Convert inline relationship templates in node templates.
+* Don't include template objects in `__all__` (so importing a topology doesn't add templates to the outer topology).
+* Various stylistic improvements to generated Python code.
+* Introduce UNFURL_EXPORT_PYTHON_STYLE=concise environment variable to elide type annotations.
+
+#### Jobs
+
+* Add [remote locking](https://docs.unfurl.run/jobs.html#locking) using git lfs to prevent remote jobs from simultaneous running on the same ensemble.
+* TOSCA topology inputs [can now be specified](https://docs.unfurl.run/runtime.html#topology-inputs) as part of the job command line, for example `unfurl deploy --var input_foo 1`.
+* The [undeploy plan](https://docs.unfurl.run/jobs.html#undeploy-teardown) will now exclude instances whose removal would break required resources that we want to keep operational.
+* If present, apply a node template's node_filter when selecting instances from external ensembles.
+* When invoking `unfurl run` with `--operation` and but no filter (e.g. no `--instance`) the plan will now include all instances that implement that operation.
+* [Add a "customized" field](https://docs.unfurl.run/jobs.html#applying-configuration-changes) to instance status to indicate that it has intentionally diverged from its template and the reconfigure check should be skipped.
+* Save job changeset yaml in "changes" directory so it gets committed in the ensemble (without results key to avoid committing sensitive information).
+* Track which dependencies were written before they were read and save that in the changeset yaml as a "writeOnly" field (improves incremental update logic).
+* Reporting: improved pretty print of outputs in the job summary.
+
+#### YAML/TOSCA Parsing
+
+* Add `+&: anchor_name` merge directive to support merge includes with YAML aliases independent of YAML parser.
+* Make repositories defined in nested includes available immediately during parse time.
+* Validate that node templates and artifacts are assigned the proper TOSCA entity type (disabled unless the `UNFURL_VALIDATION_MODE` environment variable includes "types").
+* Allow metadata on artifact type definitions
+* CSAR support: parse metadata in TOSCA.metadata files and merge with service template YAML metadata.
+* Add an optional second argument get_input TOSCA function to use as a default value if the input is missing (instead raising a validation error).
+* support "key_schema" field on property definitions when type is "map".
+* Support "type" and "metadata" fields on topology outputs
+* Fix node_filter matching
+* Fix validation of semantic versions with a build metadata segment.
+
+#### Other
+
+* Add support for Python 3.13
+* Modernize Unfurl's Python packaging.
+* loader: only search repository directories when loading secrets (for performance).
+* logs: sanitize sensitive url parameters
+* server: Switch built-in http server from Uvicorn to Waitress.
+* ansible: have ansible-galaxy use the current Python interpreter
+* artifacts: update version of community.docker ansible collection
+* cloudmap: Add json-schema validation of cloudmap.yaml.
+* runtime: Add a few circular topology guards.
+* json export: Always include a DeploymentTemplate in blueprint and deployment formats.
+
 ## v1.1.0 - 2024-4-02
 
 <small>[Compare with 1.0.0](https://github.com/onecommons/unfurl/compare/v1.0.0...v1.1.0) </small>
