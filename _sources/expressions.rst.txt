@@ -17,8 +17,8 @@ Stand-alone functions don't need to be wrapped in an "eval".
   :std:ref:`concat`             ``[ string* ]``
   `get_artifact`                ``[ template_name, artifact_name]``
   `get_attribute`               ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
-  :std:ref:`get_env`            :regexp:`[ name, default? return ] | name`
-  :std:ref:`get_input`          ``name``
+  :std:ref:`get_env`            :regexp:`name | [ name, default? ]`
+  :std:ref:`get_input`          :regexp:`name | [ name, default? ]`
   :std:ref:`get_nodes_of_type`  ``type_name``
   `get_property`                ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`has_env`            ``name``
@@ -74,6 +74,8 @@ get_input
 
   The get_input function is used to retrieve the values of properties declared within the inputs section of a TOSCA Service Template.
   See :tosca_spec:`TOSCA Property Functions <_Toc50125513>`
+
+  If a default argument is not supplied and the input is missing, a validation error is raised.
 
 get_nodes_of_type
 ^^^^^^^^^^^^^^^^^

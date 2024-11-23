@@ -136,9 +136,9 @@
 <section id="why-use-unfurl">
 <h2>Why use Unfurl?<a class="headerlink" href="#why-use-unfurl" title="Permalink to this headline"></a></h2>
 <ul class="simple">
-<li><p>You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can <a class="reference external" href="https://www.unfurl.cloud/blog/why-unfurl">manage that complexity without complicated DevOps processes</a>.</p></li>
-<li><p>You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it in a <a class="reference external" href="https://docs.unfurl.run/cloudmap.html">Cloud Map</a> or on <a class="reference external" href="https://unfurl.cloud">Unfurl Cloud</a>, our open-source deployment platform.</p></li>
-<li><p>You want to use familiar coding practices and development processes to both develop blueprints and manage operations without depending on costly server infrastructure or having to rely on manual and proprietary admin UI.</p></li>
+<li><p>You are developing an application consisting of several interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes. Unfurl can help <a class="reference external" href="https://www.unfurl.cloud/blog/why-unfurl">manage that complexity without complicated DevOps processes</a>.</p></li>
+<li><p>You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Support them by adding an adaptable blueprint to your source repository or publish it in a <a class="reference external" href="https://docs.unfurl.run/cloudmap.html">Cloud Map</a> or on <a class="reference external" href="https://unfurl.cloud">Unfurl Cloud</a>, our open-source deployment platform.</p></li>
+<li><p>You want to manage configuration and live resources just like code, using the same development processes – like pull requests and CI pipelines – without costly server infrastructure or having to rely on manual and proprietary admin UI.</p></li>
 </ul>
 </section>
 <section id="how-it-works">
@@ -156,10 +156,9 @@
 </ol>
 <p>Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into. For predefined types you can use our <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard library</a> for common cloud providers, kubernetes, and self-hosted instances.  Or your can easily use your own implementations – Unfurl integrates with tools like Terraform, Ansible, and Helm or you can encapsulate the scripts you already have.</p>
 <ol class="arabic simple" start="4">
-<li><p>Deploy and manage.</p></li>
+<li><p>Deploy and Manage.</p></li>
 </ol>
-<p>Unfurl can automatically install missing dependencies.
-Deploy Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
+<p>Run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
 <p>After the initial deployment, subsequent deployment plans take into account the current state of its resources. This way you can reduce errors by automatically reconfiguring as dependencies and environments change. You can also create custom operations or run ad-hoc commands in the ensemble’s environment.</p>
 <ol class="arabic simple" start="5">
 <li><p>Share and Collaborate</p></li>
@@ -267,8 +266,7 @@ Deploy Use <code class="docutils literal notranslate"><span class="pre">unfurl</
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipx</span> <span class="n">install</span> <span class="s2">&quot;git+https://github.com/onecommons/unfurl.git#egg=unfurl&quot;</span>
 </pre></div>
 </div>
-<p>Alternatively, you can get the Unfurl container image from <a class="reference external" href="https://github.com/onecommons/unfurl/pkgs/container/unfurl">GitHub</a> or [Docker Hub](https://hub.docker.com/r/onecommons
-/unfurl) and run Unfurl from the image:</p>
+<p>Alternatively, you can get the Unfurl container image from <a class="reference external" href="https://github.com/onecommons/unfurl/pkgs/container/unfurl">GitHub</a> or <a class="reference external" href="https://hub.docker.com/r/onecommons/unfurl">Docker Hub</a> and run Unfurl from the image:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
 </pre></div>
 </div>
@@ -278,7 +276,7 @@ Deploy Use <code class="docutils literal notranslate"><span class="pre">unfurl</
 <ul class="simple">
 <li><p>Linux or MacOS</p></li>
 <li><p>Git</p></li>
-<li><p>Python (3.8, 3.9, 3.10, 3.11, 3.12, 3.13)</p></li>
+<li><p>Python (3.8 - 3.13)</p></li>
 </ul>
 <p>Optional: Docker or Podman</p>
 </section>

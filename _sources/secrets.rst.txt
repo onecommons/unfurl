@@ -38,7 +38,15 @@ You can apply any of these techniques to different secrets and projects can inhe
 
 Sensitive Values
 ----------------
-You can mark configuration data as sensitive. If you have Ansible Vault ids associated with your ensemble that will be saved encrypted, if not, they will be saved as "<<<Redacted>>>". When loading a YAML configuration file, any Vault data will be decrypted and any attribute with a value of "<<<Redacted>>>" will be omitted. By default, ``unfurl init`` will generate a random Ansible Vault key to your local secrets (found in ``local/unfurl.yaml``) and so any data marked sensitive will be encrypted.
+
+You can mark configuration data as sensitive in their TOSCA definitions or by using the :std:ref:`sensitive` expression function. When those values are saved in YAML, if you have Ansible Vault secret associated with your ensemble, their encrypted values will be embedded, if not, they will be saved as "<<<Redacted>>>". When loading a YAML configuration file, any Vault data will be decrypted and any attribute with a value of "<<<Redacted>>>" will be omitted. 
+
+Vault secrets
+-------------
+
+When creating a new ensemble via a ``unfurl init`` or ``unfurl clone``, if a new git repository is created (either because its a new project or because the ensemble uses a separate repository) will add a ``vault_secrets`` secret with a generated password to ``local/unfurl.yaml`` and ``secrets/secrets.yaml`` file added to the repository -- see `Project files`.
+
+You can force this in any new project by passing the``VAULT_PASSWORD`` skeleton variable to ``unfurl init`` or ``unfurl clone``. See `setting <vault_password_var>` for an example.
 
 .. important::
 

@@ -175,10 +175,10 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">template_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#get-env"><span class="std std-ref">get_env</span></a></p></td>
-<td><p><code class="regexp docutils literal notranslate"><span class="pre">[</span> <span class="pre">name,</span> <span class="pre">default?</span> <span class="pre">return</span> <span class="pre">]</span> <span class="pre">|</span> <span class="pre">name</span></code></p></td>
+<td><p><code class="regexp docutils literal notranslate"><span class="pre">name</span> <span class="pre">|</span> <span class="pre">[</span> <span class="pre">name,</span> <span class="pre">default?</span> <span class="pre">]</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="#get-input"><span class="std std-ref">get_input</span></a></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p><code class="regexp docutils literal notranslate"><span class="pre">name</span> <span class="pre">|</span> <span class="pre">[</span> <span class="pre">name,</span> <span class="pre">default?</span> <span class="pre">]</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#get-nodes-of-type"><span class="std std-ref">get_nodes_of_type</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">type_name</span></code></p></td>
@@ -242,6 +242,7 @@ If NAME is not present in the environment, return the given default value if sup
 <blockquote>
 <div><p>The get_input function is used to retrieve the values of properties declared within the inputs section of a TOSCA Service Template.
 See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125513">TOSCA Property Functions</a></p>
+<p>If a default argument is not supplied and the input is missing, a validation error is raised.</p>
 </div></blockquote>
 </section>
 <section id="get-nodes-of-type">

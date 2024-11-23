@@ -88,7 +88,6 @@
 <li class="toctree-l3"><a class="reference internal" href="#project-skeletons">Project Skeletons</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#publishing-your-project">Publishing your project</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#cloning-projects-and-ensembles">Cloning projects and ensembles</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#clone-a-project">Clone a project</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#clone-an-ensemble">Clone an ensemble</a></li>
@@ -97,6 +96,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#notes">Notes</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#publishing-your-project">Publishing your project</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-unfurl.server.gui">Browser-based Admin User Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#unfurl-home">Unfurl Home</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#creating-unfurl-home">Creating Unfurl Home</a></li>
@@ -164,8 +164,8 @@
 <li><p><a class="reference internal" href="#environments" id="id4">Environments</a></p></li>
 <li><p><a class="reference internal" href="#external-ensembles" id="id5">External ensembles</a></p></li>
 <li><p><a class="reference internal" href="#creating-projects" id="id6">Creating projects</a></p></li>
-<li><p><a class="reference internal" href="#publishing-your-project" id="id7">Publishing your project</a></p></li>
-<li><p><a class="reference internal" href="#cloning-projects-and-ensembles" id="id8">Cloning projects and ensembles</a></p></li>
+<li><p><a class="reference internal" href="#cloning-projects-and-ensembles" id="id7">Cloning projects and ensembles</a></p></li>
+<li><p><a class="reference internal" href="#publishing-your-project" id="id8">Publishing your project</a></p></li>
 <li><p><a class="reference internal" href="#module-unfurl.server.gui" id="id9">Browser-based Admin User Interface</a></p></li>
 <li><p><a class="reference internal" href="#unfurl-home" id="id10">Unfurl Home</a></p></li>
 <li><p><a class="reference internal" href="#execution-runtime" id="id11">Execution Runtime</a></p></li>
@@ -397,13 +397,11 @@ If <code class="docutils literal notranslate"><span class="pre">*</span></code> 
 By default, a separate, local git repository will be created for the ensemble. Use the <code class="docutils literal notranslate"><span class="pre">--mono</span></code> flag to add the ensemble to the project’s git repository or use the <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> flag to add the ensemble’s git repository as a submodule of the project’s git repository.</p>
 <p>Keeping the ensemble repository separate from the project repository is useful
 if the resources the ensemble creates are transitory or if you want to restrict access to them.
-Using the <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> option allows those repositories to be easily packaged and shared with the project repository
-but still maintain separate access control and git history for each ensemble.</p>
-<p>Ensemble will have a vault password created.
-Only add a vault password to local/unfurl.yaml and secrets/secrets.yaml if the VAULT_PASSWORD skeleton variable is set or if the project is in a repository containing an ensemble or ensemble submodule. If VAULT_PASSWORD is missing or empty, autogenerate the password.</p>
+Using the <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> option allows those repositories to be easily packaged and shared with the project repository but still maintain separate access control and git history for each ensemble.</p>
+<p>Creating an ensemble in a new repository will add a <code class="docutils literal notranslate"><span class="pre">vault_secrets</span></code> secret with a generated password to <code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> and add a <code class="docutils literal notranslate"><span class="pre">secrets/secrets.yaml</span></code> file to the repository.  Or in any new project by setting the <a class="reference internal" href="#vault-password-var"><span class="std std-ref">VAULT_PASSWORD skeleton variable</span></a>.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
-<p>Store the vault password found in <code class="docutils literal notranslate"><span class="pre">ensemble/local/unfurl.yaml</span></code> in a safe place! By default this password is used to encrypt any sensitive data committed to repository. See <a class="reference internal" href="secrets.html"><span class="doc">Managing Secrets</span></a> for more information.</p>
+<p>Store the vault password found in <code class="docutils literal notranslate"><span class="pre">ensemble/local/unfurl.yaml</span></code> in a safe place! This password is used to encrypt any sensitive data committed to repository. See <a class="reference internal" href="secrets.html"><span class="doc">Managing Secrets</span></a> for more information.</p>
 </div>
 <section id="project-skeletons">
 <h3>Project Skeletons<a class="headerlink" href="#project-skeletons" title="Permalink to this headline"></a></h3>
@@ -412,25 +410,8 @@ Only add a vault password to local/unfurl.yaml and secrets/secrets.yaml if the V
 <p>You can pass skeleton variables to the skeleton Jinj2a templates using the <code class="docutils literal notranslate"><span class="pre">--var</span></code> option, like the example <a class="reference internal" href="#vault-password-var"><span class="std std-ref">below</span></a>.</p>
 </section>
 </section>
-<section id="publishing-your-project">
-<span id="publish-project"></span><h2><a class="toc-backref" href="#id7">Publishing your project</a><a class="headerlink" href="#publishing-your-project" title="Permalink to this headline"></a></h2>
-<p>You can publish and share your projects like any git repository.
-If you want to publish local git repositories on a git hosting service like github.com
-(e.g. ones created by <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code>) follow these steps:</p>
-<ol class="arabic">
-<li><p>Create corresponding empty remote git repositories.</p></li>
-<li><p>Set the new repositories as the remote origins for your local repositories
-with this command:</p>
-<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">remote</span> <span class="pre">set-url</span> <span class="pre">origin</span> <span class="pre">&lt;remote-url&gt;</span></code></p>
-<p>Or, if the repository is a git submodule (see <a class="reference external" href="cli.html#unfurl-init">–submodule</a>) use:</p>
-<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">submodule</span> <span class="pre">set-url</span> <span class="pre">&lt;submodule-path&gt;</span> <span class="pre">&lt;remote-url&gt;</span></code></p>
-</li>
-<li><p>Commit any needed changes in the repositories with <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">commit</span></code>.  (Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">git-status</span></code> to see the uncommitted files across the project’s repositories.)</p></li>
-<li><p>Running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">git</span> <span class="pre">push</span></code> will push all the repositories in the project.</p></li>
-</ol>
-</section>
 <section id="cloning-projects-and-ensembles">
-<h2><a class="toc-backref" href="#id8">Cloning projects and ensembles</a><a class="headerlink" href="#cloning-projects-and-ensembles" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id7">Cloning projects and ensembles</a><a class="headerlink" href="#cloning-projects-and-ensembles" title="Permalink to this headline"></a></h2>
 <p>Use the <a class="reference external" href="cli.html#unfurl-clone">unfurl clone</a> command to clone projects and ensembles. Its syntax is:</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>clone<span class="w"> </span><span class="o">[</span>options<span class="o">]</span><span class="w"> </span>&lt;source&gt;<span class="w"> </span><span class="o">[</span>&lt;dest&gt;<span class="o">]</span>
 </pre></div>
@@ -466,7 +447,7 @@ You can also use a cloudmap url like <code class="docutils literal notranslate">
 </section>
 <section id="create-a-new-ensemble-from-source">
 <h3>Create a new ensemble from source<a class="headerlink" href="#create-a-new-ensemble-from-source" title="Permalink to this headline"></a></h3>
-<p>A new ensemble is created when:</p>
+<p>Clone can create a new ensemble when:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">&lt;source&gt;</span></code> explicitly points to an ensemble template or a TOSCA service template, a new ensemble is created from the template.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">&lt;source&gt;</span></code> explicitly points to an ensemble. A new ensemble is created from that source (just the “spec” section is copied, not the status and it will have new <a class="reference internal" href="ensembles.html#uris"><span class="std std-ref">uri</span></a>).</p></li>
@@ -495,6 +476,23 @@ You can also use a cloudmap url like <code class="docutils literal notranslate">
 </ul>
 </section>
 </section>
+<section id="publishing-your-project">
+<span id="publish-project"></span><h2><a class="toc-backref" href="#id8">Publishing your project</a><a class="headerlink" href="#publishing-your-project" title="Permalink to this headline"></a></h2>
+<p>You can publish and share your projects like any git repository.
+If you want to publish local git repositories on a git hosting service like github.com
+(e.g. ones created by <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code>) follow these steps:</p>
+<ol class="arabic">
+<li><p>Create corresponding empty remote git repositories.</p></li>
+<li><p>Set the new repositories as the remote origins for your local repositories
+with this command:</p>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">remote</span> <span class="pre">set-url</span> <span class="pre">origin</span> <span class="pre">&lt;remote-url&gt;</span></code></p>
+<p>Or, if the repository is a git submodule (see <a class="reference external" href="cli.html#unfurl-init">–submodule</a>) use:</p>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">submodule</span> <span class="pre">set-url</span> <span class="pre">&lt;submodule-path&gt;</span> <span class="pre">&lt;remote-url&gt;</span></code></p>
+</li>
+<li><p>Commit any needed changes in the repositories with <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">commit</span></code>.  (Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">git-status</span></code> to see the uncommitted files across the project’s repositories.)</p></li>
+<li><p>Running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">git</span> <span class="pre">push</span></code> will push all the repositories in the project.</p></li>
+</ol>
+</section>
 <section id="module-unfurl.server.gui">
 <span id="browser-based-admin-user-interface"></span><h2><a class="toc-backref" href="#id9">Browser-based Admin User Interface</a><a class="headerlink" href="#module-unfurl.server.gui" title="Permalink to this headline"></a></h2>
 <p>Running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">serve</span> <span class="pre">--gui</span> <span class="pre">/path/to/your/project</span></code> will start Unfurl’s built-in web server (at <a class="reference external" href="http://127.0.0.1:8081">http://127.0.0.1:8081</a> by default, see <a class="reference external" href="cli.html#unfurl-serve">unfurl serve</a> for more options).</p>
@@ -506,6 +504,7 @@ You can also set an alternative download location with the <code class="docutils
 <p>For development, you can instead set the <code class="docutils literal notranslate"><span class="pre">UNFURL_GUI_DIR</span></code> environment variable to point
 to your local clone of the <a class="reference external" href="https://github.com/onecommons/unfurl-gui">unfurl-gui</a> repository.
 You’ll need to either build the release distribution with  <code class="docutils literal notranslate"><span class="pre">yarn</span> <span class="pre">build</span></code> or run <code class="docutils literal notranslate"><span class="pre">yarn</span> <span class="pre">serve</span></code> there and set the <code class="docutils literal notranslate"><span class="pre">UNFURL_GUI_WEBPACK_ORIGIN</span></code> environment variable to its URL.</p>
+<p>See <a class="reference internal" href="CHANGELOG.html#browser-based-ui-experimental"><span class="std std-ref">Browser-based UI (experimental)</span></a> for more information.</p>
 </section>
 <section id="unfurl-home">
 <h2><a class="toc-backref" href="#id10">Unfurl Home</a><a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h2>

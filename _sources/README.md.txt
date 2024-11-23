@@ -18,11 +18,11 @@ The best way to manage your Unfurl project is to use [Unfurl Cloud](https://unfu
 
 ## Why use Unfurl?
 
-* You are developing an application with several distinct but interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes.  Unfurl can [manage that complexity without complicated DevOps processes](https://www.unfurl.cloud/blog/why-unfurl).
+* You are developing an application consisting of several interconnected services. Even a relatively simple web application has many dependencies that cut across its stack and development and deployment processes. Unfurl can help [manage that complexity without complicated DevOps processes](https://www.unfurl.cloud/blog/why-unfurl).
 
-* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Add a blueprint to your source repository or publish it in a [Cloud Map](https://docs.unfurl.run/cloudmap.html) or on [Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
+* You have users that want to deploy your application on a variety of different cloud providers and self-hosted configurations. Support them by adding an adaptable blueprint to your source repository or publish it in a [Cloud Map](https://docs.unfurl.run/cloudmap.html) or on [Unfurl Cloud](https://unfurl.cloud), our open-source deployment platform.
 
-* You want to use familiar coding practices and development processes to both develop blueprints and manage operations without depending on costly server infrastructure or having to rely on manual and proprietary admin UI.
+* You want to manage configuration and live resources just like code, using the same development processes -- like pull requests and CI pipelines -- without costly server infrastructure or having to rely on manual and proprietary admin UI.
 
 ## How it works
 
@@ -38,10 +38,9 @@ Avoid tedious and error prone low-level configuration by creating a cloud bluepr
 
 Unfurl instantiates your blueprint by building a deployment plan using implementations appropriate for the environment you are deploying into. For predefined types you can use our [Unfurl Cloud Standard library](https://unfurl.cloud/onecommons/std) for common cloud providers, kubernetes, and self-hosted instances.  Or your can easily use your own implementations -- Unfurl integrates with tools like Terraform, Ansible, and Helm or you can encapsulate the scripts you already have.
 
-4. Deploy and manage. 
+4. Deploy and Manage. 
 
-Unfurl can automatically install missing dependencies.
-Deploy Use `unfurl deploy` to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.
+Run `unfurl deploy` to deploy the infrastructure. It will commit to git the latest configuration and a history of changes to your cloud accounts.
 
 After the initial deployment, subsequent deployment plans take into account the current state of its resources. This way you can reduce errors by automatically reconfiguring as dependencies and environments change. You can also create custom operations or run ad-hoc commands in the ensemble's environment.
 
@@ -136,8 +135,7 @@ You can also install `unfurl` directly from this repository to get the latest co
 pipx install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
 ```
 
-Alternatively, you can get the Unfurl container image from [GitHub](https://github.com/onecommons/unfurl/pkgs/container/unfurl) or [Docker Hub](https://hub.docker.com/r/onecommons
-/unfurl) and run Unfurl from the image:
+Alternatively, you can get the Unfurl container image from [GitHub](https://github.com/onecommons/unfurl/pkgs/container/unfurl) or [Docker Hub](https://hub.docker.com/r/onecommons/unfurl) and run Unfurl from the image:
 
 ```
 docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
@@ -149,7 +147,7 @@ The `stable` tag matches the version published to PyPi; `latest` is the latest c
 
 - Linux or MacOS
 - Git
-- Python (3.8, 3.9, 3.10, 3.11, 3.12, 3.13)
+- Python (3.8 - 3.13)
 
 Optional: Docker or Podman
 

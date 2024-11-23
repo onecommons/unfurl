@@ -94,33 +94,13 @@ Example
 
 This example defines a node type named "MyApplication" that inherits from the "tosca.nodes.SoftwareComponent" node type.
 
-.. code:: yaml
+.. tab-set-code::
 
- node_types:
-    MyApplication:
-      derived_from: tosca.nodes.SoftwareComponent
-      attributes:
-        private_address:
-          type: string
-      properties:
-        domain:
-        type: string
-        default: { get_input: domain }
-        ports:
-          type: tosca.datatypes.network.PortSpec
-      requirements:
-        - host:
-            capabilities: tosca.capabilities.Compute
-            relationship: tosca.relationships.HostedOn
-        - db:
-            capabilities: capabilities.postgresdb
-            relationship: tosca.relationships.ConnectsTo
-      interfaces:
-        # TOSCA defines Standard interface for lifecycle management but you can define your own too
-        Standard:
-          create: create.sh
-          configure: configure.sh
-          delete: delete.sh
+  .. literalinclude:: ./examples/tosca-type-example.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/tosca-type-example.py
+    :language: python
 
 Topology Template
 ^^^^^^^^^^^^^^^^^^
@@ -155,36 +135,13 @@ A Node Template defines a node that gets instantiated into an instance (or resou
 Example
 -------
 
-.. code:: yaml
+.. tab-set-code::
 
-   node_templates:
+  .. literalinclude:: ./examples/tosca-node-template.yaml
+    :language: yaml
 
-     myApp:
-       type: myApplication
-       artifacts:
-         image:
-           type: tosca.artifacts.Deployment.Image.Container.Docker
-           file: myapp:latest
-           repository: docker_hub
-       requirements:
-         - host: compute
-         - db:
-             node: mydb 
-             relationship: mydb_connection
-               
-     mydb:
-       type: PostgresDB
-       properties:
-          name: mydb
-
-     compute:
-       type: unfurl.nodes.Compute
-       capabilities:
-         host:
-           properties:
-             num_cpus: 1
-             disk_size: 200GB
-             mem_size: 512MB
+  .. literalinclude:: ./examples/tosca-node-template.py
+    :language: python
 
 
 Requirements and Relationships

@@ -253,32 +253,77 @@ Types declare the required properties, default definitions, and interface operat
 <section id="id2">
 <h3><a class="toc-backref" href="#id11">Example</a><a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
 <p>This example defines a node type named “MyApplication” that inherits from the “tosca.nodes.SoftwareComponent” node type.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">MyApplication</span><span class="p">:</span>
-<span class="w">     </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
-<span class="w">     </span><span class="nt">attributes</span><span class="p">:</span>
-<span class="w">       </span><span class="nt">private_address</span><span class="p">:</span>
-<span class="w">         </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
-<span class="w">     </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">       </span><span class="nt">domain</span><span class="p">:</span>
-<span class="w">       </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
-<span class="w">       </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">}</span>
-<span class="w">       </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">         </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span>
-<span class="w">     </span><span class="nt">requirements</span><span class="p">:</span>
-<span class="w">       </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span>
-<span class="w">           </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span>
-<span class="w">           </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span>
-<span class="w">       </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
-<span class="w">           </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">capabilities.postgresdb</span>
-<span class="w">           </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
-<span class="w">     </span><span class="nt">interfaces</span><span class="p">:</span>
-<span class="w">       </span><span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
-<span class="w">       </span><span class="nt">Standard</span><span class="p">:</span>
-<span class="w">         </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create.sh</span>
-<span class="w">         </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configure.sh</span>
-<span class="w">         </span><span class="nt">delete</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">delete.sh</span>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
+<span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">MyApplication</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
+<span class="w">    </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">private_address</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">domain</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">capability</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">capability</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">capabilities.postgresdb</span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create.sh</span>
+<span class="w">        </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configure.sh</span>
+<span class="w">        </span><span class="nt">delete</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">delete.sh</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Attribute</span>
+<span class="kn">import</span> <span class="nn">unfurl.configurators.shell</span>
+<span class="kn">from</span> <span class="nn">unfurl.tosca_plugins.expr</span> <span class="kn">import</span> <span class="n">get_input</span>
+
+<span class="k">class</span> <span class="nc">MyApplication</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">SoftwareComponent</span><span class="p">):</span>
+    <span class="n">domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">get_input</span><span class="p">(</span><span class="s2">&quot;domain&quot;</span><span class="p">)</span>
+    <span class="n">ports</span><span class="p">:</span> <span class="s2">&quot;tosca.datatypes.NetworkPortSpec&quot;</span>
+
+    <span class="n">private_address</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Attribute</span><span class="p">()</span>
+
+    <span class="n">host</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span>
+        <span class="s2">&quot;tosca.relationships.HostedOn | tosca.nodes.Compute | tosca.capabilities.Compute&quot;</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="n">db</span><span class="p">:</span> <span class="s2">&quot;tosca.relationships.ConnectsTo | capabilities_postgresdb&quot;</span>
+
+    <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;create.sh&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;configure.sh&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
+            <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;delete.sh&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 </section>
@@ -290,8 +335,8 @@ Types declare the required properties, default definitions, and interface operat
 <section id="id3">
 <h3><a class="toc-backref" href="#id13">Example</a><a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
 <div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-0">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-2">
 YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
 
@@ -309,8 +354,8 @@ YAML</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">TopologyInputs</span><span class="p">,</span> <span class="n">TopologyOutputs</span>
 
@@ -338,10 +383,18 @@ PYTHON</label><div class="sd-tab-content docutils">
 <p>A Node Template defines a node that gets instantiated into an instance (or resource) when the service template is deployed.  A node template uses its node type as a prototype and can define properties, capabilities, artifacts, and requirements specific to the template.</p>
 <section id="id4">
 <h3><a class="toc-backref" href="#id16">Example</a><a class="headerlink" href="#id4" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
-
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-4">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">node_templates</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">myApp</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myApplication</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyApplication</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span>
+<span class="w">        </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">portspec</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;80:8080&quot;</span>
 <span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">image</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span>
@@ -351,7 +404,6 @@ PYTHON</label><div class="sd-tab-content docutils">
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span>
-<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb_connection</span>
 
 <span class="w">  </span><span class="nt">mydb</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDB</span>
@@ -359,7 +411,7 @@ PYTHON</label><div class="sd-tab-content docutils">
 <span class="w">       </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span>
 
 <span class="w">  </span><span class="nt">compute</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Compute</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
 <span class="w">    </span><span class="nt">capabilities</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">host</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
@@ -367,6 +419,37 @@ PYTHON</label><div class="sd-tab-content docutils">
 <span class="w">          </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span>
 <span class="w">          </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span>
 </pre></div>
+</div>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">GB</span><span class="p">,</span> <span class="n">MB</span>
+
+<span class="n">compute</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+    <span class="n">host</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Compute</span><span class="p">(</span>
+        <span class="n">num_cpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">disk_size</span><span class="o">=</span><span class="mi">200</span> <span class="o">*</span> <span class="n">GB</span><span class="p">,</span>
+        <span class="n">mem_size</span><span class="o">=</span><span class="mi">512</span> <span class="o">*</span> <span class="n">MB</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">mydb</span> <span class="o">=</span> <span class="n">PostgresDB</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;mydb&quot;</span><span class="p">)</span>
+
+<span class="n">myApp</span> <span class="o">=</span> <span class="n">MyApplication</span><span class="p">(</span>
+    <span class="n">ports</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">NetworkPortSpec</span><span class="p">(</span><span class="s2">&quot;80:8080&quot;</span><span class="p">),</span>
+    <span class="n">host</span><span class="o">=</span><span class="p">[</span><span class="n">compute</span><span class="p">],</span>
+    <span class="n">db</span><span class="o">=</span><span class="n">mydb</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">myApp</span><span class="o">.</span><span class="n">image</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">DeploymentImageContainerDocker</span><span class="p">(</span>
+    <span class="s2">&quot;image&quot;</span><span class="p">,</span>
+    <span class="n">file</span><span class="o">=</span><span class="s2">&quot;myapp:latest&quot;</span><span class="p">,</span>
+    <span class="n">repository</span><span class="o">=</span><span class="s2">&quot;docker_hub&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
 </div>
 </section>
 </section>
@@ -391,8 +474,8 @@ PYTHON</label><div class="sd-tab-content docutils">
 </div>
 <p>The following more complex example first defines a “MyApplication” node type that requires one “db” relationship of type “DatabaseConnection”.  Then it defines a node template (“myApp”) with that node type with a “db” requirement that uses a node filter to find the matching target node and a named relationship template of type “DatabaseConnection” with properties for connecting to the database.</p>
 <div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-2">
+<input checked="checked" id="sd-tab-item-6" name="sd-tab-set-3" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-6">
 YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">MyApplication</span><span class="p">:</span>
@@ -438,8 +521,8 @@ YAML</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
+<input id="sd-tab-item-7" name="sd-tab-set-3" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-7">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
 <span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">Node</span><span class="p">,</span> <span class="n">Property</span><span class="p">,</span> <span class="n">Relationship</span>
@@ -600,8 +683,8 @@ If the value is null, no attribute mapping will be made but the output will be a
 <h2><a class="toc-backref" href="#id27">Complete Example</a><a class="headerlink" href="#complete-example" title="Permalink to this headline"></a></h2>
 <p>Combining the above examples into one file, we have a complete service template:</p>
 <div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-2" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-4">
+<input checked="checked" id="sd-tab-item-8" name="sd-tab-set-4" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-8">
 YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span><span class="w"> </span><span class="c1"># or use the standard tosca_simple_yaml_1_3</span>
 <span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">An illustrative TOSCA service template</span>
@@ -716,8 +799,8 @@ YAML</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
+<input id="sd-tab-item-9" name="sd-tab-set-4" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-9">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generated by tosca.yaml2python from docs/examples/service-template.yaml at 2024-07-26T13:42:20 overwrite not modified (change to &quot;overwrite ok&quot; to allow)</span>
 <span class="sd">&quot;&quot;&quot;An illustrative TOSCA service template&quot;&quot;&quot;</span>

@@ -70,8 +70,23 @@
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Changelog for Unfurl</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#v1-1-0-2024-4-02">v1.1.0 - 2024-4-02</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#v1-2-0-2024-11-22">v1.2.0 - 2024-11-22</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#major-changes">Major changes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#browser-based-ui-experimental">Browser-based UI (experimental)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#rust-based-inference-engine">Rust-based inference engine</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#documentation">Documentation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#project-creation-improvements">Project creation improvements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cli-command-line-enhancements">CLI Command-line enhancements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tosca-python-dsl">TOSCA Python DSL</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#jobs">Jobs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#yaml-tosca-parsing">YAML/TOSCA Parsing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#other">Other</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#v1-1-0-2024-4-02">v1.1.0 - 2024-4-02</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id1">Major changes</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#ansible-configurator">Ansible configurator</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#update-tosca-package-to-v0-0-8">Update tosca package to v0.0.8</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#server-enhancements-and-fixes">Server enhancements and fixes</a></li>
@@ -91,21 +106,21 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#artifact-enhancements">Artifact enhancements</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#other-features">Other Features</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id1">Breaking changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id2">Breaking changes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#minor-enhancements-and-notable-bug-fixes">Minor Enhancements and Notable Bug Fixes</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#v0-9-1-2023-10-25">v0.9.1 - 2023-10-25</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id2">Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id3">Features</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#tosca-and-python-dsl">TOSCA and Python DSL</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#id3">Packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id4">Packages</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#id4">Minor Enhancements and Notable Bug Fixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id5">Minor Enhancements and Notable Bug Fixes</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#v0-9-0-friday-10-13-23">v0.9.0 - Friday 10-13-23</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id5">Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id6">Features</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#introduce-python-dsl-for-tosca"><em><strong>Introduce Python DSL for TOSCA</strong></em></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-cloud-local-development-mode">Unfurl Cloud local development mode</a></li>
 </ul>
@@ -117,12 +132,12 @@
 <li class="toctree-l4"><a class="reference internal" href="#new-environment-variables">New Environment Variables</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#id6">Minor Enhancements and Notable Bug Fixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id7">Minor Enhancements and Notable Bug Fixes</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#id7">0.8.0 - 2023-07-26</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id8">Breaking Changes</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id9">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id8">0.8.0 - 2023-07-26</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id9">Breaking Changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id10">Features</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#bug-fixes">Bug Fixes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#misc">Misc</a></li>
 </ul>
@@ -157,11 +172,174 @@
              
   <section id="changelog-for-unfurl">
 <h1>Changelog for Unfurl<a class="headerlink" href="#changelog-for-unfurl" title="Permalink to this headline"></a></h1>
+<section id="v1-2-0-2024-11-22">
+<h2>v1.2.0 - 2024-11-22<a class="headerlink" href="#v1-2-0-2024-11-22" title="Permalink to this headline"></a></h2>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v1.1.0...v1.2.0">Compare with 1.1.0</a> </small></p>
+<section id="major-changes">
+<h3>Major changes<a class="headerlink" href="#major-changes" title="Permalink to this headline"></a></h3>
+<section id="browser-based-ui-experimental">
+<h4>Browser-based UI (experimental)<a class="headerlink" href="#browser-based-ui-experimental" title="Permalink to this headline"></a></h4>
+<p>This release contains an experimental local port of Unfurl Cloud’s <a class="reference external" href="https://unfurl.cloud/dashboard">dashboard</a> UI, allowing you to view and edit the blueprints and ensembles in a project.</p>
+<p>It is enabled using the new <code class="docutils literal notranslate"><span class="pre">--gui</span></code> option on the <a class="reference external" href="https://docs.unfurl.run/cli.html#unfurl-serve">unfurl serve</a> command, for example:</p>
+<p><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">serve</span> <span class="pre">--gui</span> <span class="pre">/path/to/your/project</span></code></p>
+<p>Functionality includes:</p>
+<ul class="simple">
+<li><p>Adding new deployments (ensembles) to the project and updating the YAML of existing ensembles. Edits are automatically committed to git if the git worktree is clean when the update is saved.</p></li>
+<li><p>Edits to environment variables are synchronized with Unfurl Cloud if the local project was cloned from Unfurl Cloud. Otherwise, environment variables are saved in the project’s “unfurl.yaml” except ones marked as masked – in that case they will be saved in “secrets/secrets.yaml” (or in “local/unfurl.yaml” if the project doesn’t use vault encryption).</p></li>
+<li><p>When creating and editing deployments, the environment’s <a class="reference external" href="https://docs.unfurl.run/cloudmap.html">cloud map</a> (defaults to the <a class="reference external" href="https://github.com/onecommons/cloudmap">public one</a>) is used as the catalog of blueprint and TOSCA types to search.</p></li>
+<li><p>Note that Unfurl’s built-in web server is intended for local use only. For more robust scenarios you can run Unfurl as a WSGI app (<code class="docutils literal notranslate"><span class="pre">unfurl.server.serve:app</span></code>) and set the <code class="docutils literal notranslate"><span class="pre">UNFURL_SERVE_GUI</span></code> environment variable to enable GUI mode. Or host your project on an Unfurl Cloud instance.</p></li>
+</ul>
+</section>
+<section id="rust-based-inference-engine">
+<h4>Rust-based inference engine<a class="headerlink" href="#rust-based-inference-engine" title="Permalink to this headline"></a></h4>
+<p>Unfurl now includes a scalable (Rust-based) inference engine that tries to match node templates with missing requirements <a class="reference external" href="https://docs.unfurl.run/tosca.html">TOSCA</a> based on a requirement’s:</p>
+<ul class="simple">
+<li><p>node and capability types</p></li>
+<li><p>relationship’s valid_target_types</p></li>
+<li><p>node_filter property and capabilities</p></li>
+<li><p>node_filter match expressions</p></li>
+</ul>
+<p>Finding the match for a TOSCA requirement can’t be determined with a simple algorithm. For example, a requirement node_filter’s match can depend on a property value that is itself computed from a requirement (e.g. via TOSCA’s <code class="docutils literal notranslate"><span class="pre">get_property</span></code> function). So finding a node filter match might change a property’s value, which in turn could affect the node_filter match.  Similarly, the inference engine supports Unfurl’s <code class="docutils literal notranslate"><span class="pre">node_filter/requirements</span></code> extension, which allows additional constraints to be applied to a target node upon match.</p>
+<p>This extension is optional – if the extension binary is not found or fails to load, a warning will logged and the TOSCA parser will fall-back to previous behavior. However, topologies that rely on multi-step inference to find matching requirements will fail to find them and report validation errors.</p>
+</section>
+<section id="documentation">
+<h4>Documentation<a class="headerlink" href="#documentation" title="Permalink to this headline"></a></h4>
+<p>Documentation at <a class="reference external" href="https://docs.unfurl.run/">docs.unfurl.run</a> has been revamped and expanded. New <a class="reference external" href="https://docs.unfurl.run/quickstart.html">Quick Start</a> and <a class="reference external" href="https://docs.unfurl.run/solution-overview.html">Solution Overview</a> chapters have been added and the reference documentation in other chapters has been greatly expanded.</p>
+</section>
+<section id="project-creation-improvements">
+<h4>Project creation improvements<a class="headerlink" href="#project-creation-improvements" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>The unfurl clone command now supports two new sources: TOSCA Cloud Service Archives (CSAR) (a file path with a .csar or .zip extension) and <a class="reference external" href="https://docs.unfurl.run/cloudmap.html">cloudmap</a> URLs like <code class="docutils literal notranslate"><span class="pre">cloudmap:&lt;package_id&gt;</span></code>, which will resolve to a git URL.</p></li>
+<li><p>Improved support for managing projects that keep their ensembles in separate git repositories:</p>
+<ul>
+<li><p>Stop registering the ensemble with the project when its in a separate repository.</p></li>
+<li><p>When creating an ensemble-only repository, add an unfurl.yaml and use that to record the default environment for the ensemble.  Add ‘ensemble_repository_config’ to skeleton vars when creating that file.</p></li>
+<li><p>Allow unfurl.yaml files that are alongside ensemble.yaml to be nested inside another Unfurl project.</p></li>
+<li><p>Cloning a remote repository containing ensembles will no longer create a new ensemble unless the clone source explicitly pointed at one.</p></li>
+</ul>
+</li>
+</ul>
+<p>The net effect of these changes is that the outer and inner repositories can be cloned separately without requiring manual reconfiguration.</p>
+<ul class="simple">
+<li><p>Support source URLs with a relative “file:” scheme and an URL fragment like <code class="docutils literal notranslate"><span class="pre">#ref:file/path</span></code> to enable remote clone semantics for local git repos.</p></li>
+<li><p>When adding a ensemble to an existing project, if the <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> option names an environment that doesn’t exist, it will now be added to the project’s unfurl.yaml.</p></li>
+<li><p>A blueprint project (a project created with –empty) will no longer have a vault password created unless a VAULT_PASSWORD skeleton var is set.</p></li>
+<li><p>You can now hard-code TOSCA topology inputs when creating an ensemble by passing skeleton vars prefixed with “input_”, e.g. <code class="docutils literal notranslate"><span class="pre">--var</span> <span class="pre">input_foo</span> <span class="pre">0</span></code>.</p></li>
+<li><p>Creating the unfurl home project is now a monorepo project by default (use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">home</span></code> command’s new <code class="docutils literal notranslate"><span class="pre">--poly</span></code> option to override).</p></li>
+<li><p>Custom project skeletons can now skip creating a particular file by including a 0 byte file of that name.</p></li>
+</ul>
+<p>See the updated <a class="reference external" href="https://docs.unfurl.run/projects.html#cloning-projects-and-ensembles">documentation</a> for more information.</p>
+</section>
+<section id="cli-command-line-enhancements">
+<h4>CLI Command-line enhancements<a class="headerlink" href="#cli-command-line-enhancements" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Colorize and format cli help output.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">validate</span></code> will now validate cloudmap files, TOSCA service templates, and TOSCA DSL Python files.  Also added is new <code class="docutils literal notranslate"><span class="pre">--as-template</span></code> option to explicitly treat a file as a blueprint template, as opposed an ensemble (eg. like ensemble-template.yaml).</p></li>
+<li><p>Rename <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">undeploy</span></code> to <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">teardown</span></code> (“undeploy” stills works but is now undocumented).</p></li>
+<li><p>The <a class="reference external" href="https://docs.unfurl.run/cli.html#unfurl-deploy-commands">Job family</a> of commands now accept multiple <code class="docutils literal notranslate"><span class="pre">--instance</span></code> options</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">run</span></code> adds a <code class="docutils literal notranslate"><span class="pre">--save</span></code> option.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">home</span> <span class="pre">--init</span></code> now accepts the <code class="docutils literal notranslate"><span class="pre">--var</span></code>, <code class="docutils literal notranslate"><span class="pre">--skeleton</span></code>, and <code class="docutils literal notranslate"><span class="pre">--poly</span></code>x options.</p></li>
+<li><p>When running an unreleased version of Unfurl, <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">version</span></code> will append prerelease and build id segments conforming to the semantic version 2.0 syntax.</p></li>
+</ul>
+</section>
+<section id="tosca-python-dsl">
+<h4>TOSCA Python DSL<a class="headerlink" href="#tosca-python-dsl" title="Permalink to this headline"></a></h4>
+<p>Update the tosca package to v0.1.0, which includes the following fixes and enhancements:</p>
+<p>New TOSCA syntax support in the Python DSL:</p>
+<ul class="simple">
+<li><p>Topology inputs and outputs (TopologyInputs and TopologyOutputs classes)</p></li>
+<li><p>Node templates with “substitute” and “select” directives:</p>
+<ul>
+<li><p>Allow nodes with those directives to be constructed with missing fields.</p></li>
+<li><p>Add Node.substitute() method and substitute_node() and select_node() factory functions to avoid static type errors</p></li>
+<li><p>Add “_node_filter” attribute for node templates with the “select” directive.</p></li>
+</ul>
+</li>
+<li><p>Serialize attributes that match the pattern “{interface_name}_default_inputs” as interface level operation inputs on TOSCA types or templates.</p></li>
+<li><p>Add set_operation() method for setting TOSCA operation definitions directly on template objects.</p></li>
+<li><p>Deployment blueprints with the DeploymentBlueprint class.</p></li>
+<li><p>The “concat” and “token” TOSCA functions.</p></li>
+<li><p>Better support for TOSCA data types that allow undeclared properties:</p>
+<ul>
+<li><p>Allow EnvironmentVariables constructor to accept undeclared properties.</p></li>
+<li><p>Add OpenDataType.extend() helper method to add undeclared properties.</p></li>
+</ul>
+</li>
+</ul>
+<p>Other DSL fixes and changes:</p>
+<ul class="simple">
+<li><p>loader: support “from tosca_repositories.repo import module” pattern in safe mode.</p></li>
+<li><p>support string type annotations containing ‘|’.</p></li>
+<li><p>loader: simplify logic and enhance private module separation.</p></li>
+<li><p>loader: have install() always set service template basedir.</p></li>
+<li><p>Rename Python base classes for TOSCA types. Deprecate old names but keep them as aliases for backwards compatibility.</p></li>
+<li><p>loader: execute <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code> when loading packages in tosca_repositories.</p></li>
+<li><p>Fix instance check with ValueTypes (simple TOSCA data types).</p></li>
+<li><p>Make sure YAML import statements are generated for templates that reference imported types.</p></li>
+<li><p>Have the <code class="docutils literal notranslate"><span class="pre">to_label</span></code> family of functions evaluate arguments as needed.</p></li>
+</ul>
+<p>YAML to Python DSL conversion improvements:</p>
+<ul class="simple">
+<li><p>Conversion for the new TOSCA syntax described above.</p></li>
+<li><p>Convert templates in the <code class="docutils literal notranslate"><span class="pre">relationship_templates</span></code> section.</p></li>
+<li><p>Convert operations declared directly on a template.</p></li>
+<li><p>Convert inline relationship templates in node templates.</p></li>
+<li><p>Don’t include template objects in <code class="docutils literal notranslate"><span class="pre">__all__</span></code> (so importing a topology doesn’t add templates to the outer topology).</p></li>
+<li><p>Various stylistic improvements to generated Python code.</p></li>
+<li><p>Introduce UNFURL_EXPORT_PYTHON_STYLE=concise environment variable to elide type annotations.</p></li>
+</ul>
+</section>
+<section id="jobs">
+<h4>Jobs<a class="headerlink" href="#jobs" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Add <a class="reference external" href="https://docs.unfurl.run/jobs.html#locking">remote locking</a> using git lfs to prevent remote jobs from simultaneous running on the same ensemble.</p></li>
+<li><p>TOSCA topology inputs <a class="reference external" href="https://docs.unfurl.run/runtime.html#topology-inputs">can now be specified</a> as part of the job command line, for example <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span> <span class="pre">--var</span> <span class="pre">input_foo</span> <span class="pre">1</span></code>.</p></li>
+<li><p>The <a class="reference external" href="https://docs.unfurl.run/jobs.html#undeploy-teardown">undeploy plan</a> will now exclude instances whose removal would break required resources that we want to keep operational.</p></li>
+<li><p>If present, apply a node template’s node_filter when selecting instances from external ensembles.</p></li>
+<li><p>When invoking <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">run</span></code> with <code class="docutils literal notranslate"><span class="pre">--operation</span></code> and but no filter (e.g. no <code class="docutils literal notranslate"><span class="pre">--instance</span></code>) the plan will now include all instances that implement that operation.</p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/jobs.html#applying-configuration-changes">Add a “customized” field</a> to instance status to indicate that it has intentionally diverged from its template and the reconfigure check should be skipped.</p></li>
+<li><p>Save job changeset yaml in “changes” directory so it gets committed in the ensemble (without results key to avoid committing sensitive information).</p></li>
+<li><p>Track which dependencies were written before they were read and save that in the changeset yaml as a “writeOnly” field (improves incremental update logic).</p></li>
+<li><p>Reporting: improved pretty print of outputs in the job summary.</p></li>
+</ul>
+</section>
+<section id="yaml-tosca-parsing">
+<h4>YAML/TOSCA Parsing<a class="headerlink" href="#yaml-tosca-parsing" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">+&amp;:</span> <span class="pre">anchor_name</span></code> merge directive to support merge includes with YAML aliases independent of YAML parser.</p></li>
+<li><p>Make repositories defined in nested includes available immediately during parse time.</p></li>
+<li><p>Validate that node templates and artifacts are assigned the proper TOSCA entity type (disabled unless the <code class="docutils literal notranslate"><span class="pre">UNFURL_VALIDATION_MODE</span></code> environment variable includes “types”).</p></li>
+<li><p>Allow metadata on artifact type definitions</p></li>
+<li><p>CSAR support: parse metadata in TOSCA.metadata files and merge with service template YAML metadata.</p></li>
+<li><p>Add an optional second argument get_input TOSCA function to use as a default value if the input is missing (instead raising a validation error).</p></li>
+<li><p>support “key_schema” field on property definitions when type is “map”.</p></li>
+<li><p>Support “type” and “metadata” fields on topology outputs</p></li>
+<li><p>Fix node_filter matching</p></li>
+<li><p>Fix validation of semantic versions with a build metadata segment.</p></li>
+</ul>
+</section>
+<section id="other">
+<h4>Other<a class="headerlink" href="#other" title="Permalink to this headline"></a></h4>
+<ul class="simple">
+<li><p>Add support for Python 3.13</p></li>
+<li><p>Modernize Unfurl’s Python packaging.</p></li>
+<li><p>loader: only search repository directories when loading secrets (for performance).</p></li>
+<li><p>logs: sanitize sensitive url parameters</p></li>
+<li><p>server: Switch built-in http server from Uvicorn to Waitress.</p></li>
+<li><p>ansible: have ansible-galaxy use the current Python interpreter</p></li>
+<li><p>artifacts: update version of community.docker ansible collection</p></li>
+<li><p>cloudmap: Add json-schema validation of cloudmap.yaml.</p></li>
+<li><p>runtime: Add a few circular topology guards.</p></li>
+<li><p>json export: Always include a DeploymentTemplate in blueprint and deployment formats.</p></li>
+</ul>
+</section>
+</section>
+</section>
 <section id="v1-1-0-2024-4-02">
 <h2>v1.1.0 - 2024-4-02<a class="headerlink" href="#v1-1-0-2024-4-02" title="Permalink to this headline"></a></h2>
 <p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v1.0.0...v1.1.0">Compare with 1.0.0</a> </small></p>
-<section id="major-changes">
-<h3>Major changes<a class="headerlink" href="#major-changes" title="Permalink to this headline"></a></h3>
+<section id="id1">
+<h3>Major changes<a class="headerlink" href="#id1" title="Permalink to this headline"></a></h3>
 <section id="ansible-configurator">
 <h4>Ansible configurator<a class="headerlink" href="#ansible-configurator" title="Permalink to this headline"></a></h4>
 <ul class="simple">
@@ -355,8 +533,8 @@ Generation of type global names with export and the APIs can be disabled by sett
 </pre></div>
 </div>
 </section>
-<section id="id1">
-<h3>Breaking changes<a class="headerlink" href="#id1" title="Permalink to this headline"></a></h3>
+<section id="id2">
+<h3>Breaking changes<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p>Prior to this release all imports shared the same namespace for types. For example, one imported file could reference a type declared in another file if both those files happened to be both imported by another service template.</p></li>
 </ul>
@@ -404,8 +582,8 @@ By default, don’t instantiate environment instances unless they are imported f
 <section id="v0-9-1-2023-10-25">
 <h2>v0.9.1 - 2023-10-25<a class="headerlink" href="#v0-9-1-2023-10-25" title="Permalink to this headline"></a></h2>
 <p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.9.0...v0.9.1">Compare with 0.9.0</a> </small></p>
-<section id="id2">
-<h3>Features<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
+<section id="id3">
+<h3>Features<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
 <section id="tosca-and-python-dsl">
 <h4>TOSCA and Python DSL<a class="headerlink" href="#tosca-and-python-dsl" title="Permalink to this headline"></a></h4>
 <ul class="simple">
@@ -436,8 +614,8 @@ By default, don’t instantiate environment instances unless they are imported f
 <li><p>Release 0.0.5 version of the Python tosca package.</p></li>
 </ul>
 </section>
-<section id="id3">
-<h4>Packages<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h4>
+<section id="id4">
+<h4>Packages<a class="headerlink" href="#id4" title="Permalink to this headline"></a></h4>
 <ul class="simple">
 <li><p>Allow service templates to declare the unfurl version they are compatible with.</p></li>
 </ul>
@@ -458,8 +636,8 @@ By default, don’t instantiate environment instances unless they are imported f
 </ul>
 </section>
 </section>
-<section id="id4">
-<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id4" title="Permalink to this headline"></a></h3>
+<section id="id5">
+<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p><strong>parser</strong> allow merge keys to be optional, e.g. “+?/a/d”</p></li>
 <li><p><strong>loader</strong>: Add a <code class="docutils literal notranslate"><span class="pre">UNFURL_OVERWRITE_POLICY</span></code> environment variable to guide the loader’s python to yaml converter.</p></li>
@@ -472,8 +650,8 @@ By default, don’t instantiate environment instances unless they are imported f
 <section id="v0-9-0-friday-10-13-23">
 <h2>v0.9.0 - Friday 10-13-23<a class="headerlink" href="#v0-9-0-friday-10-13-23" title="Permalink to this headline"></a></h2>
 <p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.8.0...v0.9.0">Compare with 0.8.0</a> </small></p>
-<section id="id5">
-<h3>Features<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
+<section id="id6">
+<h3>Features<a class="headerlink" href="#id6" title="Permalink to this headline"></a></h3>
 <section id="introduce-python-dsl-for-tosca">
 <h4><em><strong>Introduce Python DSL for TOSCA</strong></em><a class="headerlink" href="#introduce-python-dsl-for-tosca" title="Permalink to this headline"></a></h4>
 <p>Write TOSCA as Python modules instead of YAML. Features include:</p>
@@ -567,8 +745,8 @@ By default, don’t instantiate environment instances unless they are imported f
 </ul>
 </section>
 </section>
-<section id="id6">
-<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id6" title="Permalink to this headline"></a></h3>
+<section id="id7">
+<h3>Minor Enhancements and Notable Bug Fixes<a class="headerlink" href="#id7" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p><strong>artifacts:</strong> Add an <code class="docutils literal notranslate"><span class="pre">asdf</span></code> artifact for <code class="docutils literal notranslate"><span class="pre">kompose</span></code> and have the <strong>kompose</strong> configurator schedule the artifact if <code class="docutils literal notranslate"><span class="pre">kompose</span></code> is missing.</p></li>
 <li><p><strong>parser:</strong> treat import failures are fatal errors (abort parsing and validation).</p></li>
@@ -587,17 +765,17 @@ By default, don’t instantiate environment instances unless they are imported f
 </ul>
 </section>
 </section>
-<section id="id7">
-<h2>0.8.0 - 2023-07-26<a class="headerlink" href="#id7" title="Permalink to this headline"></a></h2>
-<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.7.1...v0.8.0">Compare with 0.7.1</a></small></p>
 <section id="id8">
-<h3>Breaking Changes<a class="headerlink" href="#id8" title="Permalink to this headline"></a></h3>
+<h2>0.8.0 - 2023-07-26<a class="headerlink" href="#id8" title="Permalink to this headline"></a></h2>
+<p><small><a class="reference external" href="https://github.com/onecommons/unfurl/compare/v0.7.1...v0.8.0">Compare with 0.7.1</a></small></p>
+<section id="id9">
+<h3>Breaking Changes<a class="headerlink" href="#id9" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p>The Unfurl package now only depends on the <a class="reference external" href="https://pypi.org/project/ansible-core">ansible-core</a> package instead of the full <a class="reference external" href="https://pypi.org/project/ansible/">ansible</a> package. Unfurl projects that depend on ansible modules installed by that package will not work with new Unfurl installations unless it is installed by some other means – or, better, declare an Ansible collection artifact as a dependency on the template that requires it. For an example, see this usage in the <a class="reference external" href="https://github.com/onecommons/unfurl/blob/v0.7.2/unfurl/configurators/docker-template.yaml#L127C29-L127C29">docker-template.yaml</a>.</p></li>
 </ul>
 </section>
-<section id="id9">
-<h3>Features<a class="headerlink" href="#id9" title="Permalink to this headline"></a></h3>
+<section id="id10">
+<h3>Features<a class="headerlink" href="#id10" title="Permalink to this headline"></a></h3>
 <ul class="simple">
 <li><p>Allow Ansible collections to be declared as TOSCA artifacts. Some predefined ones are defined <a class="reference external" href="https://github.com/onecommons/unfurl/blob/v0.7.2/unfurl/tosca_plugins/artifacts.yaml#L163">here</a>.</p></li>
 <li><p>Unfurl Server now tracks the dependent repositories accessed when generating cached representations (e.g. for <code class="docutils literal notranslate"><span class="pre">/export</span></code>) and uses that information to invalidate cache items when the dependencies change.</p></li>
