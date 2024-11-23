@@ -13,6 +13,7 @@
 use ascent::hashbrown::HashMap;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use std::{time::Duration};
 // use log::debug;
 
 mod topology;
@@ -305,6 +306,25 @@ fn apply_restrictions_to_matched_nodes(
 /// HashMap mapping (source node name, requirement name) pairs to a list of (target node name, capability name) pairs.
 pub type RequirementMatches = HashMap<(String, String), Vec<(String, String)>>;
 
+/// Runs the ascent program to find the matches for the given topology
+///
+/// # Arguments
+///
+/// * `prog`: the `Topology` to run
+/// * `timeout`: a timeout in milliseconds to abort the computation
+///
+/// # Returns
+///
+/// This function returns a `PyResult` containing a `()` if the computation succeeded and a `PyTimeoutError` if the computation timed out
+fn run_program(prog: &mut Topology, timeout: u64) -> PyResult<()> {
+  let run_timeout_res = prog.run_timeout(Duration::from_millis(timeout));
+  if !run_timeout_res {
+      return Err(pyo3::exceptions::PyTimeoutError::new_err("inference timeout"));
+  }
+  Ok(())
+}
+
+
 /// Finds missing requirements for the given topology. (Main Python entry point)
 ///
 /// # Arguments
@@ -345,7 +365,8 @@ pub fn solve(
             add_node_to_topology(node, &mut prog, &type_parents, false, true)?;
         }
     }
-    prog.run();
+    let timeout = nodes.len() as u64 * 100;
+    run_program(&mut prog, timeout)?;
     // update matched requirements
     let mut index = 0;
     (prog, index) = apply_restrictions_to_matched_nodes(&nodes, prog, &type_parents, index);
@@ -359,9 +380,10 @@ pub fn solve(
 
     // keep searching for matches for restricted requirements
     loop {
-        prog.run();
+        run_program(&mut prog, timeout)?;
+        let start = index;
         (prog, index) = apply_restrictions_to_matched_nodes(&nodes, prog, &type_parents, index);
-        if index == 0 {
+        if index == start {
             break;
         }
     }
@@ -371,7 +393,7 @@ pub fn solve(
     for node in nodes.values() {
         add_node_to_topology(node, &mut prog, &type_parents, true, false)?;
     }
-    prog.run();
+    run_program(&mut prog, timeout)?;
 
     // return requirement_match
     let mut requirements = RequirementMatches::new();

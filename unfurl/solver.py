@@ -45,7 +45,7 @@ class Node:
         ] = {}  # extra attribute for book keeping (not used in rust)
 
     def __repr__(self) -> str:
-        return f"Node({self.name}, {self.tosca_type}, {self.has_restrictions}, {self.fields!r})"
+        return f"Node({self.name!r}, {self.tosca_type!r}, {self.has_restrictions}, {self.fields!r})"
 
 
 def deduce_type(value):

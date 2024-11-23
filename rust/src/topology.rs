@@ -461,6 +461,7 @@ fn choose_cap(a: Option<CapabilityName>, b: Option<CapabilityName>) -> Option<Ca
 }
 
 ascent! {
+    #![generate_run_timeout]
     pub(crate) struct Topology;
 
     relation entity(EntityRef, TypeName);

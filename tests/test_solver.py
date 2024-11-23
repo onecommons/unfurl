@@ -21,6 +21,7 @@ import pytest
 if os.getenv("UNFURL_TEST_SKIP_BUILD_RUST"):
     pytest.skip("UNFURL_TEST_SKIP_BUILD_RUST set", allow_module_level=True)
 
+
 def make_tpl(yaml_str: str):
     tosca_yaml = load_yaml(yaml, yaml_str, readonly=True)
     tosca_yaml["tosca_definitions_version"] = "tosca_simple_unfurl_1_0_0"
@@ -61,6 +62,12 @@ topology_template:
               - os:
                   properties:
                     - type: linux
+            requirements:
+              - host:
+                  node_filter:
+                    properties:
+                      - name: {'q': 'app'}
+                      - mem_size: {'in_range': ['2 GB', '20 GB']}
 
     db_server:
       type: tosca.nodes.Compute
@@ -80,7 +87,6 @@ topology_template:
             distribution: rhel
             version: "6.5"
 """
-
 
 def test_convert():
     for val, toscatype in [
@@ -124,16 +130,28 @@ def test_solve():
     # test requirement match for each type of CriteriaTerm and Constraint
     # test restrictions
 
+
 def test_multiple():
     tosca_yaml = load_yaml(yaml, example_helloworld_yaml, readonly=True)
-    tosca_yaml["topology_template"]["node_templates"]["db_server2"] = tosca_yaml["topology_template"]["node_templates"]["db_server"].copy()
-    t = ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml, import_resolver=ImportResolver(None), verify=False)
+    tosca_yaml["topology_template"]["node_templates"]["db_server2"] = tosca_yaml[
+        "topology_template"
+    ]["node_templates"]["db_server"].copy()
+    t = ToscaTemplate(
+        path=__file__,
+        yaml_dict_tpl=tosca_yaml,
+        import_resolver=ImportResolver(None),
+        verify=False,
+    )
     exception.ExceptionCollector.start()
     t.validate_relationships()
-    assert str(exception.ExceptionCollector.exceptions[-1]) == 'requirement "host" of node "app" found 2 targets more than max occurrences 1'
+    assert (
+        str(exception.ExceptionCollector.exceptions[-1])
+        == 'requirement "host" of node "app" found 2 targets more than max occurrences 1'
+    )
     # t.topology_template.node_templates["app"]._relationships = None
     # print(t.topology_template.node_templates["app"].requirements)
     assert len(t.topology_template.node_templates["app"].relationships) == 2
+
 
 def test_node_filter():
     tosca_tpl = (
