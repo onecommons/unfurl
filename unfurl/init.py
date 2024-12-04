@@ -25,6 +25,7 @@ from .repo import (
     sanitize_url,
 )
 from .util import (
+    UnfurlBadDocumentError,
     UnfurlError,
     assert_not_none,
     get_base_dir,
@@ -684,7 +685,7 @@ def _find_templates(sourceProject: Project, sourcePath: str):
         sourceDir = sourceProject.get_relative_path(template[0])
         return dict(sourceDir=sourceDir, serviceTemplate=template[1])
     if os.path.isfile(os.path.join(sourcePath, TOSCA_META)):
-        service_template = yaml.load(Path(sourcePath) / TOSCA_META)['Entry-Definitions']
+        service_template = yaml.load(Path(sourcePath) / TOSCA_META)["Entry-Definitions"]
         sourceDir = sourceProject.get_relative_path(sourcePath)
         return dict(sourceDir=sourceDir, serviceTemplate=service_template)
     return None
@@ -738,7 +739,7 @@ class EnsembleBuilder:
         self.dest_project: Optional[Project] = None  # step 3
         self.dest_path: Optional[str] = None  # step 3 relative path in dest_project
 
-        self.manifest = None  # final step
+        self.manifest: Optional["yamlmanifest.ReadOnlyManifest"] = None  # final step
         self.logger = logger
 
     def create_project_from_ensemble(self, dest):
@@ -906,6 +907,27 @@ class EnsembleBuilder:
         )
 
         template_vars = self.template_vars
+        localEnv = None
+        manifest = None
+        if "localEnv" in template_vars:
+            # look for an ensemble at the given path or use the source project's default
+            localEnv = template_vars["localEnv"]
+            try:
+                manifest = yamlmanifest.clone(localEnv, targetPath)
+            except UnfurlBadDocumentError as e:
+                key = None
+                if e.doc:
+                    if e.doc.get("spec") and "kind" not in e.doc:
+                        key = "ensembleTemplate"
+                    elif "tosca_definitions_version" in e.doc:
+                        key = "serviceTemplate"
+                if key:
+                    sourceDir, template = os.path.split(localEnv.manifestPath)
+                    template_vars["sourceDir"] = sourceDir
+                    template_vars[key] = template
+                    del template_vars["localEnv"]
+                else:
+                    raise
         if "localEnv" not in template_vars:
             # we found a template file to clone
             template_vars["inputs"] = self._get_inputs_template()
@@ -914,13 +936,10 @@ class EnsembleBuilder:
                 destDir,
                 manifestName,
             )
-        else:
-            # look for an ensemble at the given path or use the source project's default
-            localEnv = template_vars["localEnv"]
-            manifest = yamlmanifest.clone(localEnv, targetPath)
 
         dest_project = assert_not_none(self.dest_project)
         repo = self.shared_repo or self.mono and dest_project.project_repoview.repo
+        assert manifest
         _create_ensemble_repo(
             manifest,
             repo,
@@ -1195,7 +1214,9 @@ class EnsembleBuilder:
         if not os.path.isfile(source) or not zipfile.is_zipfile(source):
             return None
         if currentProject:
-            dest = os.path.abspath(dest) # needs to be absolute for creating ensemble later
+            dest = os.path.abspath(
+                dest
+            )  # needs to be absolute for creating ensemble later
             if dest == currentProject.projectRoot:
                 # don't uncompress into root of existing project
                 dest = os.path.join(dest, os.path.splitext(os.path.basename(source))[0])
