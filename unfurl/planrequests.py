@@ -24,6 +24,7 @@ import sys
 import os
 import os.path
 from toscaparser.elements.interfaces import OperationDef
+from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
 from .spec import ArtifactSpec, EntitySpec
 import tosca.loader
@@ -56,6 +57,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     preConditions: Optional[dict]
     primary: Optional["ArtifactSpec"]
     inputs: Optional[Mapping[str, Any]]
+    input_defs: Optional[Mapping[str, Property]]
     base_dir: Optional[str]
     dependencies: Optional[List["ArtifactSpec"]]
     outputs: Optional[Dict[str, Any]]
@@ -90,6 +92,7 @@ class ConfigurationSpec:
         interface=None,
         entry_state=None,
         base_dir=None,
+        input_defs=None
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -111,6 +114,7 @@ class ConfigurationSpec:
         self.interface = interface
         self.entry_state = cast(NodeState, to_enum(NodeState, entry_state))
         self.base_dir = base_dir
+        self.input_defs: Optional[Dict[str, Property]] = input_defs
 
     def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
@@ -1354,6 +1358,7 @@ def _get_config_spec_args_from_implementation(
         "outputs": iDef.outputs,
         "operation_host": operation_host,
         "entry_state": iDef.entry_state,
+        "input_defs": iDef.get_declared_inputs()
     }
     artifactTpl: Union[str, dict, None] = None
     dependencies = None

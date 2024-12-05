@@ -894,6 +894,10 @@ class Results(ABC, metaclass=ProxyableType):
                 # required attributes might be null depending on the state of the resource
                 if (
                     propDef.required
+                    and (
+                        "default" not in propDef.schema.schema
+                        or propDef.schema.schema["default"] is not None
+                    )
                     and resource.template
                     and key not in resource.template.attributeDefs
                 ):

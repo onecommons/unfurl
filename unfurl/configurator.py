@@ -604,13 +604,13 @@ class TaskView:
                 if relationship.source:
                     vars["SOURCE"] = relationship.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
-            # expose inputs lazily to allow self-referencee
+            # expose inputs lazily to allow self-reference
             ctx.vars = vars
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
             elif self.configSpec.base_dir:
                 ctx.base_dir = self.configSpec.base_dir
-            self._inputs = ResultsMap(inputs, ctx)
+            self._inputs = ResultsMap(inputs, ctx, defs=self.configSpec.input_defs)
             vars["inputs"] = self._inputs
         return self._inputs
 
