@@ -56,7 +56,8 @@ pub enum CriteriaTerm {
         constraints: Vec<Constraint>,
     },
     NodeMatch {
-        query: Vec<(QueryType, Symbol)>,
+        start_node: Symbol,
+        query: Vec<(QueryType, Symbol, Symbol)>,
     },
 }
 
@@ -510,7 +511,7 @@ ascent! {
 
     term_match(source, req, criteria, ct, target, None) <--
         result(source, req, q_id, target, true), requirement(source, req, criteria, restrictions),
-        req_term_query(node, req, ct, q_id);
+        req_term_query(source, req, ct, q_id);
 
     filtered(name, req_name, target, cn, criteria, Criteria::singleton(term.clone())) <--
         term_match(name, req_name, criteria, term, target, cn);
@@ -535,39 +536,41 @@ ascent! {
     transitive_match(x, r, z) <-- requirement_match(x, r, y, c), transitive_match(y, r, z);
 
     // querying
-    relation query(NodeName, ReqName, QueryId, QueryType, ReqName, bool);
+    relation query(NodeName, ReqName, QueryId, QueryType, ReqName, Symbol, bool);
     relation result(NodeName, ReqName, QueryId, NodeName, bool);
 
     // rules for generating for each query type:
+
+    // include self in result
+    result(n, r, q_id + 1, s ,last) <--
+        query(n, r, q_id, qt, ?req, sym("SELF"), last) if *qt != QueryType::PropSource,
+        result(n, r, q_id, s, false);
+
     result(n, r, q_id + 1, t ,last) <-- transitive_match(s, a, t),
-                              query(n, r, q_id, QueryType::TransitiveRelation, a, last),
-                              result(n, r, q_id, s, false);
+        query(n, r, q_id, QueryType::TransitiveRelation, a, _, last),
+        result(n, r, q_id, s, false);
 
     result(n, r, q_id + 1, s, last) <-- required_by(s, a, t),
-                              query(n, r, q_id, QueryType::RequiredBy, a, last),
-                              result(n, r, q_id, t, false);
+              query(n, r, q_id, QueryType::RequiredBy, a, _, last),
+              result(n, r, q_id, t, false);
 
     result(n, r2, q_id + 1, s, last) <-- required_by(s, r2, t),
-          query(n, r, q_id, QueryType::RequiredByType, a, last),
-          relationship(n, r, a),
-          result(n, r, q_id, t, false);
+        query(n, r, q_id, QueryType::RequiredByType, a, _, last),
+        relationship(n, r, a),
+        result(n, r, q_id, t, false);
 
     result(n, r2, q_id + 1, t ,last) <-- transitive_match(s, r2, t),
-        query(n, r, q_id, QueryType::TransitiveRelationType, a, last),
+        query(n, r, q_id, QueryType::TransitiveRelationType, a, _, last),
         relationship(n, r, a),
         result(n, r, q_id, s, false);
 
     result(node_name, req_name, q_id + 1, source, last) <-- requirement_match(source, a, target, ?cap),
-          query(node_name, req_name, q_id, QueryType::Sources, a, last),
-          result(node_name, req_name, q_id, target, false);
+        query(node_name, req_name, q_id, QueryType::Sources, a, _, last),
+        result(node_name, req_name, q_id, target, false);
 
     result(node_name, req_name, q_id + 1, target, last) <-- requirement_match(source, a, target, ?cap),
-          query(node_name, req_name, q_id, QueryType::Targets, a, last),
-          result(node_name, req_name, q_id, source, false);
-
-   // result(t, q_id, final) <-- property_source(s, None, prop_name, t), query(q_id, QueryType::PropertySource"), prop_name, last), result(s, q_id, false);
-   // given an expression like configured_by::property, generate:
-   // [result(source_node, 1, false), query(1, "required_by", "configured_by", false), property_source_query(1, property, true)]
+        query(node_name, req_name, q_id, QueryType::Targets, a, _, last),
+        result(node_name, req_name, q_id, source, false);
 }
 
 #[cfg(test)]

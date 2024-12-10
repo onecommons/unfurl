@@ -27,6 +27,7 @@ use topology::{sym, Topology};
 
 /// A partial representations of a TOSCA node template (enough for [solve()])
 #[cfg_attr(feature = "python", derive(FromPyObject))]
+#[derive(Debug)]
 pub struct Node {
     /// node template name
     pub name: String,
@@ -141,22 +142,23 @@ fn add_field_to_topology(
                             sym(n),
                         ));
                     }
-                    CriteriaTerm::NodeMatch { query } => {
+                    CriteriaTerm::NodeMatch { start_node, query } => {
                         topology.result.push((
                             sym(node_name),
                             sym(&f.name),
                             0,
-                            sym(node_name),
+                            sym(start_node),
                             false,
                         ));
 
-                        for (index, (q, n)) in query.iter().enumerate() {
+                        for (index, (q, n, param)) in query.iter().enumerate() {
                             topology.query.push((
                                 sym(node_name),
                                 sym(&f.name),
                                 index,
                                 *q,
                                 sym(n),
+                                sym(param),
                                 index + 1 == query.len(),
                             ));
                         }
@@ -394,6 +396,7 @@ pub fn solve(
         add_node_to_topology(node, &mut prog, &type_parents, true, false)?;
     }
     run_program(&mut prog, timeout)?;
+    // println!("term_match: {:#?}", prog.term_match.iter().map(|x| (x.0.clone(), x.1.clone(), x.3.clone(), x.4.clone())).collect::<Vec<_>>());
 
     // return requirement_match
     let mut requirements = RequirementMatches::new();
@@ -458,7 +461,8 @@ mod tests {
                                     n: "Service".into(),
                                 },
                                 CriteriaTerm::NodeMatch {
-                                    query: vec![(QueryType::Sources, "connects_to".into())],
+                                    start_node: name.into(),
+                                    query: vec![(QueryType::Sources, "connects_to".into(), "".into())],
                                 },
                             ],
                             tosca_type: Some("tosca.relationships.Root".into()),
