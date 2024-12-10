@@ -562,7 +562,7 @@ Built-in keys start with a leading **.**:
 .tosca_name    name of the instance's TOSCA template
 .status        the instance's :class:`unfurl.support.Status`
 .state         the instance's :class:`unfurl.support.NodeState`
-.parents       list of parents
+.parents       list of parents starting from root
 .ancestors     self and parents
 .root          root ancestor
 .instances     child instances (via the ``HostedOn`` relationship)

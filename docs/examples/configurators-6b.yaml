@@ -1,0 +1,34 @@
+node_types:
+  ExampleTerraformManagedResource:
+    derived_from: tosca.nodes.Root
+    description: A type of resource that is managed (create/update/delete) by a terraform
+      resource
+    properties:
+      example_terraform_var:
+        type: string
+        description: A property the UI will render for user input
+        metadata:
+          # TOSCA properties are conceptually similar to Terraform variables.
+          # This declares that this property will set as a terraform variable with the same name:
+          tfvar: true
+    attributes:
+      example_terraform_output:
+        type: string
+        metadata:
+          # TOSCA attributes are conceptually similar to Terraform outputs.
+          # This declares that this attribute will be set to the terraform output with the same name:
+          tfoutput: true
+    interfaces:      
+      Install:
+        operations:
+          check:
+      Standard:
+        operations:
+          configure:
+          delete:
+      defaults:
+        # set this operation for the basic CRUD operations in the TOSCA deploy workflow
+        implementation:
+          className: unfurl.configurators.terraform.TerraformConfigurator
+        inputs:
+          main: terraform

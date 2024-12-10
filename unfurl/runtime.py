@@ -67,7 +67,7 @@ InstanceKey = NewType("InstanceKey", str)
 class Operational(ChangeAware):
     """
     This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
-    and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
+    and all use the same algorithm to compute their status from their dependent resources, tasks, and configurations
     """
 
     # XXX3 add repairable, messages?

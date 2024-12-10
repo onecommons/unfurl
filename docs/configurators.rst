@@ -350,6 +350,19 @@ Outputs
 
 Specifies which outputs defined by the Terraform module that will be set as the operation's outputs. If omitted and the Terraform configuration is specified inline, all of the Terraform outputs will be included. But if a Terraform configuration directory was specified instead, its outputs need to be declared here to be exposed.
 
+``tfvar`` and ``tfoutput`` Metadata
+-----------------------------------
+
+You can automatically map properties and attributes to a Terraform variables and outputs by setting ``tfvar`` and ``tfoutput`` keys in the property and attribute metadata, respectively. For example:
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/configurators-6b.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/configurators-6b.py
+    :language: python
+
 Environment Variables
 ---------------------
 
