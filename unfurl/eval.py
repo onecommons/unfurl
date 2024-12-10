@@ -15,6 +15,7 @@ eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._map_value same as map_value but with lazily evaluation
 """
+
 from functools import partial
 from typing import (
     Any,
@@ -42,7 +43,6 @@ from unfurl.logs import UnfurlLogger
 
 from .util import validate_schema, UnfurlError, assert_form
 from .result import (
-    AnyRef,
     ResultsList,
     Result,
     Results,
@@ -703,8 +703,73 @@ class SafeRefContext(RefContext):
     _Funcs = _CoreFuncs.copy()
 
 
+class AnyRef(ResourceRef):
+    "Used by eval.analyze_expr to analyze expressions"
+
+    def __init__(self, name: str, parent=None):
+        self.parent = parent
+        while parent:
+            if not parent.parent:
+                parent.children.append(self)
+                break
+            else:
+                parent = parent.parent
+        self.key = name
+        self.children: List[AnyRef] = []
+
+    class _ChildResources(Mapping):
+        def __init__(self, resource):
+            self.parent = resource
+
+        def __getitem__(self, key):
+            return AnyRef("::" + key, self.parent)
+
+        def __iter__(self):
+            return iter(["*"])
+
+        def __len__(self):
+            return 1
+
+    @property
+    def all(self):
+        # called by Expr.resolve when expression starts with "::"
+        return AnyRef._ChildResources(self)
+
+    def _get_prop(self, name: str) -> Optional["AnyRef"]:
+        if name == ".":
+            return self
+        elif name == "..":
+            return cast(AnyRef, self.parent)
+        return AnyRef(name, self)
+
+    def _resolve(self, key):
+        return AnyRef(key, self)
+
+    def get_keys(self) -> List[str]:
+        head = self
+        while head.parent:
+            head = cast(AnyRef, head.parent)
+        return [head.key] + [c.key for c in head.children]
+
+    def __repr__(self) -> str:
+        return f"AnyRef({hex(id(self))} {self.key})"
+
+    def __eq__(self, other):
+        # assumes this is called from an expression's filter test and we want to proceed for analysis
+        if isinstance(other, AnyRef):
+            if self.key == ".name":
+                self.key = other.key
+            return True
+        return False
+
+    def __ne__(self, other):
+        # assumes this is called from an expression's filter test and we want to proceed for analysis
+        return True
+
+
 def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
-    ctx = ctx_cls(AnyRef("$start"), vars={n: AnyRef(n) for n in var_list})
+    start = AnyRef("$start")
+    ctx = ctx_cls(start, vars={n: AnyRef(n) for n in var_list})
     try:
         result = Ref(expr).resolve(ctx)
     except:

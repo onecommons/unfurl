@@ -872,3 +872,11 @@ def test_analyze_expr():
     result = analyze_expr({"get_property": ["HOST", "host", "disk_size"]})
     assert result and result.get_keys() == ['$start']
 
+    result = analyze_expr({"eval":".capabilities::[.name=cap_name]::foo", "trace":0})
+    assert result and result.get_keys() == ["$start", ".capabilities", "cap_name", "foo"]
+
+    result = analyze_expr({"eval":"::node::foo", "trace":0})
+    assert result and result.get_keys() == ['$start', "::node", "foo"]
+
+    result = analyze_expr({"eval": "foo", "trace":0})
+    assert result and result.get_keys() == ['$start', ".ancestors", "foo"]

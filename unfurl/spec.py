@@ -800,7 +800,7 @@ class EntitySpec(ResourceRef):
         if value and is_function(value):
             # treat default like a constraint
             # evaluate expression as a template expression and if it resolves to
-            result = cast(list, Ref(value).resolve(SafeRefContext(self)))
+            result = Ref(value).resolve(SafeRefContext(self))
             if result and isinstance(result[0], EntitySpec):
                 return result[0]
         return self
@@ -1001,17 +1001,17 @@ def _get_roots(node: EntitySpec, seen=None):
             seen.add(node.name)
             yield from _get_roots(parent, seen)
 
-
-def extract_req(expr, var_list=()) -> str:
-    result = analyze_expr(expr, var_list)
-    if not result:
-        return ""
-    expr_list = result.get_keys()
-    try:
-        i = expr_list.index(".targets")
-        return expr_list[i + 1]
-    except:
-        return ""  # not found
+# (see NodeSpec.requirement_constraints())
+# def extract_req(expr, var_list=()) -> str:
+#     result = analyze_expr(expr, var_list)
+#     if not result:
+#         return ""
+#     expr_list = result.get_keys()
+#     try:
+#         i = expr_list.index(".targets")
+#         return expr_list[i + 1]
+#     except:
+#         return ""  # not found
 
 
 class NodeSpec(EntitySpec):
