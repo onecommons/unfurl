@@ -849,11 +849,12 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             match_filters = root_node_filter.setdefault("match", [])
             if isinstance(val, _DataclassType) and issubclass(val, ToscaType):
                 # its a DataType class
-                match_filters.append(dict(get_nodes_of_type=val.tosca_type_name()))
+                val = dict(get_nodes_of_type=val.tosca_type_name())
             else:
                 # XXX if val is a node, create ref:
                 # val = EvalData({"eval": "::"+ val._name})
                 assert isinstance(val, EvalData), val
+            if val not in match_filters:
                 match_filters.append(val)
 
     def _set_default(self, val):
