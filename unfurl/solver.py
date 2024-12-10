@@ -1,6 +1,6 @@
 # Copyright (c) 2024 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import sys
 
 # import types from rust extension
@@ -276,49 +276,100 @@ def convert(
     return entity
 
 
-def add_match(terms, match) -> None:
+QueryTerms = List[Tuple[QueryType, str, str]]
+
+
+def add_match(
+    node_template: NodeTemplate, terms: list, match: Union[str, dict]
+) -> None:
     if isinstance(match, dict) and (node_type := match.get("get_nodes_of_type")):
         terms.append(CriteriaTerm.NodeType(node_type))
     else:
-        skip = False
-        query = []
-        result = analyze_expr(match)
-        if result:
-            expr_list = result.get_keys()
-            # logger.warning(f"{match} {expr_list=}")
-            query_type = None
-            for key in expr_list:
-                if key == "$start":
-                    continue
-                if query_type is not None:
-                    query.append((query_type, key))
-                    query_type = None
-                else:
-                    if key.startswith("."):
-                        if key == ".configured_by":
-                            query.append(
-                                (
-                                    QueryType.RequiredByType,
-                                    "unfurl.relationships.Configures",
-                                )
+        query, start_node = expr2query(node_template, match)
+        if query:
+            terms.append(CriteriaTerm.NodeMatch(start_node, query))
+
+
+def expr2query(
+    node_template: NodeTemplate, match: Union[str, dict]
+) -> Tuple[QueryTerms, str]:
+    from .support import resolve_function_keyword  # avoid circular import
+
+    if isinstance(match, dict) and (get_property := match.get("get_property")):
+        assert isinstance(get_property, list), get_property
+        match = cast(str, resolve_function_keyword(get_property[0]))
+        if len(get_property) > 2:
+            match += "::.capabilities"  # XXX or .targets (cf. .names)
+        match += "::" + "::".join(get_property[1:])
+
+    query: QueryTerms = []
+    start_node: str = node_template.name
+    result = analyze_expr(match)
+    if result:
+        expr_list = result.get_keys()
+        # logger.warning(f"expr_list: {node_template.name} with {match}:\n {expr_list=}")
+        query_type = None
+        cap = ""
+        for key in expr_list:
+            if key == "$start":
+                continue
+            if cap == ".capabilities":
+                cap = key  # assume this key is capability name
+                continue
+            if query_type is not None:
+                # Sources or Targets consume next key
+                query.append((query_type, key, ""))
+                query_type = None
+            else:
+                if key.startswith("::"):
+                    query = []
+                    start_node = key[2:]
+                if key.startswith("."):
+                    if key == ".":
+                        continue
+                    elif key == "..":
+                        query.append((QueryType.Targets, "host", ""))
+                    elif key.startswith(".root"):
+                        query = []
+                        start_node = "root"
+                    elif key == ".instances":
+                        query.append((QueryType.Sources, "host", ""))
+                    elif key == ".configured_by":
+                        query.append(
+                            (
+                                QueryType.RequiredByType,
+                                "unfurl.relationships.Configures",
+                                "",
                             )
-                        elif key == ".hosted_on":
-                            query.append(
-                                (
-                                    QueryType.TransitiveRelationType,
-                                    "tosca.relationships.HostedOn",
-                                )
+                        )
+                    elif key == ".parents" or key == ".ancestors":
+                        query.append(
+                            (
+                                QueryType.TransitiveRelation,
+                                "host",
+                                "SELF" if key == ".ancestors" else "",
                             )
-                        else:
-                            query_type = getattr(QueryType, key[1:].title(), None)
-                            if query_type is None:
-                                skip = True
-                                break
-                    else:  # key is prop
-                        query.append((QueryType.PropSource, key))
-                    # logger.warning(f"{skip} {query=}")
-        if query and not skip:
-            terms.append(CriteriaTerm.NodeMatch(query))
+                        )
+                    elif key == ".hosted_on":
+                        query.append(
+                            (
+                                QueryType.TransitiveRelationType,
+                                "tosca.relationships.HostedOn",
+                                "",
+                            )
+                        )
+                    elif key == ".capabilities":
+                        cap = ".capabilities"  # assume next key is capability name
+                    else:
+                        # matches Sources or Targets
+                        query_type = getattr(QueryType, key[1:].title(), None)
+                        if query_type is None:
+                            return [], ""
+                else:  # key is prop
+                    query.append((QueryType.PropSource, key, cap))
+                    cap = ""
+                # logger.warning(f"{skip} {query=}")
+    return query, start_node
 
 
 def get_req_terms(
@@ -371,7 +422,7 @@ def get_req_terms(
     if node_filter:
         match = node_filter.get("match")
         if match:
-            add_match(terms, match)
+            add_match(node_template, terms, match)
         if not filter2term(terms, node_filter, None):
             return None, False  # has an unsupported constraint, bail
         for cap_filters in node_filter.get("capabilities", []):

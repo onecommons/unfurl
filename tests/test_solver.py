@@ -33,7 +33,7 @@ def make_tpl(yaml_str: str):
 
 
 example_helloworld_yaml = """
-tosca_definitions_version: tosca_simple_unfurl_1_0_0"
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
   Example:
     derived_from: tosca.nodes.Root
@@ -136,10 +136,12 @@ def test_multiple():
     tosca_yaml["topology_template"]["node_templates"]["db_server2"] = tosca_yaml[
         "topology_template"
     ]["node_templates"]["db_server"].copy()
+    import_resolver = ImportResolver(None)
+    assert import_resolver.solve_topology
     t = ToscaTemplate(
         path=__file__,
         yaml_dict_tpl=tosca_yaml,
-        import_resolver=ImportResolver(None),
+        import_resolver=import_resolver,
         verify=False,
     )
     exception.ExceptionCollector.start()
