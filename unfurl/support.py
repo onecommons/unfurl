@@ -932,9 +932,13 @@ _toscaKeywordsToExpr = {
     "SOURCE": ".source",
     "TARGET": ".target",
     "ORCHESTRATOR": "::localhost",
-    "HOST": ".parents",
+    "HOST": ".hosted_on",
     "OPERATION_HOST": "$OPERATION_HOST",
 }
+
+def resolve_function_keyword(node_name: str):
+    """see 4.1 Reserved Function Keywords"""
+    return _toscaKeywordsToExpr.get(node_name, "::" + node_name)
 
 
 def get_attribute(args, ctx: RefContext):
@@ -943,7 +947,7 @@ def get_attribute(args, ctx: RefContext):
     candidate_name = args.pop(0)
     ctx = ctx.copy(ctx._lastResource)
 
-    start = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    start = resolve_function_keyword(entity_name)
     if args:
         attribute_name = args.pop(0)
         # need to include candidate_name as a test in addition to selecting it
@@ -1122,7 +1126,7 @@ set_eval_func(
 
 def _get_instances_from_keyname(ctx, entity_name):
     ctx = ctx.copy(ctx._lastResource)
-    query = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    query = resolve_function_keyword(entity_name)
     instances = cast(ResultsList, ctx.query(query, wantList=True))
     if instances:
         return instances
