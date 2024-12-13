@@ -43,20 +43,39 @@ from tosca import (
 )
 import tosca
 
-tfvar = tosca.PropertyOptions(dict(tfvar=True))
+tfvar = tosca.PropertyOptions(
+    dict(tfvar=True)
+)  # override inputs["tfvar"], ignored if tfvar is a string
 tfoutput = tosca.AttributeOptions(dict(tfoutput=True))
+sensitive = tosca.Options(dict(sensitive=True))
+
+
+def validate(factory):
+    return tosca.Options(
+        dict(
+            validation={
+                "eval": dict(validate=f"{factory.__module__}:{factory.__qualname__}")
+            }
+        )
+    )
+
 
 if TYPE_CHECKING or not safe_mode():
     # these imports aren't safe
     from .. import support
     from ..dsl import InstanceProxyBase, proxy_instance
-    from ..eval import Ref, RefContext
+    from ..eval import Ref, RefContext, map_value
     from ..util import UnfurlError
     from ..yamlloader import cleartext_yaml
     from ..projectpaths import FilePath, TempFile, _abspath
+    from tosca.yaml2python import has_function
 
-    def get_context(obj: ToscaType) -> RefContext:
+    def get_context(obj: ToscaType, kw: Optional[Dict[str, Any]] = None) -> RefContext:
         if isinstance(obj, InstanceProxyBase) and obj._context:
+            if kw is not None:
+                ctx = obj._context.copy()
+                ctx.kw = kw
+                return ctx
             return obj._context
         else:
             raise ValueError(
@@ -74,6 +93,7 @@ else:
 __all__ = [
     "tfoutput",
     "tfvar",
+    "sensitive",
     "has_env",
     "get_env",
     "get_input",
@@ -232,9 +252,9 @@ def if_expr(if_cond, then: T, otherwise: U = None) -> Union[T, U]:
             "'if_expr()' can not be valuate in runtime mode, instead just use a Python 'if' statement or expression."
         )
     else:
-        return EvalData(
-            {"eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}}
-        )  # type: ignore
+        return EvalData({
+            "eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}
+        })  # type: ignore
 
 
 def or_expr(left: T, right: U) -> Union[T, U]:
@@ -268,6 +288,7 @@ def to_env(args: Dict[str, str], update_os_environ=False) -> Dict[str, str]:
     if global_state_mode() == "runtime":
         ctx = global_state_context()
         if update_os_environ:
+            ctx = ctx.copy()
             ctx.kw = dict(update_os_environ=update_os_environ)
         return support.to_env(args, ctx)
     else:
@@ -320,9 +341,9 @@ def tempfile(contents: Any, suffix="", encoding=None):
         )
         return TempFile(contents, suffix, yaml, encoding)
     else:
-        return EvalData(
-            {"eval": {"tempfile": contents, "suffix": suffix, "encoding": encoding}}
-        )
+        return EvalData({
+            "eval": {"tempfile": contents, "suffix": suffix, "encoding": encoding}
+        })
 
 
 def template(
@@ -339,6 +360,7 @@ def template(
     if obj and global_state_mode() == "runtime":
         ctx = get_context(obj)
         if overrides:
+            ctx = ctx.copy()
             ctx.kw = dict(overrides=overrides)
         return support._template_func(args, ctx)
     else:

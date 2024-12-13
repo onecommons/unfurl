@@ -215,9 +215,11 @@ class ImmutableModule(ModuleType):
         "__safe__",
         "__all__",
         "__name__",
+        "__qualname__",
         "__package__",
         "__file__",
         "__root__",
+        "__module__",
     )
 
     def __init__(self, name, module):

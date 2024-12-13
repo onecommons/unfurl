@@ -179,7 +179,7 @@ class RefContext:
         self.templar = currentResource.templar
         self.referenced = _Tracker()
         self.task = task
-        self.kw: MappingType[str, Any] = {}
+        self.kw: Mapping[str, Any] = {}
 
     @property
     def strict(self) -> bool:
@@ -200,10 +200,10 @@ class RefContext:
     def copy(
         self,
         resource: Optional["ResourceRef"] = None,
-        vars: dict = None,
+        vars: Optional[dict] = None,
         wantList: Optional[Union[bool, str]] = None,
         trace: int = 0,
-        strict: bool = None,
+        strict: Optional[bool] = None,
     ) -> "RefContext":
         if not isinstance(resource or self.currentResource, ResourceRef) and isinstance(
             self._lastResource, ResourceRef

@@ -96,6 +96,7 @@ __all__ = [
     "Node",
     "NodeType",
     "OpenDataEntity",
+    "Options",
     "Policy",
     "PolicyType",
     "Property",

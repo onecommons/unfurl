@@ -226,21 +226,62 @@ class DslMethodConfigurator(Configurator):
         return False
 
 
-def eval_computed(arg, ctx):
+def eval_computed(arg, ctx: RefContext):
     """
     eval:
        computed: mod:class.computed_property
+
+    or
+
+    eval:
+       computed: mod:func
+    """
+    if isinstance(arg, list):
+        arg, args = arg[0], arg[1:]
+    else:
+        args = []
+    if len(ctx.kw) > 1:
+        kw = {k: v for k, v in ctx.kw.items() if k != "computed"}
+    else:
+        kw = {}
+    module_name, sep, qualname = arg.partition(":")
+    module = importlib.import_module(module_name)
+    cls_name, sep, func_name = qualname.rpartition(".")
+    if cls_name:
+        cls = getattr(module, cls_name)
+        func = getattr(cls, func_name)
+        proxy = proxy_instance(ctx.currentResource, cls, ctx)
+        return proxy._invoke(func, *args, **kw)
+    else:
+        return getattr(module, func_name)(*args, **kw)
+
+
+set_eval_func("computed", eval_computed)
+
+
+def eval_validate(arg, ctx: RefContext):
+    """
+    eval:
+       validate: mod:class.method
+
+    or
+
+    eval:
+       computed: mod:func
     """
     module_name, sep, qualname = arg.partition(":")
     module = importlib.import_module(module_name)
     cls_name, sep, func_name = qualname.rpartition(".")
-    cls = getattr(module, cls_name)
-    func = getattr(cls, func_name)
-    proxy = proxy_instance(ctx.currentResource, cls, ctx)
-    return proxy._invoke(func)
+    if cls_name:
+        cls = getattr(module, cls_name)
+        func = getattr(cls, func_name)
+        proxy = proxy_instance(ctx.currentResource, cls, ctx)
+        return proxy._invoke(func, ctx.vars["value"])
+    else:
+        return getattr(module, func_name)(ctx.vars["value"])
 
 
-set_eval_func("computed", eval_computed)
+set_eval_func("validate", eval_validate)
 
 
 class ProxyCollection(CollectionProxy):
@@ -393,11 +434,11 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         else:
             return self._cls.__dataclass_fields__.get(name)
 
-    def _invoke(self, func, *args):
+    def _invoke(self, func, *args, **kwargs):
         saved_context = global_state.context
         global_state.context = self._context.copy(self._instance.root)
         try:
-            return func(self, *args)
+            return func(self, *args, **kwargs)
         finally:
             global_state.context = saved_context
 

@@ -2,6 +2,7 @@ import os
 import pytest
 import unfurl
 import tosca
+from unfurl.logs import is_sensitive
 from unfurl.testing import runtime_test
 from unfurl.tosca_plugins import expr, functions
 from typing import Optional, Type
@@ -167,6 +168,9 @@ def test_hosted_on():
     assert topology.software.architecture == "x86_64"
 
 
+def validate_pw(password: str) -> bool:
+    return len(password) > 4
+
 def test_expressions():
     tosca.global_state.mode = "spec"
     class Inputs(tosca.TopologyInputs):
@@ -178,6 +182,7 @@ def test_expressions():
         default_expr: str = expr.fallback(None, "foo")
         or_expr: str = expr.or_expr(default_expr, "ignored")
         label: str = functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        password: str = tosca.Property(options=expr.sensitive | expr.validate(validate_pw), default="default")
 
     class test(tosca.Namespace):
         service = Service()
@@ -203,6 +208,9 @@ def test_expressions():
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"
     assert topology.test_node.label == "fo--o"
+    assert is_sensitive(topology.test_node.password)
+    with pytest.raises(UnfurlError, match=r'validation failed for'):
+        topology.test_node.password = ""
     # XXX test:
     # "if_expr", and_expr
     # "lookup",
