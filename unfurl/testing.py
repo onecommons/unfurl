@@ -26,16 +26,19 @@ from .support import Status, Priority
 import tosca
 from tosca.python2yaml import PythonToYaml
 from .dsl import proxy_instance
+import pprint
 
 try:
     from mypy import api
 
-    def assert_no_mypy_errors(path, *args):
+    def assert_no_mypy_errors(path, *args, expected=["no issues found in 1 source file"]):
         stdout, stderr, return_code = api.run([path, *args] )
         if stdout:
             print(stdout)
-            assert "no issues found in 1 source file" in stdout
-        assert return_code == 0, (stderr, stdout)
+            for msg in expected:
+                assert msg in stdout, f"not found in stdout: {msg}"
+        # if errors, return_code == 1
+        assert return_code != 2, (stderr, stdout)
 except ImportError:
     assert_no_mypy_errors = None  # type: ignore
 
@@ -111,7 +114,7 @@ def _check_job(job, i, step):
 
 
 def lifecycle(
-    manifest: Manifest, steps: Iterable[Step] = DEFAULT_STEPS
+    manifest: YamlManifest, steps: Iterable[Step] = DEFAULT_STEPS
 ) -> Iterable[Job]:
     runner = Runner(manifest)
     for i, step in enumerate(steps, start=1):

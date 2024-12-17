@@ -1666,7 +1666,7 @@ def run_job(
 class Runner:
     "this class is only used by unit tests, application uses start_job() above"
 
-    def __init__(self, manifest):
+    def __init__(self, manifest: "YamlManifest"):
         self.manifest = manifest
         assert self.manifest.tosca
         self.job = None
@@ -1682,6 +1682,7 @@ class Runner:
             jobOptions = JobOptions()
         if not self.job:
             self.job = _plan(self.manifest, jobOptions)
+        assert self.job
         rendered, count = _render(self.job)
         if not jobOptions.planOnly:
             self.job.run(rendered)

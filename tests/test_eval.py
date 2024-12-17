@@ -183,6 +183,8 @@ class EvalTest(unittest.TestCase):
         assert 3 == Ref(test6).resolve_one(RefContext(resource))
         test7 = {"eval": {"sub": [1, 1]}}
         assert 0 == Ref(test7).resolve_one(RefContext(resource))
+        test8 = {"eval":  dict(scalar_value="6 mb", unit="gb", round=2)}
+        assert 0.01 == Ref(test8).resolve_one(RefContext(resource))
 
     def test_circular_refs(self):
         more = {}
@@ -375,6 +377,12 @@ class EvalTest(unittest.TestCase):
             ctx
         )
         assert val == "a.b"
+
+        val = map_value(
+            "{{ __unfurl.scalar_value('500 kb' | scalar + '1 mb' | scalar, 'gb') }}",
+            ctx
+        )
+        assert val == 0.0015
 
     def test_templateFunc(self):
         query = {

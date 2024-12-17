@@ -16,14 +16,7 @@ from unfurl.yamlloader import yaml, load_yaml
 from tosca.python2yaml import PythonToYaml
 from click.testing import CliRunner
 from unfurl.util import change_cwd
-
-
-def _verify_mypy(path):
-    stdout, stderr, return_code = api.run(["--disable-error-code=override", path])
-    if stdout:
-        print(stdout)
-        assert "no issues found in 1 source file" in stdout
-    assert return_code == 0, (stderr, stdout)
+from unfurl.testing import assert_no_mypy_errors
 
 
 def test_constraints():
@@ -190,7 +183,22 @@ def test_constraints():
 def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "examples", path)
-    _verify_mypy(basepath)
+    assert_no_mypy_errors(basepath, "--disable-error-code=override")
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_mypy_errors():
+    # assert mypy expected errors
+    expected = [
+        'error: Unsupported operand types for * ("Size" and "str")  [operator]',
+        'Unsupported operand types for * ("Size" and "_Unit[Frequency]")  [operator]',
+        'Argument 1 to "apply_constraint" of "DataConstraint" has incompatible type "str"; expected "Size"  [arg-type]',
+        'Unsupported operand types for + ("Size" and "Frequency")',
+        'Argument 1 to "as_int" of "_Unit" has incompatible type "Size"; expected "Frequency"',
+        "Found 6 errors in 1 file",
+    ]
+    basepath = os.path.join(os.path.dirname(__file__), "examples", "type_errors.py")
+    assert_no_mypy_errors(basepath, expected=expected)
 
 
 constraints_yaml = """
@@ -301,7 +309,6 @@ def test_computed_properties():
                 "source": 80,
                 "source_range": None,
             },
-
             "a_list": [1],
             "data_list": [
                 {
@@ -312,7 +319,7 @@ def test_computed_properties():
                         "source": 80,
                         "source_range": None,
                     },
-                    "additional": 1
+                    "additional": 1,
                 }
             ],
             "extra": "extra",
@@ -353,7 +360,10 @@ relationships_yaml = {
     "node_types": {
         "Volume": {
             "derived_from": "tosca.nodes.Root",
-            "properties": {"disk_label": {"type": "string"}},
+            "properties": {
+                "disk_label": {"type": "string"},
+                "disk_size": {"type": "scalar-unit.size", "default": "100 GB"},
+            },
         },
         "TestTarget": {
             "derived_from": "tosca.nodes.Root",
@@ -361,7 +371,7 @@ relationships_yaml = {
                 "volume_mount": {
                     "type": "VolumeMountArtifact",
                     "properties": {
-                        "mountpoint": "/mnt/{{ '.targets::volume_attachment::.target::disk_label' | eval }}"
+                        "mountpoint": "/mnt/{{ {'eval': {'computed': ['service_template.dsl_relationships:disk_label', {'eval': '.targets::volume_attachment::.target::disk_label'}]}} | map_value }}",
                     },
                     "file": "",
                     "intent": "mount",
@@ -396,7 +406,7 @@ relationships_yaml = {
 def test_relationships():
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     # loads yaml with with a json include
-    local = LocalEnv(basepath + "dsl-ensemble.yaml")
+    local = LocalEnv(basepath + "dsl-ensemble.yaml")  # loads dsl_relationships.py
     manifest = local.get_manifest(skip_validation=True, safe_mode=True)
     service_template = manifest.manifest.expanded["spec"]["service_template"]
     # pprint.pprint(service_template, indent=2)

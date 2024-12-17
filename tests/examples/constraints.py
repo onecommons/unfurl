@@ -1,6 +1,7 @@
 import unfurl
 import tosca
 from tosca import gb
+from typing_extensions import reveal_type
 class ContainerService(tosca.nodes.Root):
     image: str
     url: str
@@ -40,8 +41,8 @@ class App(tosca.nodes.Root):
         # the proxy's backend is set to the container's url
         cls.proxy.backend_url = cls.container.url
         cls.proxy.hosting.name = "app"
-        tosca.in_range(2*gb, 20*gb).apply_constraint(cls.proxy.hosting.mem_size)
-        # same as:
+        tosca.in_range(1*gb*2, 20*gb).apply_constraint(cls.proxy.hosting.mem_size)
+        # the following is equivalent, but has a static type error:
         # cls.proxy.hosting.mem_size = tosca.in_range(2*gb, 20*gb)
 
 topology = App("myapp", proxy=ProxyContainerHost())

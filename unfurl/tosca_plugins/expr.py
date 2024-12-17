@@ -1,7 +1,7 @@
 """
 Type-safe equivalents to Unfurl's Eval `Expression Functions`.
 
-When called in "spec" mode (e.g. as part of a class definition or in ``_class_init_``) they will return eval expression
+When called in `"spec" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``) they will return eval expression
 that will get executed. But note that the type signature will match the result of the expression, not the eval expression itself.
 (This type punning enables effective static type checking).
 
@@ -15,6 +15,8 @@ One that takes a live ToscaType object as an argument and one that takes ``None`
 The former variant can only be used in runtime mode as live objects are not available outside that mode.
 In "spec" mode, the None variant must be used and at runtime the eval expression returned by that function
 will be evaluated using the current context's instance.
+
+User-defined functions can be made available as an expression functions by the `runtime_func` decorator.
 """
 
 # put this module is in unfurl/tosca_plugins because modules in this package are whitelisted as safe
@@ -108,7 +110,7 @@ __all__ = [
     "get_dir",
     "template",
     "get_nodes_of_type",
-    "negate",
+    "not_",
     "as_bool",
     "uri",
     "concat",
@@ -119,7 +121,48 @@ __all__ = [
     # XXX kubernetes_current_namespace
     # XXX kubectl,
     # XXX get_artifact
+    # XXX python
+    "runtime_func",
 ]
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+@overload
+def runtime_func(_func: None = None) -> Callable[[F], F]: ...
+
+
+@overload
+def runtime_func(_func: F) -> F: ...
+
+
+def runtime_func(_func: Optional[F] = None) -> Union[F, Callable[[F], F]]:
+    """
+    A decorator for making a function invocable as a runtime expression.
+    When the decorated function invoked in `"spec" mode <global_state_mode>`, if any of its arguments contain :py:class:`tosca.EvalData`,
+    then the function will return :py:class:`tosca.EvalData` containing a JSON representation of the invocation as an `expression function <Expression functions>` that will be evaluated at runtime.
+    Otherwise, the function will eagerly execute as a normal Python function.
+    """
+
+    def _make_computed(func: F) -> F:
+        def wrapped(*args, **kwargs):
+            if global_state_mode() == "runtime":
+                ctx = global_state_context()
+                return func(*map_value(args, ctx), **map_value(kwargs, ctx))
+            elif (
+                not safe_mode() and not has_function(args) and not has_function(kwargs)
+            ):
+                return func(*args, **kwargs)
+            else:
+                kwargs["computed"] = [f"{func.__module__}:{func.__qualname__}", *args]
+                return EvalData({"eval": kwargs})
+
+        return cast(F, wrapped)
+
+    if _func is None:
+        return _make_computed
+    else:
+        return _make_computed(_func)
 
 
 def get_nodes_of_type(cls: Type[ToscaType]) -> list:
@@ -134,12 +177,10 @@ def get_nodes_of_type(cls: Type[ToscaType]) -> list:
         return EvalData({"get_nodes_of_type": cls.tosca_type_name()})  # type: ignore
 
 
-def negate(val) -> bool:
+def not_(val) -> bool:
     if global_state_mode() == "runtime":
         return not bool(val)
     else:
-        if isinstance(val, EvalData):
-            val = val.expr
         return cast(bool, EvalData(dict(eval={"not": val, "map_value": 1})))
 
 
@@ -147,8 +188,6 @@ def as_bool(val) -> bool:
     if global_state_mode() == "runtime":
         return bool(val)
     else:
-        if isinstance(val, EvalData):
-            val = val.expr
         return cast(bool, EvalData(dict(eval={"not": {"not": val, "map_value": 1}})))
 
 
@@ -240,9 +279,9 @@ U = TypeVar("U")
 def if_expr(if_cond, then: T, otherwise: U = None) -> Union[T, U]:
     """Returns an eval expression like:
 
-    {"eval": {"if": if_cond, "then": then, "else": otherwise}
+    ``{"eval": {"if": if_cond, "then": then, "else": otherwise}``
 
-    This will not evaluate at runtime mode because all arguments will evaluated
+    This will not evaluate at `runtime mode <global_state_mode>` because all arguments will evaluated
     before calling this function, defeating eval expressions' (and Python's) short-circuit semantics.
     To avoid unexpected behavior, an error will be raised if invoked during runtime mode.
     Instead just use a Python 'if' statement or expression.
@@ -269,7 +308,7 @@ def or_expr(left: T, right: U) -> Union[T, U]:
 def fallback(left: Optional[T], right: T) -> T:
     if global_state_mode() == "runtime":
         raise UnfurlError(
-            "'fallback()' can not be valuate in runtime mode, instead just use Python's 'or' operator."
+            "'fallback()' can not be valuate in `runtime mode <global_state_mode>`, instead just use Python's 'or' operator."
         )
     else:
         return EvalData(dict(eval={"or": [left, right], "map_value": 1}))  # type: ignore
