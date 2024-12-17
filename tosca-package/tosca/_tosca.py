@@ -1621,12 +1621,15 @@ _EvalDataExpr = Union[str, None, Dict[str, Any], List[Any]]
 
 
 class _GetName:
+    # use this to lazily evaluate a template's name because might not be set correctly until yaml generation time.
     def __init__(self, obj: Union["ToscaType", Type["ToscaType"]]):
         self.obj = obj
 
     def __str__(self) -> str:
         if self.obj._type_name in ("inputs", "outputs"):
             return f"root::{self.obj._type_name}"
+        if isinstance(self.obj, _OwnedToscaType):
+            return self.obj.get_embedded_name() or self.obj._name
         return self.obj._name
 
 
@@ -2543,6 +2546,8 @@ class ToscaType(_ToscaType):
             elif getattr(field, "deferred_property_assignments", None):
                 for name, value in field.deferred_property_assignments.items():
                     setattr(val, name, value)
+            if isinstance(val, _ToscaType):
+                val._set_parent(self, field.name)
         self._initialized = True
 
     def _enforce_required_fields(self) -> bool:
@@ -2787,7 +2792,7 @@ class ToscaType(_ToscaType):
         for key in ("outputs", "entry_state", "invoke"):
             impl_val = getattr(operation, key, None)
             if impl_val is not None:
-                op_def[key] = impl_val
+                op_def[key] = to_tosca_value(impl_val, dict_cls)
         return op_def
 
     @classmethod
@@ -2912,9 +2917,9 @@ class ToscaType(_ToscaType):
                             self._name + "_" + field.name + (str(i) if i else ""),
                         )
                         if shorthand or req:
-                            body.setdefault("requirements", []).append(
-                                {field.tosca_name: shorthand or req}
-                            )
+                            body.setdefault("requirements", []).append({
+                                field.tosca_name: shorthand or req
+                            })
             elif field.section in ["capabilities", "artifacts"]:
                 if value:
                     assert isinstance(value, (CapabilityType, ArtifactType))
@@ -2947,7 +2952,7 @@ class ToscaType(_ToscaType):
                         f"{field.tosca_field_type.name} \"{field.name}\"'s value has wrong type: it's a {type(value)}, not a {field.type}."
                     )
                 body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
-                    value
+                    value, dict_cls
                 )
             elif field.section:
                 assert False, "unexpected section in {field}"
@@ -3135,7 +3140,7 @@ def _get_expr_prefix(
             return ["", _GetName(cls_or_obj)]
         elif isinstance(cls_or_obj, ToscaType):
             return ["", _GetName(cls_or_obj)]
-    # XXX elif isinstance(cls_or_obj, type):  return f"*[type={cls_or_obj._tosca_typename}]::"
+    # XXX elif isinstance(cls_or_obj, type):  return f"*[.type={cls_or_obj._tosca_typename}]::"
     return []
 
 
@@ -3190,7 +3195,7 @@ class Node(ToscaType):
         if self._directives:
             tpl["directives"] = self._directives
         if self._node_filter:
-            tpl["node_filter"] = self._node_filter
+            tpl["node_filter"] = to_tosca_value(self._node_filter)
         return tpl
 
     def find_artifact(self, name_or_tpl) -> Optional["ArtifactType"]:
@@ -3251,6 +3256,11 @@ class _OwnedToscaType(ToscaType):
             self._node = parent
             self._local_name = name
 
+    def get_embedded_name(self) -> str:
+        if self._node:
+            return f"{self._node._name}::{self._local_name}"
+        return self._name
+
 
 class _BaseDataType(ToscaObject):
     @classmethod
@@ -3266,7 +3276,9 @@ class _BaseDataType(ToscaObject):
 class ValueType(_BaseDataType):
     "ValueTypes are user-defined TOSCA data types that are derived from simple TOSCA datatypes, as opposed to complex TOSCA data types."
 
+    # we need this because this class isn't derived from ToscaType:
     _template_section: ClassVar[str] = "data_types"
+    _type_section: ClassVar[str] = "data_types"
     _constraints: ClassVar[Optional[List[dict]]] = None
 
     @classmethod
@@ -3296,7 +3308,7 @@ class ValueType(_BaseDataType):
             body[cls.tosca_type_name()]["description"] = doc
         body[cls.tosca_type_name()]["type"] = cls.simple_tosca_type()
         if cls._constraints:
-            body[cls.tosca_type_name()]["constraints"] = cls._constraints
+            body[cls.tosca_type_name()]["constraints"] = to_tosca_value(cls._constraints)
         return body
 
 
@@ -3350,6 +3362,11 @@ class CapabilityEntity(_OwnedToscaType):
         del tpl["type"]
         return tpl
 
+    def get_embedded_name(self) -> str:
+        if self._node:
+            return f"{self._node._name}::.capabilities[.name={self._local_name}]"
+        return self._name
+
 
 CapabilityType = CapabilityEntity
 
@@ -3387,6 +3404,11 @@ class Relationship(_OwnedToscaType):
             return dataclasses.replace(self, _target=target)  # type: ignore
         self._target = target
         return self
+
+    def get_embedded_name(self) -> str:
+        if self._node:
+            return f"{self._node._name}::.requirements[.name={self._local_name}]"
+        return self._name
 
 
 RelationshipType = Relationship
@@ -3435,12 +3457,17 @@ class ArtifactEntity(_OwnedToscaType):
         for field in self._builtin_fields:
             val = getattr(self, field, None)
             if val is not None:
-                tpl[field] = val
+                tpl[field] = to_tosca_value(val)
         return tpl
 
     def execute(self, *args: ToscaInputs, **kw):
         self.inputs = ToscaInputs._get_inputs(*args, **kw)
         return self
+
+    def get_embedded_name(self) -> str:
+        if self._node:
+            return f"{self._node._name}::.artifacts::{self._local_name}"
+        return self._name
 
 
 ArtifactType = ArtifactEntity  # deprecated
