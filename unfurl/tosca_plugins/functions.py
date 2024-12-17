@@ -1,5 +1,5 @@
 """
-This module contains utility functions that can be executed in "spec" mode (e.g. as part of a class definition or in ``_class_init_``)
+This module contains utility functions that can be executed in `"spec" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``)
 and in the safe mode Python sandbox.
 Each of these are also available as Eval `Expression Functions`.
 """
@@ -12,11 +12,13 @@ import string
 import re
 from typing import (
     TYPE_CHECKING,
+    Callable,
     Iterator,
     List,
     Mapping,
     MutableMapping,
     Tuple,
+    TypeVar,
     Union,
     cast,
     Dict,
@@ -33,6 +35,53 @@ from tosca import (
     global_state_mode,
     global_state_context,
 )
+import tosca
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+if safe_mode():
+
+    def eval_func(func: F) -> F:
+        def wrapped(*args, **kwargs):
+            kwargs[func.__name__] = list(args)
+            return EvalData({"eval": kwargs})
+
+        return cast(F, wrapped)
+else:
+    from tosca.yaml2python import has_function
+    from ..eval import map_value, set_eval_func
+
+    def eval_func(func: F) -> F:
+        def wrapped(*args, **kwargs):
+            if global_state_mode() == "runtime":
+                ctx = global_state_context()
+                return func(*map_value(args, ctx), **map_value(kwargs, ctx))
+            elif (
+                not safe_mode() and not has_function(args) and not has_function(kwargs)
+            ):
+                return func(*args, **kwargs)
+            else:
+                kwargs[func.__name__] = list(args)
+                return EvalData({"eval": kwargs})
+
+        if not safe_mode():
+
+            def _eval_func(arg, ctx):
+                kw = ctx.kw.copy()
+                kw.pop(func.__name__, None)
+                return func(*map_value(arg, ctx, as_list=True), **map_value(kw, ctx))
+
+            set_eval_func(
+                func.__name__,
+                _eval_func,
+                safe=True,
+            )
+        return cast(F, wrapped)
+
+
+scalar = eval_func(tosca.scalar)
+
+scalar_value = eval_func(tosca.scalar_value)
 
 
 def _digest(arg: str, case: str, digest: Optional[str] = None) -> str:
@@ -422,7 +471,8 @@ def get_random_password(
     )
 
 
-def generate_string(preset="", len=0, ranges=(), **kw) -> str:
+@eval_func
+def generate_string(*, preset="", len=0, ranges=(), **kw) -> str:
     # must match https://github.com/onecommons/unfurl-gui/blob/main/packages/oc-pages/vue_shared/lib/directives/generate.js
     if preset == "number":
         return get_random_password(len or 1, valid_chars=string.digits, start="")
@@ -444,6 +494,7 @@ def generate_string(preset="", len=0, ranges=(), **kw) -> str:
         return get_random_password(len or 10, "", extra, valid_chars, start="")
 
 
+@eval_func
 def urljoin(
     scheme: str,
     host: str,
@@ -504,4 +555,6 @@ __all__ = [
     "to_kubernetes_label",
     "to_googlecloud_label",
     "generate_string",
+    "scalar",
+    "scalar_value",
 ]

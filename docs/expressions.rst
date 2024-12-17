@@ -150,6 +150,8 @@ Expression Functions
   `not`                            expr
   `pow`                            [a, b]
   `python`                         path#function_name | module.function_name
+  `scalar`                         string or scalar
+  `scalar_value`                   (see below)
   `secret`                         name
    :std:ref:`sensitive`            any
   `sub`                            [a, b]
@@ -464,6 +466,52 @@ python
   (ie. the template file that is invoking the expression).
   The function will being invoke the current `RefContext` as the first argument.
   If ``args`` is declared, its value will passed as a second argument to the function.
+
+scalar
+^^^^^^
+
+Parse the given string into a scalar, e.g. "5 mb".
+
+TOSCA properties with scalar-unit types represented as as strings so use this function to treat them as scalars.
+For example, in the example below, even though ``mem_size`` property is declared with type ``scalar-unit.size`` you still need to use the ``scalar`` expression function.
+
+  .. code-block:: YAML
+
+    eval:
+      add:
+      - eval:
+          scalar: "5 mb"
+      - eval:
+          scalar: mem_size
+
+
+scalar_value
+^^^^^^^^^^^^
+
+  Convert a scalar to a number denominated by the given unit.
+  If the ``scalar_value`` is a string, parse it as a scalar.
+  If the ``scalar_value`` is a number assume it is already in the given unit.
+  If the ``unit`` keyword is omitted, use the unit parsed from the scalar.
+
+  Return a float or an int depending on the  "round" key, if a integer the number of digits to round to, or "ceil', "floor" to round up or down to the nearest integer.
+  If round is omitted or null, round to the nearest integer unless the absolute value is less than 1.
+
+  ============   ====================================
+  Key            Value
+  ============   ====================================
+  scalar_value   scalar, string, or number
+  unit?          unit
+  round?         "ceil" | "floor" | "round" | integer
+  ============   ====================================
+
+  The example below will evaluate to 0.01:
+
+  .. code-block:: YAML
+
+    eval:
+      scalar_value: "6 mb"
+      unit: "gb"
+      round: 2
 
 secret
 ^^^^^^

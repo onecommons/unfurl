@@ -11,7 +11,6 @@ except ImportError:
     sys.path.insert(0, vendor_dir)
     import toscaparser
 from ._tosca import *
-from ._tosca import EvalData
 
 from .builtin_types import nodes
 from .builtin_types import interfaces
@@ -175,6 +174,8 @@ __all__ = [
     "operation",
     "pattern",
     "s",
+    "scalar",
+    "scalar_value",
     "tb",
     "tbps",
     "tib",
@@ -182,6 +183,7 @@ __all__ = [
     "tosca_timestamp",
     "tosca_version",
     "us",
+    "unit",
     "valid_values",
 ]
 

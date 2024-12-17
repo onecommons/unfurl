@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 from unfurl.eval import Ref, map_value
 from unfurl.projectpaths import _abspath, _getdir
-from unfurl.support import (
+from unfurl.tosca_plugins.functions import (
+    scalar,
     to_dns_label,
     to_googlecloud_label,
     to_kubernetes_label,
@@ -52,7 +53,6 @@ def get_dir(context, relativeTo, mkdir=False):
     refContext.add_external_reference(filepath)
     return filepath.get()
 
-
 # XXX
 # override ansible built-in so we use our yaml object
 # @pass_context
@@ -92,6 +92,7 @@ SAFE_FILTERS = {
     "to_dns_label": to_dns_label,
     "to_kubernetes_label": to_kubernetes_label,
     "to_googlecloud_label": to_googlecloud_label,
+    "scalar": scalar,
 }
 
 ALL_FILTERS = dict(

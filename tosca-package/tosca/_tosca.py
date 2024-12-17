@@ -22,6 +22,7 @@ from typing import (
     Mapping,
     MutableMapping,
     NamedTuple,
+    NoReturn,
     Sequence,
     Set,
     Union,
@@ -49,6 +50,7 @@ from typing_extensions import (
 
 import sys
 import logging
+
 
 logger = logging.getLogger("tosca")
 
@@ -1390,9 +1392,9 @@ def Computed(
     Return type:
         The return type of the factory function (should be compatible with the field type).
     """
-    default = EvalData(
-        {"eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")}
-    )
+    default = EvalData({
+        "eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")
+    })
     # casting this to the factory function's return type enables the type checker to check that the return type matches the field's type
     return cast(
         RT,
@@ -1609,7 +1611,7 @@ class _GetName:
 
 
 class EvalData:
-    "A wrapper around JSON/YAML data that may contain TOSCA functions or eval expressions and should be evaluated at runtime."
+    "An internal wrapper around JSON/YAML data that may contain TOSCA functions or eval expressions and will be evaluated at runtime."
 
     def __init__(
         self,
@@ -1624,7 +1626,7 @@ class EvalData:
         # NB: need to update FieldProjection.__setattr__ if adding an attribute here
 
     @property
-    def expr(self) -> _EvalDataExpr:
+    def as_expr(self) -> _EvalDataExpr:
         if not self._path:
             expr = self._expr
         else:
@@ -1635,6 +1637,25 @@ class EvalData:
             else:
                 raise ValueError(f"cannot set foreach on {expr}")
         return expr
+
+    def to_yaml(self, dict_cls=None):
+        return to_tosca_value(self.expr, dict_cls or yaml_cls)
+
+    @property
+    def expr(self) -> _EvalDataExpr:
+        try:
+            from unfurl.result import serialize_value
+
+            return serialize_value(self.as_expr)
+        except ImportError:
+            return self.as_expr  # in case this package is used outside of unfurl
+
+    def as_ref(self, options=None):
+        from unfurl.result import serialize_value
+
+        if options:
+            return serialize_value(self.expr, **options)
+        return serialize_value(self.expr)
 
     def set_source(self):
         if self._path:
@@ -1667,6 +1688,37 @@ class EvalData:
                 return EvalData(ref)
         raise ValueError(f"cannot map {self.expr} with {func.expr}")
 
+    def __getattr__(self, name) -> NoReturn:
+        e = AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{name}'"
+        )
+        if sys.version_info >= (3, 11):
+            e.add_note(
+                "To handle EvalData here, move this logic to a function decorated with @unfurl.tosca_plugins.expr.runtime_func"
+            )
+        raise e
+
+    def _op(self, op, other) -> "EvalData":
+        return EvalData({"eval": {op: [self, other]}})
+
+    def __add__(self, other) -> "EvalData":
+        return self._op("add", other)
+
+    def __sub__(self, other) -> "EvalData":
+        return self._op("sub", other)
+
+    def __mul__(self, other) -> "EvalData":
+        return self._op("mul", other)
+
+    def __truediv__(self, other) -> "EvalData":
+        return self._op("truediv", other)
+
+    def __floordiv__(self, other) -> "EvalData":
+        return self._op("floordiv", other)
+
+    def __mod__(self, other) -> "EvalData":
+        return self._op("mod", other)
+
     def __str__(self) -> str:
         """Represent this as a jinja2 expression so we can embed expressions in f-strings"""
         expr = self.expr
@@ -1683,9 +1735,6 @@ class EvalData:
 
     def __repr__(self):
         return f"EvalData({self.expr})"
-
-    def to_yaml(self, dict_cls=None):
-        return to_tosca_value(self.expr, dict_cls or yaml_cls)
 
     # note: we need this to prevent dataclasses error on 3.11+: mutable default for field
     def __hash__(self) -> int:
@@ -1767,7 +1816,8 @@ class FieldProjection(EvalData):
                 f'Can\'t project "{name}" from "{self}": Could not resolve {self.type}'
             )
         if not issubclass(ti.types[0], ToscaType):
-            return self.field.default
+            # we're a regular value, can't project field (raise AttributeError with a note)
+            return super().__getattr__(name)
         field = ti.types[0].__dataclass_fields__.get(name)
         if not field:
             # __dataclass_fields__ might not be updated yet, do a regular getattr
@@ -2175,12 +2225,18 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             # the only times we want the actual value of a tosca field returned
             # is during yaml generation or directly executing a plan
             # but when constructing a topology return absolute Refs to fields instead
-            if global_state.mode == "spec":
-                fields = object.__getattribute__(self, "__dataclass_fields__")
-                field = fields.get(name)
-                if field and isinstance(field, _Tosca_Field):
-                    return EvalData(None, ["", _GetName(self), field.as_ref_expr()])
-            val = object.__getattribute__(self, name)
+            if global_state._in_process_class:
+                expr = _field_as_eval(self, name, False)
+                if expr:
+                    return expr
+                val = object.__getattribute__(self, name)
+            else:
+                val = object.__getattribute__(self, name)
+                if global_state.mode == "spec":
+                    # return field expr if val is an expr or if field is a TOSCA attribute
+                    expr = _field_as_eval(self, name, not isinstance(val, EvalData))
+                    if expr:
+                        return expr
             if isinstance(val, _ToscaType):
                 val._set_parent(self, name)
             return val
@@ -2272,6 +2328,17 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             if obj is None:
                 raise AttributeError(f"can't find {name} in {qname}")
         return obj
+
+
+def _field_as_eval(
+    tt: "ToscaType", name: str, attribute_only: bool
+) -> Optional[EvalData]:
+    fields = object.__getattribute__(tt, "__dataclass_fields__")
+    field = fields.get(name)
+    if field and isinstance(field, _Tosca_Field):
+        if not attribute_only or field.tosca_field_type == ToscaFieldType.attribute:
+            return EvalData(None, ["", _GetName(tt), field.as_ref_expr()])
+    return None
 
 
 class ToscaInputs(_ToscaType):

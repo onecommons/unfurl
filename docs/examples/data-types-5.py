@@ -1,3 +1,4 @@
+import tosca
 class Data1(tosca.datatypes.Root):
     prop1: str = "prop1_default"
     prop2: str = "prop2_default"
@@ -12,6 +13,4 @@ my_app = MyApp(
         prop3="prop3_override"
     )
 )
-
-__all__ = ["Data1", "MyApp"]
 

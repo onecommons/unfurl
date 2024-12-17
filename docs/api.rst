@@ -66,6 +66,8 @@ Other
 
 .. autofunction:: Eval
 
+.. autoclass:: EvalData
+
 .. autoclass:: DataConstraint
 
 .. autoclass:: NodeTemplateDirective

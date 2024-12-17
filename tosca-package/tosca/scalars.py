@@ -7,60 +7,239 @@ Usage:
 >>> from tosca import mb
 >>> one_mb = 1 * mb
 >>> one_mb
+1.0 MB
+>>> one_mb.value
 1000000.0
 >>> one_mb.as_unit
 1.0
 >>> one_mb.to_yaml()
 '1.0 MB'
 """
+
+import builtins
 import math
-from typing import Any, Generic, Type, TypeVar, Dict
+from typing import (
+    Any,
+    Generic,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Dict,
+    Union,
+    cast,
+    overload,
+)
+from typing_extensions import Literal, SupportsIndex, Self
 from toscaparser.elements.scalarunit import (
     ScalarUnit_Size,
     ScalarUnit_Time,
     ScalarUnit_Frequency,
     ScalarUnit_Bitrate,
+    parse_scalar_unit,
 )
 
 
-class _Scalar(float):
-    __slots__ = ("unit",)  # unit to represent this value as
+class _Scalar:
+    __slots__ = ("unit", "value")  # unit to represent this value as
     SCALAR_UNIT_DICT: Dict[str, Any] = {}
 
-    def __new__(cls, value, unit):
-        return float.__new__(cls, value)
-
-    def __init__(self, value, unit):
-        super().__init__()
+    def __init__(self, value, unit: "_Unit"):
+        self.value = float(value)
         self.unit = unit
+
+    def __float__(self) -> float:
+        return self.value
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __bool__(self) -> bool:
+        return bool(self.value)
+
+    def __str__(self) -> str:
+        return self.to_yaml()
+
+    def __repr__(self) -> str:
+        return f"{self.as_unit}*{self.unit}"
 
     @property
     def as_unit(self) -> float:
-        return self / self.SCALAR_UNIT_DICT[self.unit]
+        return self.value / self.unit.value
 
     def to_yaml(self, dict_cls=dict) -> str:
-        "return this value and this type's TOSCA unit suffix, eg. 10 kB"
+        "Return this value and this type's TOSCA unit suffix, eg. 10 kB"
         val = self.as_unit
         as_int = math.floor(val)
         if val == as_int:
             val = as_int  # whole number, treat as int
         return f"{val} {self.unit}"
 
-    # def __str__(self) -> str:
-    #     return str(float(self))
+    def as_ref(self, options=None):
+        return {"eval": dict(scalar=str(self))}
 
-    # def __repr__(self) -> str:
-    #     return f"{self.__class__.__name__}({super().__repr__()})"
+    def __mul__(self, other: Union[int, float, Self, "_Unit[Self]"]) -> Self:
+        if isinstance(other, _Unit):
+            if type(self) != other.scalar_type:
+                raise TypeError(f"Wrong unit {other}, should be a {type(self)}")
+            return self.__class__(self.value, other)
+        return self.__class__(self.value * float(other), self.unit)
+
+    def __add__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value + float(other), self.unit)
+
+    def __sub__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value - float(other), self.unit)
+
+    def __truediv__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value / float(other), self.unit)
+
+    def __floordiv__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value // float(other), self.unit)
+
+    def __mod__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value % float(other), self.unit)
+
+    def __rmul__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value * float(other), self.unit)
+
+    def __radd__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value + float(other), self.unit)
+
+    def __rsub__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value - float(other), self.unit)
+
+    def __rtruediv__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value / float(other), self.unit)
+
+    def __rfloordiv__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value // float(other), self.unit)
+
+    def __rmod__(self, other: Union[int, float, Self]) -> Self:
+        return self.__class__(self.value % float(other), self.unit)
+
+    def __trunc__(self) -> int:
+        return math.trunc(self.value)
+
+    def __ceil__(self) -> int:
+        return math.ceil(self.value)
+
+    def __floor__(self) -> int:
+        return math.floor(self.value)
+
+    @overload
+    def __round__(self, ndigits: None = None, /) -> int: ...
+
+    @overload
+    def __round__(self, ndigits: SupportsIndex, /) -> float: ...
+
+    def __round__(self, ndigits=None):
+        if ndigits is None:
+            return round(self.value)
+        return round(self.value, ndigits)
+
+    def __eq__(self, value: object, /) -> bool:
+        eq = self.value == value
+        if eq and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+            return False
+        return eq
+
+    def __ne__(self, value: object, /) -> bool:
+        ne = self.value != value
+        if not ne:
+            if isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+                return True  # equal values but different types
+        return ne
+
+    def __lt__(self, value: float, /) -> bool:
+        ans = self.value < value
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+            return False
+        return ans
+
+    def __le__(self, value: float, /) -> bool:
+        ans = self.value <= value
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+            return False
+        return ans
+
+    def __gt__(self, value: float, /) -> bool:
+        ans = self.value > value
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+            return False
+        return ans
+
+    def __ge__(self, value: float, /) -> bool:
+        ans = self.value >= value
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+            return False
+        return ans
+
+    def __neg__(self) -> float:
+        return -self.value
+
+    def __pos__(self) -> float:
+        return self.value
+
+    def __abs__(self) -> float:
+        return abs(self.value)
+
+    def __hash__(self) -> int:
+        return hash(self.value)
 
 
 _S = TypeVar("_S", bound="_Scalar")
 
+
 class _Unit(Generic[_S]):
     def __init__(self, scalar_type: Type[_S], unit: str):
-        self.unit = scalar_type(scalar_type.SCALAR_UNIT_DICT[unit], unit)
+        self.unit = unit
+        self.scalar_type = scalar_type
+        self.value = scalar_type.SCALAR_UNIT_DICT[unit]
 
     def __rmul__(self, other: float) -> _S:
-        return self.unit.__class__(self.unit * other, self.unit.unit)
+        return self.scalar_type(self.value * other, self)
+
+    def __str__(self) -> str:
+        return self.unit
+
+    def as_int(
+        self,
+        s: _S,
+        round: Union[Literal["round"], Literal["ceil"], Literal["floor"]] = "round",
+    ) -> int:
+        "Return the given scalar as an integer denominated by this unit, rounding up or down to the nearest integer."
+        return cast(int, self._round(s, round))
+
+    def as_float(self, s: _S, ndigits: int = 16) -> float:
+        "Return the given scalar as an float denominated by this unit. If ndigits is given, round to that many digits."
+        return cast(int, self._round(s, ndigits))
+
+    def _round(
+        self,
+        s: _S,
+        ndigits: Union[int, None, Literal["ceil"], Literal["floor"], Literal["round"]],
+    ) -> Union[int, float]:
+        # yes, this is a layering violation
+        from tosca import global_state_mode, EvalData
+
+        if ndigits == "round":
+            ndigits = None
+
+        if global_state_mode() == "runtime" or not isinstance(s, EvalData):
+            return cast(Union[int, float], scalar_value(s, self.unit, ndigits))
+        else:
+            return cast(
+                int,
+                EvalData({
+                    "eval": {
+                        "scalar_value": str(s),
+                        "unit": self.unit,
+                        "round": ndigits,
+                    }
+                }),
+            )
+
 
 class Size(_Scalar):
     tosca_name = "scalar-unit.size"
@@ -75,6 +254,7 @@ class Frequency(_Scalar):
 class Time(_Scalar):
     tosca_name = "scalar-unit.time"
     SCALAR_UNIT_DICT = ScalarUnit_Time.SCALAR_UNIT_DICT
+
 
 class Bitrate(_Scalar):
     tosca_name = "scalar-unit.bitrate"
@@ -168,3 +348,45 @@ TIBPS = Tibps
 #             print(f"{name.lower()} = {name}")
 #         if name != name.upper():
 #             print(f"{name.upper()} = {name}")
+
+
+def unit(unit: str) -> _Unit:
+    obj = globals()[unit]
+    assert isinstance(obj, _Unit)
+    return obj
+
+
+_unit = unit
+
+
+def scalar(val) -> Optional[_Scalar]:
+    val, unit = parse_scalar_unit(val)
+    if val is not None and unit:
+        return val * _unit(unit)
+    return None
+
+
+def scalar_value(val_, unit=None, round=None) -> Union[float, int, None]:
+    val, valunit = cast(
+        Tuple[Optional[Union[int, float]], Optional[str]], parse_scalar_unit(val_)
+    )
+    if val is None:
+        return val
+    if unit is None:
+        newval = val
+    else:
+        if valunit:
+            unit_val = _unit(valunit).value
+            val = val * unit_val
+        unit_val = _unit(str(unit)).value
+        newval = val / unit_val
+    if round == "ceil":
+        return math.ceil(newval)
+    elif round == "floor":
+        return math.floor(newval)
+    elif round is not None:  # assume a number
+        return builtins.round(newval, round)
+    else:
+        if abs(newval) < 1:
+            return newval
+        return builtins.round(newval)

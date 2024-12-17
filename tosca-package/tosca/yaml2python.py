@@ -56,7 +56,7 @@ from toscaparser.elements.constraints import constraint_mapping, Schema
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from keyword import iskeyword
 import collections.abc
-from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__
+from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__, EvalData
 import black
 import black.mode
 import black.report
@@ -122,11 +122,11 @@ def has_function(obj: object, seen=None) -> bool:
         return False
     else:
         seen.add(id(obj))
-    if functions.is_function(obj):
+    if isinstance(obj, EvalData) or functions.is_function(obj):
         return True
     elif isinstance(obj, collections.abc.Mapping):
         return any(has_function(i, seen) for i in obj.values())
-    elif isinstance(obj, collections.abc.MutableSequence):
+    elif isinstance(obj, (collections.abc.MutableSequence, tuple)):
         return any(has_function(i, seen) for i in obj)
     return False
 

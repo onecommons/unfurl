@@ -7,11 +7,8 @@ Internal classes supporting the runtime.
 import base64
 import collections
 from collections.abc import MutableSequence, Mapping
-import hashlib
 import math
 import os
-from random import choice
-import string
 import sys
 import os.path
 import re
@@ -32,7 +29,7 @@ from typing import (
     NewType,
     OrderedDict,
 )
-from typing_extensions import Protocol, NoReturn, TypedDict, Unpack
+from typing_extensions import NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -936,6 +933,7 @@ _toscaKeywordsToExpr = {
     "OPERATION_HOST": "$OPERATION_HOST",
 }
 
+
 def resolve_function_keyword(node_name: str):
     """see 4.1 Reserved Function Keywords"""
     return _toscaKeywordsToExpr.get(node_name, "::" + node_name)
@@ -981,12 +979,8 @@ def get_nodes_of_type(type_name: str, ctx: RefContext):
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
-set_eval_func("generate_string", lambda arg, ctx: generate_string(**arg), True, True)
-# use this alias for compability with unfurl-gui:
+# use this alias for compability with unfurl-gui (note that arg are kw args)
 set_eval_func("_generate", lambda arg, ctx: generate_string(**arg), True, True)
-
-
-set_eval_func("urljoin", lambda args, ctx: urljoin(*args), False, True)
 
 
 class ContainerImage(ExternalValue):
