@@ -20,6 +20,7 @@ from pathlib import Path
 from toscaparser import topology_template
 from ._tosca import (
     _DataclassType,
+    _OwnedToscaType,
     ToscaType,
     Relationship,
     Node,
@@ -169,6 +170,7 @@ class PythonToYaml:
     ) -> str:
         name = obj._name or name
         for topology_section in reversed(self.topology_templates):
+            assert obj._template_section
             section = topology_section.get(obj._template_section)
             if section and name in section:
                 return name
@@ -178,6 +180,7 @@ class PythonToYaml:
         section = self.topology_templates[-1].setdefault(
             obj._template_section, self.yaml_cls()
         )
+        assert name
         section[name] = obj  # placeholder to prevent circular references
         section[name] = obj.to_template_yaml(self)
         if module_name:
@@ -342,6 +345,10 @@ class PythonToYaml:
                     (isinstance(obj, Node) or obj._name)
                     and not isinstance(obj, InstanceProxy)
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
+                    if not obj._template_section:
+                        if not isinstance(obj, _OwnedToscaType) or not obj._node:
+                            logger.warning("Can't add template '%s', to topology_template, %s isn't a standalone TOSCA type",name, obj._type_section)
+                        continue
                     obj.__class__._globals = self.globals  # type: ignore
                     self.add_template(obj, name, current_module)
                     if name == "__root__":
