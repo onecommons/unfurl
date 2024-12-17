@@ -19,6 +19,7 @@ Results._map_value same as map_value but with lazily evaluation
 from functools import partial
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -68,13 +69,21 @@ def map_value(
     value: Any,
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
+    as_list: bool = False
 ) -> Any:
-    """Resolves any expressions or template strings embedded in the given map or list."""
+    """Resolves any expressions or template strings embedded in the given string, dict or list."""
+    # as_list always returns a list but preserves wantList semantics for internal evaluation
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
-    return _map_value(
+    ret_val = _map_value(
         value, resourceOrCxt, resourceOrCxt.wantList or False, applyTemplates
     )
+    if as_list and not isinstance(ret_val, list):
+        if ret_val is None:
+            ret_val = []
+        else:
+            ret_val = [ret_val]
+    return ret_val
 
 
 def _map_value(
@@ -503,13 +512,11 @@ class Ref:
             first = next(iter(value))
 
             if "ref" in value or "eval" in value:
-                return len(
-                    [
-                        x
-                        for x in ["vars", "trace", "foreach", "select", "strict"]
-                        if x in value
-                    ]
-                ) + 1 == len(value)
+                return len([
+                    x
+                    for x in ["vars", "trace", "foreach", "select", "strict"]
+                    if x in value
+                ]) + 1 == len(value)
             if len(value) == 1 and first in _FuncsTop:
                 return True
             return False
@@ -581,7 +588,7 @@ def eq_func(arg, ctx):
 
 def validate_schema_func(arg, ctx):
     args = map_value(arg, ctx)
-    assert_form(args, MutableSequence, len(args) == 2)  # type: ignore
+    assert_form(args, MutableSequence, len(args) == 2)
     return validate_schema(args[0], args[1])
 
 
@@ -691,10 +698,16 @@ _CoreFuncs = {
     "not": not_func,
     "q": quote_func,
     "eq": eq_func,
-    "validate": validate_schema_func,
+    "validate_json": validate_schema_func,
     "foreach": for_each_func,
     "is_function_defined": func_defined_func,
 }
+def _make_op_func(op):
+    op_func = getattr(operator, op)
+    return lambda arg, ctx: op_func(*map_value(arg, ctx))
+for op in "ne gt ge lt le add mul pow truediv floordiv mod sub".split():
+    _CoreFuncs[op] = _make_op_func(op)
+_CoreFuncs['div'] = _CoreFuncs['truediv']
 RefContext._Funcs = _CoreFuncs.copy()
 _FuncsTop = ["q"]
 
@@ -781,8 +794,9 @@ def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"
 def get_eval_func(name):
     return RefContext._Funcs.get(name)
 
+EvalFunc = Callable[[Any, RefContext], Any]
 
-def set_eval_func(name, val, topLevel=False, safe=False):
+def set_eval_func(name, val: EvalFunc, topLevel=False, safe=False):
     RefContext._Funcs[name] = val
     if topLevel:
         _FuncsTop.append(name)

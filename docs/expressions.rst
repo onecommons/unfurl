@@ -126,22 +126,33 @@ Expression Functions
   Key                              Value
   ================================ ==================================================
   :std:ref:`abspath`               path | [path, location, mkdir?]
+  :std:ref:`add`                   [a, b]
   `and`                            [test+]
+  `div`                            [a, b]
   `eq`                             [a, b]
   external                         name
   `file`                           (see below)
   foreach                          {key?, value?}
+  `ge`                             [a, b]
   :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
+  `gt`                             [a, b]
   `is_function_defined`            function name
   `if`                             (see below)
+  `le`                             [a, b]
+  `lt`                             [a, b]
   `local`                          name
   :std:ref:`lookup`                (see below)
+  `mod`                            [a, b]
+  `mul`                            [a, b]
   `or`                             [test+]
+  `ne`                             [a, b]
   `not`                            expr
+  `pow`                            [a, b]
   `python`                         path#function_name | module.function_name
   `secret`                         name
    :std:ref:`sensitive`            any
+  `sub`                            [a, b]
   :std:ref:`tempfile`              (see below)
   :std:ref:`template`              contents
   :std:ref:`to_dns_label`          string or map or lists
@@ -149,7 +160,7 @@ Expression Functions
   :std:ref:`to_kubernetes_label`   string or map or list
   :std:ref:`to_label`              string or map or list
   :std:ref:`urljoin`               [scheme, host, port?, path?, query?, fragment?]
-  `validate`                       [contents, schema]
+  `validate_json`                  [contents, schema]
   ================================ ==================================================
 
 abspath
@@ -172,6 +183,63 @@ and
 
 eq
 ^^
+
+  Returns true if the two values are equal.
+
+ne
+^^
+
+  Returns true if the two values are not equal.
+
+gt
+^^
+
+  Returns true if the first value is greater than the second value.
+
+ge
+^^
+
+  Returns true if the first value is greater than or equal to the second value.
+
+lt
+^^
+
+  Returns true if the first value is less than the second value.
+
+le
+^^
+
+  Returns true if the first value is less than or equal to the second value.
+
+add
+^^^
+
+  Returns the sum of the two values.
+
+mul
+^^^
+
+  Returns the product of the two values.
+
+pow
+^^^
+
+  Returns the result of raising the first value to the power of the second value.
+
+div
+^^^
+
+  Returns the result of dividing the first value by the second value.
+
+mod
+^^^
+
+  Returns the remainder of dividing the first value by the second value.
+
+sub
+^^^
+
+  Returns the result of subtracting the second value from the first value.
 
 external
 ^^^^^^^^
@@ -544,8 +612,8 @@ Default ports (80 and 443 for ``http`` and ``https`` URLs respectively) are omit
     urljoin: [http, localhost, "", path, query, fragment]
 
 
-validate
-^^^^^^^^
+validate_json
+^^^^^^^^^^^^^
 
   Return true if the first argument conforms to the JSON schema supplied as the second argument.
 

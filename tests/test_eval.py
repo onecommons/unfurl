@@ -179,6 +179,10 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(
             resource.attributes["b"], result5
         )  # this doesn't seem obvious!
+        test6 = {"eval": {"add": [1, 2]}}
+        assert 3 == Ref(test6).resolve_one(RefContext(resource))
+        test7 = {"eval": {"sub": [1, 1]}}
+        assert 0 == Ref(test7).resolve_one(RefContext(resource))
 
     def test_circular_refs(self):
         more = {}
