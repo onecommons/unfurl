@@ -31,15 +31,15 @@ class Service(tosca.nodes.Root):
 
 
 def test_runtime_test():
-    tosca.global_state.mode = "spec"
+    tosca.global_state.mode = "parse"
 
     # Instantiate the objects you want to test in a Namespace
     # (so you can pass it to runtime_test() below)
     class test(tosca.Namespace):
         service = Service()
 
-    assert tosca.global_state.mode == "spec"
-    # start in spec mode, where properties always return eval expressions
+    assert tosca.global_state.mode == "parse"
+    # start in parse mode, where properties always return eval expressions
     assert test.service.url == {"eval": "::test.service::url"}
 
     assert test.service.get_field("url") == Service.get_field("url")
@@ -89,7 +89,7 @@ def test_options():
     ],
 )
 def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
-    tosca.global_state.mode = "spec"
+    tosca.global_state.mode = "parse"
 
     # Instantiate the objects you want to test in a Namespace
     # (so you can pass it to runtime_test() below)
@@ -156,7 +156,7 @@ def test_find_required_by(requirement, expected_type: Optional[Type[Service]]):
 
 
 def test_hosted_on():
-    tosca.global_state.mode = "spec"
+    tosca.global_state.mode = "parse"
 
     class test(tosca.Namespace):
         server = tosca.nodes.Compute(
@@ -195,7 +195,7 @@ def validate_pw(password: str) -> bool:
 
 
 def test_expressions():
-    tosca.global_state.mode = "spec"
+    tosca.global_state.mode = "parse"
 
     class Inputs(tosca.TopologyInputs):
         domain: str
@@ -270,7 +270,7 @@ def calc_size(size1: Size, size2: Size) -> Size:
 )
 def test_units(safe_mode):
     tosca.global_state.safe_mode = safe_mode
-    tosca.global_state.mode = "spec"
+    tosca.global_state.mode = "parse"
 
     g = 2 * gb
     foo: float = float(20 * g)

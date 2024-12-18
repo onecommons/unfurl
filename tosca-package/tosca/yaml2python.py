@@ -1924,7 +1924,7 @@ def convert_service_template(
     if converted is None:
         converted = set()
     tpl = cast(Dict[str, Any], template.tpl)
-    _tosca.global_state.mode = "spec"
+    _tosca.global_state.mode = "parse"
     converter = Convert(
         template,
         True,

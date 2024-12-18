@@ -1,19 +1,19 @@
 """
 Type-safe equivalents to Unfurl's Eval `Expression Functions`.
 
-When called in `"spec" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``) they will return eval expression
+When called in `"parse" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``) they will return eval expression
 that will get executed. But note that the type signature will match the result of the expression, not the eval expression itself.
 (This type punning enables effective static type checking).
 
 When called in runtime mode (ie. as a computed property or as operation implementation) they perform the equivalent functionality.
 
-These functions can be executed in the safe mode Python sandbox as it always executes in "spec" mode.
+These functions can be executed in the safe mode Python sandbox as it always executes in "parse" mode.
 
 Note that some functions are overloaded with two signatures,
 One that takes a live ToscaType object as an argument and one that takes ``None`` in its place.
 
 The former variant can only be used in runtime mode as live objects are not available outside that mode.
-In "spec" mode, the None variant must be used and at runtime the eval expression returned by that function
+In "parse" mode, the None variant must be used and at runtime the eval expression returned by that function
 will be evaluated using the current context's instance.
 
 User-defined functions can be made available as an expression functions by the `runtime_func` decorator.
@@ -139,7 +139,7 @@ def runtime_func(_func: F) -> F: ...
 def runtime_func(_func: Optional[F] = None) -> Union[F, Callable[[F], F]]:
     """
     A decorator for making a function invocable as a runtime expression.
-    When the decorated function invoked in `"spec" mode <global_state_mode>`, if any of its arguments contain :py:class:`tosca.EvalData`,
+    When the decorated function invoked in `"parse" mode <global_state_mode>`, if any of its arguments contain :py:class:`tosca.EvalData`,
     then the function will return :py:class:`tosca.EvalData` containing a JSON representation of the invocation as an `expression function <Expression functions>` that will be evaluated at runtime.
     Otherwise, the function will eagerly execute as a normal Python function.
     """
@@ -215,7 +215,7 @@ def get_input(name, default=MISSING):
 
 
 def concat(*args: str, sep="") -> str:
-    # evaluate now if in spec mode and no EvalData args
+    # evaluate now if in parse mode and no EvalData args
     if global_state_mode() == "runtime" or not any(
         map(lambda a: isinstance(a, EvalData), args)
     ):
@@ -228,7 +228,7 @@ def concat(*args: str, sep="") -> str:
 
 
 def token(string: str, token: str, index: int) -> str:
-    # evaluate now if in spec mode and no EvalData args
+    # evaluate now if in parse mode and no EvalData args
     if global_state_mode() == "runtime" or (
         not isinstance(string, EvalData)
         and not isinstance(token, EvalData)

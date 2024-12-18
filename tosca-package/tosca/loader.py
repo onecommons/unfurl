@@ -793,7 +793,7 @@ def restricted_exec(
     previous_mode = global_state.mode
     try:
         global_state.safe_mode = safe_mode
-        global_state.mode = "spec"
+        global_state.mode = "parse"
         global_state.modules = modules
         if temp_module:
             exec(result.code, temp_module.__dict__)

@@ -292,7 +292,7 @@ Service templates written in Python now have the following integration points wi
 * ToscaType implementations of TOSCA operations can return a Python method instead of an artifact or configurator and that method will converted to a configurator.
 * If TOSCA operation attempts to execute runtime-only functionality it will be invoked during the job's render phase instead of converted to YAML.
 * Introduce a `Computed()` field specifier for TOSCA properties whose value is computed at runtime with the given method.
-* Add a `unfurl.tosca_plugins.functions` module containing utility functions that can be executed in the safe mode Python sandbox. This allows these functions to be executed in "spec" mode (e.g. as part of a class definition or in `_class_init`).
+* Add a `unfurl.tosca_plugins.functions` module containing utility functions that can be executed in the safe mode Python sandbox. This allows these functions to be executed in "parse" mode (e.g. as part of a class definition or in `_class_init`).
 * Add a `unfurl.expr` module containing type-safe python equivalents to Unfurl's eval expression functions.
 * Add methods and free functions providing type-safes equivalents to Unfurl's query expressions: `find_configured_by`, `find_hosted_on`, `find_required_by` and `find_all_required_by` APIs.
 * Providing these apis required synchronizing a job's task context as a per-thread global runtime state, add public apis for querying global state and retrieving the current `RefContext`.

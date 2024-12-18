@@ -752,7 +752,7 @@ def test_datatype():
     import tosca
     from tosca import DataType
 
-    with tosca.set_evaluation_mode("spec"):
+    with tosca.set_evaluation_mode("parse"):
 
         class MyDataType(DataType):
             prop1: str = ""
@@ -811,7 +811,7 @@ def test_envvar_type():
     import unfurl
     from unfurl.configurators.templates.docker import unfurl_datatypes_DockerContainer
 
-    with tosca.set_evaluation_mode("spec"):
+    with tosca.set_evaluation_mode("parse"):
 
         class Namespace(tosca.Namespace):
             # we can't resolve forward references to classes defined in local scope
@@ -1036,8 +1036,8 @@ class dev(tosca.DeploymentBlueprint):
 
 def test_deployment_blueprints():
     python_src, parsed_yaml = _to_python(test_deploymentblueprint_yaml)
-    print(python_src)
-    pprint(parsed_yaml)
+    # print(python_src)
+    # pprint(parsed_yaml)
     test_yaml = _to_yaml(python_src, True)
     # yaml.dump(test_yaml, sys.stdout)
     assert parsed_yaml == test_yaml

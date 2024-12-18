@@ -64,7 +64,7 @@ if typing.TYPE_CHECKING:
 
 class _LocalState(threading.local):
     def __init__(self, **kw):
-        self.mode = "spec"  # "yaml", "runtime"
+        self.mode = "parse"  # "yaml", "runtime"
         self._in_process_class = False
         self.safe_mode = False
         self.context: Any = None  # orchestrator specific runtime state
@@ -82,9 +82,9 @@ def safe_mode() -> bool:
 
 def global_state_mode() -> str:
     """
-    This function returns the execution state (either "spec" or "runtime") that the current thread is in.
+    This function returns the execution state (either "parse" or "runtime") that the current thread is in.
 
-    Returns "spec" or "runtime"
+    Returns "parse" or "runtime"
     """
     return global_state.mode
 
@@ -114,15 +114,15 @@ def set_evaluation_mode(mode: str):
     This is only needed for testing or other special contexts.
 
     Args:
-        mode (str):  "spec", "yaml", or  "runtime"
+        mode (str):  "parse" or  "runtime"
 
     Yields:
         the previous mode
 
     .. code-block:: python
 
-      with set_evaluation_mode("spec"):
-          assert tosca.global_state_mode() == "spec"
+      with set_evaluation_mode("parse"):
+          assert tosca.global_state_mode() == "parse"
     """
     saved = global_state.mode
     try:
@@ -2016,7 +2016,7 @@ def _make_dataclass(cls):
     # we need _Tosca_Fields not dataclasses.Fields
     # so for any declarations of tosca fields (properties, requirements, etc)
     # missing a _Tosca_Fields, set one before calling _process_class()
-    global_state.mode = "spec"
+    global_state.mode = "parse"
     global_state._in_process_class = True
     try:
         annotations = cls.__dict__.get("__annotations__")
@@ -2255,7 +2255,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 val = object.__getattribute__(self, name)
             else:
                 val = object.__getattribute__(self, name)
-                if global_state.mode == "spec":
+                if global_state.mode == "parse" or global_state.mode == "spec":
                     # return field expr if val is an expr or if field is a TOSCA attribute
                     expr = _field_as_eval(self, name, not isinstance(val, EvalData))
                     if expr:

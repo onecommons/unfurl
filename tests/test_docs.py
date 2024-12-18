@@ -48,7 +48,7 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
                     return True
             return False
 
-        global_state.mode = "spec"
+        global_state.mode = "parse"
         for py_file in python_files:
             if skip(py_file):
                 continue
