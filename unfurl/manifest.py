@@ -33,6 +33,7 @@ from .runtime import (
     TopologyInstance,
 )
 from .util import (
+    API_VERSION,
     UnfurlError,
     assert_not_none,
     is_relative_to,
@@ -140,6 +141,7 @@ class Manifest(AttributeManager):
         self.imports = Imports()
         self.imports.manifest = self
         self.modules: Optional[Dict] = None
+        self.apiVersion = API_VERSION
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
@@ -210,13 +212,24 @@ class Manifest(AttributeManager):
                 repositoriesTpl[name] = value
 
         # make sure this is present
-        toscaDef["tosca_definitions_version"] = TOSCA_VERSION
+        if "tosca_definitions_version" not in toscaDef:
+            toscaDef["tosca_definitions_version"] = TOSCA_VERSION
+        if self.apiVersion == "unfurl/v1beta1":
+            # if overriding a template, make sure it is compatible with the old one by adding "should_implement" hint
+            def replaceStrategy(key, old, new):
+                old_type = old.get("type")
+                if old_type:
+                    new.setdefault("metadata", {})["should_implement"] = old_type
+                return new
+        else:
+            replaceStrategy = "replace"  # type: ignore
         if more_spec:
             # don't merge individual templates
             toscaDef = merge_dicts(
                 toscaDef,
                 more_spec,
                 replaceKeys=["node_templates", "relationship_templates"],
+                replaceStrategy=replaceStrategy
             )
         yaml_dict_cls = yaml_dict_type(bool(self.localEnv and self.localEnv.readonly))
         if not isinstance(toscaDef, yaml_dict_cls):

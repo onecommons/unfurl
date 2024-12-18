@@ -275,6 +275,7 @@ class ReadOnlyManifest(Manifest):
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
+        self.apiVersion = manifest.get("apiVersion")
         spec = manifest.get("spec", {})
         self.context = manifest.get("environment", CommentedMap())
         if localEnv:
@@ -509,7 +510,6 @@ class YamlManifest(ReadOnlyManifest):
                     resource_templates[template_name] = local_resource_templates[
                         template_name
                     ]
-
         if resource_templates:
             node_templates = more_spec["topology_template"]["node_templates"]
             self._load_resource_templates(resource_templates, node_templates, False)

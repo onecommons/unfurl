@@ -5,10 +5,11 @@ import os.path
 
 import pytest
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.util import UnfurlError
+from unfurl.util import UnfurlError, UnfurlValidationError
 from unfurl.to_json import to_blueprint, to_deployment, node_type_to_graphql
 from unfurl.localenv import LocalEnv
 from unfurl.planrequests import _find_implementation
+from toscaparser.common.exception import TypeMismatchError
 
 
 Atlas = "Atlas@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble"
@@ -337,3 +338,40 @@ spec:
         the_app = root.find_instance("the_app")
         assert the_app
         assert the_app.attributes["null_default"] is None
+
+
+def test_deployment_blueprint():
+    dp_yaml = """
+apiVersion: unfurl/v1beta1
+kind: Ensemble
+environment:
+  deployment_blueprint: test
+spec:
+  service_template:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    node_types:
+      Node:
+        derived_from: tosca.nodes.Root
+      Derived:
+        derived_from: Node
+      Unrelated:
+        derived_from: tosca.nodes.Root
+
+    topology_template:
+      node_templates:
+        node:
+          type: Node
+        node2:
+          type: Node
+    deployment_blueprints:
+      test:
+        node_templates:
+          node:
+            type: %s
+    """
+    with pytest.raises(UnfurlValidationError, match='TypeMismatchError: node template "node" must be of type "Node". in node template "node"'):
+        ensemble = YamlManifest(dp_yaml % "Unrelated")
+    ensemble = YamlManifest(dp_yaml % "Derived")
+    assert ensemble.context["deployment_blueprint"] == "test"
+    assert ensemble.get_deployment_blueprints()
+    assert ensemble.get_root_resource()

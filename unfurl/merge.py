@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import re
-from typing import Any, Dict, List, MutableMapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, MutableMapping, Optional, Tuple, Union
 from collections import namedtuple
 from collections.abc import Mapping, MutableSequence, Sequence
 
@@ -82,14 +82,16 @@ def make_map_with_base(doc, baseDir, cls):
 # other values besides delete not supported because current code can leave those keys in final result
 mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
+MappingMergeStrategy = Union[str, Callable[[str, Mapping, Mapping], Mapping]]
 
 def merge_dicts(
     b: Mapping,
     a: Mapping,
     cls=None,
     replaceKeys=None,
-    defaultStrategy="merge",
+    defaultStrategy: MappingMergeStrategy="merge",
     listStrategy="append_unique",
+    replaceStrategy: MappingMergeStrategy="replace",
 ) -> dict:
     """
     Returns a new dict (or cls) that recursively merges b into a.
@@ -105,7 +107,7 @@ def merge_dicts(
         if key == mergeStrategyKey:
             continue
         if replaceKeys and key in replaceKeys:
-            childStrategy = "replace"
+            childStrategy = replaceStrategy
         else:
             childStrategy = "merge"
         # note: for merging treat None as an empty map
@@ -126,6 +128,7 @@ def merge_dicts(
                             cls,
                             defaultStrategy=childStrategy,
                             replaceKeys=replaceKeys,
+                            replaceStrategy=replaceStrategy,
                             listStrategy=listStrategy,
                         )
                         continue
@@ -133,6 +136,11 @@ def merge_dicts(
                         raise UnfurlError(
                             "merging %s is not allowed, +%%: error was set" % key
                         )
+                    if callable(strategy):
+                        if val is None:  # empty map, treat as missing key
+                            continue
+                        cp[key] = strategy(key, bval, val)
+                        continue
                 # otherwise we ignore bval because key is already in a
             if strategy == "whiteout":
                 skip.append(key)

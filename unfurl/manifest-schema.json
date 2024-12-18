@@ -680,7 +680,10 @@
   "properties": {
     "apiVersion": {
       "type": "string",
-      "const": "unfurl/v1alpha1"
+      "enum": [
+        "unfurl/v1alpha1",
+        "unfurl/v1beta1"
+      ]
     },
     "kind": {
       "type": "string",
