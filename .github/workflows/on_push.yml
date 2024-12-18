@@ -324,6 +324,7 @@ jobs:
           #   arch: main
 
     runs-on: ${{ format('{0}-latest', matrix.os) }}
+    timeout-minutes: 60
     steps:
     - uses: actions/checkout@v4
       with:
