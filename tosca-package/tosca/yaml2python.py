@@ -337,6 +337,8 @@ class Convert:
         # local namespace of tosca names
         # the same name can appear in different positions (the value of the dict)
         self.local_names: Dict[str, str] = {}
+        self.has_overrides: Optional[List[str]] = []
+        self.base_refs: Dict[str, Optional[str]] = {}
         self._pending_defs: List[str] = []
         self.topology = (
             template.tpl and template.tpl.get("topology_template")
@@ -618,13 +620,34 @@ class Convert:
         self.imports.add_declaration(tosca_name, localname, include_in_all)
         return localname
 
-    def _set_name(self, yaml_name: str, fieldtype: str) -> Tuple[str, str]:
+    def _set_name(
+        self, yaml_name: str, fieldtype: str, prop_def=None
+    ) -> Tuple[str, str]:
         name, toscaname = self._get_name(yaml_name)
         existing = self.local_names.get(name)
         if existing and existing != fieldtype:
             # conflict: name is used in another namespace
             toscaname = yaml_name  # set toscaname (which might be empty) because name is changing
             name = name + "_" + fieldtype  # rename to avoid conflict
+
+        def _simple_typedef(prop_defs):
+            if not prop_defs:
+                return None
+            ptype = prop_defs.get("type")
+            if not ptype:
+                return None
+            if (
+                not prop_defs.get("required")
+                or prop_defs.get("default", "MISSING") is None
+            ):
+                return ptype + "| None"
+            return ptype
+
+        if self.has_overrides is None:  # in base init mode
+            self.base_refs[name] = _simple_typedef(prop_def)
+        elif name in self.base_refs:
+            if not prop_def or _simple_typedef(prop_def) != self.base_refs[name]:
+                self.has_overrides.append(name)
         self.local_names[name] = fieldtype
         return name, toscaname
 
@@ -795,7 +818,7 @@ class Convert:
     def _prop_decl(
         self, prop: Property, fieldtype: str, both: bool
     ) -> Tuple[str, str, str]:
-        name, toscaname = self._set_name(prop.name, "property")
+        name, toscaname = self._set_name(prop.name, "property", prop.schema.schema)
         fieldparams = []
         if toscaname:
             fieldparams.append(f'name="{toscaname}"')
@@ -877,14 +900,18 @@ class Convert:
         # find all the identifiers declared on this type with the namespaces they appear in
         # namespace keys: requirement, capability, operation, property (includes attributes)
         self.local_names = {}
+        self.base_refs = {}
+        self.has_overrides = None
         for entity_type in reversed(current_type.ancestors()):
             # NB: order of _set_name calls needs to match toscatype2class()
+            if entity_type.type == current_type.type:  # current is last
+                break
             props = entity_type.get_definition("properties") or {}
-            for name in props:
-                self._set_name(name, "property")
+            for name, prop_defs in props.items():
+                self._set_name(name, "property", prop_defs)
             attrs = entity_type.get_definition("attributes") or {}
-            for name in attrs:
-                self._set_name(name, "property")
+            for name, prop_defs in attrs.items():
+                self._set_name(name, "property", prop_defs)
             if isinstance(entity_type, NodeType):
                 capabilities = entity_type.get_capabilities_def()
                 for name in capabilities:
@@ -900,6 +927,7 @@ class Convert:
                 ops = idef.get("operations") or {}
                 for name in ops:
                     self._set_name(name, "operation")
+        self.has_overrides = []
 
     def toscatype2class(
         self, toscatype: StatefulEntityType, baseclass_name: str, initial_indent=""
@@ -1002,6 +1030,11 @@ class Convert:
             value = toscatype.get_value(key)
             if value:
                 src += f"{indent}_{key} = {self.value2python_repr(value, True)}\n"
+
+        if self.has_overrides:
+            class_decl += f"  # type: ignore[override]  # {tuple(self.has_overrides)}\n"
+        else:
+            class_decl += "\n"
 
         if src.strip():
             return class_decl + src
