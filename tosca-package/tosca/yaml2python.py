@@ -539,6 +539,10 @@ class Convert:
             if name == "unfurl.interfaces.Install":
                 # special case
                 if self._builtin_prefix != "tosca.":
+                    src += (
+                        indent
+                        + """Install = tosca.interfaces.Install  # this is already defined because tosca.nodes.Root needs to inherit from it\n"""
+                    )
                     continue
             elif self._builtin_prefix and not name.startswith(self._builtin_prefix):
                 continue
@@ -873,14 +877,20 @@ class Convert:
         parents = entity_type.parent_types()
         if not parents:
             base_names = baseclass_name
-            if baseclass_name == "DataEntity" and entity_type.defs:
-                metadata = entity_type.defs.get("metadata")
-                if metadata and metadata.get("additionalProperties"):
-                    baseclass_name = "OpenDataEntity"
         else:
-            base_names = ", ".join(
-                [self.python_name_from_type(p.type, True) for p in parents]
-            )
+            base_names = ", ".join([
+                self.python_name_from_type(p.type, True) for p in parents
+            ])
+        if baseclass_name == "DataEntity" and entity_type.defs:
+            metadata = entity_type.defs.get("metadata")
+            if metadata and metadata.get("additionalProperties"):
+                # so OpenDataEntity.__init__ is used
+                if base_names == "DataEntity":
+                    base_names = "OpenDataEntity"
+                else:
+                    base_names = "OpenDataEntity, " + base_names
+                self.imports.add_tosca_from("OpenDataEntity")
+
         interfaces = entity_type.get_value(entity_type.INTERFACES) or {}
         for name, val in interfaces.items():
             itype = val and val.get("type")
@@ -950,7 +960,7 @@ class Convert:
         if simple_type and simple_type in _tosca.TOSCA_SIMPLE_TYPES:
             # its a value datatype
             base_names = "tosca.ValueType, " + _tosca.TOSCA_SIMPLE_TYPES[simple_type]
-        class_decl = f"{initial_indent}class {cls_name}({base_names}):\n"
+        class_decl = f"{initial_indent}class {cls_name}({base_names}):"
         src = ""
         indent = initial_indent + indent
         # XXX: 'version'
@@ -2053,12 +2063,6 @@ def convert_service_template(
     src = prologue + add_description(tpl, "") + imports.prelude() + src
     if not builtin_prefix and imports.get_all():
         src += f"\n__all__= {value2python_repr(imports.get_all(), True)}"
-    if builtin_prefix == "unfurl.":
-        imports.from_tosca.add("Namespace")
-        src += """\nclass interfaces(Namespace):
-        # this is already defined because tosca.nodes.Root needs to inherit from it
-        Install = tosca.interfaces.Install
-        """
     # XXX fix relative imports and re-enable
     # src += '\nif __name__ == "__main__":\n    tosca.dump_yaml(globals())'
 
