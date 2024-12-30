@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 from .merge import diff_dicts
 from .util import (
+    ChainMap,
     UnfurlError,
     UnfurlTaskError,
     is_sensitive,
@@ -951,9 +952,20 @@ class ResultsMap(Results, MutableMapping[str, Any]):
         list(self.values())
 
     def get_resolved(self) -> Dict[str, ResultsItem]:
-        return {
-            key: v for key, v in self._attributes.items() if isinstance(v, ResultsItem)
-        }
+        if isinstance(self._attributes, ChainMap):
+            _attributes = self._attributes._maps[0]
+        else:
+            _attributes = self._attributes
+        return {key: v for key, v in _attributes.items() if isinstance(v, ResultsItem)}
+
+    def __sensitive__(self):
+        # only check resolved values
+        return any(is_sensitive(x) for x in self.get_resolved().values())
+
+    def has_diff(self):
+        # only check resolved values
+        # XXX also check if items were added or removed
+        return any(x.has_diff() for x in self.get_resolved().values())
 
     def __contains__(self, key):
         return key in self._attributes
@@ -964,8 +976,8 @@ class ResultsMap(Results, MutableMapping[str, Any]):
     def get_diff(self, cls=dict):
         # returns a dict with the same semantics as diffDicts
         diffDict = cls()
-        for key, val in self._attributes.items():
-            if isinstance(val, ResultsItem) and val.has_diff():
+        for key, val in self.get_resolved().items():
+            if val.has_diff():
                 diffDict[key] = val.get_diff()
 
         for key in self._deleted:

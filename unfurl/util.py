@@ -38,7 +38,11 @@ from jsonschema import Draft7Validator, validators, RefResolver
 import jsonschema.exceptions
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.vault import VaultEditor
-from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed  # noqa: F401
+from ansible.module_utils._text import (
+    to_text,
+    to_bytes,
+    to_native,
+)  # BSD licensed  # noqa: F401
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var  # noqa: F401
 import warnings
 import codecs
@@ -171,7 +175,7 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         name: str,
         log: int = logging.DEBUG,
     ) -> None:
-        message = f"error updating resource {name}"
+        message = f'error updating resource "{name}"'
         super().__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
@@ -477,7 +481,9 @@ def clean_output(value: str) -> str:
 
 
 @contextmanager
-def change_cwd(new_path: Optional[str] = None, log: Optional[LogExtraLevels] = None) -> Iterator:
+def change_cwd(
+    new_path: Optional[str] = None, log: Optional[LogExtraLevels] = None
+) -> Iterator:
     """Temporarily change current working directory"""
     old_path = os.getcwd()
     if new_path:
@@ -565,8 +571,8 @@ class ChainMap(MutableMapping):
         self._maps = maps
 
     def copy(self):
-        # assume map implements copy()
-        return ChainMap(*(m.copy() for m in self._maps))  # type: ignore
+        # assume _map[0] implements copy(), the remaining dicts are read-only
+        return ChainMap(self._maps[0].copy(), *self._maps[1:])  # type: ignore
 
     def split(self) -> Tuple[MutableMapping, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
@@ -651,7 +657,9 @@ def is_relative_to(p, *other) -> bool:
         return False
 
 
-def substitute_env(contents, env:Optional[Mapping]=None, preserve_missing=False):
+def substitute_env(
+    contents: str, env: Optional[Mapping] = None, preserve_missing: bool = False
+):
     r"""
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
     Use \${NAME} to ignore
@@ -659,14 +667,14 @@ def substitute_env(contents, env:Optional[Mapping]=None, preserve_missing=False)
     if env is None:
         env = os.environ
 
-    def replace(m):
+    def replace(m: re.Match) -> str:
         if m.group(1):  # \ found
             return m.group(0)[len(m.group(1)) - 1 or 1 :]
         for name in m.group(2).split("|"):
             if name in env:
                 value = env[name]
                 if callable(value):
-                    return value()
+                    return cast(str, value())
                 return value
         # can't resolve, use default
         if preserve_missing:

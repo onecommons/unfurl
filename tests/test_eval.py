@@ -392,9 +392,10 @@ class EvalTest(unittest.TestCase):
                 "success": dict(eval={"if": "$true", "then": ".name"}),
             },
         }
-        resource = self._getTestResource({"aTemplate": query})
+        resource = self._getTestResource({"aTemplate": query, "q": dict(q="{{ SELF }}")})
         self.assertEqual(map_value(query, resource), "test")
         self.assertEqual(resource.attributes["aTemplate"], "test")
+        self.assertEqual(resource.attributes["q"], "{{ SELF }}")
 
         template = """\
 #jinja2: variable_start_string: '<%', variable_end_string: '%>'
@@ -528,6 +529,16 @@ a_dict:
         self.assertEqual(Ref("a").resolve(RefContext(child)), [[child, {"b": 2}]])
         # a resolves to [child, dict] so a::b resolves to [child[b], [b]2]
         self.assertEqual(Ref("a::b").resolve(RefContext(child)), [1, 2])
+
+        root = NodeInstance("root", {"q": {"eval": "::child::q"},
+                                     "q2": {"eval": "::child::q2"}
+                                     }, None)
+        child = NodeInstance("child", {
+            "q": dict(q={"eval": ".name"}),
+            "q2": "{{ '{' + '{' + 'SELF}}' }}"
+            }, root)
+        # XXX fix: assert root.attributes["q"] == {"eval": ".name"}
+        assert root.attributes["q2"] == "{{SELF}}"
 
     def test_lookup(self):
         resource = self._getTestResource()
