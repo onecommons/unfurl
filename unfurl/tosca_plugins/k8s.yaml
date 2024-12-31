@@ -25,6 +25,11 @@ node_types:
 
   unfurl.nodes.K8sCluster:
     derived_from: unfurl.nodes._K8sResourceHost
+    properties:
+      name:
+        title: Cluster name
+        type: string
+        required: false
     capabilities:
       host:
         type: tosca.capabilities.Container
@@ -140,8 +145,7 @@ capability_types:
   unfurl.capabilities.Endpoint.K8sCluster:
     derived_from: tosca.capabilities.Endpoint.Admin
     description: >
-      Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
-      for the semantics of the "credential" properties.
+      Capability to connect to a K8sCluster.
     properties:
       protocol:
         type: string
