@@ -196,9 +196,10 @@ This example defines an artifact that is a container image, along with a `reposi
 
 .. code:: yaml
 
-     docker_hub:
-       url: https://registry.hub.docker.com/
-       credential:
+    repositories:
+      docker_hub:
+        url: https://registry.hub.docker.com/
+        credential:
           user: user1
           token:
             eval:
@@ -217,7 +218,7 @@ This example defines an artifact that is a container image, along with a `reposi
 
 Artifacts can be used in the following ways:
 
-* An operation's `implementation's<implementation>`, ``primary`` field can be assigned an artifact which will be used to execute the operation. Artifacts derived from ``unfurl.artifacts.HasConfigurator`` will use configurator set on its type, otherwise it will treated as a shell script unless the ``className`` field is set in the implementation.
+* An operation's `implementation's<implementation>`, ``primary`` field can be assigned an artifact which will be used to execute the operation. Artifacts derived from ``unfurl.artifacts.HasConfigurator`` will use configurator set on its type, otherwise it will treated as a shell script (using the `Cmd` configurator) unless the ``className`` field is set in the implementation.
 * An implementation can also list artifacts in the ``dependencies`` field which will be installed if necessary.
 * The `get_artifact` TOSCA function to reference to artifact's URL or local location (if available).
 * An artifact and its properties can be accessed in `Eval Expressions` via the `.artifacts<Special keys>` key. (see `Artifact enhancements`) or as :py:class:`Node` attributes when using the `Python DSL`. 
@@ -238,34 +239,13 @@ An :tosca_spec:`Interface<_Toc50125307>` is a collections of :std:ref:`operation
 Example
 -------
 
-.. code-block:: yaml
+.. tab-set-code::
 
-    interfaces:
-      Standard:  # this is a built-in interface type so the "type" field is not required
-        inputs:  
-          # inputs defined at this level will be made available to all operations
-          foo: bar
-        operations:
-          # in the simplest case an operation can just be the name of an artifact or shell command
-          create: ./myscript.sh
-          # a more complex operation:
-          configure:
-            implementation:
-              primary: my_ansible_playbook 
-              dependencies:
-                  # unfurl will install artifacts listed as dependencies if they are missing
-                - a_ansible_collection
-              # Unfurl extensions:
-              className: Ansible # the configurator class to use (redundant in this example)
-              environment: # environment variables to set when executing the operation
-                 AN_ENV_VAR: 1
-            inputs:
-              foo: baz  # overrides the above definition of "foo"
-            outputs:
-              an_ansible_fact: an_attribute
-        # an Unfurl extension for specifying the connections that the operations need to function:
-        requirements:
-          - unfurl.relationships.ConnectsTo.GoogleCloudProject
+  .. literalinclude:: ./examples/interfaces.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/interfaces.py
+    :language: python
 
 Operations can be invoked in the following ways:
 
