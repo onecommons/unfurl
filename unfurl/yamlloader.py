@@ -783,6 +783,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     and self.manifest.tosca.template.tpl.get("repositories")
                     or {}
                 )
+                if repository_name not in repositories:
+                    return None, None
         else:
             repositories = {}
         loader = toscaparser.imports.ImportsLoader(

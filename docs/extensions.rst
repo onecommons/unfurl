@@ -42,6 +42,8 @@ Extensions
 * add ``removed`` property status value
 * artifacts can be declared on node types.
 * add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts (see `Artifact enhancements`)
+* support ``ANON`` keyword in `get_artifact`
+* add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
 
 
 Not yet implemented

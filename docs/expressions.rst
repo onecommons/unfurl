@@ -43,10 +43,14 @@ get_artifact
 
   The first argument is either a string or a instance reference (from an `eval expression <eval expressions>`).
 
-  If it is a string it should be the name of a node template or one of ``SELF``, ``SOURCE``, ``TARGET``, ``HOST``.
+  If it is a string it should be the name of a node template or one of ``ANON``, ``SELF``, ``SOURCE``, ``TARGET``, ``HOST``.
   If no node template is found return ``null``.
 
-  The second argument is the name of the artifact associated with the node template referenced by the first argument.
+  ``ANON`` is like ``SELF`` but if the artifact is not found on current node template it will create an artifact using name in that second argument as its ``file``.
+  This is the same logic used to find an artifact when it is referenced in an operation's implementation.
+
+  The second argument is the name of the artifact associated with the node template referenced by the first argument;
+  Alternatively, if the first argument was ``ANON``, the second argument may be a dictionary with ``name`` and ``repository`` keys.
   If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return ``null``.
 
   See also the :tosca_spec:`TOSCA get_artifact spec <_Toc50125538>` (but note that ``location`` and ``remove`` arguments are not currently supported).

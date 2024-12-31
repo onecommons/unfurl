@@ -894,17 +894,25 @@ class ArtifactInstance(EntityInstance):
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
     @property
-    def base_dir(self):
+    def base_dir(self) -> str:
         return self.template.base_dir
 
     @property
-    def file(self):
-        return self.template.file
+    def file(self) -> str:
+        return cast(ArtifactSpec, self.template).file
+
+    @property
+    def path(self) -> Optional[str]:
+        return cast(ArtifactSpec, self.template).get_path()
 
     @property
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         # XXX add specially handling for this and file if contents is set?
-        return self.template.repository
+        return cast(ArtifactSpec, self.template).repository
+
+    @property
+    def artifact_dependencies(self) -> Optional[List[Union[str, Dict[str, str]]]]:
+        return cast(ArtifactSpec, self.template).dependencies
 
     @property
     def deploy_path(self) -> str:

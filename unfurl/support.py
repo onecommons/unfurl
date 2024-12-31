@@ -564,7 +564,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                     if is_sensitive(result):
                         # note: even if the template rendered a list or dict
                         # we still need to wrap the entire result as sensitive because we
-                        # don't know how the referenced senstive results were transformed by the template
+                        # don't know how the referenced sensitive results were transformed by the template
                         ctx.trace("setting template result as sensitive")
                         # mark the template result as sensitive
                         return wrap_sensitive_value(value)
@@ -1143,7 +1143,7 @@ def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
 
 
 def _get_container_image_from_repository(
-    entity, artifact_name
+    entity: "EntityInstance", artifact_name: str
 ) -> Optional["ContainerImage"]:
     # aka get_artifact_as_value
     name, tag, digest, hostname = ContainerImage.split(artifact_name)
@@ -1174,7 +1174,7 @@ def _get_container_image_from_repository(
 def get_artifact(
     ctx: RefContext,
     entity: Union[None, str, "EntityInstance"],
-    artifact_name: str,
+    artifact_name: Union[str, Dict[str, str]],
     location=None,
     remove=None,
 ) -> Optional[ExternalValue]:
@@ -1188,15 +1188,25 @@ def get_artifact(
     If entity_name or artifact_name is not found return None.
     """
     from .runtime import NodeInstance, ArtifactInstance
-
-    if not entity:
+    if entity == "ANON":
+        current = ctx.currentResource.template
+        if not current:
+            return None
+        artifact = current.find_or_create_artifact(artifact_name, predefined=False)
+        if artifact:
+            return artifact.as_value()
+        else:
+            return None
+    elif not isinstance(artifact_name, str):
+        return None
+    elif isinstance(entity, str):
+        instances = _get_instances_from_keyname(ctx, entity)
+    elif not entity:
         return ContainerImage.make(
             artifact_name
         )  # XXX this assumes its a container image
-    if isinstance(entity, ArtifactInstance):
+    elif isinstance(entity, ArtifactInstance):
         return cast(ArtifactSpec, entity.template).as_value()
-    if isinstance(entity, str):
-        instances = _get_instances_from_keyname(ctx, entity)
     elif isinstance(entity, NodeInstance):
         if entity.template.is_compatible_type("unfurl.nodes.Repository"):
             # XXX retrieve method from template definition
