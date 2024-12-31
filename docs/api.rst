@@ -89,6 +89,13 @@ Other
 
 .. autofunction:: global_state_context
 
+Scalars
+~~~~~~~
+
+.. automodule:: tosca.scalars
+  :members:
+  :private-members:
+  :undoc-members:
 
 Utility Functions
 ~~~~~~~~~~~~~~~~~

@@ -150,8 +150,8 @@ Expression Functions
   `not`                            expr
   `pow`                            [a, b]
   `python`                         path#function_name | module.function_name
-  `scalar`                         string or scalar
-  `scalar_value`                   (see below)
+  :std:ref:`scalar`                string or scalar
+  :std:ref:`scalar_value`          (see below)
   `secret`                         name
    :std:ref:`sensitive`            any
   `sub`                            [a, b]

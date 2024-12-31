@@ -30,6 +30,7 @@ ALLOWED_MODULES = (
     "typing",
     "typing_extensions",
     "tosca",
+    "tosca.scalars",
     "random",
     "math",
     "string",
@@ -418,8 +419,8 @@ def __safe_import__(
     else:
         # relative import so load_private_module
         package = globals["__package__"] if globals else None
-        importlib._bootstrap._sanity_check(name, package, level)
-        name = importlib._bootstrap._resolve_name(name, package, level)
+        importlib._bootstrap._sanity_check(name, package, level)  # type: ignore[attr-defined]
+        name = importlib._bootstrap._resolve_name(name, package, level)  # type: ignore[attr-defined]
 
     # load user code in our restricted environment
     module = load_private_module(base_dir, modules, name)
@@ -427,7 +428,7 @@ def __safe_import__(
         if "*" in fromlist:
             _validate_star(module)
         # see https://github.com/python/cpython/blob/3.11/Lib/importlib/_bootstrap.py#L1207
-        importlib._bootstrap._handle_fromlist(
+        importlib._bootstrap._handle_fromlist(  # type: ignore[attr-defined]
             module, fromlist, lambda name: load_private_module(base_dir, modules, name)
         )
     return module

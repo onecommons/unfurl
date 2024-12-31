@@ -1,8 +1,9 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-Expose TOSCA units as Python objects
-Usage:
+This modules exposes TOSCA scalar units as Python `_Unit` objects.
+
+Each unit name listed in ``SCALAR_UNIT_DICT`` can be imported from this module, e.g.:
 
 >>> from tosca import mb
 >>> one_mb = 1 * mb
@@ -351,6 +352,9 @@ TIBPS = Tibps
 
 
 def unit(unit: str) -> _Unit:
+    """
+    Return a unit object for the given unit name. Raise NameError if the unit is not found.
+    """
     obj = globals()[unit]
     assert isinstance(obj, _Unit)
     return obj
@@ -360,6 +364,13 @@ _unit = unit
 
 
 def scalar(val) -> Optional[_Scalar]:
+    """
+    Parse the string into a scalar or return None if parsing fails.
+
+    Supported syntax:
+
+    ``(+|-)?[digits]+ *? [unit]``  (spaces between number and unit is optional)
+    """
     val, unit = parse_scalar_unit(val)
     if val is not None and unit:
         return val * _unit(unit)
@@ -367,6 +378,11 @@ def scalar(val) -> Optional[_Scalar]:
 
 
 def scalar_value(val_, unit=None, round=None) -> Union[float, int, None]:
+    """Convert a scalar to a number denominated by the given unit. If the scalar_value is a string, parse it as a scalar.
+    If the scalar_value is a number assume it is already in the given unit. If the unit keyword is omitted, use the unit parsed from the scalar.
+
+    Return a float or an int depending on the “round” parameter: if a integer the number of digits to round to, or “ceil’, “floor” to round up or down to the nearest integer.
+    If round is omitted or null, round to the nearest integer unless its absolute value is less than 1."""
     val, valunit = cast(
         Tuple[Optional[Union[int, float]], Optional[str]], parse_scalar_unit(val_)
     )
