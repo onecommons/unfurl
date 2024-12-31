@@ -1200,12 +1200,9 @@ def create_task_request(
         logger.trace(errorMsg)
         return None
 
-    req = TaskRequest(
-        configSpec,
-        resource,
-        reason or action,
-        startState=startState or iDef.entry_state,
-    )
+    if not startState and iDef:
+        startState = iDef.entry_state
+    req = TaskRequest(configSpec, resource, reason or action, startState=startState)
     if skip_filter:
         return req
     else:
@@ -1358,7 +1355,7 @@ def _get_config_spec_args_from_implementation(
         "outputs": iDef.outputs,
         "operation_host": operation_host,
         "entry_state": iDef.entry_state,
-        "input_defs": iDef.get_declared_inputs()
+        "input_defs": iDef.get_declared_inputs(),
     }
     artifactTpl: Union[str, dict, None] = None
     dependencies = None
@@ -1390,7 +1387,7 @@ def _get_config_spec_args_from_implementation(
         if not base_dir:
             base_dir = template.base_dir if template else "."
     kw["base_dir"] = base_dir
-    artifact = None
+    artifact: Optional[ArtifactSpec] = None
     guessing = ""
     if artifactTpl:
         if template:
@@ -1405,7 +1402,8 @@ def _get_config_spec_args_from_implementation(
             else:
                 guessing = artifactTpl.get("file") or ""
     kw["primary"] = artifact
-
+    if artifact and artifact.dependencies:
+        dependencies = set(artifact.dependencies + (dependencies or []))
     if dependencies and template:
         kw["dependencies"] = [
             dep

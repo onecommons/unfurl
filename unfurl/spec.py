@@ -3,6 +3,7 @@
 """
 TOSCA implementation
 """
+
 import copy
 import sys
 from toscaparser.elements.interfaces import OperationDef
@@ -736,18 +737,18 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = cast(str, toscaNodeTemplate.type)
-        self._isReferencedBy: Sequence[EntitySpec] = (
-            []
-        )  # this is referenced by another template or via property traversal
+        self._isReferencedBy: Sequence[
+            EntitySpec
+        ] = []  # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
         # XXX user should be able to declare default attribute values on templates
         self.propertyDefs: Dict[str, Property] = toscaNodeTemplate.get_properties()
         self.attributeDefs: Dict[str, Property] = {}
-        self.properties: CommentedMap = CommentedMap(
-            [(prop.name, prop.value) for prop in self.propertyDefs.values()]
-        )
+        self.properties: CommentedMap = CommentedMap([
+            (prop.name, prop.value) for prop in self.propertyDefs.values()
+        ])
         if toscaNodeTemplate.type_definition:
             self.global_type = toscaNodeTemplate.type_definition.global_name
             # add attributes definitions
@@ -874,7 +875,10 @@ class EntitySpec(ResourceRef):
         else:
             return name
 
-    def find_or_create_artifact(self, nameOrTpl, path=None, predefined=False):
+    def find_or_create_artifact(
+        self, nameOrTpl: Union[str, Dict[str, str]], path=None, predefined=False
+    ):
+        # if predefined is false, an anonymous, inline artifact will be created from nameOrTpl if none is found
         if not nameOrTpl:
             return None
         if isinstance(nameOrTpl, str):
@@ -882,7 +886,7 @@ class EntitySpec(ResourceRef):
             artifact = self.artifacts.get(nameOrTpl)
             if artifact:
                 return artifact
-            repositoryName = ""
+            repositoryName: Optional[str] = ""
         else:
             # inline, anonymous templates can only specify a file and repository
             # because ArtifactInstance don't have way to refer to the inline template
@@ -906,6 +910,8 @@ class EntitySpec(ResourceRef):
                     break
             else:
                 if predefined and not check_class_registry(name):
+                    # check_class_registry() allows us to treat configurator names as artifacts
+                    # (so they can be used in the implementation shorthand)
                     logger.warning(f"no artifact named {name} found")
                     return None
 
@@ -917,6 +923,14 @@ class EntitySpec(ResourceRef):
             if artifact_tpl:
                 tpl = artifact_tpl
                 tpl["repository"] = repositoryName
+            else:
+                if predefined:
+                    logger.warning(
+                        f"no artifact named {name} in repository {repositoryName} found"
+                    )
+                    return None
+                else:
+                    tpl = dict(file=name, repository=repositoryName)
 
         # create an anonymous, inline artifact
         return ArtifactSpec(tpl, self, path=path)
@@ -1001,6 +1015,7 @@ def _get_roots(node: EntitySpec, seen=None):
             seen.add(node.name)
             yield from _get_roots(parent, seen)
 
+
 # (see NodeSpec.requirement_constraints())
 # def extract_req(expr, var_list=()) -> str:
 #     result = analyze_expr(expr, var_list)
@@ -1063,6 +1078,7 @@ class NodeSpec(EntitySpec):
     @property
     def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         if self._artifacts is None:
+            # XXX should artifacts with repository name check if repository is reified and has an associated artifact with file name?
             self._artifacts = {  # type: ignore
                 name: ArtifactSpec(artifact, self)
                 for name, artifact in self.toscaEntityTemplate.artifacts.items()
@@ -1772,7 +1788,9 @@ class TopologySpec(EntitySpec):
             if custom_types:
                 # XXX check for conflicts, throw error
                 # add to "types" so EntityTemplate validation passes
-                cast(dict, self.spec.template.tpl).setdefault("types", {}).update(custom_types)
+                cast(dict, self.spec.template.tpl).setdefault("types", {}).update(
+                    custom_types
+                )
                 self.topology_template.custom_defs.update(custom_types)
 
         nodeTemplate = self.topology_template.add_template(name, tpl)
@@ -1844,6 +1862,7 @@ class ArtifactSpec(EntitySpec):
         "target",
         "order",
         "contents",
+        "dependencies",
     )
 
     def __init__(
@@ -1880,15 +1899,19 @@ class ArtifactSpec(EntitySpec):
         for prop in self.buildin_fields:
             self.defaultAttributes[prop] = getattr(artifact, prop)
 
-    def get_uri(self):
+    def get_uri(self) -> str:
         if self.parentNode:
             return self.parentNode.name + "~a~" + self.name
         else:
             return "~a~" + self.name
 
     @property
-    def file(self):
+    def file(self) -> str:
         return self.toscaEntityTemplate.file
+
+    @property
+    def dependencies(self) -> Optional[List[Union[str, Dict[str, str]]]]:
+        return self.toscaEntityTemplate.dependencies
 
     @property
     def base_dir(self) -> str:
