@@ -38,7 +38,6 @@ from ._tosca import (
     CapabilityType,
     global_state,
     FieldProjection,
-    WritePolicy,
     InstanceProxy,
     ValueType,
     _Tosca_Field,
@@ -46,7 +45,7 @@ from ._tosca import (
     Namespace,
 )
 from .loader import restricted_exec, get_module_path, get_allowed_modules
-
+from . import WritePolicy
 
 class PythonToYaml:
     def __init__(
