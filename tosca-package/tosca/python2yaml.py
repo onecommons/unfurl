@@ -1,9 +1,12 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
+import dataclasses
+import inspect
 import io
 from types import ModuleType
 import sys
 import os.path
+import types
 from typing import (
     Any,
     Dict,
@@ -13,19 +16,28 @@ from typing import (
     Type,
     Union,
 )
+from typing_extensions import Self
 import logging
 
 logger = logging.getLogger("tosca")
 from pathlib import Path
 from toscaparser import topology_template
 from ._tosca import (
+    ToscaFieldType,
+    metadata_to_yaml,
+    to_tosca_value,
+    ArtifactEntity,
     _DataclassType,
     _OwnedToscaType,
+    _ToscaType,
     ToscaType,
+    ToscaInputs,
+    ToscaOutputs,
     Relationship,
     Node,
     CapabilityType,
     global_state,
+    FieldProjection,
     WritePolicy,
     InstanceProxy,
     ValueType,
@@ -347,7 +359,11 @@ class PythonToYaml:
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                     if not obj._template_section:
                         if not isinstance(obj, _OwnedToscaType) or not obj._node:
-                            logger.warning("Can't add template '%s', to topology_template, %s isn't a standalone TOSCA type",name, obj._type_section)
+                            logger.warning(
+                                "Can't add template '%s', to topology_template, %s isn't a standalone TOSCA type",
+                                name,
+                                obj._type_section,
+                            )
                         continue
                     obj.__class__._globals = self.globals  # type: ignore
                     self.add_template(obj, name, current_module)
@@ -434,6 +450,357 @@ class PythonToYaml:
                         logger.warning(
                             f"import look up in {current_module} failed, can't find {module_name}",
                         )
+
+    def _shared_cls_to_yaml(self, cls: Type[ToscaType]) -> dict:
+        # XXX version
+        dict_cls = self.yaml_cls
+        body: Dict[str, Any] = dict_cls()
+        tosca_name = cls.tosca_type_name()
+        bases: Union[list, str] = [
+            b.tosca_type_name() for b in cls.tosca_bases() if b != tosca_name
+        ]
+        super_fields = {}
+        if bases:
+            if len(bases) == 1:
+                bases = bases[0]
+            body["derived_from"] = bases
+            for b in cls.tosca_bases():
+                super_fields.update(b.__dataclass_fields__)
+
+        doc = cls.__doc__ and cls.__doc__.strip()
+        if doc:
+            body["description"] = doc
+        if cls._type_metadata:
+            body["metadata"] = metadata_to_yaml(cls._type_metadata)
+
+        for f_cls, field in cls._get_parameter_and_explicit_fields():
+            assert field.name, field
+            if f_cls._docstrings:
+                field.description = f_cls._docstrings.get(field.name)
+            item = field.to_yaml(self, super_fields.get(field.name))
+            if item:
+                if field.section == "requirements":
+                    body.setdefault("requirements", []).append(item)
+                elif not field.section:  # _target
+                    body.update(item)
+                else:  # properties, attribute, capabilities, artifacts
+                    if f_cls is not cls and f_cls._metadata_key:
+                        # its an inherited input or output, set metadata to will be treated as an input when invoking an operation
+                        item[field.tosca_name].setdefault("metadata", {})[
+                            f_cls._metadata_key
+                        ] = f_cls.__name__
+                    body.setdefault(field.section, {}).update(item)
+                    if field.declare_attribute:
+                        # a property that is also declared as an attribute
+                        item = {field.tosca_name: field._to_attribute_yaml()}
+                        body.setdefault("attributes", {}).update(item)
+        interfaces = self._interfaces_yaml(None, cls)
+        if interfaces:
+            body["interfaces"] = interfaces
+
+        if not body:  # skip this
+            return {}
+        tpl = dict_cls({tosca_name: body})
+        return tpl
+
+    def _interfaces_yaml(
+        self,
+        obj: Optional["ToscaType"],
+        cls: Type["ToscaType"],
+    ) -> Dict[str, dict]:
+        # interfaces are inherited
+        cls_or_self = obj or cls
+        dict_cls = self.yaml_cls
+        interfaces = {}
+        interface_ops = {}
+        direct_bases = []
+        for c in cls.__mro__:
+            if not issubclass(c, ToscaType) or c._type_section != "interface_types":
+                continue
+            name = c.tosca_type_name()
+            shortname = name.split(".")[-1]
+            i_def: Dict[str, Any] = {}
+            if shortname not in [
+                "Standard",
+                "Configure",
+                "Install",
+            ] or cls_or_self.tosca_type_name().startswith("tosca."):
+                # built-in interfaces don't need their type declared
+                i_def["type"] = name
+            if cls_or_self._interface_requirements:
+                i_def["requirements"] = cls_or_self._interface_requirements
+            default_inputs = getattr(cls_or_self, f"{shortname}_default_inputs", None)
+            if default_inputs:
+                i_def["inputs"] = to_tosca_value(default_inputs, dict_cls)
+            interfaces[shortname] = i_def
+            if c in cls.__bases__:
+                direct_bases.append(shortname)
+            for methodname in c.__dict__:
+                if methodname[0] == "_":
+                    continue
+                interface_ops[methodname] = i_def
+                interface_ops[shortname + "." + methodname] = i_def
+        self._find_operations(obj, cls, interface_ops, interfaces)
+        # filter out interfaces with no operations declared unless inheriting the interface directly
+        return dict_cls(
+            (k, v)
+            for k, v in interfaces.items()
+            if k == "defaults" or k in direct_bases or v.get("operations")
+        )
+
+    @staticmethod
+    def is_operation(operation) -> bool:
+        # exclude Input and Output classes
+        return callable(operation) and not isinstance(operation, _DataclassType)
+
+    def _find_operations(
+        self,
+        obj: Optional["ToscaType"],
+        cls: Type["ToscaType"],
+        interface_ops,
+        interfaces,
+    ) -> None:
+        cls_or_self = obj or cls
+        for methodname, operation in cls_or_self.__dict__.items():
+            if methodname[0] == "_":
+                continue
+            if self.is_operation(operation):
+                apply_to = getattr(operation, "apply_to", None)
+                if apply_to is not None:
+                    for name in apply_to:
+                        interface = interface_ops.get(name)
+                        if interface is not None:
+                            # set to null to so they use the default operation
+                            interface.setdefault("operations", {})[
+                                name.split(".")[-1]
+                            ] = None
+                    interfaces["defaults"] = self._operation2yaml(obj, cls, operation)
+                else:
+                    name = getattr(operation, "operation_name", methodname)
+                    interface = interface_ops.get(name)
+                    if interface is not None:
+                        interface.setdefault("operations", {})[name] = (
+                            self._operation2yaml(obj, cls, operation)
+                        )
+
+    def _operation2yaml(
+        self,
+        obj: Optional["ToscaType"],
+        cls: Type["ToscaType"],
+        operation,
+    ):
+        cls_or_self = obj or cls
+        dict_cls = self.yaml_cls
+        if self.safe_mode:
+            # safe mode skips adding operation implementation because it executes operations to generate the yaml
+            return dict_cls(implementation="safe_mode")
+        op_def: Dict[str, Any] = dict_cls()
+        args: Dict[str, Any] = {}
+        kwargs: Dict[str, Any] = {}
+        sig = inspect.signature(operation)
+        try:
+            args, kwargs = _get_parameters(obj, cls, sig)
+            result = operation(*list(args.values()), **kwargs)
+        except Exception:
+            logger.debug(
+                f"Couldn't execute {operation} on {cls_or_self} during conversion, falling back to runtime execution",
+                exc_info=True,
+            )
+            className = f"{operation.__module__}:{operation.__qualname__}:render"
+            implementation = dict_cls(className=className)
+            result = None
+        else:
+            implementation = dict_cls()
+        if result is NotImplemented:
+            return "not_implemented"
+        if isinstance(result, _ArtifactProxy):
+            implementation = dict_cls(primary=result.name_or_tpl)
+            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
+            if ret_cls:
+                _set_outputs(operation, self, op_def, ret_cls)
+        elif isinstance(result, types.FunctionType):
+            className = f"{result.__module__}:{result.__qualname__}:run"
+            implementation = dict_cls(className=className)
+        elif isinstance(result, ToscaOutputs):
+            _set_outputs(operation, self, op_def, result)
+            # set result for case where self is an artifact
+            result = sig.parameters.get("self")
+        elif result:  # with unfurl this should be a Configurator
+            className = f"{result.__class__.__module__}.{result.__class__.__name__}"
+            implementation = dict_cls(className=className)
+        else:  # no return value
+            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
+            if ret_cls:
+                _set_outputs(operation, self, op_def, ret_cls)
+            # set result for case where self is an artifact
+            result = sig.parameters.get("self")
+        # XXX add to implementation: preConditions
+        for key in ("operation_host", "environment", "timeout", "dependencies"):
+            impl_val = getattr(operation, key, None)
+            if impl_val is not None:
+                implementation[key] = impl_val
+        if implementation:
+            op_def["implementation"] = to_tosca_value(implementation, dict_cls)
+        if hasattr(result, "_inputs"):
+            op_def["inputs"] = to_tosca_value(result._inputs, dict_cls)
+        args.update(kwargs)
+        if args:
+            _set_input_defs(op_def, sig, args, self)
+        description = getattr(operation, "__doc__", "")
+        if description and description.strip():
+            op_def["description"] = description.strip()
+        for key in ("entry_state", "invoke"):
+            impl_val = getattr(operation, key, None)
+            if impl_val is not None:
+                op_def[key] = to_tosca_value(impl_val, dict_cls)
+        return op_def
+
+
+def _get_toscaoutputs(cls_or_self, ret_val):
+    if ret_val is not inspect.Parameter.empty:
+        ret_cls = cls_or_self._resolve_class(ret_val)
+        if isinstance(ret_cls, type) and issubclass(ret_cls, ToscaOutputs):
+            return ret_cls
+    return None
+
+
+def _get_parameters(
+    obj: Optional["ToscaType"], cls: Type["ToscaType"], sig: inspect.Signature
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    cls_or_self = obj or cls
+    vargs: Dict[str, Any] = {}
+    kwargs: Dict[str, Any] = {}
+    args = vargs
+    for name, parameter in sig.parameters.items():
+        if name == "self":
+            args[name] = _ToscaTypeProxy(obj, cls)
+            continue
+        if parameter.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+        if parameter.kind == inspect.Parameter.KEYWORD_ONLY:
+            args = kwargs
+        if parameter.default is not inspect.Parameter.empty:
+            if isinstance(parameter.default, _ToscaType):
+                args[name] = _ToscaTypeProxy(parameter.default, type(parameter.default))
+            else:
+                args[name] = parameter.default
+        elif parameter.annotation is not inspect.Parameter.empty:
+            param_cls = cls_or_self._resolve_class(parameter.annotation)
+            if isinstance(param_cls, type) and issubclass(param_cls, _ToscaType):
+                args[name] = _ToscaTypeProxy(None, param_cls)
+            else:
+                args[name] = None
+    return vargs, kwargs
+
+
+def _set_output(outputs: dict, field: _Tosca_Field, converter):
+    output_def = field.to_yaml(converter)
+    if field.tosca_name in outputs:
+        output_def[field.tosca_name]["mapping"] = outputs[field.tosca_name]
+    outputs.update(output_def)
+
+
+def _set_outputs(operation, converter, op_def, tosca_outputs):
+    outputs = getattr(operation, "outputs", None) or {}
+    op_def.setdefault("metadata", {}).setdefault(ToscaOutputs._metadata_key, []).append(
+        tosca_outputs.tosca_type_name()
+    )
+    for d_field in dataclasses.fields(tosca_outputs):
+        if isinstance(d_field, _Tosca_Field):
+            _set_output(outputs, d_field, converter)
+    if outputs:
+        op_def["outputs"] = outputs
+
+
+def _set_input_def(inputs: dict, field: _Tosca_Field, converter):
+    input_def = field.to_yaml(converter)
+    if field.tosca_name in inputs:
+        input_def[field.tosca_name]["default"] = inputs[field.tosca_name]
+    inputs.update(input_def)
+
+
+def _set_input_defs(
+    op_def: dict, sig: inspect.Signature, args: dict, converter
+) -> None:
+    inputs = op_def.setdefault("inputs", {})
+    self = None
+    for name, value in args.items():
+        if name == "self":
+            self = value
+            continue
+        if isinstance(value, ToscaInputs):
+            # set metadata for matching properties
+            op_def.setdefault("metadata", {}).setdefault(
+                ToscaInputs._metadata_key, []
+            ).append(value.tosca_type_name())
+            for d_field in dataclasses.fields(value):
+                if isinstance(d_field, _Tosca_Field):
+                    _set_input_def(inputs, d_field, converter)
+        else:
+            parameter = sig.parameters[name]
+            if parameter.default == inspect.Parameter.empty:
+                default = dataclasses.MISSING
+            else:
+                default = parameter.default
+            if parameter.annotation is not inspect.Parameter.empty:
+                field: _Tosca_Field = _Tosca_Field(
+                    ToscaFieldType.property, default, name=name, owner=self
+                )
+                field.type = parameter.annotation
+            else:
+                field = _Tosca_Field.infer_field(self, name, default)
+            _set_input_def(inputs, field, converter)
+
+
+class _ArtifactProxy:
+    def __init__(self, name_or_tpl, named):
+        self.name_or_tpl = name_or_tpl
+        self.named = named
+
+    def execute(self, *args: ToscaInputs, **kw) -> Self:
+        self._inputs = ToscaInputs._get_inputs(*args, **kw)
+        return self
+
+    def set_inputs(self, *args: "ToscaInputs", **kw):
+        self._inputs = ToscaInputs._get_inputs(*args, **kw)
+
+    # XXX: create_configurator
+
+    def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
+        if not self.named:
+            return dict_cls(get_artifact=["ANON", self.name_or_tpl])
+        return dict_cls(get_artifact=["SELF", self.name_or_tpl])
+
+
+class _ToscaTypeProxy(InstanceProxy):
+    """
+    Stand-in for ToscaTypes when generating yaml
+    """
+
+    def __init__(self, obj: Optional["_ToscaType"], cls: Type["_ToscaType"]):
+        self._cls_or_self = obj or cls
+        self._cls = cls
+
+    def __getattr__(self, name):
+        attr = getattr(self._cls_or_self, name)
+        if isinstance(attr, FieldProjection):
+            # _FieldDescriptor.__get__ returns a FieldProjection
+            if isinstance(attr.field.default, ArtifactEntity) or issubclass(
+                attr.field.get_type_info().types[0], ArtifactEntity
+            ):
+                return _ArtifactProxy(name, True)
+            else:
+                # this is only called when defining an operation on a type so reset query to be relative
+                attr._path = [".", attr.field.as_ref_expr()]
+        elif isinstance(attr, ArtifactEntity):
+            return _ArtifactProxy(name, True)
+        return attr
+
+    def find_artifact(self, name_or_tpl):
+        return _ArtifactProxy(name_or_tpl, False)
 
 
 def python_src_to_yaml_obj(
