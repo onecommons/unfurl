@@ -180,7 +180,7 @@ class Configurator(metaclass=AutoRegisterClass):
         return False
 
     def __init__(self, *args: ToscaInputs, **kw) -> None:
-        self.inputs: Dict[str, Any] = ToscaInputs._get_inputs(*args, **kw)
+        self._inputs: Dict[str, Any] = ToscaInputs._get_inputs(*args, **kw)
 
     def _run(self, task: "TaskView") -> Generator:
         # internal function to convert user defined run() to a generator

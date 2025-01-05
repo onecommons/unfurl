@@ -196,10 +196,10 @@ class DslMethodConfigurator(Configurator):
             if isinstance(result, Configurator):
                 self.configurator = result
                 # configurators rely on task.inputs, so update them
-                task.inputs.update(result.inputs)
+                task.inputs.update(result._inputs)
                 # task.inputs get reset after render phase
                 # so we need to set configSpec.inputs too in order to preserve them for run()
-                task.configSpec.inputs.update(result.inputs)
+                task.configSpec.inputs.update(result._inputs)
                 return self.configurator.render(task)
             else:
                 assert callable(result), result
