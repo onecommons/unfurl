@@ -459,7 +459,10 @@ def get_descriptions(body):
     doc_strings = {}
     current_name = None
     for node in body:
-        if isinstance(node, AnnAssign) and isinstance(node.target, Name):
+        if isinstance(node, Assign) and len(node.targets) == 1 and isinstance(node.targets[0], Name):
+            current_name = node.targets[0].id
+            continue
+        elif isinstance(node, AnnAssign) and isinstance(node.target, Name):
             current_name = node.target.id
             continue
         elif current_name and doc_str(node):
