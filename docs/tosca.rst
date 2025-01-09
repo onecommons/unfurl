@@ -241,10 +241,10 @@ Example
 
 .. tab-set-code::
 
-  .. literalinclude:: ./examples/interfaces.yaml
+  .. literalinclude:: ./examples/tosca-interfaces.yaml
     :language: yaml
 
-  .. literalinclude:: ./examples/interfaces.py
+  .. literalinclude:: ./examples/tosca-interfaces.py
     :language: python
 
 Operations can be invoked in the following ways:
@@ -278,7 +278,7 @@ Outputs
 
 An operation can define an :tosca_spec:`attribute mapping<_Toc50125291>` that specifies how to apply the operation's outputs. The meaning of keys in the mapping depends on the operation's configurator, for example, a Ansible fact or a Terraform output.
 If mapping's value is a string, it names the attribute on the instance where the output will be saved.
-If the value is null, no attribute mapping will be made but the output will be available to the ``resultTemplate`` and saved in the ensemble. 
+If the value is null, no attribute mapping will be made but the output will be available to the `resultTemplate` and saved in the ensemble.
 
 Interface types
 ---------------

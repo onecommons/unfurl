@@ -1345,6 +1345,7 @@ def _get_config_spec_args_from_implementation(
     operation_host: Optional[str],
     dry_run: bool = False,
     safe_mode: bool = False,
+    parse_dependencies: bool = True,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
@@ -1404,15 +1405,18 @@ def _get_config_spec_args_from_implementation(
     kw["primary"] = artifact
     if artifact and artifact.dependencies:
         dependencies = set(artifact.dependencies + (dependencies or []))
-    if dependencies and template:
-        kw["dependencies"] = [
-            dep
-            for dep in [
-                template.find_or_create_artifact(artifactTpl, base_dir, True)
-                for artifactTpl in dependencies
+    if dependencies:
+        if template and parse_dependencies:
+            kw["dependencies"] = [
+                dep
+                for dep in [
+                    template.find_or_create_artifact(artifactTpl, base_dir, True)
+                    for artifactTpl in dependencies
+                ]
+                if dep
             ]
-            if dep
-        ]
+        else:
+            kw["dependencies"] = dependencies
     else:
         kw["dependencies"] = []
 

@@ -1,6 +1,7 @@
-import tosca
-import unfurl.configurators.shell
 import unfurl.configurators.ansible
+import unfurl.configurators.shell
+import tosca
+from tosca import operation
 
 
 class Example(tosca.nodes.Root):
@@ -12,9 +13,10 @@ class Example(tosca.nodes.Root):
             foo="bar",
         )
 
-    @tosca.operation(
-        environment={"AN_ENV_VAR": 1}, 
-        outputs={"an_ansible_fact": "an_attribute"}
+    @operation(
+        environment={"AN_ENV_VAR": "1"},
+        outputs={"an_ansible_fact": "an_attribute"},
+        dependencies=["a_ansible_collection"],
     )
     def configure(self, **kw):
         return unfurl.configurators.ansible.AnsibleConfigurator(

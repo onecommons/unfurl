@@ -1880,6 +1880,7 @@ class ArtifactSpec(EntitySpec):
         spec = topology.spec
         if isinstance(artifact_tpl, toscaparser.artifacts.Artifact):
             artifact = artifact_tpl
+            self._inline = False
         else:
             # inline artifact
             name = self.get_name_from_artifact_spec(artifact_tpl)
@@ -1888,6 +1889,7 @@ class ArtifactSpec(EntitySpec):
             artifact = toscaparser.artifacts.Artifact(
                 name, artifact_tpl, custom_defs, path
             )
+            self._inline = True
         EntitySpec.__init__(self, artifact, topology)
         self.repository: Optional[toscaparser.repositories.Repository] = (
             spec
@@ -1935,6 +1937,12 @@ class ArtifactSpec(EntitySpec):
             self.base_dir, self.file, self.toscaEntityTemplate.repository
         )
         return path, fragment
+
+    def name_or_spec(self):
+        if self._inline:
+            return self.as_import_spec()
+        else:
+            return self.name
 
     def as_import_spec(self):
         return dict(file=self.file, repository=self.toscaEntityTemplate.repository)

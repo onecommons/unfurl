@@ -373,7 +373,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return cast(
             Optional[Dict[str, Any]],
             _get_config_spec_args_from_implementation(
-                op, inputs, node, None, safe_mode=self.get_safe_mode()
+                op, inputs, node, None, False, self.get_safe_mode(), False
             ),
         )
 

@@ -2138,7 +2138,7 @@ class ToscaType(_ToscaType):
 
     def set_operation(
         self,
-        op: Callable[Concatenate[Self, ...], Any],
+        op: _OperationFunc, # Callable[Concatenate[Self, ...], Any],
         name: Optional[Union[str, _OperationFunc]] = None,
     ) -> None:
         """
