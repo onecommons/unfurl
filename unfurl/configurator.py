@@ -347,30 +347,24 @@ class Configurator(metaclass=AutoRegisterClass):
             bool: True if configuration's digest has changed, False if it is the same.
         """
         _parameters: str = getattr(changeset, "digestKeys", "")
+        if not _parameters:
+            task.logger.debug(
+                "skipping digest check for %s, previous task did not record any changes",
+                task.target.name,
+            )
+            return False
         current_inputs = {
             k for k in task.inputs.keys() if k not in self.exclude_from_digest
         }
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
-        if not _parameters:
-            if current_inputs:
-                task.logger.verbose(
-                    "digest keys for %s was previously empty, now found %s",
-                    task.target.name,
-                    current_inputs,
-                )
-                return True
-            else:
-                return False
-        else:
-            old_keys = _parameters.split(",")
+        old_keys = _parameters.split(",")
         old_inputs = {key for key in old_keys if "::" not in key}
         if old_inputs - current_inputs:
             # an old input was removed
             task.logger.verbose(
-                "digest keys changed for %s: old %s, new %s",
+                "digest keys changed for %s: these inputs were removed: %s",
                 task.target.name,
-                old_inputs,
-                current_inputs,
+                old_inputs - current_inputs,
             )
             return True
         # only resolve the inputs and dependencies that were resolved before
