@@ -279,7 +279,7 @@ class Imports:
     def prelude(self) -> str:
         if self.from_tosca:
             from_tosca_stmt = (
-                f'from tosca import ({", ".join(sorted(self.from_tosca))})\n'
+                f"from tosca import ({', '.join(sorted(self.from_tosca))})\n"
             )
         else:
             from_tosca_stmt = ""
@@ -1034,7 +1034,7 @@ class Convert:
         target_types = toscatype.get_value("valid_target_types")
         if target_types:
             python_target_types = [self.python_name_from_type(t) for t in target_types]
-            src += f'{indent}_valid_target_types = [{", ".join(python_target_types)}]\n'
+            src += f"{indent}_valid_target_types = [{', '.join(python_target_types)}]\n"
 
         # artifact, relationship and datatype types have special keys
         for key in ["file_ext", "mime_type", "constraints", "default_for"]:
@@ -1105,7 +1105,9 @@ class Convert:
             # include inherited interface_requirements
             src += f"{indent}_interface_requirements = {self.value2python_repr(nodetype.get_interface_requirements(entity_tpl))}\n"
 
-        for op in cast(List[OperationDef], EntityTemplate._create_interfaces(nodetype, template)):
+        for op in cast(
+            List[OperationDef], EntityTemplate._create_interfaces(nodetype, template)
+        ):
             # XXX this will have skipped not_implemented operations but they need to converted too
             if op.interfacetype != "Mock":
                 op_id = (op.interfacename, op.name)
@@ -1646,9 +1648,23 @@ class Convert:
             if val:
                 src += f"{field}={self.value2python_repr(val)},\n"
         src += ")"  # close ctor
-        src += self.add_additional_properties(indent, name, skipped)
-        src += self.add_template_description(artifact, indent, name)
+        func_indent = "   "
+        add_src = self.add_assignments(artifact, name, skipped, func_indent, indent)
+        if add_src:
+            cls_name, cls = self.imports.get_type_ref(artifact.type)
+            func_name = f"_make_{name}"
+            func_src = f"def {func_name}() -> {cls_name}:\n{func_indent}{name} = {src}\n{add_src}\n{func_indent}return {name}\n"
+            self._pending_defs.append(func_src)
+            return name, f"{func_name}()"
         return name, src
+
+    def add_assignments(
+        self, template, name, skipped, indent, pending_indent=""
+    ) -> str:
+        src = self.add_additional_properties(indent, name, skipped)
+        src += self.add_template_description(template, indent, name)
+        src += self.add_template_interfaces(template, indent, name, pending_indent)
+        return src
 
     def relationship_template2obj(
         self, template: RelationshipTemplate, indent=""
@@ -1657,9 +1673,7 @@ class Convert:
         if not cls:
             return "", ""
         src += ")"  # close ctor
-        src += self.add_additional_properties(indent, name, skipped)
-        src += self.add_template_description(template, indent, name)
-        src += self.add_template_interfaces(template, indent, name)
+        src += self.add_assignments(template, name, skipped, indent)
         return name, src
 
     def node_template2obj(
@@ -1735,7 +1749,7 @@ class Convert:
                 src += f"{indent}{name}.{req_name} = {req_assignment}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{req_name}', {req_assignment})\n"
-        src += self.add_template_interfaces(node_template, indent, name)
+        src += self.add_template_interfaces(node_template, indent, name, indent)
         return name, src
 
     def add_additional_properties(self, indent, name, skipped) -> str:
@@ -1756,13 +1770,15 @@ class Convert:
             )
         return src
 
-    def add_template_interfaces(self, node_template, indent, name) -> str:
+    def add_template_interfaces(
+        self, node_template, indent, name, pending_indent
+    ) -> str:
         src = ""
-        names, ops_src = self._add_operations(indent, None, node_template)
+        names, ops_src = self._add_operations(pending_indent, None, node_template)
         if names:
             self._pending_defs.append(ops_src)
             for op_name in names:
-                src += f'{indent}{name}.set_operation({name}_{op_name}, "op_name")\n'
+                src += f'{indent}{name}.set_operation({name}_{op_name}, "{op_name}")\n'
         return src
 
     def _get_req_assignment(self, req):
