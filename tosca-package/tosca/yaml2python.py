@@ -1126,17 +1126,17 @@ class Convert:
         return names, src
 
     def add_properties_decl(
-        self, nodetype: StatefulEntityType, fieldname: str, indent: str
+        self, entity_type: StatefulEntityType, fieldname: str, indent: str
     ) -> str:
         src = ""
-        declared_props = nodetype.get_value(fieldname)
+        declared_props = entity_type.get_value(fieldname)
         if not declared_props:
             return ""
-        props = nodetype.get_definition(fieldname)
+        props = entity_type.get_definition(fieldname)
         if fieldname == "attributes":
-            shadowed = nodetype.get_value("properties") or {}
+            shadowed = entity_type.get_value("properties") or {}
         else:
-            shadowed = nodetype.get_value("attributes") or {}
+            shadowed = entity_type.get_value("attributes") or {}
         for name, schema in props.items():
             both = False
             if name not in declared_props:
@@ -1150,11 +1150,22 @@ class Convert:
             propdef = PropertyDef(name, None, schema)
             prop = Property(propdef.name, None, propdef.schema, self.custom_defs)
             name, typedecl, fielddecl = self._prop_decl(prop, fieldname, both)
-            src += f"{indent}{name}: {typedecl} {fielddecl}\n"
+            if self._include_typedecl(name, entity_type):
+                src += f"{indent}{name}: {typedecl} {fielddecl}\n"
+            else:
+                src += f"{indent}{name} {fielddecl}\n"
             src += add_description(propdef.schema, indent)
         if src:
             src += "\n"
         return src
+
+    def _include_typedecl(self, name: str, entity_type: StatefulEntityType) -> bool:
+        if (
+            isinstance(entity_type, ArtifactTypeDef)
+            and name in _tosca.ArtifactEntity._builtin_fields
+        ):  # don't redefine type of built-in fields
+            return False
+        return True
 
     def _set_arity(self, typedecl, _min, _max, default: str) -> Tuple[str, str]:
         if _max == "UNBOUNDED" or _max > 1:
