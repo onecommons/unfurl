@@ -2,7 +2,7 @@ import dataclasses
 import inspect
 import os
 import time
-from typing import Optional
+from typing import Optional, Dict
 import unittest
 from unittest.mock import MagicMock, patch
 import pytest
@@ -26,7 +26,6 @@ from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from unfurl.manifest import Manifest
 from toscaparser.tosca_template import ToscaTemplate
 import tosca
-import unfurl
 
 
 def _to_python(
@@ -101,16 +100,7 @@ def _generate_builtin(generate, builtin_path=None):
         print("*** writing source to", path)
         with open(path, "w") as po:
             print(python_src, file=po)
-    namespace: dict = {}
-    exec(python_src, namespace)
-    yo = None
-    # if builtin_name:
-    #     path = os.path.abspath(builtin_name + ".yaml")
-    #     yo = open(path, "w")
-    yaml_src = dump_yaml(namespace, yo)  # type: ignore
-    if yo:
-        yo.close()
-    return yaml_src
+    return _to_yaml(python_src, False)
 
 
 def test_builtin_generation():
@@ -120,7 +110,7 @@ def test_builtin_generation():
         if section == "types":
             continue
         print(section)
-        assert len(src_yaml[section]) == len(yaml_src[section]), (
+        assert len(list(src_yaml[section])) == len(list(yaml_src[section])), (
             section,
             list(src_yaml[section]),
             list(yaml_src[section]),
@@ -423,7 +413,6 @@ __root__ = tosca.nodes.Compute(
 )
 __root__.configure = db_server_configure
 '''
-
 
 
 def test_example_helloworld():

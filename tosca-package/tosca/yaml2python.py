@@ -1023,6 +1023,7 @@ class Convert:
         if baseclass_name == "Interface":
             # inputs and operations are defined directly on the body of the type
             for op in _create_operations({toscaname: toscatype.defs}, toscatype, None):
+                # XXX this will have skipped not_implemented operations but they need to converted too
                 _, op_src = self.operation2func(op, indent, [])
                 src += op_src + "\n"
         else:
@@ -1104,7 +1105,8 @@ class Convert:
             # include inherited interface_requirements
             src += f"{indent}_interface_requirements = {self.value2python_repr(nodetype.get_interface_requirements(entity_tpl))}\n"
 
-        for op in EntityTemplate._create_interfaces(nodetype, template):
+        for op in cast(List[OperationDef], EntityTemplate._create_interfaces(nodetype, template)):
+            # XXX this will have skipped not_implemented operations but they need to converted too
             if op.interfacetype != "Mock":
                 op_id = (op.interfacename, op.name)
                 if op_id in declared_ops and op_id not in default_ops:
@@ -1361,8 +1363,6 @@ class Convert:
                     self.imports.add_import(module)
         return cmd, kw
 
-    # XXX if default operation defined with empty operations, don't call operation2func, add decorator instead
-    # XXX track python imports
     def operation2func(
         self,
         op: OperationDef,
@@ -1404,6 +1404,12 @@ class Convert:
                     imp_key != "dependencies" or imp_val
                 ):  # dependencies is always a list, skip if empty
                     decorator.append(f"{imp_key}={self.value2python_repr(imp_val)}")
+        if not configurator_decl:
+            self.imports.add_tosca_from("operation")
+            src += f"{indent}{op_name} = operation({', '.join(decorator)})\n"
+            src += add_description(op.value, indent)
+            return op_name, src
+
         if decorator:  # add decorator
             self.imports.add_tosca_from("operation")
             src += f"{indent}@operation({', '.join(decorator)})\n"
@@ -1417,11 +1423,6 @@ class Convert:
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
-        if not configurator_decl:
-            # XXX implement not_implemented, treat this as not_implemented
-            if not desc:
-                src += f"{indent}pass\n"
-            return op_name, src
         src += f"{indent}return {configurator_decl}("
         # all on one line for now
         inputs = kw["inputs"]

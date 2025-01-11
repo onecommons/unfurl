@@ -60,9 +60,20 @@ from .scalars import *
 
 if typing.TYPE_CHECKING:
     from .python2yaml import PythonToYaml
-    from ._fields import Property, Options, Attribute, Capability, Requirement, Artifact, Computed, Output
+    from ._fields import (
+        Property,
+        Options,
+        Attribute,
+        Capability,
+        Requirement,
+        Artifact,
+        Computed,
+        Output,
+    )
 else:
-    Property = Attribute = Capability = Requirement = Artifact = Computed = Output = None
+    Property = Attribute = Capability = Requirement = Artifact = Computed = Output = (
+        None
+    )
 
 
 class _LocalState(threading.local):
@@ -137,6 +148,11 @@ def set_evaluation_mode(mode: str):
 
 class ToscaObject:
     _tosca_name: str = ""
+    _interface_requirements: ClassVar[Optional[List[str]]] = None
+    _globals: Optional[Dict[str, Any]] = None
+    _namespace: Optional[Dict[str, Any]] = None
+    _type_section: ClassVar[str] = ""
+    _docstrings: ClassVar[Optional[Dict[str, str]]] = None
 
     @classmethod
     def tosca_type_name(cls) -> str:
@@ -145,6 +161,76 @@ class ToscaObject:
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return None
+
+    @classmethod
+    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaObject"]]:
+        for c in cls.__bases__:
+            # only include classes of the same tosca type as this class
+            # and exclude the base class defined in this module
+            if issubclass(c, ToscaObject):
+                if (
+                    c._type_section == (section or cls._type_section)
+                    and c.__module__ != __name__
+                ):
+                    yield c
+
+    @classmethod
+    def _resolve_class(cls, _type) -> type:
+        origin = get_origin(_type)
+        if origin:
+            if origin is Union:  # also true if origin is Optional
+                _type = [a for a in get_args(_type) if a is not type(None)][0]
+            elif origin in [Annotated, list, collections.abc.Sequence]:
+                _type = get_args(_type)[0]
+            else:
+                _type = origin
+        if isinstance(_type, str):
+            if "[" in _type:
+                # XXX nested type annotations not supported (note the \w)
+                match = re.search(r"\[(\w+)\]", _type)
+                if match and match.group(1):
+                    _type = match.group(1)
+                else:
+                    raise NameError(f"invalid type annotation: {_type}")
+            return cls._lookup_class(_type)
+        elif isinstance(_type, ForwardRef):
+            return cls._resolve_class(_type.__forward_arg__)
+        else:
+            return _type
+
+    @classmethod
+    def _lookup_class(cls, qname: str) -> type:
+        names = qname.split(".")
+        name = names.pop(0)
+        if cls._globals:
+            globals = cls._globals
+        else:
+            globals = {}
+        # global_state.modules get priority
+        if cls.__module__ in global_state.modules:
+            mod_globals = global_state.modules[cls.__module__].__dict__
+        elif cls.__module__ in sys.modules and cls.__module__ != "builtins":
+            mod_globals = sys.modules[cls.__module__].__dict__
+        else:
+            mod_globals = {}
+        locals = cls._namespace or {}
+        obj = locals.get(name, globals.get(name, mod_globals.get(name)))
+        if obj is None:
+            if name == cls.__name__:
+                obj = cls
+            elif name in sys.modules:
+                if not names:
+                    raise TypeError(f"{qname} is a module, not a class")
+                obj = sys.modules[name]
+            else:
+                raise NameError(f"{qname} not found in {cls.__name__}'s scope")
+        while names:
+            name = names.pop(0)
+            ns = obj
+            obj = getattr(obj, name, None)
+            if obj is None:
+                raise AttributeError(f"can't find {name} in {qname}")
+        return cls._resolve_class(obj)
 
 
 T = TypeVar("T")
@@ -296,6 +382,7 @@ class OperationFunc(Protocol):
     outputs: Optional[Dict[str, Optional[str]]]
     entry_state: Optional[str]
     invoke: Optional[str]
+    metadata: Optional[Dict[str, JsonType]]
 
 
 @overload
@@ -311,7 +398,8 @@ def operation(
     outputs: Optional[Dict[str, Optional[str]]] = None,
     entry_state: Optional[str] = None,
     invoke: Optional[str] = None,
-) -> Callable[[F], F]: ...
+    metadata: Optional[Dict[str, JsonType]] = None,
+) -> Callable: ...
 
 
 @overload
@@ -330,6 +418,7 @@ def operation(
     outputs: Optional[Dict[str, Optional[str]]] = None,
     entry_state: Optional[str] = None,
     invoke: Optional[str] = None,
+    metadata: Optional[Dict[str, JsonType]] = None,
 ) -> Union[F, Callable[[F], F]]:
     """Function decorator that marks a function or methods as a TOSCA operation.
 
@@ -343,6 +432,7 @@ def operation(
         outputs (Dict[str, str], optional): TOSCA outputs mapping. Defaults to None.
         entry_state (str, optional): Node state required to invoke this operation. Defaults to None.
         invoke (str, optional): Name of operation to delegate this operation to. Defaults to None.
+        metadata (Dict[str, JSON], optional): Dictionary of metadata to associate with the operation. Defaults to None.
 
     This example marks a method a implementing the ``create`` and ``delete`` operations on the ``Standard`` TOSCA interface.
 
@@ -351,6 +441,16 @@ def operation(
         @operation(apply_to=["Standard.create", "Standard.delete"])
         def default(self):
             return self.my_artifact.execute()
+
+    If you wish to declare an abstract operation on a custom interface without specifying its signature, assign ``operation()`` directly, for example:
+
+    .. code-block:: python
+
+        class MyInterface(tosca.interfaces.Root):
+            my_operation = operation()
+            "Invoke this method to perform my_operation"
+
+    This will avoid static type-check errors when subclasses declare a method implementing the operation.
     """
 
     def decorator_operation(func_: F) -> F:
@@ -364,8 +464,12 @@ def operation(
         func.outputs = outputs
         func.entry_state = entry_state
         func.invoke = invoke
+        func.metadata = metadata
         return func_
 
+    if func:  # when used as decorator without "()", i.e. @operation
+        return decorator_operation(func)
+    # when used as @operation() or op = operation():
     return decorator_operation
 
 
@@ -1141,8 +1245,6 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         return field
 
 
-
-
 _EvalDataExpr = Union[str, None, Dict[str, Any], List[Any]]
 
 
@@ -1548,6 +1650,8 @@ def _make_dataclass(cls):
         annotations = cls.__dict__.get("__annotations__")
         if annotations:
             for name, annotation in annotations.items():
+                if annotation is Callable or annotation == "Callable":
+                    continue
                 if name[0] != "_" or name in ["_target"]:
                     field = None
                     default = getattr(cls, name, REQUIRED)
@@ -1839,70 +1943,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     def _set_parent(self, parent: "_ToscaType", name: str):
         pass
 
-    _namespace: ClassVar[Optional[Dict[str, Any]]] = None
-    _globals: ClassVar[Optional[Dict[str, Any]]] = None
-    _docstrings: Optional[Dict[str, str]] = dataclasses.field(
-        default=None, init=False, repr=False
-    )
     _default_key: ClassVar[str] = "default"
-
-    @classmethod
-    def _resolve_class(cls, _type) -> type:
-        origin = get_origin(_type)
-        if origin:
-            if origin is Union:  # also true if origin is Optional
-                _type = [a for a in get_args(_type) if a is not type(None)][0]
-            elif origin in [Annotated, list, collections.abc.Sequence]:
-                _type = get_args(_type)[0]
-            else:
-                _type = origin
-        if isinstance(_type, str):
-            if "[" in _type:
-                # XXX nested type annotations not supported (note the \w)
-                match = re.search(r"\[(\w+)\]", _type)
-                if match and match.group(1):
-                    _type = match.group(1)
-                else:
-                    raise NameError(f"invalid type annotation: {_type}")
-            return cls._lookup_class(_type)
-        elif isinstance(_type, ForwardRef):
-            return cls._resolve_class(_type.__forward_arg__)
-        else:
-            return _type
-
-    @classmethod
-    def _lookup_class(cls, qname: str) -> type:
-        names = qname.split(".")
-        name = names.pop(0)
-        if cls._globals:
-            globals = cls._globals
-        else:
-            globals = {}
-        # global_state.modules get priority
-        if cls.__module__ in global_state.modules:
-            mod_globals = global_state.modules[cls.__module__].__dict__
-        elif cls.__module__ in sys.modules and cls.__module__ != "builtins":
-            mod_globals = sys.modules[cls.__module__].__dict__
-        else:
-            mod_globals = {}
-        locals = cls._namespace or {}
-        obj = locals.get(name, globals.get(name, mod_globals.get(name)))
-        if obj is None:
-            if name == cls.__name__:
-                obj = cls
-            elif name in sys.modules:
-                if not names:
-                    raise TypeError(f"{qname} is a module, not a class")
-                obj = sys.modules[name]
-            else:
-                raise NameError(f"{qname} not found in {cls.__name__}'s scope")
-        while names:
-            name = names.pop(0)
-            ns = obj
-            obj = getattr(obj, name, None)
-            if obj is None:
-                raise AttributeError(f"can't find {name} in {qname}")
-        return cls._resolve_class(obj)
 
 
 def _field_as_eval(
@@ -2093,14 +2134,10 @@ class ToscaType(_ToscaType):
     # NB: _name needs to come first for python < 3.10
     _name: str = field(default="", kw_only=False)
     _type_name: ClassVar[str] = ""
-    _type_section: ClassVar[str] = ""
     _template_section: ClassVar[str] = ""
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
-    _interface_requirements: Optional[List[str]] = dataclasses.field(
-        default=None, init=False, repr=False
-    )
 
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
@@ -2138,7 +2175,7 @@ class ToscaType(_ToscaType):
 
     def set_operation(
         self,
-        op: _OperationFunc, # Callable[Concatenate[Self, ...], Any],
+        op: _OperationFunc,  # Callable[Concatenate[Self, ...], Any],
         name: Optional[Union[str, _OperationFunc]] = None,
     ) -> None:
         """
@@ -2158,18 +2195,6 @@ class ToscaType(_ToscaType):
         # we invoke methods through a proxy during yaml generation and at runtime so we don't need to worry
         # that this function will not receive self because are assigning it directly to the object here.
         setattr(self, name, op)
-
-    @classmethod
-    def tosca_bases(cls, section=None) -> Iterator[Type["ToscaType"]]:
-        for c in cls.__bases__:
-            # only include classes of the same tosca type as this class
-            # and exclude the base class defined in this module
-            if issubclass(c, ToscaType):
-                if (
-                    c._type_section == (section or cls._type_section)
-                    and c.__module__ != __name__
-                ):
-                    yield c
 
     def __set_name__(self, owner, name):
         # called when a template is declared as a default value or inside a Namespace (owner will be class)
@@ -2840,34 +2865,47 @@ class Relationship(_OwnedToscaType):
 RelationshipType = Relationship  # deprecated
 
 
-class Interface(ToscaType):
+class Interface(ToscaObject):
     # "Note: Interface types are not derived from ToscaType"
+    _type_name: ClassVar[str] = ""
     _type_section: ClassVar[str] = "interface_types"
+    _template_section: ClassVar[str] = "interface_types"
+    _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         body: Dict[str, Any] = converter.yaml_cls()
-        tosca_name = cls.tosca_type_name()
+        tosca_type_name = cls.tosca_type_name()
+        doc = cls.__doc__ and cls.__doc__.strip()
+        if doc:
+            body["description"] = doc
+        if cls._type_metadata:
+            body["metadata"] = metadata_to_yaml(cls._type_metadata)
+
         for name, obj in cls.__dict__.items():
+            # add empty operations
             if name[0] != "_" and converter.is_operation(obj):
                 doc = obj.__doc__ and obj.__doc__.strip()
                 if doc:
                     op = converter.yaml_cls(description=doc)
                 else:
                     op = None
-                # body[obj.__name__] = op
-                body.setdefault("operations", converter.yaml_cls())[obj.__name__] = op
+                op_name = getattr(obj, "operation_name", name)
+                body.setdefault("operations", converter.yaml_cls())[op_name] = op
             elif isinstance(obj, _DataclassType) and issubclass(obj, ToscaInputs):
                 body["inputs"] = obj._cls_to_yaml(converter)
-        yaml = converter._shared_cls_to_yaml(cls)
-        if not yaml:
+        # _interfaces_yaml returns {short name: body} for the interface:
+        implementation_yaml = converter._interfaces_yaml(None, cls)
+        if not implementation_yaml:
             if not body:
-                return yaml
-            yaml = {tosca_name: body}
+                return implementation_yaml  # return empty dict to skip
+            return {tosca_type_name: body}
         else:
-            yaml[tosca_name].pop("interfaces", None)
-            yaml[tosca_name].update(body)
-        return yaml
+            implementation_body = next(iter(implementation_yaml.values()))
+            implementation_body.pop("type", None)
+            converter.set_bases(cls, body)
+            body.update(implementation_body)
+            return {tosca_type_name: body}
 
 
 InterfaceType = Interface  # deprecated

@@ -18,12 +18,11 @@ from typing import (
 )
 from typing_extensions import Self
 import logging
-
-logger = logging.getLogger("tosca")
 from pathlib import Path
 from toscaparser import topology_template
 from ._tosca import (
     ToscaFieldType,
+    ToscaObject,
     metadata_to_yaml,
     to_tosca_value,
     ArtifactEntity,
@@ -43,9 +42,13 @@ from ._tosca import (
     _Tosca_Field,
     EvalData,
     Namespace,
+    Interface,
 )
 from .loader import restricted_exec, get_module_path, get_allowed_modules
 from . import WritePolicy
+
+logger = logging.getLogger("tosca")
+
 
 class PythonToYaml:
     def __init__(
@@ -377,7 +380,13 @@ class PythonToYaml:
                     if module_name and module_name != current_module:
                         self._import_module(current_module, module_path, module_name)
                         continue
-                    if isinstance(obj, type) and issubclass(obj, ValueType):
+                    if isinstance(obj, type) and issubclass(
+                        obj, (ValueType, Interface)
+                    ):
+                        obj._globals = self.globals  # type: ignore
+                        _docstrings = self.docstrings.get(name)
+                        if isinstance(_docstrings, dict):
+                            obj._docstrings = _docstrings  # type: ignore
                         as_yaml = obj._cls_to_yaml(self)
                         self.sections.setdefault(section, self.yaml_cls()).update(
                             as_yaml
@@ -454,18 +463,8 @@ class PythonToYaml:
         # XXX version
         dict_cls = self.yaml_cls
         body: Dict[str, Any] = dict_cls()
+        super_fields = self.set_bases(cls, body)
         tosca_name = cls.tosca_type_name()
-        bases: Union[list, str] = [
-            b.tosca_type_name() for b in cls.tosca_bases() if b != tosca_name
-        ]
-        super_fields = {}
-        if bases:
-            if len(bases) == 1:
-                bases = bases[0]
-            body["derived_from"] = bases
-            for b in cls.tosca_bases():
-                super_fields.update(b.__dataclass_fields__)
-
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
             body["description"] = doc
@@ -502,19 +501,35 @@ class PythonToYaml:
         tpl = dict_cls({tosca_name: body})
         return tpl
 
+    @staticmethod
+    def set_bases(t_cls: Type[ToscaObject], body):
+        tosca_name = t_cls.tosca_type_name()
+        bases: Union[list, str] = [
+            b.tosca_type_name() for b in t_cls.tosca_bases() if b != tosca_name
+        ]
+        super_fields = {}
+        if bases:
+            if len(bases) == 1:
+                bases = bases[0]
+            body["derived_from"] = bases
+            for b in t_cls.tosca_bases():
+                if issubclass(b, ToscaType):
+                    super_fields.update(b.__dataclass_fields__)
+        return super_fields
+
     def _interfaces_yaml(
         self,
-        obj: Optional["ToscaType"],
-        cls: Type["ToscaType"],
+        obj: Optional["ToscaObject"],
+        cls: Type["ToscaObject"],
     ) -> Dict[str, dict]:
         # interfaces are inherited
         cls_or_self = obj or cls
         dict_cls = self.yaml_cls
         interfaces = {}
         interface_ops = {}
-        direct_bases = []
+        direct_bases: List[str] = []
         for c in cls.__mro__:
-            if not issubclass(c, ToscaType) or c._type_section != "interface_types":
+            if not issubclass(c, ToscaObject) or c._type_section != "interface_types":
                 continue
             name = c.tosca_type_name()
             shortname = name.split(".")[-1]
@@ -540,7 +555,7 @@ class PythonToYaml:
                 interface_ops[methodname] = i_def
                 interface_ops[shortname + "." + methodname] = i_def
         self._find_operations(obj, cls, interface_ops, interfaces)
-        # filter out interfaces with no operations declared unless inheriting the interface directly
+        # filter out interfaces with no operations declared unless inheriting from Interface directly
         return dict_cls(
             (k, v)
             for k, v in interfaces.items()
@@ -554,8 +569,8 @@ class PythonToYaml:
 
     def _find_operations(
         self,
-        obj: Optional["ToscaType"],
-        cls: Type["ToscaType"],
+        obj: Optional["ToscaObject"],
+        cls: Type["ToscaObject"],
         interface_ops,
         interfaces,
     ) -> None:
@@ -578,14 +593,24 @@ class PythonToYaml:
                     name = getattr(operation, "operation_name", methodname)
                     interface = interface_ops.get(name)
                     if interface is not None:
-                        interface.setdefault("operations", {})[name] = (
-                            self._operation2yaml(obj, cls, operation)
-                        )
+                        op_def = self._operation2yaml(obj, cls, operation)
+                        if (
+                            operation.__name__ == "decorator_operation"
+                            and cls._docstrings
+                        ):  # hack for op = operation() usage
+                            description = cls._docstrings.get(methodname)
+                            if (
+                                description
+                                and description.strip()
+                                and isinstance(op_def, dict)
+                            ):
+                                op_def["description"] = description.strip()
+                        interface.setdefault("operations", {})[name] = op_def or None
 
     def _operation2yaml(
         self,
-        obj: Optional["ToscaType"],
-        cls: Type["ToscaType"],
+        obj: Optional["ToscaObject"],
+        cls: Type["ToscaObject"],
         operation,
     ):
         cls_or_self = obj or cls
@@ -664,7 +689,7 @@ def _get_toscaoutputs(cls_or_self, ret_val):
 
 
 def _get_parameters(
-    obj: Optional["ToscaType"], cls: Type["ToscaType"], sig: inspect.Signature
+    obj: Optional["ToscaObject"], cls: Type["ToscaObject"], sig: inspect.Signature
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     cls_or_self = obj or cls
     vargs: Dict[str, Any] = {}
@@ -779,7 +804,7 @@ class _ToscaTypeProxy(InstanceProxy):
     Stand-in for ToscaTypes when generating yaml
     """
 
-    def __init__(self, obj: Optional["_ToscaType"], cls: Type["_ToscaType"]):
+    def __init__(self, obj: Optional["ToscaObject"], cls: Type["ToscaObject"]):
         self._cls_or_self = obj or cls
         self._cls = cls
 
