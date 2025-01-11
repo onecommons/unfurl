@@ -358,8 +358,8 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
-        self.assign_attr = True
         self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
+        self.assign_attr = self.concise
 
     def value2python_repr(self, value, quote=False) -> str:
         return value2python_repr(value, quote, self.imports)
@@ -1713,10 +1713,11 @@ class Convert:
         for artifact_name, artifact_src in artifacts:
             if self.assign_attr:
                 src += f"{indent}__{name}_{artifact_name}: ArtifactEntity = {artifact_src}\n"
+                self.imports.from_tosca.add("ArtifactEntity")
+                # use local name because black will put the type: ignore comment on the wrong line if artifact_src is too long for one line.
                 src += f"{indent}{name}.{artifact_name} = __{name}_{artifact_name}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{artifact_name}', {artifact_src})\n"
-            self.imports.from_tosca.add("ArtifactEntity")
         for req_name, req_assignment in template_reqs:
             if self.assign_attr:
                 src += f"{indent}{name}.{req_name} = {req_assignment}  # type: ignore[attr-defined]\n"
