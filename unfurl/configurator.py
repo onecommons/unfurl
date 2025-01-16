@@ -958,10 +958,14 @@ class TaskView:
         metadata_key = self.configurator.attribute_output_metadata_key  # type: ignore
         for key, value in outputs.items():
             mapping = self.configSpec.outputs.get(key)
+            if isinstance(mapping, dict):  # output type definition
+                # XXX validate output value with output property
+                mapping = mapping.get("mapping")
             if mapping:
                 invalid = False
                 if isinstance(mapping, list):
                     # XXX support more TOSCA mapping forms, e.g. to capabilities
+                    # (see 3.6.15 Attribute Mapping definitions in TOSCA 1.3 spec)
                     if len(mapping) == 2 and mapping[0] == "SELF":
                         mapping = mapping[1]
                     else:
@@ -981,10 +985,17 @@ class TaskView:
                         self.target.state = to_enum(NodeState, value)
                 else:
                     self.target.attributes[mapping] = value
-            elif metadata_key:
+            else:
                 attr_def = self.target.template.attributeDefs.get(key)
-                if attr_def and attr_def.schema.get("metadata", {}).get(metadata_key):
-                    self.target.attributes[key] = value
+                if attr_def and (metadata := attr_def.schema.get("metadata")):
+                    mkey = ToscaOutputs._metadata_key
+                    metadata_value = metadata.get(mkey)
+                    if self._match_metadata_key(mkey, metadata_value):
+                        self.target.attributes[key] = value
+                    elif metadata_key:
+                        metadata_value = metadata.get(metadata_key)
+                        if self._match_metadata_key(metadata_key, metadata_value):
+                            self.target.attributes[key] = value
 
     def done(
         self,

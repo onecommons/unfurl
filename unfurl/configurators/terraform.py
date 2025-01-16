@@ -236,6 +236,7 @@ class TerraformConfigurator(ShellConfigurator):
             cast(str, p.name)
             for p in task.target.template.attributeDefs.values()
             if p.schema.get("metadata", {}).get(self.attribute_output_metadata_key)
+            or p.schema.get("metadata", {}).get(tosca.ToscaOutputs._metadata_key)
         ]
         if task.configSpec.outputs:
             # allow list for backwards compatibility

@@ -1977,7 +1977,7 @@ def _field_as_eval(
 
 
 class ToscaInputs(_ToscaType):
-    _metadata_key: ClassVar[str] = "input"
+    _metadata_key: ClassVar[str] = "input_match"
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
@@ -2028,7 +2028,7 @@ class ToscaInputs(_ToscaType):
 
 
 class ToscaOutputs(_ToscaType):
-    _metadata_key: ClassVar[str] = "output"
+    _metadata_key: ClassVar[str] = "output_match"
 
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
