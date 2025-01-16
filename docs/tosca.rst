@@ -267,9 +267,25 @@ Inputs
 -------
 
 Inputs are passed to the implementation of the operation.
-A TOSCA type can (optionally) define the expected inputs on a operation in much like a property definition. In Unfurl, inputs are evaluated lazily as needed by the operation's configurator.
+A TOSCA type can (optionally) define the expected inputs on a operation in much like a property definition.
+Unlike properties on templates, you can pass inputs to an operation that are not defined in its inputs definition.
+In Unfurl, inputs are evaluated lazily as they are accessed by the operation's configurator.
+
 Default inputs can defined directly on the interface and will be made available to all operations in that interface.
 If inputs are defined on multiple types in a type hierarchy for the same operation, they are merged together along with any inputs for that operation defined on directly on the template.
+Note: it is not type-safe to remove arguments from the signature of an overloaded method, doing so will report a static type error.
+So TOSCA YAML's behavior of merging inherited inputs is a no-op and therefore consistent with type-safe Python DSL usage.
+
+For example:
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/tosca_inputs.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/tosca_inputs.py
+    :language: python
+
 
 .. _operation_outputs:
 

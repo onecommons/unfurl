@@ -86,7 +86,7 @@ New TOSCA syntax support in the Python DSL:
    - Allow nodes with those directives to be constructed with missing fields.
    - Add Node.substitute() method and substitute_node() and select_node() factory functions to avoid static type errors
    - Add "_node_filter" attribute for node templates with the "select" directive.
-* Serialize attributes that match the pattern "{interface_name}_default_inputs" as interface level operation inputs on TOSCA types or templates.
+* Serialize attributes that match the pattern "_{interface_name}_default_inputs" as interface level operation inputs on TOSCA types or templates.
 * Add set_operation() method for setting TOSCA operation definitions directly on template objects.
 * Deployment blueprints with the DeploymentBlueprint class.
 * The "concat" and "token" TOSCA functions.

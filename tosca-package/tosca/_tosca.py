@@ -1998,6 +1998,15 @@ class ToscaInputs(_ToscaType):
         inputs.update(kw)
         return inputs
 
+    def to_yaml(self, dict_cls=yaml_cls):
+        body = dict_cls()
+        for field in dataclasses.fields(self):
+            if isinstance(field, _Tosca_Field):
+                input_def = field.to_yaml(None)
+                input_def[field.tosca_name]["default"] = getattr(self, field.name)
+                body.update(input_def)
+        return body
+
 
 class ToscaOutputs(_ToscaType):
     _metadata_key: ClassVar[str] = "output"

@@ -43,8 +43,9 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
 """
 
         def skip(py_file):
-            for skip in ["*quickstart_*", "*inputs.py", "*node-types-2.py", "*tosca-node-template.py"]:
+            for skip in ["*quickstart_*", "*/inputs.py", "*node-types-2.py", "*tosca-node-template.py"]:
                 if fnmatch.fnmatch(py_file, skip):
+                    print(f"Skipping {py_file}")
                     return True
             return False
 
@@ -72,6 +73,31 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
             from_py = _to_yaml(pyfile.read(), True)
         assert from_py["topology_template"]["outputs"] == yaml_template.topology_template._tpl_outputs()
         assert from_py["topology_template"]["inputs"] == yaml_template.topology_template._tpl_inputs()
+
+def test_inputs():
+    basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
+    yaml_template = ToscaTemplate(
+        path=os.path.join(basedir, "tosca_inputs.yaml")
+    )
+
+    interfaces = yaml_template.topology_template.node_templates["example"].interfaces
+    create_op = interfaces[0]
+    assert create_op.name == "create"
+    default_op = interfaces[1]
+    assert default_op.name == "default"
+    assert create_op.inputs == {'foo': 'base:create', 'bar': 'derived:create'}
+    assert default_op.inputs =={'foo': 'derived:default', 'bar': 'derived:default'}
+
+    with open(os.path.join(basedir, "tosca_inputs.py")) as pyfile:
+        from_py = _to_yaml(pyfile.read(), False)
+    py_template = ToscaTemplate(yaml_dict_tpl=from_py)
+    interfaces = py_template.topology_template.node_templates["example"].interfaces
+    create_op = interfaces[0]
+    assert create_op.name == "create"
+    default_op = interfaces[1]
+    assert default_op.name == "default"
+    assert create_op.inputs == {'foo': 'base:create', 'bar': 'derived:create'}
+    assert default_op.inputs =={'foo': 'derived:default', 'bar': 'derived:default'}
 
 ensemble_template = """
 apiVersion: unfurl/v1alpha1

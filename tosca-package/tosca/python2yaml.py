@@ -543,7 +543,7 @@ class PythonToYaml:
                 i_def["type"] = name
             if cls_or_self._interface_requirements:
                 i_def["requirements"] = cls_or_self._interface_requirements
-            default_inputs = getattr(cls_or_self, f"{shortname}_default_inputs", None)
+            default_inputs = getattr(cls_or_self, f"_{shortname}_default_inputs", None)
             if default_inputs:
                 i_def["inputs"] = to_tosca_value(default_inputs, dict_cls)
             interfaces[shortname] = i_def
