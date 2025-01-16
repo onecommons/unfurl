@@ -44,7 +44,7 @@ from ._tosca import (
     Namespace,
     Interface,
 )
-from .loader import restricted_exec, get_module_path, get_allowed_modules
+from .loader import _clear_private_modules, restricted_exec, get_module_path, get_allowed_modules
 from . import WritePolicy
 
 logger = logging.getLogger("tosca")
@@ -204,7 +204,7 @@ class PythonToYaml:
                 if (
                     obj.__class__.__module__ != "unfurl.tosca_plugins.tosca_ext"
                     and not obj.__class__.__module__.startswith("tosca.")
-                ):  # skip built-in modules
+                ):  # skip built-in modules, we don't need to generate import yaml
                     module_path = self.globals.get("__file__")
                     self._import_module(
                         module_name, module_path, obj.__class__.__module__
@@ -839,7 +839,11 @@ def python_src_to_yaml_obj(
     import_resolver=None,
 ) -> dict:
     if modules is None:
-        modules = get_allowed_modules()
+        if safe_mode:
+            modules = get_allowed_modules()
+        else:
+            _clear_private_modules()
+            modules = sys.modules
     global_state.modules = modules
     if namespace is None:
         namespace = {}
