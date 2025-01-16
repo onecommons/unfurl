@@ -2347,19 +2347,27 @@ class ToscaType(_ToscaType):
             return field_and_value[0]
         return None
 
-    def get_instance_fields(self):
+    def get_instance_fields(self) -> Dict[str, Tuple[_Tosca_Field, Any]]:
         if self._instance_fields is None:
             # only do this once and save any generated values
             self._instance_fields = dict(self._get_instance_fields())
         return self._instance_fields
 
-    def _get_instance_fields(self):
+    def _get_instance_fields(self) -> Iterator[Tuple[str, Tuple[_Tosca_Field, Any]]]:
         fields = object.__getattribute__(self, "__dataclass_fields__")
-        for name, value in self.__dict__.items():
+        __dict__ = object.__getattribute__(self, "__dict__")
+        for name, value in __dict__.items():
             field = fields.get(name)
-            if isinstance(value, FieldProjection):
-                yield name, (value.field, value)
-            if isinstance(value, _Tosca_Field):
+            if isinstance(field, _Tosca_Field):
+                t_field = field
+            else:
+                t_field = None
+            if (
+                isinstance(value, FieldProjection)
+                and value.field.owner == self.__class__
+            ):
+                yield name, (t_field or value.field, value)
+            elif isinstance(value, _Tosca_Field):
                 # field assigned directly to the object
                 field = value
                 if field.default is not dataclasses.MISSING:
@@ -2375,8 +2383,9 @@ class ToscaType(_ToscaType):
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
                 field.default = MISSING  # this whole field was missing
                 yield name, (field, value)
-            elif isinstance(field, _Tosca_Field):
-                yield name, (field, value)
+            elif t_field:
+                yield name, (t_field, value)
+            # otherwise skip the field
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
