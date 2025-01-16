@@ -446,9 +446,19 @@ class TaskRequest(PlanRequest):
         )
         task._finished_workflow(explicit_status, workflow)
 
-    def _get_artifact_plan(self, artifact: Optional[ArtifactSpec]):
+    def _should_deploy(self, entity: EntitySpec) -> bool:
+        for i_def in entity.get_interfaces():
+            if i_def.interfacename in ["Standard", "Install"] and i_def.name in [
+                "create",
+                "configure",
+                "discover",
+            ]:
+                return True
+        return False
+
+    def _get_artifact_plan(self, artifact: Optional[ArtifactSpec]) -> Optional["JobRequest"]:
         # the artifact has an interface so it needs to be installed on the operation_host
-        if artifact and artifact.get_interfaces():
+        if artifact and self._should_deploy(artifact):
             # the same global artifact can have different local names when declared on a node template
             # but are uniquely identified by (file, repository) so use that to generate a unique node template name
             name = "__artifact__" + artifact.get_name_from_artifact_spec(
@@ -481,6 +491,8 @@ class TaskRequest(PlanRequest):
                     if (
                         artifact_type
                         not in operation_host.template.topology.topology_template.custom_defs
+                        and artifact_type
+                        not in artifact.toscaEntityTemplate.type_definition.TOSCA_DEF
                     ):
                         # operation_host must be in an external ensemble that doesn't have the type def
                         artifact_type_def = (
@@ -490,7 +502,7 @@ class TaskRequest(PlanRequest):
                         )
                         template["custom_types"] = {artifact_type: artifact_type_def}
                 else:
-                    template = name
+                    template = name  # type: ignore
 
                 # Artifacts can't be standalone so create an ArtifactInstaller node to "hold" the artifact
                 # then Job.create_plan() will create this instance and its artifact via Job._update_joboption_instances()
