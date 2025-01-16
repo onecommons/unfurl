@@ -46,7 +46,7 @@ from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.properties import Property
-from toscaparser.elements.interfaces import OperationDef, _create_operations
+from toscaparser.elements.interfaces import OperationDef, create_operations
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.topology_template import TopologyTemplate, find_type
 from toscaparser.elements.entity_type import EntityType, Namespace
@@ -1022,7 +1022,7 @@ class Convert:
 
         if baseclass_name == "Interface":
             # inputs and operations are defined directly on the body of the type
-            for op in _create_operations({toscaname: toscatype.defs}, toscatype, None):
+            for op in create_operations({toscaname: toscatype.defs}, toscatype, None):
                 # XXX this will have skipped not_implemented operations but they need to converted too
                 _, op_src = self.operation2func(op, indent, [])
                 src += op_src + "\n"
@@ -1125,7 +1125,8 @@ class Convert:
                         name, op_src = self.operation2func(
                             op, indent, default_ops, template and template.name
                         )
-                        names.append(name)
+                        if name:
+                            names.append(name)
                         src += op_src + "\n"
         return names, src
 
@@ -1375,6 +1376,10 @@ class Convert:
         # iDef.entry_state: add to decorator
         # note: defaults and base class inputs and implementations already merged in
         # artifact property reference or configurator class
+        if op.name == "default":
+            if not op.implementation and (op.input_defs or op.inputs):
+                src = f"{indent}_{op.interfacename.split('.')[-1]}_default_inputs = {self.value2python_repr(op.input_defs or op.inputs)}"
+                return "", src
         configurator_decl, kw = self.get_configurator_decl(op)
         op_name, toscaname = self._set_name(cast(str, op.name), "operation")
         if template_name:

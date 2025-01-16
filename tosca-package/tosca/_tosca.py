@@ -2777,8 +2777,13 @@ class _BaseDataType(ToscaObject):
 
     @classmethod
     def get_tosca_datatype(cls):
-        custom_defs = cls._cls_to_yaml(None)  # type: ignore
+        from .python2yaml import PythonToYaml
+        custom_defs = cls._cls_to_yaml(PythonToYaml({}))
         return ToscaParserDataType(cls.tosca_type_name(), custom_defs)
+
+    @classmethod
+    def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
+        return {}
 
 
 class ValueType(_BaseDataType):
