@@ -135,13 +135,21 @@ class TestDryRun:
         assert task.result.result == "could not run: dry run not supported"
 
 
-class TestShellLifecycle:
-    def test_lifecycle(self):
-        path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
-        # undeploy isn't implemented, skip those
-        jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
-        for job in jobs:
-            assert job.status == Status.ok, job.workflow
+def test_lifecycle():
+    path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
+    # undeploy isn't implemented, skip those
+    jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
+    for job in jobs:
+        assert job.status == Status.ok, job.workflow
+
+def test_outputs():
+    runner = Runner(YamlManifest(ENSEMBLE_OUTPUTS))
+
+    job = runner.run(JobOptions(skip_save=True))
+
+    assert job.status == Status.ok
+    task = list(job.workDone.values())[0]
+    assert task.outputs == {"a_output": 1}
 
 
 ENSEMBLE_TIMEOUT = """
@@ -185,3 +193,29 @@ spec:
             Standard:
               +/configurations:
 """
+
+ENSEMBLE_OUTPUTS = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation:
+                    primary:
+                      type: unfurl.artifacts.ShellExecutable
+                      file: dummy.sh
+                      contents: |
+                        echo '{"a_output": {{inputs.for_output}} }'
+                      properties:
+                        outputsTemplate: "{{ stdout | from_json }}"
+                  inputs:
+                      for_output: 1
+"""
+

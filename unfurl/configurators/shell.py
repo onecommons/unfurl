@@ -4,7 +4,7 @@
 environment:
 timeout:
 inputs:
- command: "--switch {{ '.::foo' | ref }}"
+ command: "--switch {{ '.::foo' | eval }}"
  cwd
  dryrun
  shell
@@ -21,6 +21,8 @@ inputs:
 # see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
+import json
+from ..eval import map_value
 from ..logs import truncate
 from ..configurator import Status, TaskView
 from ..util import which, clean_output
@@ -107,9 +109,13 @@ def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
             # _save_input is called after _fileobj2output is setup but before reading
             def _save_input_hook_hack(input):
                 if process.stdout:
-                    process._fileobj2output[process.stdout] = _PrintOnAppendList(stdout_filter)  # type: ignore
+                    process._fileobj2output[process.stdout] = _PrintOnAppendList(  # type: ignore
+                        stdout_filter
+                    )
                 if process.stderr:
-                    process._fileobj2output[process.stderr] = _PrintOnAppendList(stderr_filter)  # type: ignore
+                    process._fileobj2output[process.stderr] = _PrintOnAppendList(  # type: ignore
+                        stderr_filter
+                    )
                 _save_input(input)
 
             process._save_input = _save_input_hook_hack  # type: ignore
@@ -151,7 +157,7 @@ class ShellConfigurator(TemplateConfigurator):
     def run_process(
         self,
         cmd,
-        shell=False,
+        shell: Union[None, str, bool]=False,
         timeout=None,
         env=None,
         cwd=None,
@@ -182,12 +188,14 @@ class ShellConfigurator(TemplateConfigurator):
                 kwargs = {}
             if shell and isinstance(shell, str):
                 executable = shell
+                use_shell = True
             else:
+                use_shell = bool(shell)
                 executable = None
             completed = run(
                 # follow recommendation to use string with shell, list without
-                cmdStr if shell else cmd,
-                shell=shell,
+                cmdStr if use_shell else cmd,
+                shell=use_shell,
                 executable=executable,
                 env=env,
                 cwd=cwd,
@@ -249,14 +257,27 @@ class ShellConfigurator(TemplateConfigurator):
             )
         return not error
 
-    def _process_result(self, task, result, cwd):
+    def _process_outputs(self, task: "TaskView", result: Dict[str, Any]):
+        tpl = task.inputs.get_original("outputsTemplate")
+        if tpl is None:
+            return None, None
+        try:
+            return None, map_value(tpl, task.inputs.context.copy(vars=result))
+        except Exception as e:
+            task.logger.warning(
+                "error processing outputsTemplate: %s", e
+            )
+            return e, None
+
+    def _process_result(self, task, result, cwd) -> Tuple[bool, Optional[Status], Optional[Dict[str, Any]]]:
         success = self._handle_result(task, result, cwd)
         resultDict = result.__dict__.copy()
         resultDict["success"] = success
         errors, status = self.process_result_template(task, resultDict)
-        if task._errors:
-            return False, status
-        return success, status
+        if errors:
+            return False, status, None
+        error, outputs = self._process_outputs(task, resultDict)
+        return success and not error, status, outputs
 
     def can_run(self, task):
         params = task.inputs
@@ -271,9 +292,8 @@ class ShellConfigurator(TemplateConfigurator):
         return task.inputs.get("dryrun")
 
     def render(self, task):
-        params = task.inputs
-        cmd = params["command"]
-        cwd = params.get("cwd")
+        cmd = task.inputs["command"]
+        cwd = task.inputs.get("cwd")
         if cwd:
             # if cwd is relative, make it relative to task.cwd
             assert isinstance(cwd, str)
@@ -281,6 +301,21 @@ class ShellConfigurator(TemplateConfigurator):
         else:
             cwd = task.cwd
         cmd = self.resolve_dry_run(cmd, task)
+        isString = isinstance(cmd, str)
+        # default for shell: True if command is a string otherwise False
+        shell = task.inputs.get("shell", isString)
+        if (isString and " " not in cmd) or (not isString and len(cmd) == 1):
+            # if cmd is a single command append arguments (otherwise assume they were processed)
+            arguments = task.inputs.get_copy("arguments")
+            if arguments:
+                args = [
+                    f"{'--' if name[0] != '-' else ''}{name} {shlex.quote(str(value)) if shell else value}"
+                    for name, value in arguments.items()
+                ]
+                if isString:
+                    cmd += " " + " ".join(args)
+                else:
+                    cmd.extend(args)
         return [cmd, cwd]
 
     def run(self, task: TaskView):
@@ -303,8 +338,8 @@ class ShellConfigurator(TemplateConfigurator):
             keeplines=keeplines,
             echo=echo,
         )
-        success, status = self._process_result(task, result, cwd)
-        yield self.done(task, success=success, status=status, result=result.__dict__)
+        success, status, outputs = self._process_result(task, result, cwd)
+        yield self.done(task, success=success, status=status, result=result.__dict__, outputs=outputs)
 
     def resolve_dry_run(self, cmd, task):
         is_string = isinstance(cmd, str)

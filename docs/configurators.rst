@@ -144,9 +144,9 @@ Execution environment
 Cmd
 ====
 
-The ``Cmd`` configurator executes a shell command either using the `shell` configurator described below
-or the `ansible` configurator is used to execute the command remotely if the ``operation_host`` is remote.
-As described above, this is the default if no configurator is specified.
+The ``Cmd`` configurator executes a shell command using either the `shell` configurator
+or the `ansible` configurator for remote execution if the ``operation_host`` is set to a remote node.
+As described above, ``Cmd`` is the default configurator if none is specified.
 
 Example
 -------
@@ -249,20 +249,23 @@ ensures Unfurl will install the artifact if necessary, before it runs the comman
 Inputs
 ------
 
-  :command: (*required*) The command. It can be either a string or a list of command arguments.
+  :command: (*required*) The command to execute It can be either a string or a list of command arguments.
   :cwd:  Set the current working directory to execute the command in.
   :dryrun: During a during a dryrun job this will be either appended to the command line
            or replace the string ``%dryrun%`` if it appears in the command. (``%dryrun%`` is stripped out when running regular jobs.)
-           If it is not set, the task will not be executed at all during a dry run job.
+           If not set, the task will not be executed at all during a dry run job.
   :shell: If a string, the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
           A boolean indicates whether the command if invoked through the default shell or not.
           If omitted, it will be set to true if ``command`` is a string or false if it is a list.
-  :echo: (*Default: true*) Whether or not should be standard output (and stderr)
-         should be echod to Unfurl's stdout while the command is being run.
+  :echo: A boolean that indicates whether or not should be standard output (and stderr)
+         should be echoed to Unfurl's stdout while the command is being run.
+         If omitted, true unless running with ``--quiet``.
          (Doesn't affect the capture of stdout and stderr.)
+
   :keeplines: (*Default: false*) If true, preserve line breaks in the given command.
   :done: As as `done` defined by the `Template` configurator.
-  :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` that is processed after shell command completes, it will have the following template variables:
+  :outputsTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, with same variables as ``resultTemplate``. The template should evaluate to a map to be used as the operation's outputs or null to skip.
+  :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, it will have the following template variables:
 
 .. _resulttemplate:
 
@@ -283,7 +286,7 @@ The processing the ``resultsTemplate`` is equivalent to passing its resulting YA
 Outputs
 -------
 
-No outputs are set, use a ``resultsTemplate`` instead.
+No outputs are set unless ``outputsTemplate`` is present.
 
 Template
 =========
@@ -296,7 +299,7 @@ Inputs
   :run:  Sets the ``result`` of this task.
   :dryrun: During a ``--dryrun`` job used instead of ``run``.
   :done:  If set, a map whose values passed as arguments to :py:meth:`unfurl.configurator.TaskView.done`
-  :resultTemplate: A Jinja2 template that is processed with results of ``run`` as its variables.
+  :resultTemplate: A Jinja2 template or runtime expression that is processed with results of ``run`` as its variables.
 
 Outputs
 -------
@@ -342,7 +345,7 @@ Inputs
   :command: Path to the ``terraform`` executable. Default: "terraform"
   :dryrun_mode: How to run during a dry run job. If set to "plan" just generate the Terraform plan. If set to "real", run the task without any dry run logic. Default: "plan"
   :dryrun_outputs: During a dry run job, this map of outputs will be used simulate the task's outputs (otherwise outputs will be empty).
-  :resultTemplate: A Jinja2 template that is processed with the Terraform state JSON file as its variables.
+  :resultTemplate: A Jinja2 template or runtime expression that is processed with the Terraform state JSON file as its variables as well as the `resultTemplate` variables documented above for `Shell`.
      See the Terraform providers' schema documentation for details but top-level keys will include "resources" and "outputs".
 
 Outputs
@@ -447,7 +450,7 @@ Multiple provisioners become a list:
 Installers
 ==================
 
-Installation types already have operations defined.
+Installer node types already have operations defined.
 You just need to import the service template containing the TOSCA type definitions and
 declare node templates with the needed properties and operation inputs.
 
