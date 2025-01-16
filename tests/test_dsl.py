@@ -119,9 +119,10 @@ def test_builtin_generation():
             src_yaml[section], yaml_src[section], skipkeys=("description", "required")
         )
         diffs.pop("unfurl.interfaces.Install", None)
-        diffs.pop(
-            "tosca.nodes.Root", None
-        )  # XXX sometimes present due to test race condition?
+        for sectiontype in ["nodes", "relationships", "groups"]:
+            diffs.pop(
+                f"tosca.{sectiontype}.Root", None
+            )  # adds "type" to Standard interface
         diffs.pop(
             "tosca.nodes.SoftwareComponent", None
         )  # !namespace attributes might get added by other tests
@@ -421,7 +422,6 @@ def test_example_helloworld():
     src_tpl["topology_template"]["node_templates"]["db_server"]["interfaces"][
         "Standard"
     ] = {
-        "type": "tosca.interfaces.node.lifecycle.Standard",
         "operations": {"configure": {"implementation": "safe_mode"}},
     }
     assert src_tpl == tosca_tpl
@@ -508,17 +508,43 @@ def test_example_template():
     }
     assert wordpress_db["interfaces"] == {
         "Standard": {
-            "type": "tosca.interfaces.node.lifecycle.Standard",
             "operations": {
                 "create": {
                     "implementation": {"primary": "db_create.sh"},
-                    "inputs": {"db_data": {"get_artifact": ["SELF", "db_content"]}
-                  },
+                    "inputs": {"db_data": {"get_artifact": ["SELF", "db_content"]}},
+                    "metadata": {
+                        "arguments": [
+                            "db_data",
+                        ],
+                    },
                 }
             },
         }
     }
 
+
+custom_interface_python = """
+import unfurl
+import tosca
+class MyCustomInterface(tosca.interfaces.Root):
+    class Inputs(tosca.ToscaInputs):
+        location: str
+        version: int = 0
+
+    my_operation = tosca.operation()
+    "an abstract operation, subclass needs to implement"
+
+class Example(tosca.nodes.Root, MyCustomInterface):
+    shellScript = tosca.artifacts.ImplementationBash(file="example.sh")
+    prop1: str
+    host: tosca.nodes.Compute
+
+    def my_operation(self):
+        return self.shellScript.execute(
+            MyCustomInterface.Inputs(location=self.prop1),
+            host=self.host.public_address,
+        )
+"""
 
 custom_interface_yaml = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
@@ -547,6 +573,8 @@ node_types:
                 eval: .::prop1
               host:
                 eval: .::.targets::host::public_address
+            metadata:
+              arguments: [location, host]
 interface_types:
   MyCustomInterface:
     derived_from: tosca.interfaces.Root
@@ -558,36 +586,14 @@ interface_types:
         default: 0
     operations:
       my_operation:
-        description: description of my_operation
+        description: an abstract operation, subclass needs to implement
 topology_template: {}
 """
 
 
 def test_custom_interface():
-    class MyCustomInterface(tosca.interfaces.Root):
-        class Inputs(tosca.ToscaInputs):
-            location: str
-            version: int = 0
-
-        def my_operation(self):
-            "description of my_operation"
-            ...  # an abstract operation, subclass needs to implement
-
-    class Example(tosca.nodes.Root, MyCustomInterface):
-        shellScript = tosca.artifacts.ImplementationBash(file="example.sh")
-        prop1: str
-        host: tosca.nodes.Compute
-
-        def my_operation(self):
-            return self.shellScript.execute(
-                MyCustomInterface.Inputs(location=self.prop1),
-                host=self.host.public_address,
-            )
-
-    __name__ = "tests.test_dsl"
-    converter = PythonToYaml(locals())
-    yaml_dict = converter.module2yaml()
-    # yaml.dump(yaml_dict, sys.stdout)
+    yaml_dict = _to_yaml(custom_interface_python, False)
+    yaml.dump(yaml_dict, sys.stdout)
     tosca_yaml = load_yaml(yaml, custom_interface_yaml)
     assert yaml_dict == tosca_yaml
 
@@ -595,8 +601,8 @@ def test_custom_interface():
 def test_generator_operation():
     import unfurl.configurators.shell
     from unfurl.configurator import TaskView
-    class Node(tosca.nodes.Root):
 
+    class Node(tosca.nodes.Root):
         def foo(self, ctx: TaskView):
             result = yield unfurl.configurators.shell.ShellConfigurator()
             if result.result.success:
@@ -611,6 +617,7 @@ def test_generator_operation():
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
     yaml.dump(yaml_dict, sys.stdout)
+
 
 def test_bad_field():
     class BadNode(tosca.nodes.Root):
@@ -627,7 +634,7 @@ def test_bad_field():
 
 def test_class_init() -> None:
     class Example(tosca.nodes.Root):
-        shellScript: tosca.artifacts.Root = tosca.artifacts.Root(file="example.sh")
+        shellScript: tosca.artifacts.Root = tosca.CONSTRAINED
         prop1: Optional[str] = tosca.CONSTRAINED
         host: tosca.nodes.Compute = tosca.CONSTRAINED
         self_reference: "Example" = tosca.CONSTRAINED
@@ -636,6 +643,7 @@ def test_class_init() -> None:
         def _class_init(cls) -> None:
             cls.self_reference.prop1 = cls.prop1 or ""
             cls.host.public_address = cls.prop1 or ""
+            cls.shellScript = tosca.artifacts.Root(file="example.sh", intent=cls.prop1)
 
             with pytest.raises(ValueError) as e_info1:
                 cls.host.host = cls.host.host
@@ -647,7 +655,8 @@ def test_class_init() -> None:
             cls.set_to_property_source(cls.host, cls.prop1)
 
         def create(self, **kw) -> tosca.artifacts.Root:
-            return self.shellScript.execute(input1=self.prop1)
+            self.shellScript.execute(input1=self.prop1)
+            return self.shellScript
 
     # print( str(inspect.signature(Example.__init__)) )
 
@@ -661,6 +670,23 @@ def test_class_init() -> None:
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
     # yaml.dump(yaml_dict, sys.stdout)
+    assert yaml_dict["topology_template"] == {
+        "node_templates": {
+            "my_compute": {"type": "tosca.nodes.Compute"},
+            "my_template": {
+                "type": "Example",
+                "artifacts": {
+                    "shellScript": {
+                        "type": "tosca.artifacts.Root",
+                        "file": "example.sh",
+                        "intent": {"eval": ".parent::prop1"},
+                    }
+                },
+                "requirements": [{"host": "my_compute"}],
+                "metadata": {"module": "tests.test_dsl"},
+            },
+        }
+    }
     assert yaml_dict["node_types"] == {
         "Example": {
             "derived_from": "tosca.nodes.Root",
@@ -674,7 +700,13 @@ def test_class_init() -> None:
                 }
             },
             "artifacts": {
-                "shellScript": {"file": "example.sh", "type": "tosca.artifacts.Root"}
+                "shellScript": {
+                    "file": "example.sh",
+                    "type": "tosca.artifacts.Root",
+                    "intent": {
+                        "eval": ".parent::prop1",
+                    },
+                }
             },
             "requirements": [
                 {
@@ -703,6 +735,11 @@ def test_class_init() -> None:
                         "create": {
                             "implementation": {"primary": "shellScript"},
                             "inputs": {"input1": {"eval": ".::prop1"}},
+                            "metadata": {
+                                "arguments": [
+                                    "input1",
+                                ],
+                            },
                         }
                     }
                 }
@@ -725,6 +762,11 @@ data_types:
       prop1:
         type: string
         default: ''
+      map:
+        type: map
+        default: {}
+        entry_schema:
+          type: integer
 topology_template:
   node_templates:
     test:
@@ -734,17 +776,19 @@ topology_template:
       properties:
         data:
           prop1: test
+          map: {}
 """
 
 
 def test_datatype():
     import tosca
-    from tosca import DataType
+    from tosca import DataType, DEFAULT
 
     with tosca.set_evaluation_mode("parse"):
 
         class MyDataType(DataType):
             prop1: str = ""
+            map: Dict[str, int] = DEFAULT
 
         class Example(tosca.nodes.Root):
             data: MyDataType
@@ -837,7 +881,11 @@ def test_envvar_type():
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
         assert generic_envvars.to_yaml() == {"DBASE": "aaaa", "URL": True}
-        assert OpenDataEntity(a=1, b="b").extend(c="c").to_yaml() == {"a": 1, "b": "b", "c": "c"}
+        assert OpenDataEntity(a=1, b="b").extend(c="c").to_yaml() == {
+            "a": 1,
+            "b": "b",
+            "c": "c",
+        }
         assert Namespace.MyDataType(name="foo").to_yaml() == {"name": "foo"}
         # make sure DockerContainer is an OpenDataEntity
         unfurl_datatypes_DockerContainer().extend(labels=dict(foo="bar"))

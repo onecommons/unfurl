@@ -18,7 +18,7 @@ class Volume(tosca.nodes.Root):
     disk_label: str
     disk_size: tosca.Size = 100 * tosca.GB
 
-class VolumeAttachment(tosca.relationships.AttachesTo):
+class VolumeAttachment(tosca.relationships.AttachesTo):  # type: ignore[override]
     _target: Volume
 
 class VolumeMountArtifact(tosca.artifacts.Root):

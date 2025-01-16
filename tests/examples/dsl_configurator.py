@@ -45,7 +45,7 @@ class Test(Base):
 
     @operation(outputs=dict(test_output="computed"))
     def delete(self, **kw: Any) -> TemplateConfigurator:
-        render = self._context  # type: ignore
+        render = self._context  # type: ignore  # raise error to force render
         done = DoneDict(outputs=dict(test_output=Eval("{{'set output'}}")))
         return TemplateConfigurator(TemplateInputs(run="test me", done=done))
 

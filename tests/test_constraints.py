@@ -178,12 +178,12 @@ def test_constraints():
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @pytest.mark.parametrize(
-    "path", ["constraints.py", "dsl_configurator.py", "dsl_relationships.py"]
+    "path", ["constraints.py", "dsl_configurator.py", "dsl_relationships.py", "dsl_artifacts.py"]
 )
 def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "examples", path)
-    assert_no_mypy_errors(basepath, "--disable-error-code=override")
+    assert_no_mypy_errors(basepath) #, "--disable-error-code=override")
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")

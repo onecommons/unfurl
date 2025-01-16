@@ -14,7 +14,7 @@ from unfurl.yamlmanifest import YamlManifest, _basepath
 from unfurl.yamlloader import YamlConfig
 from unfurl.spec import ToscaSpec
 from tosca import global_state
-from unfurl.testing import CliRunner, run_cmd
+from unfurl.testing import CliRunner, assert_no_mypy_errors, run_cmd
 
 basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
 
@@ -135,3 +135,12 @@ def test_quickstart():
         run_cmd(runner, "plan production")
         if "slow" not in os.getenv("UNFURL_TEST_SKIP", ""):
             run_cmd(runner, "deploy --dryrun --approve development")
+
+@pytest.mark.skipif("slow" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set")
+@pytest.mark.parametrize(
+    "path", ["artifact2.py", "tosca-interfaces.py"]
+)
+def test_mypy(path):
+    # assert mypy ok
+    basepath = os.path.join(os.path.dirname(__file__), "..", "docs", "examples", path)
+    assert_no_mypy_errors(basepath) # , "--disable-error-code=override")

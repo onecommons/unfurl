@@ -1,0 +1,67 @@
+artifact_types:
+  MyArtifact:
+    derived_from: unfurl.artifacts.ShellExecutable
+    properties:
+      file:
+        type: string
+        default: myscript.sh
+      contrived_key:
+        type: string
+      outputsTemplate:
+        type: string
+        default: '{{ stdout | from_json | subelements(SELF.contrived_key)}}'
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+        operations:
+          execute:
+            metadata:
+              output_key:
+              - Outputs
+            inputs:
+              arg1:
+                type: string
+              arg2:
+                type: integer
+            outputs:
+              a_output:
+                type: string
+node_types:
+  MyNode:
+    derived_from: tosca.nodes.Root
+    properties:
+      prop1:
+        type: string
+      prop2:
+        type: integer
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            metadata:
+              output_key:
+              - Outputs
+              arguments:
+              - arg1
+              - arg2
+            inputs:
+              arg1: hello
+              arg2:
+                eval: .::prop2
+            outputs:
+              a_output:
+                type: string
+            implementation:
+              primary:
+                type: MyArtifact
+                properties:
+                  contrived_key:
+                    eval: .parent::.::prop1
+                file: myscript.sh
+topology_template:
+  node_templates:
+    my_node:
+      type: MyNode
+      properties:
+        prop1: foo
+        prop2: 1

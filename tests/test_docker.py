@@ -171,17 +171,6 @@ class DockerTest(unittest.TestCase):
         assert registry and isinstance(registry, toscaparser.repositories.Repository)
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
 
-    def test_environment(self):
-        src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")
-        jobs = list(
-            isolated_lifecycle(
-                src_path,
-                steps=[Step("plan", Status.ok)],
-            )
-        )
-        env = jobs[0].rootResource.find_instance("container1").attributes['container']['environment']
-        assert env == {'FOO': '1', 'BAR': '1', 'PASSWORD': 'test'}
-
     def test_lifecycle(self):
         # note: this tests dynamically skipping an operation (start) because the previous one (create) 
         # sets the state state
@@ -193,3 +182,15 @@ class DockerTest(unittest.TestCase):
                 env = dict(UNFURL_HOME="./unfurl_home")
             )
         )
+
+def test_environment():
+    # test that $APP_<prop> synthetic environment variables work
+    src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")
+    jobs = list(
+        isolated_lifecycle(
+            src_path,
+            steps=[Step("plan", Status.ok)],
+        )
+    )
+    env = jobs[0].rootResource.find_instance("container1").attributes['container']['environment']
+    assert env == {'FOO': '1', 'BAR': '1', 'PASSWORD': 'test'}
