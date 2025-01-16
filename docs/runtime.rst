@@ -5,10 +5,12 @@ Runtime Environment
 Job Variables
 ==============
 
-When a task is being evaluated the following variables are available as an `expression <Eval Expressions>` variable or a jinja2 template variable.
+When a `task <Tasks>` is being evaluated the following variables are available as an `expression <Eval Expressions>` variable or a jinja2 template variable.
 Instances are represented as a dictionary containing its properties and attributes and its `special keys`.
 
-  :inputs: A dictionary containing the inputs passed to the task's operation.
+  :implementation: the artifact used by the operation's implementation (or null if one wasn't set).
+  :inputs: A dictionary containing the inputs declared on the task's operation.
+  :arguments: A dictionary containing inputs and properties passed to task's `artifact`.
   :connections: See :std:ref:`Connections` below.
   :SELF: The current task's target instance.
   :HOST: The host of SELF.
@@ -23,10 +25,10 @@ Instances are represented as a dictionary containing its properties and attribut
 
   :name: Name of the current task
   :workflow: The current workflow (e.g. ``deploy``, ``undeploy``, or ``discover``)
-  :target: The name of instance the task is operating on.
+  :target: The name of the instance that the task is operating on.
   :operation: The name of the operation the task is running.
   :dryrun: (boolean) Whether the current job has the ``--dryrun`` flag set.
-  :reason: Reason the current task was selected, e.g. "add", "update", "prune", "repair"
+  :reason: `Reason` the current task was selected, e.g. "add", "update", "prune", "repair"
   :cwd: The current working directory the task process is executing in.
   :verbose: An integer indicating log verbosity level: 0 (INFO) (the default), -1 CRITICAL (set by ``--quiet``), >= 1 DEBUG (set by ``-v``, ``-vv``, or ``-vvv``)
   :timeout: The task's timeout value if set,
@@ -69,7 +71,7 @@ Environment Variables
 =====================
 
 You can set the environment variables that are available while Unfurl is running
-in the ``variables`` section when declaring an ``environment``.
+in the ``variables`` section when declaring an `environment`.
 These global directives can be overridden when executing an individual operation by
 by adding an ``environment`` section to an operation's `implementation` declaration.
 This environment is used when an operation invokes a external process such as a shell command.

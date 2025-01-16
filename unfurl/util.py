@@ -585,6 +585,12 @@ class ChainMap(MutableMapping):
                 pass
         raise KeyError(key)
 
+    def __contains__(self, key) -> bool:
+        for mapping in self._maps:
+            if key in mapping:
+                return True
+        return False
+
     def __setitem__(self, key, value: object) -> None:
         self._maps[0][key] = value
 

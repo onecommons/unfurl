@@ -781,6 +781,11 @@ def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
 
 set_eval_func("get_env", get_env, True)
 
+set_eval_func(
+    "_arguments",
+    lambda arg, ctx: ctx.task and ctx.task._arguments(),
+)
+
 
 def set_context_vars(vars, resource: "EntityInstance"):
     root = cast("TopologyInstance", resource.root)
@@ -818,6 +823,13 @@ class _EnvMapper(dict):
 
     def copy(self):
         return _EnvMapper(self)
+
+    def __contains__(self, key) -> bool:
+        try:
+            self[key]  # needs to be resolved
+            return True
+        except KeyError:
+            return False
 
     def __missing__(self, key):
         objname, sep, prop = key.partition("_")
@@ -1188,6 +1200,7 @@ def get_artifact(
     If entity_name or artifact_name is not found return None.
     """
     from .runtime import NodeInstance, ArtifactInstance
+
     if entity == "ANON":
         current = ctx.currentResource.template
         if not current:
@@ -1725,7 +1738,7 @@ class AttributeManager:
         changes: AttributesChanges = cast(AttributesChanges, {})
         _dependencies = cast(_Dependencies, {})
         for resource, attributes in list(self.attributes.values()):
-            overrides, specd = attributes._attributes.split()
+            overrides, specd = cast(ChainMap, attributes._attributes).split()
             # overrides will only contain:
             #  - properties accessed or added while running a task
             #  - properties loaded from the ensemble status yaml (which implies it was previously added or changed)

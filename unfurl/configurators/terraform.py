@@ -15,6 +15,7 @@ import os.path
 import re
 import tosca
 
+
 class TerraformInputs(ShellInputs):
     main: Union[None, str, Dict[str, Any]] = None
     tfvars: Union[None, str, Dict[str, Any]] = None
@@ -106,14 +107,6 @@ def mark_sensitive(schemas, state, task, sensitive_names=()):
             # XXX providers schema is probably out of date, retrieve schema again?
             task.logger.info("provider '%s' not found in terraform schema", provider)
     return state
-
-
-def _get_tfvars_from_properties(instance):
-    return {
-        p.name: instance.attributes[p.name]
-        for p in instance.template.propertyDefs.values()
-        if p.schema.get("metadata", {}).get("tfvar")
-    }
 
 
 _main_tf_template = """\
@@ -257,11 +250,16 @@ class TerraformConfigurator(ShellConfigurator):
     def _get_tfvars(self, task: TaskView):
         tfvars = task.inputs.get_copy("tfvars")
         if not isinstance(tfvars, str):
-            tfprops = _get_tfvars_from_properties(task.target)
+            tfprops = task.inputs.get_copy("arguments", {})
+            # old way:
+            tfprops.update(
+                task._get_inputs_from_properties(task.target.attributes, "tfvar")
+            )
             if isinstance(tfvars, dict):
-                tfvars.update(tfprops)
+                tfprops.update(tfvars)  # inputs override properties
             else:
                 return tfprops
+        # note: if tfvars is a string, metadata mapping is ignored
         return tfvars
 
     def _prepare_workspace(self, task: TaskView, cwd: WorkFolder):
@@ -278,7 +276,7 @@ class TerraformConfigurator(ShellConfigurator):
             if not os.path.exists(main):
                 raise UnfurlTaskError(
                     task,
-                    f'Input parameter "main" not specifed and default terraform module directory does not exist at "{main}"',
+                    f'Input parameter "main" not specified and default terraform module directory does not exist at "{main}"',
                 )
         if task._errors:
             main = None  # assume render failed

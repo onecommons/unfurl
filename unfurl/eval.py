@@ -341,7 +341,7 @@ class Expr:
         # XXX vars
         return f"Expr('{self.source}')"
 
-    def resolve(self, context) -> List[Result]:
+    def resolve(self, context: RefContext) -> List[Result]:
         # returns a list of Result
         currentResource = context.currentResource
         if not self.paths[0].key and not self.paths[0].filters:  # starts with "::"

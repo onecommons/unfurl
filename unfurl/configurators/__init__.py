@@ -16,12 +16,10 @@ from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
-register_short_names(
-    {
-        name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
-        for name in "Ansible Shell Supervisor Terraform DNS Kompose".split()
-    }
-)
+register_short_names({
+    name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
+    for name in "Ansible Shell Supervisor Terraform DNS Kompose".split()
+})
 
 
 class CmdConfigurator(Configurator):
@@ -67,7 +65,7 @@ class TemplateConfigurator(Configurator):
         Ansible also includes "outputs"
         """
         # get the resultTemplate without evaluating it
-        resultTemplate = task.inputs._attributes.get("resultTemplate")
+        resultTemplate = task.inputs.get_original("resultTemplate")
         errors: Sequence[Exception] = []
         current_status = task.target.local_status
         if resultTemplate:  # evaluate it now with the result
@@ -89,9 +87,7 @@ class TemplateConfigurator(Configurator):
                 else:
                     trace = 0
                 if Ref.is_ref(resultTemplate):
-                    results = task.query(
-                        resultTemplate, vars=result, throw=True
-                    )
+                    results = task.query(resultTemplate, vars=result, throw=True)
                 else:
                     # lazily evaluated by update_instances() below
                     results = Results._map_value(
@@ -138,7 +134,7 @@ class TemplateConfigurator(Configurator):
     def done(self, task: "TaskView", **kw):
         # this is called by derived classes like ShellConfigurator to allow the user
         # to override the default logic for updating the state and status of a task.
-        done = task.inputs.get_copy("done", {})
+        done: dict = task.inputs.get_copy("done", {})
         if done:
             task.logger.trace("evaluated done template with %s", done)
             kw.update(done)  # "done" overrides kw
@@ -146,7 +142,7 @@ class TemplateConfigurator(Configurator):
 
     def run(self, task: "TaskView") -> Generator:
         runResult = task.rendered
-        done = task.inputs.get_copy("done", {})
+        done: dict = task.inputs.get_copy("done", {})
         if not isinstance(done, dict):
             raise UnfurlTaskError(task, 'input "done" must be a dict')
         if "result" not in done:

@@ -69,6 +69,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     interface: Optional[str]
     environment: Optional[Dict[str, str]]
     timeout: Optional[int]
+    arguments: Optional[List[str]]
 
 
 # we want ConfigurationSpec to be independent of our object model and easily serializable
@@ -94,7 +95,8 @@ class ConfigurationSpec:
         interface=None,
         entry_state=None,
         base_dir=None,
-        input_defs=None
+        input_defs=None,
+        arguments=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -117,6 +119,7 @@ class ConfigurationSpec:
         self.entry_state = cast(NodeState, to_enum(NodeState, entry_state))
         self.base_dir = base_dir
         self.input_defs: Optional[Dict[str, Property]] = input_defs
+        self.arguments: Optional[List[str]] = arguments
 
     def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
@@ -1033,14 +1036,18 @@ def filter_task_request(
 
 
 def _find_implementation(
-    interface: str, operation: str, template: EntitySpec
+    interface: str, operation: str, template: EntitySpec, include_default=False
 ) -> Optional[OperationDef]:
     default = None
     for iDef in template.get_interfaces():
         if iDef.interfacename == interface or iDef.type == interface:
             if iDef.name == operation:
                 return iDef
-    return default
+            if iDef.name == "default":
+                default = iDef
+    if include_default:
+        return default
+    return None
 
 
 def find_resources_from_template_name(
@@ -1391,7 +1398,9 @@ def _get_config_spec_args_from_implementation(
         "entry_state": iDef.entry_state,
         "input_defs": iDef.get_declared_inputs(),
     }
-    artifactTpl: Union[str, dict, None] = None
+    if iDef.metadata:
+        kw["arguments"] = iDef.metadata.get("arguments")
+    artifactTpl: Union[str, dict, Artifact, None] = None
     dependencies = None
     predefined = False
     guessing = ""

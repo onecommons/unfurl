@@ -19,7 +19,8 @@ from typing_extensions import TypedDict
 from collections.abc import Mapping
 import os
 import copy
-from tosca import ToscaInputs
+from tosca import ToscaInputs, ToscaOutputs
+from toscaparser.elements.interfaces import OperationDef
 from toscaparser.properties import Property
 from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncate
 
@@ -47,6 +48,7 @@ from .result import (
     Result,
 )
 from .util import (
+    ChainMap,
     register_class,
     validate_schema,
     UnfurlTaskError,
@@ -71,7 +73,8 @@ from .projectpaths import WorkFolder, Folders
 from .planrequests import (
     TaskRequest,
     JobRequest,
-    ConfigurationSpec,  # import used by unit tests
+    ConfigurationSpec,
+    _find_implementation,
     create_task_request,
     find_operation_host,
     create_instance_from_spec,
@@ -512,6 +515,8 @@ class TaskView:
         self._workFolders: Dict[str, WorkFolder] = {}
         self._failed_paths: List[str] = []
         self._rendering = False
+        self._execute_op: Optional[OperationDef] = None
+        self._artifact: Optional[ArtifactInstance] = None
         # (_environ type is object because of _initializing_environ)
         self._environ: Optional[object] = None
         self._attributeManager: AttributeManager = None  # type: ignore
@@ -571,7 +576,6 @@ class TaskView:
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
             ctx = RefContext(self.target, task=self)
             ctx.referenced = self._attributeManager.tracker
-            inputs = self.configSpec.inputs
             relationship = None
             if isinstance(self.target, RelationshipInstance):
                 relationship = self.target
@@ -600,13 +604,144 @@ class TaskView:
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-reference
             ctx.vars = vars
+            self._artifact = artifact = self._get_artifact()
+
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
             elif self.configSpec.base_dir:
                 ctx.base_dir = self.configSpec.base_dir
-            self._inputs = ResultsMap(inputs, ctx, defs=self.configSpec.input_defs)
+            self._inputs = self._to_resultsmap(ctx)
+            if artifact:
+                vars["implementation"] = artifact.attributes
+                artifact.attributes.context.vars = self._inputs.context.vars
+            else:
+                vars["implementation"] = None
             vars["inputs"] = self._inputs
+            vars["arguments"] = dict(eval="$inputs::arguments")
         return self._inputs
+
+    def _get_artifact(self) -> Optional[ArtifactInstance]:
+        artifact = None
+        if self.configSpec.artifact and self.configSpec.artifact.parentNode:
+            parent = self.target.root.find_instance(
+                self.configSpec.artifact.parentNode.nested_name
+            )
+            if parent:
+                artifact = ArtifactInstance(
+                    self.configSpec.artifact.name,
+                    template=self.configSpec.artifact,
+                    parent=parent,
+                )
+        return artifact
+
+    def _to_resultsmap(self, ctx) -> ResultsMap:
+        # task.inputs: execute arguments (explicit operation inputs) + signature defaults + artifact properties
+        inputs: MutableMapping = self.configSpec.inputs
+        artifact = self._artifact
+        if artifact:
+            # copy the ChainMap and insert inputs at the beginning
+            attributes = artifact.attributes
+            defs = artifact.template.propertyDefs.copy()
+            self._execute_op = executeOp = _find_implementation(
+                "unfurl.interfaces.Executable", "execute", artifact.template, True
+            )
+            if executeOp and executeOp.input_defs:
+                # add defs to provide validation for operation inputs with the same name
+                for name, prop in executeOp.get_declared_inputs().items():
+                    # add metadata so the configurator knows these inputs are for execution
+                    # prop.schema.schema.setdefault("metadata", {})[
+                    #     ToscaInputs._metadata_key
+                    # ] = True
+                    # if executeOp.inputs and name in executeOp.inputs:
+                    #     prop.schema.schema["default"] = executeOp.inputs[name]
+                    defs[name] = prop
+            if self.configSpec.input_defs:
+                defs.update(self.configSpec.input_defs)
+            inputs = ChainMap(inputs, attributes)
+        else:
+            defs = self.configSpec.input_defs or {}
+        rm = ResultsMap(inputs, ctx, defs=defs)
+        if "arguments" not in rm:
+            # add to inputs as lazily evaluated expression function
+            # this way "arguments" is recorded as a input digest key when accessed
+            rm._attributes["arguments"] = dict(eval=dict(_arguments=None))
+        return rm
+
+    def _match_metadata_key(self, name, val):
+        # check this metadata should be applied to this task's operation
+        # if its value is a bool return that
+        # if its value is a string or a list of strings, compare with the artifact name
+        # and matching metadata on the artifact's execute operation if it set
+        if not val:
+            return False
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            val = [val]
+        if self._artifact and self._artifact.name in val:
+            return True
+        keys = (
+            self._execute_op
+            and self._execute_op.metadata
+            and self._execute_op.metadata.get(name)
+        )
+        if keys:
+            if isinstance(keys, str):
+                return keys in val
+            for key in keys:
+                if key in val:
+                    return True
+        return False
+
+    def _get_inputs_from_properties(
+        self, attributes: ResultsMap, name: str
+    ) -> Dict[str, Any]:
+        return {
+            p.name: attributes[p.name]
+            for p in attributes.defs.values()
+            if p.schema.get("metadata", {}).get(name)
+        }
+
+    def _arguments(self) -> Dict[str, Any]:
+        """
+        Return the "arguments" variable.
+
+        The item sources from lowest to highest priority are:
+        * inputs set on the artifact's execute operation
+        * artifact properties with the ToscaInputs._metadata_key (input_match)
+        * target properties with ToscaInputs._metadata_key
+        * operation inputs listed in "arguments" metadata key, if set
+        * if "arguments" metadata key is missing, operation inputs with the same name as above inputs or the execute operation's input defs
+        """
+        key = ToscaInputs._metadata_key
+        if self._execute_op and self._execute_op.inputs:
+            execute_inputs = self._execute_op.inputs
+        else:
+            execute_inputs = {}
+        if self._artifact:  # simple match
+            execute_inputs.update(
+                self._get_inputs_from_properties(self._artifact.attributes, key)
+            )
+            # don't include artifact properties:
+            op_inputs = cast(ChainMap, self.inputs._attributes)._maps[0]
+        else:
+            op_inputs = self.inputs
+        # full match
+        execute_inputs.update({
+            p.name: self.target.attributes[p.name]
+            for p in self.target.attributes.defs.values()
+            if self._match_metadata_key(key, p.schema.get("metadata", {}).get(key))
+        })
+        if self.configSpec.arguments is not None:
+            execute_names = set(self.configSpec.arguments)
+        else:
+            input_defs = self._execute_op and self._execute_op.input_defs
+            execute_names = set(execute_inputs) | set(input_defs or [])
+        # operation inputs override execute inputs
+        for name in execute_names:
+            if name in op_inputs:
+                execute_inputs[name] = self.inputs[name]
+        return execute_inputs
 
     @property
     def vars(self) -> dict:
@@ -729,14 +864,12 @@ class TaskView:
                 )
             )
             if self.target.source:
-                SOURCES = ",".join(
-                    [
-                        r.tosca_id
-                        for r in self.target.source.get_requirements(
-                            self.target.template.name
-                        )
-                    ]
-                )
+                SOURCES = ",".join([
+                    r.tosca_id
+                    for r in self.target.source.get_requirements(
+                        self.target.template.name
+                    )
+                ])
                 SOURCE = self.target.source.tosca_id
         return env
 
@@ -1165,7 +1298,7 @@ class TaskView:
                 anAttribute: aNewValue
                 ...
             artifacts:
-                artifact1: 
+                artifact1:
                   ...
             readyState:
               local: ok
@@ -1194,7 +1327,9 @@ class TaskView:
                 existingResource: Optional[EntityInstance] = self.target
                 rname = self.target.name
             elif rname == "HOST":
-                existingResource = cast(EntityInstance, self.target.parent or self.target.root)
+                existingResource = cast(
+                    EntityInstance, self.target.parent or self.target.root
+                )
             else:
                 existingResource = self.find_instance(rname)
 

@@ -389,6 +389,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             args = task.rendered
             # build vars from inputs
             extraVars = self.get_vars(task)
+            extraVars.update(task.inputs.get_copy("arguments", {}))
             if task.operation_host and task.operation_host.templar:
                 vault_secrets = task.operation_host.templar._loader._vault.secrets
             else:

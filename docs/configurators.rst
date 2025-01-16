@@ -82,7 +82,7 @@ Inputs
   :playbook: (*required*) If string, treat as a file path to the Ansible playbook to run, otherwise treat as an inline playbook
   :inventory: If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline YAML inventory.
               If omitted, the inventory will be generated (see below)
-  :extraVars: A dictionary of variables that will be passed to the playbook as Ansible facts
+  :arguments: A dictionary of variables that will be passed to the playbook as Ansible facts
   :playbookArgs: A list of strings that will be passed to ``ansible-playbook`` as command-line arguments
   :resultTemplate: Same behavior as defined for `Shell` but will also include ``outputs`` as a variable.
 

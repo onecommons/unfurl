@@ -10,13 +10,15 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
-    Iterator,
+    Iterable,
     List,
     Match,
     Optional,
     Tuple,
     Union,
     cast,
+    overload,
+    TypeVar,
 )
 import hashlib
 import re
@@ -45,6 +47,7 @@ from .logs import sensitive, getLogger
 
 logger = getLogger("unfurl")
 
+T = TypeVar("T")
 
 def _get_digest(value, kw):
     getter = getattr(value, "__digestable__", None)
@@ -531,9 +534,9 @@ class ResultsItem(Result):
 
     def set_resolved(self, result: Result, seen: int):
         # the value was computed again
-        assert (
-            self.is_computed()
-        ), "computed items are mutually exclusive with update_value()"
+        assert self.is_computed(), (
+            "computed items are mutually exclusive with update_value()"
+        )
         self.select = result.select
         self.external = result.external
         self.resolved = result.resolved
@@ -608,7 +611,7 @@ class Results(ABC, metaclass=ProxyableType):
     )
 
     @abstractmethod
-    def _values(self) -> Iterator: ...
+    def _values(self) -> Iterable: ...
 
     @abstractmethod
     def resolve_all(self): ...
@@ -652,14 +655,23 @@ class Results(ABC, metaclass=ProxyableType):
         else:
             self.defs = defs
 
-    def get_copy(self, key, default=None):
-        # return a copy of value or default if not found
+    @overload
+    def get_copy(self, key: str, default: T) -> T: ...
+
+    @overload
+    def get_copy(self, key: str) -> Optional[Any]: ...
+
+    def get_copy(self, key: str, default=None):
+        """Return a fully evaluated copy of value or return ``default`` if not found."""
         from .eval import map_value
 
         try:
-            return map_value(self._get(key), self.context)
+            val = self._get(key)
         except (KeyError, IndexError):
             return default
+        if isinstance(val, Results):
+            val = map_value(val, self.context)
+        return val
 
     def map_all(self):
         from .eval import map_value
@@ -712,7 +724,7 @@ class Results(ABC, metaclass=ProxyableType):
                 # XXX! see test_localConfig in test_cli.py
                 return val[0]
             items = [ResultsItem(r) if isinstance(r, Result) else r for r in val]
-            return ResultsList(val, context, False, defs or {})
+            return ResultsList(items, context, False, defs or {})
         else:
             from .support import is_template, apply_template
 
@@ -945,11 +957,29 @@ class Results(ABC, metaclass=ProxyableType):
 
 
 class ResultsMap(Results, MutableMapping[str, Any]):
+    _attributes: MutableMapping[str, Any]
+
     def __iter__(self):
         return iter(self._attributes)
 
     def resolve_all(self):
         list(self.values())
+
+    def get_original(self, name):
+        original = None
+        if isinstance(self._attributes, ChainMap):
+            for mapping in self._attributes._maps:
+                if name in mapping:
+                    if isinstance(mapping, ResultsMap):
+                          return mapping.get_original(name)
+                    original = mapping[name]
+                    break
+        else:
+            original = self._attributes.get(name)
+        if isinstance(original, ResultsItem):
+            return original.original
+        else:
+            return original
 
     def get_resolved(self) -> Dict[str, ResultsItem]:
         if isinstance(self._attributes, ChainMap):
@@ -989,6 +1019,8 @@ class ResultsMap(Results, MutableMapping[str, Any]):
 
 
 class ResultsList(Results, MutableSequence):
+    _attributes: MutableSequence
+
     def insert(self, index, value):
         assert not isinstance(value, Result), value
         self._attributes.insert(index, ResultsItem(value, _Missing))
