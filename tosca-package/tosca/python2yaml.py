@@ -44,7 +44,12 @@ from ._tosca import (
     Namespace,
     Interface,
 )
-from .loader import _clear_private_modules, restricted_exec, get_module_path, get_allowed_modules
+from .loader import (
+    _clear_private_modules,
+    restricted_exec,
+    get_module_path,
+    get_allowed_modules,
+)
 from . import WritePolicy
 
 logger = logging.getLogger("tosca")
@@ -530,7 +535,7 @@ class PythonToYaml:
         direct_bases: List[str] = []
         for c in cls.__mro__:
             if not issubclass(c, ToscaObject) or c._type_section != "interface_types":
-                continue
+                continue  # only include Interface classes
             name = c.tosca_type_name()
             shortname = name.split(".")[-1]
             i_def: Dict[str, Any] = {}
@@ -538,7 +543,7 @@ class PythonToYaml:
                 "Standard",
                 "Configure",
                 "Install",
-            ] or cls_or_self.tosca_type_name().startswith("tosca."):
+            ] or cls_or_self.tosca_type_name().startswith("tosca.interfaces"):
                 # built-in interfaces don't need their type declared
                 i_def["type"] = name
             if cls_or_self._interface_requirements:
@@ -555,11 +560,15 @@ class PythonToYaml:
                 interface_ops[methodname] = i_def
                 interface_ops[shortname + "." + methodname] = i_def
         self._find_operations(obj, cls, interface_ops, interfaces)
-        # filter out interfaces with no operations declared unless inheriting from Interface directly
+        # filter out interfaces with no operations declared unless the interface was directly inherited
         return dict_cls(
             (k, v)
             for k, v in interfaces.items()
-            if k == "defaults" or k in direct_bases or v.get("operations")
+            if k == "defaults"
+            or (v and k in direct_bases)
+            or v.get("operations")
+            or v.get("inputs")
+            or v.get("outputs")
         )
 
     @staticmethod
@@ -613,51 +622,25 @@ class PythonToYaml:
         cls: Type["ToscaObject"],
         operation,
     ):
-        cls_or_self = obj or cls
         dict_cls = self.yaml_cls
         if self.safe_mode:
             # safe mode skips adding operation implementation because it executes operations to generate the yaml
             return dict_cls(implementation="safe_mode")
         op_def: Dict[str, Any] = dict_cls()
-        args: Dict[str, Any] = {}
-        kwargs: Dict[str, Any] = {}
-        sig = inspect.signature(operation)
-        try:
-            args, kwargs = _get_parameters(obj, cls, sig)
-            result = operation(*list(args.values()), **kwargs)
-        except Exception:
-            logger.debug(
-                f"Couldn't execute {operation} on {cls_or_self} during conversion, falling back to runtime execution",
-                exc_info=True,
-            )
-            className = f"{operation.__module__}:{operation.__qualname__}:render"
-            implementation = dict_cls(className=className)
-            result = None
-        else:
+        outputs = getattr(operation, "outputs", None) or {}
+        if (
+            operation.__name__ == "decorator_operation"
+        ):  # hack for op = operation() usage
             implementation = dict_cls()
-        if result is NotImplemented:
-            return "not_implemented"
-        if isinstance(result, _ArtifactProxy):
-            implementation = dict_cls(primary=result.name_or_tpl)
-            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
-            if ret_cls:
-                _set_outputs(operation, self, op_def, ret_cls)
-        elif isinstance(result, types.FunctionType):
-            className = f"{result.__module__}:{result.__qualname__}:run"
-            implementation = dict_cls(className=className)
-        elif isinstance(result, ToscaOutputs):
-            _set_outputs(operation, self, op_def, result)
-            # set result for case where self is an artifact
-            result = sig.parameters.get("self")
-        elif result:  # with unfurl this should be a Configurator
-            className = f"{result.__class__.__module__}.{result.__class__.__name__}"
-            implementation = dict_cls(className=className)
-        else:  # no return value
-            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
-            if ret_cls:
-                _set_outputs(operation, self, op_def, ret_cls)
-            # set result for case where self is an artifact
-            result = sig.parameters.get("self")
+        else:
+            implementation = self._execute_operation(
+                obj, cls, operation, op_def, outputs
+            )
+            if implementation == "not_implemented":
+                return implementation
+        if outputs:
+            op_def["outputs"] = outputs
+
         # XXX add to implementation: preConditions
         for key in ("operation_host", "environment", "timeout", "dependencies"):
             impl_val = getattr(operation, key, None)
@@ -665,22 +648,104 @@ class PythonToYaml:
                 implementation[key] = impl_val
         if implementation:
             op_def["implementation"] = to_tosca_value(implementation, dict_cls)
-        if hasattr(result, "_inputs"):
-            op_def["inputs"] = to_tosca_value(result._inputs, dict_cls)
-        args.update(kwargs)
-        if args:
-            _set_input_defs(op_def, sig, args, self)
         description = getattr(operation, "__doc__", "")
         if description and description.strip():
             op_def["description"] = description.strip()
-        for key in ("entry_state", "invoke"):
+        for key in ("entry_state", "invoke", "metadata"):
             impl_val = getattr(operation, key, None)
             if impl_val is not None:
-                op_def[key] = to_tosca_value(impl_val, dict_cls)
+                if op_def.get(key):
+                    op_def[key].update(impl_val)
+                else:
+                    op_def[key] = to_tosca_value(impl_val, dict_cls)
         return op_def
 
+    def _execute_operation(
+        self,
+        obj: Optional["ToscaObject"],
+        cls: Type["ToscaObject"],
+        operation,
+        op_def,
+        outputs,
+    ):
+        cls_or_self = obj or cls
+        dict_cls = self.yaml_cls
+        sig = inspect.signature(operation)
+        args: Dict[str, Any] = {}
+        kwargs: Dict[str, Any] = {}
+        poxy = _OperationProxy()
+        try:
+            args, kwargs = _get_parameters(obj, cls, sig)
+            global_state._type_proxy = poxy
+            result = operation(*list(args.values()), **kwargs)
+        except Exception:
+            logger.debug(
+                f"Couldn't execute {operation} on {cls_or_self} at parse time, falling back to render time execution",
+                exc_info=True,
+            )
+            className = f"{operation.__module__}:{operation.__qualname__}:render"
+            result = None
+            # if this operation can't be executed while converting to yaml
+            # it is the responsibility of the operation to instantiate a configurator with its inputs set
+            # or instantiate a similar callable (see DslMethodConfigurator.render())
+            implementation = dict_cls(className=className)
+        else:
+            implementation = dict_cls()
+        finally:
+            global_state._type_proxy = None
+        if result is NotImplemented:
+            return "not_implemented"
 
-def _get_toscaoutputs(cls_or_self, ret_val):
+        # we need the inputs from the execute call and the artifact that called it
+        # that comes from either the proxy if an obj or type proxy if a cls
+        # the outputs come either the return value or the signature return annotation
+        # implementation is the return value or from the proxy
+
+        if not result:  # no return value
+            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
+            if ret_cls:
+                _set_outputs(outputs, self, op_def, ret_cls)
+            if not implementation:  # if not already set
+                result = poxy._artifact_executed
+        elif isinstance(result, ToscaOutputs):
+            _set_outputs(outputs, self, op_def, result)
+            result = poxy._artifact_executed
+        if isinstance(result, ArtifactEntity):
+            primary = result.to_template_yaml(self)
+            implementation = dict_cls(primary=primary)
+        elif isinstance(result, FieldProjection):
+            # assume it's to an artifact
+            implementation = dict_cls(primary=result.field.name)
+        elif isinstance(result, _ArtifactProxy):
+            implementation = dict_cls(primary=result.name_or_tpl)
+            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
+            if ret_cls:
+                _set_outputs(outputs, self, op_def, ret_cls)
+        elif isinstance(result, types.FunctionType):
+            className = f"{result.__module__}:{result.__qualname__}:run"
+            implementation = dict_cls(className=className)
+        elif result:  # with unfurl this should be a Configurator
+            className = f"{result.__class__.__module__}.{result.__class__.__name__}"
+            implementation = dict_cls(className=className)
+
+        if hasattr(result, "_inputs"):
+            inputs = result._inputs
+        else:
+            inputs = poxy._inputs
+
+        if inputs:
+            op_def["inputs"] = to_tosca_value(inputs, dict_cls)
+            if poxy._artifact_executed:
+                op_def.setdefault("metadata", {})["arguments"] = list(inputs)
+        args.update(kwargs)
+        if args:
+            _set_input_defs(op_def, sig, args, self)
+        return implementation
+
+
+def _get_toscaoutputs(
+    cls_or_self: Union["ToscaObject", Type["ToscaObject"]], ret_val: Any
+) -> Optional[Type["ToscaOutputs"]]:
     if ret_val is not inspect.Parameter.empty:
         ret_cls = cls_or_self._resolve_class(ret_val)
         if isinstance(ret_cls, type) and issubclass(ret_cls, ToscaOutputs):
@@ -707,36 +772,35 @@ def _get_parameters(
         if parameter.kind == inspect.Parameter.KEYWORD_ONLY:
             args = kwargs
         if parameter.default is not inspect.Parameter.empty:
-            if isinstance(parameter.default, _ToscaType):
-                args[name] = _ToscaTypeProxy(parameter.default, type(parameter.default))
-            else:
-                args[name] = parameter.default
+            args[name] = parameter.default
         elif parameter.annotation is not inspect.Parameter.empty:
             param_cls = cls_or_self._resolve_class(parameter.annotation)
             if isinstance(param_cls, type) and issubclass(param_cls, _ToscaType):
-                args[name] = _ToscaTypeProxy(None, param_cls)
+                args[name] = param_cls
             else:
-                args[name] = None
+                args[name] = None  # EvalData(dict(eval="$inputs::" + name))
     return vargs, kwargs
 
 
-def _set_output(outputs: dict, field: _Tosca_Field, converter):
+def _set_output(outputs: dict, field: _Tosca_Field, converter) -> None:
     output_def = field.to_yaml(converter)
-    if field.tosca_name in outputs:
+    if field.tosca_name in outputs:  # preserve the attribute mapping
         output_def[field.tosca_name]["mapping"] = outputs[field.tosca_name]
     outputs.update(output_def)
 
 
-def _set_outputs(operation, converter, op_def, tosca_outputs):
-    outputs = getattr(operation, "outputs", None) or {}
+def _set_outputs(
+    outputs: dict,
+    converter,
+    op_def,
+    tosca_outputs: Union[Type["ToscaOutputs"], "ToscaOutputs"],
+) -> None:
     op_def.setdefault("metadata", {}).setdefault(ToscaOutputs._metadata_key, []).append(
         tosca_outputs.tosca_type_name()
     )
     for d_field in dataclasses.fields(tosca_outputs):
         if isinstance(d_field, _Tosca_Field):
             _set_output(outputs, d_field, converter)
-    if outputs:
-        op_def["outputs"] = outputs
 
 
 def _set_input_def(inputs: dict, field: _Tosca_Field, converter):
@@ -749,13 +813,15 @@ def _set_input_def(inputs: dict, field: _Tosca_Field, converter):
 def _set_input_defs(
     op_def: dict, sig: inspect.Signature, args: dict, converter
 ) -> None:
-    inputs = op_def.setdefault("inputs", {})
+    inputs = op_def.get("inputs", {})
     self = None
     for name, value in args.items():
         if name == "self":
             self = value
             continue
-        if isinstance(value, ToscaInputs):
+        if isinstance(value, ToscaInputs) or (
+            isinstance(value, type) and issubclass(value, ToscaInputs)
+        ):
             # set metadata for matching properties
             op_def.setdefault("metadata", {}).setdefault(
                 ToscaInputs._metadata_key, []
@@ -770,6 +836,7 @@ def _set_input_defs(
             else:
                 default = parameter.default
             if parameter.annotation is not inspect.Parameter.empty:
+                assert self, parameter
                 field: _Tosca_Field = _Tosca_Field(
                     ToscaFieldType.property, default, name=name, owner=self
                 )
@@ -777,21 +844,28 @@ def _set_input_defs(
             else:
                 field = _Tosca_Field.infer_field(self, name, default)
             _set_input_def(inputs, field, converter)
+    if inputs:
+        op_def["inputs"] = inputs
 
 
 class _ArtifactProxy:
-    def __init__(self, name_or_tpl, named):
+    def __init__(
+        self,
+        name_or_tpl,
+        named: bool,
+    ):
         self.name_or_tpl = name_or_tpl
         self.named = named
 
     def execute(self, *args: ToscaInputs, **kw) -> Self:
-        self._inputs = ToscaInputs._get_inputs(*args, **kw)
-        return self
+        assert global_state._type_proxy
+        global_state._type_proxy._artifact_executed = self
+        return global_state._type_proxy.execute(*args, **kw)
 
     def set_inputs(self, *args: "ToscaInputs", **kw):
-        self._inputs = ToscaInputs._get_inputs(*args, **kw)
-
-    # XXX: create_configurator
+        assert global_state._type_proxy
+        global_state._type_proxy._artifact_executed = self
+        return global_state._type_proxy.execute(*args, **kw)
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         if not self.named:
@@ -809,22 +883,71 @@ class _ToscaTypeProxy(InstanceProxy):
         self._cls = cls
 
     def __getattr__(self, name):
-        attr = getattr(self._cls_or_self, name)
+        return self.getattr(self._cls_or_self, name)
+
+    def getattr(self, _cls_or_self, name):
+        attr = getattr(_cls_or_self, name)
         if isinstance(attr, FieldProjection):
-            # _FieldDescriptor.__get__ returns a FieldProjection
-            if isinstance(attr.field.default, ArtifactEntity) or issubclass(
-                attr.field.get_type_info().types[0], ArtifactEntity
-            ):
-                return _ArtifactProxy(name, True)
-            else:
-                # this is only called when defining an operation on a type so reset query to be relative
-                attr._path = [".", attr.field.as_ref_expr()]
-        elif isinstance(attr, ArtifactEntity):
-            return _ArtifactProxy(name, True)
+            attr._path = [".", attr.field.as_ref_expr()]
         return attr
 
     def find_artifact(self, name_or_tpl):
         return _ArtifactProxy(name_or_tpl, False)
+
+
+class _OperationProxy:
+    _artifact_executed: Union[None, _ArtifactProxy, FieldProjection, ToscaType] = None
+    _inputs = None
+
+    def execute(self, *args: ToscaInputs, **kw) -> None:
+        ti_args = []
+        kwargs = {}
+        sig = self.get_execute_signature()
+        if sig:
+            # if plain values are passed as positional args, we need to know the signature to get the argument name
+            bound = sig.bind(*args, **kw)
+            for name, parameter in sig.parameters.items():
+                if name in bound.arguments and parameter.kind in [
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                ]:
+                    val = bound.arguments[name]
+                    if isinstance(val, ToscaInputs):
+                        ti_args.append(val)
+                    else:
+                        kwargs[name] = val
+        else:
+            ti_args = args  # type: ignore
+            kwargs = kw
+
+        self._inputs = ToscaInputs._get_inputs(*ti_args, **kwargs)
+        return None
+
+    def get_execute_signature(self) -> Optional[inspect.Signature]:
+        obj: Any = None
+        if isinstance(self._artifact_executed, ArtifactEntity):
+            obj = self._artifact_executed
+        elif isinstance(self._artifact_executed, FieldProjection):
+            obj = self._artifact_executed.field.owner
+        if obj:
+            # disable method interception
+            saved = global_state._type_proxy
+            global_state._type_proxy = None
+            try:
+                execute = getattr(obj, "execute", None)
+            finally:
+                global_state._type_proxy = saved
+            if execute:
+                return inspect.signature(execute)
+        return None
+
+    def handleattr(
+        self, field_or_obj: Union[_ArtifactProxy, FieldProjection, ToscaType], name
+    ):
+        if name in ["execute", "set_inputs"]:
+            self._artifact_executed = field_or_obj
+            return self.execute
+        return dataclasses.MISSING
 
 
 def python_src_to_yaml_obj(

@@ -83,6 +83,7 @@ class _LocalState(threading.local):
         self.safe_mode = False
         self.context: Any = None  # orchestrator specific runtime state
         self.modules = {}
+        self._type_proxy = None
         self.__dict__.update(kw)
 
 
@@ -1477,6 +1478,7 @@ class FieldProjection(EvalData):
     def __getattr__(self, name):
         # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
+        field = object.__getattribute__(self, "field")
         try:
             ti = self.field.get_type_info()
         except NameError:
@@ -1488,12 +1490,17 @@ class FieldProjection(EvalData):
         if not issubclass(ti.types[0], ToscaType):
             # we're a regular value, can't project field (raise AttributeError with a note)
             return super().__getattr__(name)
-        field = ti.types[0].__dataclass_fields__.get(name)
+        cls = ti.types[0]
+        if global_state._type_proxy:
+            proxied = global_state._type_proxy.handleattr(self, name)
+            if proxied is not MISSING:  # handled
+                return proxied
+        field = cls.__dataclass_fields__.get(name)
         if not field:
             # __dataclass_fields__ might not be updated yet, do a regular getattr
-            field = getattr(ti.types[0], name)
+            field = getattr(cls, name)
             if not isinstance(field, _Tosca_Field):
-                raise AttributeError(f"{ti.types[0]} has no field '{name}'")
+                raise AttributeError(f"{cls} has no field '{name}'")
         return FieldProjection(field, self)
 
     def __getitem__(self, key):
@@ -1811,6 +1818,8 @@ class _Tosca_Fields_Getter:
 
 
 class _FieldDescriptor:
+    """Set on _ToscaTypes to allow class level attribute access to be customized"""
+
     def __init__(self, field: _Tosca_Field):
         self.field = field
         if callable(self.field.default):
@@ -1919,14 +1928,16 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 expr = _field_as_eval(self, name, False)
                 if expr:
                     return expr
-                val = object.__getattribute__(self, name)
-            else:
-                val = object.__getattribute__(self, name)
-                if global_state.mode == "parse" or global_state.mode == "spec":
-                    # return field expr if val is an expr or if field is a TOSCA attribute
-                    expr = _field_as_eval(self, name, not isinstance(val, EvalData))
-                    if expr:
-                        return expr
+            elif global_state._type_proxy:
+                proxied = global_state._type_proxy.handleattr(self, name)
+                if proxied is not MISSING:  # not handled
+                    return proxied
+            val = object.__getattribute__(self, name)
+            if global_state.mode == "parse" or global_state.mode == "spec":
+                # return field expr if val is an expr or if field is a TOSCA attribute
+                expr = _field_as_eval(self, name, not isinstance(val, EvalData))
+                if expr:
+                    return expr
             if isinstance(val, _ToscaType):
                 val._set_parent(self, name)
             return val
@@ -2693,8 +2704,11 @@ class Node(ToscaType):
         return tpl
 
     def find_artifact(self, name_or_tpl) -> Optional["ArtifactEntity"]:
-        # XXX
-        return None
+        if isinstance(name_or_tpl, str):
+            field = self.get_field_from_tosca_name(name_or_tpl, ToscaFieldType.artifact)
+            if field:
+                return getattr(self, field.name)
+        return None  # XXX
 
     def substitute(self, _name: str = "", **overrides) -> Self:
         """
@@ -3010,6 +3024,9 @@ class ArtifactEntity(_OwnedToscaType):
             if val is not None:
                 tpl[field] = to_tosca_value(val)
         return tpl
+
+    def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
+        return dict_cls(get_artifact=["SELF", self._name or self._local_name])
 
     def get_embedded_name(self) -> str:
         if self._node:
