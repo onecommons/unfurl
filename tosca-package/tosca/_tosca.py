@@ -891,7 +891,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 self._validate_name_is_property(prop_name)
             prop_filters = node_filter.setdefault("properties", [])
             if isinstance(val, EvalData):
-                val.set_source()
+                val = val.set_start("$SOURCE")
             elif isinstance(val, DataConstraint):
                 val = val.to_yaml()
             else:
@@ -1308,13 +1308,24 @@ class EvalData:
             return serialize_value(self.expr, **options)
         return serialize_value(self.expr)
 
-    def set_source(self):
+    def set_start(self, root) -> Self:
+        # set source if expr is relative
         if self._path:
-            self._path.insert(0, "$SOURCE")
+            # leading empty string means absolute path ("::".join(_path))
+            if self._path[0] != "":
+                new = copy.copy(self)
+                new._path = copy.copy(new._path)
+                assert new._path
+                new._path.insert(0, root)
+                return new
         elif isinstance(self._expr, dict):
             expr = self._expr.get("eval")
             if expr and isinstance(expr, str) and expr[0] not in ["$", ":"]:
-                self._expr["eval"] = "$SOURCE::" + expr
+                new = copy.copy(self)
+                new._expr = copy.copy(self._expr)
+                new._expr["eval"] = root + "::" + expr
+                return new
+        return self
 
     def set_foreach(self, foreach):
         self._foreach = foreach
@@ -2170,6 +2181,14 @@ class ToscaType(_ToscaType):
                     setattr(val, name, value)
             if isinstance(val, _ToscaType):
                 val._set_parent(self, field.name)
+            elif (
+                isinstance(val, FieldProjection)
+                and isinstance(self, _OwnedToscaType)
+                and val.field.owner
+                and issubclass(val.field.owner, Node)
+            ):
+                # if a relative field projection from a node template, assume its the parent
+                setattr(self, field.name, val.set_start(".parent"))
         self._initialized = True
 
     def _enforce_required_fields(self) -> bool:
