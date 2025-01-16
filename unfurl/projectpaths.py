@@ -317,9 +317,9 @@ class _ArtifactExternalValue(ExternalValue):
         return self.get()
 
     def as_artifact_tpl(self, instance) -> Dict[str, str]:
-        assert instance.template.spec.template.import_resolver
+        assert instance.template.spec.import_resolver
         repo_view = (
-            instance.template.spec.template.import_resolver.manifest.repositories[
+            instance.template.spec.import_resolver.manifest.repositories[
                 "self"
             ]
         )

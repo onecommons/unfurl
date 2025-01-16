@@ -6,6 +6,7 @@ from typing import (
     Callable,
     Dict,
     Generator,
+    Iterable,
     Iterator,
     List,
     Optional,
@@ -988,7 +989,7 @@ class WorkflowPlan(Plan):
             ):
                 continue
             if self.tosca.is_type_name(step.target):
-                templates = workflow.topology.find_matching_templates(step.target)
+                templates: Iterable[NodeSpec] = workflow.topology.find_matching_templates(step.target)
             else:
                 template = workflow.topology.get_node_template(step.target)
                 if not template:

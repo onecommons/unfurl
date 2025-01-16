@@ -64,6 +64,7 @@ from toscaparser import functions
 
 if TYPE_CHECKING:
     from .runtime import EntityInstance, HasInstancesInstance
+    from .yamlloader import ImportResolver
 
 
 class RefFunc(functions.Function):
@@ -379,10 +380,14 @@ class ToscaSpec:
     def fragment(self) -> str:
         return self.template.fragment
 
+    @property
+    def import_resolver(self) -> Optional["ImportResolver"]:
+        return self.template.import_resolver
+
     def _get_project_dir(self, home=False):
         # hacky
-        if self.template and self.template.import_resolver:
-            manifest = self.template.import_resolver.manifest
+        if self.import_resolver:
+            manifest = self.import_resolver.manifest
             if manifest.localEnv:
                 if home:
                     if manifest.localEnv.homeProject:
@@ -1930,11 +1935,17 @@ class ArtifactSpec(EntitySpec):
     ) -> Tuple[Optional[str], Optional[str]]:
         if not resolver:
             assert self.spec
-            resolver = self.spec.template.import_resolver
+            resolver = self.spec.import_resolver
 
         assert resolver
+        repository = self.toscaEntityTemplate.repository
+        if repository:
+            if not resolver.get_repository(
+                repository, None
+            ) and self.topology.get_node_template(repository):
+                repository = None  # it's a virtual, reified repository
         path, fragment = resolver.resolve_to_local_path(
-            self.base_dir, self.file, self.toscaEntityTemplate.repository
+            self.base_dir, self.file, repository
         )
         return path, fragment
 

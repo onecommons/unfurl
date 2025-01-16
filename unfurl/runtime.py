@@ -548,9 +548,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def _manifest(self) -> Optional["YamlManifest"]:
-        tosca_template = self.template.spec.template
-        if tosca_template and tosca_template.import_resolver:
-            return tosca_template.import_resolver.manifest
+        import_resolver = self.template.spec.import_resolver
+        if import_resolver:
+            return cast(Optional["YamlManifest"], import_resolver.manifest)
         return None
 
     @property

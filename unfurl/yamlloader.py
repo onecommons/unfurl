@@ -449,7 +449,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     ) -> Repository: ...
 
     def get_repository(
-        self, name: str, tpl: Optional[dict], unique: bool = False
+        self, name: str, tpl: Optional[dict] = None, unique: bool = False
     ) -> Optional[Repository]:
         # this is also called by ToscaTemplate
         if not unique and name in self.manifest.repositories:
