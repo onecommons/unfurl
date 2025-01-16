@@ -26,6 +26,7 @@ import os.path
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.artifacts import Artifact
 from .spec import ArtifactSpec, EntitySpec
 import tosca.loader
 
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from .manifest import Manifest
 
 from .util import (
+    check_class_registry,
     lookup_class,
     load_module,
     find_schema_errors,
@@ -147,7 +149,7 @@ class ConfigurationSpec:
             cls = getattr(module, cls_name)
             return DslMethodConfigurator(cls, getattr(cls, func_name), action)
 
-        klass = lookup_class(className)
+        klass = cast(Optional["Configurator"], lookup_class(className))
         if not klass:
             raise UnfurlError(f"Could not load configurator {self.className}")
         else:
@@ -852,7 +854,13 @@ def _render_request(
     error = None
     error_info = None
     try:
-        task.logger.debug("rendering %s %s", task.target.name, task.name)
+        task.logger.debug(
+            "rendering %s %s %s %s",
+            task.target.name,
+            task.name,
+            task._artifact and task._artifact.type,
+            task.configurator,
+        )
         task._rendering = True
         task.configurator  # make sure it runs before task.inputs
         task.inputs
@@ -1147,6 +1155,28 @@ def get_success_status(workflow):
         return Status.absent
     return None
 
+def _find_operation(interface, action, resource, inputs):
+    iDef = _find_implementation(interface, action, resource.template)
+    if iDef and iDef.name != "default":
+        iDef = _maybe_mock(iDef, resource.template)
+        assert iDef
+        # merge inputs
+        if inputs and iDef.inputs:
+            cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
+            inputs = cls(iDef.inputs, **inputs)
+        else:
+            inputs = iDef.inputs or inputs or {}
+        if iDef.invoke:
+            # replace iDef with iDef.invoke
+            # get the implementation from the operation specified with the "invoke" key
+            iinterface, sep, iaction = iDef.invoke.rpartition(".")
+            iDef = _find_implementation(iinterface, iaction, resource.template)
+            if iDef:
+                if iDef.inputs:
+                    cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
+                    inputs = cls(iDef.inputs, **inputs)
+                iDef.invoker = action  # type: ignore[assignment]
+    return iDef, inputs
 
 def create_task_request(
     jobOptions: "JobOptions",
@@ -1161,24 +1191,7 @@ def create_task_request(
     """implementation can either be a named artifact (including a python configurator class),
     or a file path"""
     interface, sep, action = operation.rpartition(".")
-    iDef = _find_implementation(interface, action, resource.template)
-    if iDef and iDef.name != "default":
-        iDef = _maybe_mock(iDef, resource.template)
-        assert iDef
-        # merge inputs
-        if inputs and iDef.inputs:
-            cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
-            inputs = cls(iDef.inputs, **inputs)
-        else:
-            inputs = iDef.inputs or inputs or {}
-        if iDef.invoke:
-            # get the implementation from the operation specified with the "invoke" key
-            iinterface, sep, iaction = iDef.invoke.rpartition(".")
-            iDef = _find_implementation(iinterface, iaction, resource.template)
-            if iDef:
-                cls = getattr(iDef.inputs, "mapCtor", iDef.inputs.__class__)
-                inputs = cls(iDef.inputs, **inputs)
-                iDef.invoker = action  # type: ignore
+    iDef, inputs = _find_operation(interface, action, resource, inputs)
 
     kw: Optional[ConfigurationSpecKeywords] = None
     if iDef:
@@ -1272,18 +1285,26 @@ def _set_config_spec_args(
     # if no artifact or className, an error
     artifact = kw.get("primary")
     className = kw.get("className")
-    if not className and not artifact and not guessing:  # malformed implementation
-        if template:
-            # if no template no need to warn, this is expected
-            logger.warning(
-                "no artifact or className set on operation for %s: %s",
-                template.name,
-                kw,
-            )
-        return None
     if not className:
+        if not artifact and not guessing:  # malformed implementation
+            if template:
+                # if no template no need to warn, this is expected
+                logger.error(
+                    "No artifact or className set on operation for %s: %s",
+                    template.name,
+                    kw,
+                )
+            return None
         if artifact:
             className = artifact.properties.get("className")
+            if not className and artifact.type != "tosca.artifacts.Root":
+                # don't assume typed artifacts are shell commands
+                tname = template and template.name or ""
+                operation = kw.get("operation")
+                logger.error(
+                    f'Artifact "{artifact.name}" of type {artifact.type} on operation "{operation}" for "{tname}" is not associated with a configurator.'
+                )
+                return None  # typed artifact needs classname
     if not className:
         className = guessing
     assert className
@@ -1373,24 +1394,28 @@ def _get_config_spec_args_from_implementation(
     artifactTpl: Union[str, dict, None] = None
     dependencies = None
     predefined = False
+    guessing = ""
     if isinstance(implementation, dict):
         # operation_instance = find_operation_host(
         #     target, implementation.get("operation_host") or operation_host
         # )
         for name, value in implementation.items():
             if name == "primary":
-                artifactTpl = value
+                artifactTpl = iDef.primary or value
                 predefined = True
             elif name == "dependencies":
                 dependencies = value
             elif name in ConfigurationSpecKeywords.__annotations__:
                 # sets operation_host, environment, timeout, className, etc.
                 kw[name] = value  # type: ignore
-    else:
-        # "either because it refers to a named artifact specified in the artifacts section of a type or template,
-        # or because it represents the name of a script in the CSAR file that contains the definition."
-        artifactTpl = implementation
-        # operation_instance = find_operation_host(target, operation_host)
+    elif isinstance(implementation, str):
+        if check_class_registry(implementation):
+            kw["className"] = implementation
+        else:
+            # "either because it refers to a named artifact specified in the artifacts section of a type or template,
+            # or because it represents the name of a script in the CSAR file that contains the definition."
+            artifactTpl = implementation
+            # operation_instance = find_operation_host(target, operation_host)
 
     # if not operation_instance:
     #     operation_instance = operation_instance or target.root
@@ -1401,7 +1426,6 @@ def _get_config_spec_args_from_implementation(
             base_dir = template.base_dir if template else "."
     kw["base_dir"] = base_dir
     artifact: Optional[ArtifactSpec] = None
-    guessing = ""
     if artifactTpl:
         if template:
             artifact = template.find_or_create_artifact(
@@ -1412,6 +1436,8 @@ def _get_config_spec_args_from_implementation(
         else:
             if isinstance(artifactTpl, str):
                 guessing = artifactTpl
+            elif isinstance(artifactTpl, Artifact):
+                artifact = ArtifactSpec(artifactTpl)
             else:
                 guessing = artifactTpl.get("file") or ""
     kw["primary"] = artifact
