@@ -541,6 +541,7 @@ PYTHON_TO_TOSCA_TYPES.update({
     "tuple": "range",
     "dict": "map",
     "list": "list",
+    "EvalData": "any",
 })
 
 TOSCA_SHORT_NAMES = {
@@ -725,6 +726,11 @@ CONSTRAINED: Any = _CONSTRAINED_TYPE()
 
 
 _T = TypeVar("_T")
+
+
+def placeholder(cls: Type[_T]) -> _T:
+    "Returns None but makes the type checker happy."
+    return cast(_T, None)
 
 
 class _Tosca_Field(dataclasses.Field, Generic[_T]):
@@ -1271,6 +1277,8 @@ class EvalData:
     ):
         if isinstance(expr, EvalData):
             expr = expr.expr
+        elif callable(expr):
+            expr = {"eval": dict(computed=f"{expr.__module__}:{expr.__qualname__}")}
         self._expr: _EvalDataExpr = expr
         self._path = path
         self._foreach = None

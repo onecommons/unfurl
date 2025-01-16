@@ -266,6 +266,7 @@ __all__ = [
     "ns",
     "operation",
     "pattern",
+    "placeholder",
     "s",
     "scalar",
     "scalar_value",
