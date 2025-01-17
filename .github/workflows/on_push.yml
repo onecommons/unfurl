@@ -300,30 +300,18 @@ jobs:
           cache-to: type=gha,mode=max
 
   build:
-    name: >
-      build py3.${{ matrix.python-version }} on ${{ matrix.platform || matrix.os }}
-      (${{ matrix.alt_arch_name || matrix.arch }})
-    needs:
-      - test
+    name: build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }} 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu, macos]
+        os: [ubuntu-24.04-arm, ubuntu-latest, macos-14]
         python-version: ['8']
-        arch: [main, alt]
         include:
-          - os: ubuntu
-            platform: linux
-          - os: ubuntu
-            arch: alt
-            alt_arch_name: aarch64
-          - os: macos
-            arch: alt
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-14
             alt_arch_name: arm64
-          # - os: macos
-          #   arch: main
-
-    runs-on: ${{ format('{0}-latest', matrix.os) }}
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@v4
@@ -342,31 +330,23 @@ jobs:
         toolchain: nightly
 
     - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      if: matrix.os == 'macos'
-
-    - run: rustup toolchain install stable-i686-pc-windows-msvc
-      if: matrix.os == 'windows'
-
-    - run: rustup target add i686-pc-windows-msvc
-      if: matrix.os == 'windows'
+      if: matrix.os == 'macos-14'
 
     - name: install python dependencies
-      run: pip install -U setuptools wheel twine cibuildwheel pbr
+      run: pip install -U setuptools wheel twine pbr
 
     - name: build sdist
-      if: matrix.os == 'ubuntu' && matrix.python-version == '8'
+      if: matrix.os == 'ubuntu-24.04-arm' && matrix.python-version == '8'
       run: |
         pip install -U setuptools-rust
         python setup.py sdist
 
-    - name: Set up QEMU
-      if: matrix.os == 'ubuntu'
-      uses: docker/setup-qemu-action@v3
+    - uses: pypa/cibuildwheel@v2.22
+      name: build ${{  matrix.os }} binaries
+      #   run: cibuildwheel --output-dir dist
       with:
-         platforms: all
-
-    - name: build ${{ matrix.platform || matrix.os }} binaries
-      run: cibuildwheel --output-dir dist
+        output-dir: dist
+        # only: "${{ matrix.only }}"
       env:
         CIBW_BUILD_FRONTEND: "build"
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
@@ -376,7 +356,6 @@ jobs:
         # we build for "alt_arch_name" if it exists, else 'auto
         CIBW_ARCHS: ${{ matrix.alt_arch_name || 'auto' }}
         # see https://cibuildwheel.readthedocs.io/en/stable/faq/#universal2, tests can run on cross-compiled binaries
-        # CIBW_TEST_SKIP: '*-macosx_arm64'
         # CIBW_TEST_REQUIRES: pytest
         # CIBW_TEST_COMMAND: 'pytest {project}/tests -s'
         CIBW_ENVIRONMENT: 'PATH="$HOME/.cargo/bin:$PATH" MACOSX_DEPLOYMENT_TARGET=10.12'
@@ -402,7 +381,7 @@ jobs:
         path: dist
 
   inspect-pypi-assets:
-    needs: [build]
+    needs: [test, build]
     runs-on: ubuntu-latest
 
     steps:
@@ -431,13 +410,13 @@ jobs:
       - run: pip install twine
       - run: twine check dist/*
 
-      - name: release to test pypi
-        uses: pypa/gh-action-pypi-publish@v1.12.2
-        with:
-          user: __token__
-          password: ${{ secrets.TEST_PYPI }}
-          verbose: true
-          repository-url: https://test.pypi.org/legacy/
+      # - name: release to test pypi
+      #   uses: pypa/gh-action-pypi-publish@v1.12.2
+      #   with:
+      #     user: __token__
+      #     password: ${{ secrets.TEST_PYPI }}
+      #     verbose: true
+      #     repository-url: https://test.pypi.org/legacy/
 
   publish_pypi:
     needs: [inspect-pypi-assets, publish_dockerhub]
