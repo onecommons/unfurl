@@ -301,7 +301,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   build:
-    name: ${{ matrix.only }}
+    name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }} 
     # needs:
     #   - test
@@ -309,21 +309,28 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04-arm, ubuntu-latest, macos-13, macos-14]
-        # python-version: ['8']
+        python-version: ['8']
         # arch: [main, alt]
         include:
           - os: ubuntu-latest
-            only: cp313t-manylinux_x86_64
+            # only: cp313t-manylinux_x86_64
           - os: ubuntu-24.04-arm
-            only: cp313-manylinux_aarch64
+          #  only: cp313-manylinux_aarch64
           # - os: windows-latest
           #   only: cp38-win32
           # - os: windows-latest
           #   only: cp313-win_amd64
-          - os: macos-13
-            only: cp39-macosx_x86_64
-          - os: macos-14
-            only: cp39-macosx_arm64
+          # - os: macos-13  # intel 
+          # #  only: cp39-macosx_x86_64
+          - os: macos-14 # arm64
+            alt_arch_name: arm64
+          # #  only: cp39-macosx_arm64
+          # - os: macos-latest
+          #   arch: alt
+          #   alt_arch_name: arm64
+          # - os: macos-latest
+          #   arch: main
+
 
         # include:
         #   - os: ubuntu
@@ -353,8 +360,11 @@ jobs:
       with:
         toolchain: nightly
 
+    - run: rustup target add x86_64-apple-darwin
+      if: matrix.os == 'macos-13'
+
     - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      if: matrix.os == 'macos'
+      if: matrix.os == 'macos-14'
 
     - run: rustup toolchain install stable-i686-pc-windows-msvc
       if: matrix.os == 'windows'
@@ -372,11 +382,11 @@ jobs:
         python setup.py sdist
 
     - uses: pypa/cibuildwheel@v2.22
+      name: build ${{  matrix.os }} binaries
+      #   run: cibuildwheel --output-dir dist
       with:
         output-dir: dist
-        only: "${{ matrix.only }}"
-    # - name: build ${{ matrix.platform || matrix.os }} binaries
-    #   run: cibuildwheel --output-dir dist
+        # only: "${{ matrix.only }}"
       env:
         CIBW_BUILD_FRONTEND: "build"
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
