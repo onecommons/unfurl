@@ -11,6 +11,7 @@ env:
 
 jobs:
   test:
+    if: false
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -300,30 +301,41 @@ jobs:
           cache-to: type=gha,mode=max
 
   build:
-    name: >
-      build py3.${{ matrix.python-version }} on ${{ matrix.platform || matrix.os }}
-      (${{ matrix.alt_arch_name || matrix.arch }})
-    needs:
-      - test
+    name: ${{ matrix.only }}
+    runs-on: ${{ matrix.os }} 
+    # needs:
+    #   - test
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu, macos]
-        python-version: ['8']
-        arch: [main, alt]
+        os: [ubuntu-24.04-arm, ubuntu-latest, macos-13, macos-14]
+        # python-version: ['8']
+        # arch: [main, alt]
         include:
           - os: ubuntu-latest
-            platform: linux
+            only: cp313t-manylinux_x86_64
           - os: ubuntu-24.04-arm
-            arch: alt
-            alt_arch_name: aarch64
-          - os: macos-latest
-            arch: alt
-            alt_arch_name: arm64
+            only: cp313-manylinux_aarch64
+          # - os: windows-latest
+          #   only: cp38-win32
+          # - os: windows-latest
+          #   only: cp313-win_amd64
+          - os: macos-13
+            only: cp39-macosx_x86_64
+          - os: macos-14
+            only: cp39-macosx_arm64
+
+        # include:
+        #   - os: ubuntu
+        #     platform: linux
+        #   - os: ubuntu
+        #     arch: alt
+        #     alt_arch_name: aarch64
+        #   - os: macos
+        #     arch: alt
+        #     alt_arch_name: arm64
           # - os: macos
           #   arch: main
-
-    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@v4
@@ -351,16 +363,20 @@ jobs:
       if: matrix.os == 'windows'
 
     - name: install python dependencies
-      run: pip install -U setuptools wheel twine cibuildwheel pbr
+      run: pip install -U setuptools wheel twine pbr
 
     - name: build sdist
-      if: matrix.os == 'ubuntu' && matrix.python-version == '8'
+      if: matrix.os == 'ubuntu-24.04-arm' && matrix.python-version == '8'
       run: |
         pip install -U setuptools-rust
         python setup.py sdist
 
-    - name: build ${{ matrix.platform || matrix.os }} binaries
-      run: cibuildwheel --output-dir dist
+    - uses: pypa/cibuildwheel@v2.22
+      with:
+        output-dir: dist
+        only: "${{ matrix.only }}"
+    # - name: build ${{ matrix.platform || matrix.os }} binaries
+    #   run: cibuildwheel --output-dir dist
       env:
         CIBW_BUILD_FRONTEND: "build"
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
