@@ -128,7 +128,7 @@ def test_solve():
 
     # XXX
     # test requirement match for each type of CriteriaTerm and Constraint
-    # test restrictions
+    # test restrictions (node filter with requirements)
 
 
 def test_multiple():
@@ -179,3 +179,23 @@ def test_node_filter():
 
     t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
     assert not t2.topology_template.node_templates["test"].relationships
+
+# test node_filter match
+# test node_filter match with property source
+# import tosca
+
+# class Thingy(tosca.nodes.Root):
+#     pass
+    
+# class Host(tosca.nodes.Root):
+#     host: "Host"
+#     thingy: Thingy
+
+# class App(tosca.nodes.Root):
+#     host: Host
+#     shortcut: Thingy = tosca.CONSTRAINED
+
+#     @classmethod
+#     def _class_init(cls) -> None:
+#         # generates a node_filter with match 
+#         cls.shortcut = cls.host.thingy

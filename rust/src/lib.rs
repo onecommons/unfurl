@@ -13,7 +13,7 @@
 use ascent::hashbrown::HashMap;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use std::{time::Duration};
+use std::time::Duration;
 // use log::debug;
 
 mod topology;
@@ -57,16 +57,13 @@ fn add_field_to_topology(
 ) -> Result<(), PyErr> {
     match f.value {
         FieldValue::Property { value } => {
-            topology
-                .property_value
-                .push((sym(node_name), None, sym(&f.name), value))
+            add_property_to_topology(topology, node_name, "", &f.name, value)
         }
         FieldValue::Capability {
             tosca_type,
             properties,
         } => {
-            let cap_name = format!("{node_name}__{cap}", cap = f.name);
-            let entityref = EntityRef::Capability(cap_name);
+            let entityref = EntityRef::Capability(sym(node_name), sym(&f.name));
             topology
                 .capability
                 .push((sym(node_name), sym(&f.name), entityref.clone()));
@@ -75,12 +72,9 @@ fn add_field_to_topology(
             }
             for field in properties {
                 match field.value {
-                    FieldValue::Property { value } => topology.property_value.push((
-                        sym(node_name),
-                        Some(sym(&f.name)),
-                        field.name,
-                        value,
-                    )),
+                    FieldValue::Property { value } => {
+                        add_property_to_topology(topology, node_name, &f.name, &field.name, value)
+                    }
                     _ => {
                         return Err(PyErr::new::<PyTypeError, _>(
                             "This field must be a TOSCA property",
@@ -138,31 +132,13 @@ fn add_field_to_topology(
                             sym(node_name),
                             sym(&f.name),
                             term.clone(),
-                            capability.clone(),
+                            capability.clone().unwrap_or("".into()),
                             sym(n),
                         ));
                     }
                     CriteriaTerm::NodeMatch { start_node, query } => {
-                        topology.result.push((
-                            sym(node_name),
-                            sym(&f.name),
-                            0,
-                            sym(start_node),
-                            false,
-                        ));
-
-                        for (index, (q, n, param)) in query.iter().enumerate() {
-                            topology.query.push((
-                                sym(node_name),
-                                sym(&f.name),
-                                index,
-                                *q,
-                                sym(n),
-                                sym(param),
-                                index + 1 == query.len(),
-                            ));
-                        }
-
+                        let entityref = EntityRef::Relationship(sym(node_name), sym(&f.name));
+                        add_query_to_topology(topology, &entityref, start_node, query);
                         topology.req_term_query.push((
                             sym(node_name),
                             sym(&f.name),
@@ -186,6 +162,63 @@ fn add_field_to_topology(
         } // _ => continue,
     }
     Ok(())
+}
+
+fn add_query_to_topology(
+    topology: &mut Topology,
+    entityref: &EntityRef,
+    start_node: &String,
+    query: &Vec<(QueryType, String, String)>,
+) {
+    topology.result.push((entityref.clone(), 0, sym(start_node), false));
+
+    for (index, (q, n, param)) in query.iter().enumerate() {
+        topology.query.push((
+            entityref.clone(),
+            index,
+            *q,
+            sym(n),
+            sym(param),
+            index + 1 == query.len(),
+        ));
+    }
+}
+
+fn add_property_to_topology(
+    topology: &mut Topology,
+    node_name: &str,
+    cap_name: &str,
+    prop_name: &str,
+    value: ToscaValue,
+) {
+    // if Some(value)
+    topology.property_value.push((
+        sym(node_name),
+        sym(cap_name),
+        sym(""),
+        sym(prop_name),
+        value,
+    ));
+    // // add property_expr or property_source
+    // if let Some(query) = value.query {
+    //     let entityref = EntityRef::Property(sym(node_name), sym(cap_name), sym(prop_name));
+    //     let start_node = value.start_node.unwrap_or(node_name);
+    //     add_query_to_topology(topology, &entityref, start_node, query);
+    //     topology.property_expr.push((
+    //         sym(node_name),
+    //         sym(cap_name),
+    //         sym(""),
+    //         sym(prop_name),
+    //         entityref.clone(),
+    //     ));
+    // } else {
+    //     topology.property_source.push((
+    //         sym(node_name),
+    //         sym(cap_name),
+    //         sym(prop_name),
+    //         sym(node_name),
+    //     ));
+    // }
 }
 
 /// Add the given node to the Ascent program modeling a topology.
@@ -319,13 +352,14 @@ pub type RequirementMatches = HashMap<(String, String), Vec<(String, String)>>;
 ///
 /// This function returns a `PyResult` containing a `()` if the computation succeeded and a `PyTimeoutError` if the computation timed out
 fn run_program(prog: &mut Topology, timeout: u64) -> PyResult<()> {
-  let run_timeout_res = prog.run_timeout(Duration::from_millis(timeout));
-  if !run_timeout_res {
-      return Err(pyo3::exceptions::PyTimeoutError::new_err("inference timeout"));
-  }
-  Ok(())
+    let run_timeout_res = prog.run_timeout(Duration::from_millis(timeout));
+    if !run_timeout_res {
+        return Err(pyo3::exceptions::PyTimeoutError::new_err(
+            "inference timeout",
+        ));
+    }
+    Ok(())
 }
-
 
 /// Finds missing requirements for the given topology. (Main Python entry point)
 ///
@@ -462,7 +496,11 @@ mod tests {
                                 },
                                 CriteriaTerm::NodeMatch {
                                     start_node: name.into(),
-                                    query: vec![(QueryType::Sources, "connects_to".into(), "".into())],
+                                    query: vec![(
+                                        QueryType::Sources,
+                                        "connects_to".into(),
+                                        "".into(),
+                                    )],
                                 },
                             ],
                             tosca_type: Some("tosca.relationships.Root".into()),
