@@ -1027,6 +1027,12 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             field_def = self._to_artifact_yaml(converter)
         elif self.name == "_target":  # _target handled in _to_requirement_yaml
             return {}
+        elif self.tosca_field_type == ToscaFieldType.builtin:
+            return {
+                self.tosca_name: [
+                    t.tosca_type_name() for t in self.get_type_info().types
+                ]
+            }
         else:
             assert False
         # note: description needs to be set when parsing ast
@@ -1678,14 +1684,17 @@ def _make_dataclass(cls):
             for name, annotation in annotations.items():
                 if annotation is Callable or annotation == "Callable":
                     continue
-                if name[0] != "_" or name in ["_target"]:
+                if name[0] != "_" or name in ["_target", "_targets", "_members"]:
                     field = None
                     default = getattr(cls, name, REQUIRED)
                     if not isinstance(default, dataclasses.Field):
                         base_field = cls.__dataclass_fields__.get(name)
                         if isinstance(base_field, _Tosca_Field):
                             field = _Tosca_Field(
-                                base_field._tosca_field_type, default, owner=cls
+                                base_field._tosca_field_type,
+                                default,
+                                name=base_field._tosca_name,
+                                owner=cls,
                             )
                         else:
                             if default is not REQUIRED and name not in cls.__dict__:
@@ -1851,6 +1860,7 @@ def field(
     default=dataclasses.MISSING,
     default_factory=dataclasses.MISSING,
     kw_only=dataclasses.MISSING,
+    name="",
     builtin=False,
 ) -> Any:
     kw: Dict[str, Any] = dict(default=default, default_factory=default_factory)
@@ -1864,7 +1874,7 @@ def field(
         # and this parameter probably will come after one without a default value
         kw["default"] = REQUIRED
     if builtin:
-        return _Tosca_Field(ToscaFieldType.builtin, default, default_factory)
+        return _Tosca_Field(ToscaFieldType.builtin, default, default_factory, name)
     return dataclasses.field(**kw)
 
 
@@ -2778,6 +2788,7 @@ class _BaseDataType(ToscaObject):
     @classmethod
     def get_tosca_datatype(cls):
         from .python2yaml import PythonToYaml
+
         custom_defs = cls._cls_to_yaml(PythonToYaml({}))
         return ToscaParserDataType(cls.tosca_type_name(), custom_defs)
 
@@ -3045,10 +3056,19 @@ ArtifactType = ArtifactEntity  # deprecated
 class Policy(ToscaType):
     _type_section: ClassVar[str] = "policy_types"
     _template_section: ClassVar[str] = "policies"
+    _targets: Sequence[Union[Node, "Group"]] = field(
+        default=(), builtin=True, name="targets"
+    )
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         return converter._shared_cls_to_yaml(cls)
+
+    def to_template_yaml(self, converter: "PythonToYaml") -> dict:
+        tpl = super().to_template_yaml(converter)
+        if self._targets:
+            tpl["targets"] = to_tosca_value(self._targets)
+        return tpl
 
 
 PolicyType = Policy  # deprecated
@@ -3057,10 +3077,19 @@ PolicyType = Policy  # deprecated
 class Group(ToscaType):
     _type_section: ClassVar[str] = "group_types"
     _template_section: ClassVar[str] = "groups"
+    _members: Sequence[Union[Node, "Group"]] = field(
+        default=(), builtin=True, name="members"
+    )
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
         return converter._shared_cls_to_yaml(cls)
+
+    def to_template_yaml(self, converter: "PythonToYaml") -> dict:
+        tpl = super().to_template_yaml(converter)
+        if self._members:
+            tpl["members"] = to_tosca_value(self._members)
+        return tpl
 
 
 GroupType = Group  # deprecated

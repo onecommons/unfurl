@@ -34,6 +34,8 @@ from ._tosca import (
     ToscaOutputs,
     Relationship,
     Node,
+    Group,
+    Policy,
     CapabilityType,
     global_state,
     FieldProjection,
@@ -326,7 +328,7 @@ class PythonToYaml:
                 continue
             if (
                 not isinstance(obj, InstanceProxy)
-                and isinstance(obj, Node)
+                and isinstance(obj, (Node, Group, Policy))
                 and not obj._name
             ):
                 obj._name = name
@@ -361,7 +363,7 @@ class PythonToYaml:
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
                 if (
-                    (isinstance(obj, Node) or obj._name)
+                    (isinstance(obj, (Node, Group, Policy)) or obj._name)
                     and not isinstance(obj, InstanceProxy)
                 ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                     if not obj._template_section:

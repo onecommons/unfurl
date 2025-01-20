@@ -2,7 +2,7 @@ import dataclasses
 import inspect
 import os
 import time
-from typing import Optional, Dict
+from typing import Optional, Dict, Sequence
 import unittest
 from unittest.mock import MagicMock, patch
 import pytest
@@ -955,6 +955,59 @@ def test_relationship():
     tosca_tpl2 = _to_yaml(test_relationship_python, True)
     # pprint(tosca_tpl2)
     assert parsed_yaml == tosca_tpl2
+
+
+test_group_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    n:
+      type: MyNode
+      metadata:
+        module: tests.test_dsl
+  groups:
+    g:
+      type: MyGroup
+      members:
+      - n
+      metadata:
+        module: tests.test_dsl
+  policies:
+    my_policy:
+      type: tosca.policies.Root
+      targets:
+      - g
+      metadata:
+        module: tests.test_dsl
+group_types:
+  MyGroup:
+    derived_from: tosca.groups.Root
+    members:
+    - MyNode
+node_types:
+  MyNode:
+    derived_from: tosca.nodes.Root
+"""
+
+
+def test_groups_and_policies():
+    class MyNode(tosca.nodes.Root):
+        pass
+
+    n = MyNode()
+
+    class MyGroup(tosca.groups.Root):  # type: ignore[override]
+        _members: Sequence[MyNode] = ()  # type: ignore[override]
+
+    g = MyGroup(_members=[n])
+    my_policy = tosca.policies.Root(_targets=[g])
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, test_group_yaml)
+    # yaml.dump(yaml_dict, sys.stdout)
+    assert tosca_yaml == yaml_dict
 
 
 test_inheritance_yaml = """
