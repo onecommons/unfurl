@@ -1208,11 +1208,12 @@
         },
         "restrictedpython": {
             "hashes": [
-                "sha256:81b62924713dbd280917fceaecaf210fef7a49dddf1a08c8c214a3613fbeb425",
-                "sha256:f431c76f848f6f6d50ae21457cb503642db60889a273e4be439cf7ca4cbaf999"
+                "sha256:3af2312bc67e5fced887fb85b006c89861da72488128b155beea81eb6a0a9b24",
+                "sha256:ed3d894efd7d6cac0a5f13f75583b8458378d400d7dd4c083b59233eba85fe69"
             ],
-            "markers": "python_version < '3.14' and python_version >= '3.8'",
-            "version": "==7.4"
+            "index": "pypi",
+            "markers": "python_version < '3.14' and python_version >= '3.9'",
+            "version": "==8.0"
         },
         "rfc3339-validator": {
             "hashes": [
