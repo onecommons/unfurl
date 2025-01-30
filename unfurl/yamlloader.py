@@ -417,7 +417,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     ) -> Optional[str]:
         repo_view = self._match_repoview(name, tpl)
         if not repo_view:
-            logger.debug(f"could not find a repository for '{name}' ({tpl})")
+            logger.debug("Could not find a repository for '%s' (%s)", name, tpl)
             return None
         return self._get_link_to_repo(repo_view, base_path)
 
@@ -485,6 +485,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 tpl["credential"] = self.manifest.localEnv.map_value(
                     credential, cast(dict, context.get("variables"))
                 )
+            tpl["credential"] = wrap_sensitive_value(tpl["credential"])
 
         return Repository(name, tpl)
 
@@ -705,9 +706,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = base
             else:
                 # url is a local path
-                assert base or os.path.isabs(
-                    file_name
-                ), f"{file_name} isn't absolute and base isn't set"
+                assert base or os.path.isabs(file_name), (
+                    f"{file_name} isn't absolute and base isn't set"
+                )
                 url = os.path.join(base, file_name)
                 repository_root = None  # default to checking if its in the project
                 if importsLoader.repository_root:

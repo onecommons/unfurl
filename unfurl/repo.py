@@ -446,6 +446,10 @@ class RepoView:
             assert self.repo
             return self.repo.url
 
+    @property
+    def safe_url(self):
+        return sanitize_url(self.url, True)
+
     def has_credentials(self):
         parts = urlparse(self.url)
         return "@" in parts.netloc
@@ -551,14 +555,10 @@ class RepoView:
 
     def _secrets_status(self):
         assert self.repo
-        modified = "\n   ".join(
-            [
-                str(filepath.relative_to(self.repo.working_dir))
-                for filepath, dotsecrets in find_dirty_secrets(
-                    self.working_dir, self.repo
-                )
-            ]
-        )
+        modified = "\n   ".join([
+            str(filepath.relative_to(self.repo.working_dir))
+            for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo)
+        ])
         if modified:
             return f"\n\nSecrets to be committed:\n   {modified}"
         return ""
@@ -589,12 +589,10 @@ class RepoView:
             return self.repo.revision
 
     def lock(self) -> CommentedMap:
-        record = CommentedMap(
-            [
-                ("url", normalize_git_url(self.url, 1)),
-                ("commit", self.get_current_commit()),
-            ]
-        )
+        record = CommentedMap([
+            ("url", normalize_git_url(self.url, 1)),
+            ("commit", self.get_current_commit()),
+        ])
         initial = (
             self.repo
             and self.repo.resolve_rev_spec("INITIAL")
@@ -805,17 +803,15 @@ class GitRepo(Repo):
 
     def find_excluded_dirs(self, root):
         root = os.path.relpath(root, self.working_dir)
-        status, stdout, stderr = self.run_cmd(
-            [
-                "ls-files",
-                "--exclude-standard",
-                "-o",
-                "-i",
-                "--full-name",
-                "--directory",
-                root,
-            ]
-        )
+        status, stdout, stderr = self.run_cmd([
+            "ls-files",
+            "--exclude-standard",
+            "-o",
+            "-i",
+            "--full-name",
+            "--directory",
+            root,
+        ])
         for file in stdout.splitlines():
             path = os.path.join(self.working_dir, file)
             yield path

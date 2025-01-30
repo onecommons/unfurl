@@ -752,7 +752,7 @@ class Manifest(AttributeManager):
                 except UnfurlError:
                     # just warn if the repository is redefined
                     logger.warning(
-                        f"Ignoring redefinition of repository {name} to {tpl}"
+                        "Ignoring redefinition of repository '%s' to %s", name, tpl
                     )
 
         if inlineRepositories:
