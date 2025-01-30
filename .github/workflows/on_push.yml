@@ -343,10 +343,8 @@ jobs:
 
     - uses: pypa/cibuildwheel@v2.22
       name: build ${{  matrix.os }} binaries
-      #   run: cibuildwheel --output-dir dist
       with:
         output-dir: dist
-        # only: "${{ matrix.only }}"
       env:
         CIBW_BUILD_FRONTEND: "build"
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
@@ -375,18 +373,23 @@ jobs:
 
     - run: twine check dist/*
 
-    - uses: actions/upload-artifact@v3  # v4 doesn't allow same filename to be reloaded, see https://github.com/actions/upload-artifact/blob/main/docs/MIGRATION.md#merging-multiple-artifacts
+    - uses: actions/upload-artifact@v4
       with:
-        name: pypi_files
+        name: pypi_files-${{ matrix.os }}
         path: dist
 
   inspect-pypi-assets:
     needs: [test, build]
     runs-on: ubuntu-latest
-
     steps:
+      - name: Merge Artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: pypi_files
+          pattern: pypi_files-*
+
       - name: get dist artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: pypi_files
           path: dist
@@ -402,12 +405,17 @@ jobs:
           tar -xvf dist/*.tar.gz -C sdist-files
           tree -a sdist-files
 
-      - name: extract and list wheel file
+      - name: extract and list manylinux wheel file
         run: |
           ls dist/*cp3*-manylinux*x86_64.whl | head -n 1
           python -m zipfile --list `ls dist/*cp3*-manylinux*x86_64.whl | head -n 1`
 
-      - run: pip install twine
+      - name: extract and list macos wheel file
+        run: |
+          ls dist/*_universal2.whl | head -n 1
+          python -m zipfile --list `ls dist/*_universal2.whl | head -n 1`
+
+      - run: pip install -U packaging twine
       - run: twine check dist/*
 
       # - name: release to test pypi
@@ -424,7 +432,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: get dist artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: pypi_files
           path: dist
