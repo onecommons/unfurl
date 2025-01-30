@@ -590,7 +590,7 @@ class ToscaSpec:
         self, target: NodeTemplate, req_def: dict, source: NodeTemplate
     ) -> None:
         target_spec = self.node_from_template(target)
-        for prop, value in get_nodefilters(req_def, "properties"):
+        for name, value in get_nodefilters(req_def, "properties"):
             if isinstance(value, dict):
                 if "eval" in value:
                     if value["eval"] is None:
@@ -602,22 +602,22 @@ class ToscaSpec:
                 elif "q" in value:
                     value = value["q"]
                 else:
-                    # XXX add constraint to property
-                    # prop = target.properties[name]
-                    # prop.schema.schema.setdefault("constraints",[]).append(value)
-                    # prop.schema.constraints_list = None
+                    # add node_filter constraint to property to validate that it conforms to the node_filter criteria
+                    # even if the property was computed or is modified
+                    # XXX validate now if possible instead of relying on access time validation
+                    prop = target.get_properties().get(name)
+                    if prop:
+                        prop.schema.schema = prop.schema.schema.copy()
+                        prop.schema.schema.setdefault("constraints", []).append(value)
+                        prop.schema.constraints_list = None
                     continue
             if target_spec:
                 logger.trace(
-                    f"applying node_filter to {target.name} on property {prop}: {value}"
+                    f"applying node_filter to {target.name} on property {name}: {value}"
                 )
-                target_spec._update_property(prop, value)
+                target_spec._update_property(name, value)
             else:
-                assert target._properties_tpl is not None
-                target._properties_tpl[prop] = value
-                target._properties = (
-                    None  # XXX don't clear, node_filter constraints might have been set
-                )
+                target.update_property(name, value)
 
         requires = target.requirements
         for name, value in get_nodefilters(req_def, "requirements"):
@@ -637,9 +637,8 @@ class ToscaSpec:
     def find_matching_node(self, relTpl: RelationshipTemplate, req_name, req_def: dict):
         assert relTpl.source
         if relTpl.target:
-            self.apply_node_filters(relTpl.target, req_def, relTpl.source)
             # found a match already (currently not set)
-            # XXX validate that it matches any constraints
+            self.apply_node_filters(relTpl.target, req_def, relTpl.source)
             return relTpl.target, relTpl.capability
         node: Optional[str] = req_def.get("node")
         capability = req_def.get("capability")
@@ -796,8 +795,7 @@ class EntitySpec(ResourceRef):
             self.propertyDefs[prop].value = value
         if prop in self.attributeDefs:
             self.attributeDefs[prop].value = value
-        self.toscaEntityTemplate._properties_tpl[prop] = value
-        self.toscaEntityTemplate._properties = None
+        self.toscaEntityTemplate.update_property(prop, value)
 
     def _resolve_prop(self, key: str) -> "EntitySpec":
         # Returns the EntitySpec associated with this property.
@@ -941,7 +939,8 @@ class EntitySpec(ResourceRef):
             artifact_tpl = self.spec._get_artifact_declared_tpl(repositoryName, name)
             if artifact_tpl:
                 tpl = artifact_tpl
-                tpl["repository"] = repositoryName
+                if "repository" not in tpl:
+                    tpl["repository"] = repositoryName
             else:
                 if predefined:
                     logger.warning(
