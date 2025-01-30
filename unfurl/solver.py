@@ -14,12 +14,15 @@ from .tosca_solver import (  # type: ignore
     Constraint,
     QueryType,
 )
+from tosca import EvalData
 from tosca.yaml2python import has_function
 from toscaparser.elements.relationshiptype import RelationshipType
 from toscaparser.elements.scalarunit import get_scalarunit_class, ScalarUnit
 from toscaparser.elements.constraints import Schema, Constraint as ToscaConstraint
+from toscaparser.activities import value_to_type
 from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.capabilities import Capability
 from toscaparser.topology_template import TopologyTemplate
 from toscaparser.common import exception
 from .eval import Ref, analyze_expr
@@ -77,96 +80,117 @@ def include_value(v):
 
 def tosca_to_rust(prop: Property) -> ToscaValue:
     value = prop.value
+    assert value is not None, (
+        f"nulls should be omitted from solver {prop.schema.schema}"
+    )
     schema = prop.schema
     entity = prop.entry_schema_entity or prop.entity
-
     tosca_type = schema.type
     if tosca_type == "string" and not isinstance(value, str):
         tosca_type = "any"
     ctor = getattr(SimpleValue, tosca_type, None)
-    if ctor:
-        typename = None
-    else:
-        typename = tosca_type
-        if tosca_type in ["version", "timestamp"]:
-            ctor, any_schema_dict = deduce_type(value)
-        elif tosca_type.startswith("scalar-unit."):
-            scalar_class = get_scalarunit_class(tosca_type)
-            assert scalar_class, tosca_type
-            value = scalar_class(value).get_num_from_scalar_unit()
-            ctor = SimpleValue.float
-        elif tosca_type == "number":
-            ctor = SimpleValue.float
-        elif tosca_type in ["tosca.datatypes.network.PortDef", "PortDef"]:
-            ctor = SimpleValue.integer
-        elif tosca_type in ["tosca.datatypes.network.PortSpec", "PortSpec"]:
-            ctor = SimpleValue.map
-        elif tosca_type == "any":
-            ctor, any_schema_dict = deduce_type(value)
-            tosca_type = any_schema_dict["type"]
-            schema = Schema(prop.name, any_schema_dict)
-        elif entity:  # find simple type from complex type
-            # use a TOSCA datatype
-            if entity.datatype.value_type:  # its a simple value type
-                tosca_type = entity.datatype.value_type
-                ctor = getattr(SimpleValue, tosca_type, None)
-            else:
-                value = {
-                    name: tosca_to_rust(prop)
-                    for name, prop in entity.properties.items()
-                    if include_value(prop.value)
-                }
-                return ToscaValue(SimpleValue.map(value), typename)
+    try:
+        if ctor:
+            typename = None
         else:
-            assert False, tosca_type
-    assert ctor, f"no ctor for {tosca_type}"
-    if tosca_type == "range":
-        upper = (
-            sys.maxsize if value[1] == "UNBOUNDED" else value[1]
-        )  # note: sys.maxsize == size_t
-        return ToscaValue(ctor((value[0], upper)), typename)
-    elif tosca_type == "list":
-        if not schema.entry_schema:
-            schema.schema["entry_schema"] = dict(type="any")
-        filtered = [
-            tosca_to_rust(Property(prop.name, v, schema.entry_schema, prop.custom_def))
-            for v in value
-            if include_value(v)
-        ]
-        return ToscaValue(
-            ctor(filtered),
-            typename,
-        )
-    elif ctor is SimpleValue.map:
-        if not schema.entry_schema:
-            schema.schema["entry_schema"] = dict(type="any")
-        return ToscaValue(
-            ctor(
-                {
+            typename = tosca_type
+            if tosca_type in ["version", "timestamp"]:
+                ctor, any_schema_dict = deduce_type(value)
+            elif tosca_type.startswith("scalar-unit."):
+                scalar_class = get_scalarunit_class(tosca_type)
+                assert scalar_class, tosca_type
+                value = scalar_class(value).get_num_from_scalar_unit()
+                ctor = SimpleValue.float
+            elif tosca_type == "number":
+                ctor = SimpleValue.float
+            elif tosca_type in ["tosca.datatypes.network.PortDef", "PortDef"]:
+                ctor = SimpleValue.integer
+            elif tosca_type in ["tosca.datatypes.network.PortSpec", "PortSpec"]:
+                ctor = SimpleValue.map
+            elif tosca_type == "any":
+                ctor, any_schema_dict = deduce_type(value)
+                tosca_type = any_schema_dict["type"]
+                schema = Schema(prop.name, any_schema_dict)
+            elif entity:  # find simple type from complex type
+                # use a TOSCA datatype
+                if entity.datatype.value_type:  # its a simple value type
+                    tosca_type = entity.datatype.value_type
+                    ctor = getattr(SimpleValue, tosca_type, None)
+                else:
+                    value = {
+                        name: tosca_to_rust(prop)
+                        for name, prop in entity.properties.items()
+                        if include_value(prop.value)
+                    }
+                    return ToscaValue(SimpleValue.map(value), typename)
+            else:
+                assert False, tosca_type
+        assert ctor, f"no ctor for {tosca_type}"
+        if tosca_type == "range":
+            upper = (
+                sys.maxsize if value[1] == "UNBOUNDED" else value[1]
+            )  # note: sys.maxsize == size_t
+            return ToscaValue(ctor((value[0], upper)), typename)
+        elif tosca_type == "list":
+            if not schema.entry_schema:
+                schema.schema["entry_schema"] = dict(type="any")
+            filtered = [
+                tosca_to_rust(
+                    Property(prop.name, v, schema.entry_schema, prop.custom_def)
+                )
+                for v in value
+                if include_value(v)
+            ]
+            return ToscaValue(
+                ctor(filtered),
+                typename,
+            )
+        elif ctor is SimpleValue.map:
+            if not schema.entry_schema:
+                schema.schema["entry_schema"] = dict(type="any")
+            return ToscaValue(
+                ctor({
                     k: tosca_to_rust(
                         Property(prop.name, v, schema.entry_schema, prop.custom_def)
                     )
                     for k, v in value.items()
                     if include_value(v)
-                }
-            ),
-            typename,
-        )
-    else:
-        try:
-            return ToscaValue(ctor(value), typename)
-        except TypeError:
-            logger.error(
-                f"couldn't convert to rust value: {tosca_type}, {typename}, {type(value)}, {prop.schema.schema}"
+                }),
+                typename,
             )
-            raise
+        else:
+            return ToscaValue(ctor(value), typename)
+    except TypeError:
+        logger.error(
+            f"couldn't convert to rust value: {tosca_type}, {typename}, {type(value)}, {prop.schema.schema}"
+        )
+        raise
 
 
-def prop2field(prop: Property) -> Field:
-    return Field(
-        prop.name,
-        FieldValue.Property(tosca_to_rust(prop)),
-    )
+def prop2field(
+    node_template: NodeTemplate, cap: Optional[Capability], prop: Property
+) -> Optional[Field]:
+    query = None
+    if prop.value and has_function(prop.value):
+        if not Ref.is_ref(prop.value):
+            return None
+        if cap:
+            # adjust query add a capability to start if relative
+            querystart = f"{node_template.name}::.capabilities::[.name={cap.name}]"
+            expr = EvalData(prop.default).set_start(querystart).as_expr
+        else:
+            expr = prop.default
+        start_node, terms = expr2query(node_template, expr)
+        if terms:
+            query = (start_node, terms)
+        else:
+            return None
+        value = None
+    elif prop.value is not None:
+        value = tosca_to_rust(prop)
+    else:
+        return None
+    return Field(prop.name, FieldValue.Property(value, query))
 
 
 def filter2term(
@@ -216,7 +240,6 @@ def convert(
         return Node(node_template.name, "tosca.nodes.Root")
     entity = Node(node_template.name, node_template.type_definition.type)
     has_restrictions = False
-    # print( entity.name )
     types[node_template.type_definition.type] = [
         p.type for p in node_template.type_definition.ancestors()
     ]
@@ -226,18 +249,23 @@ def convert(
         types[cap.type_definition.type] = [
             p.type for p in cap.type_definition.ancestors()
         ]
-        cap_fields = [
-            prop2field(prop)
-            for prop in cap.get_properties_objects()
-            if include_value(prop.value)
-        ]
+        cap_fields: List[Field] = list(
+            filter(
+                None,
+                [
+                    prop2field(node_template, cap, prop)
+                    for prop in cap.get_properties_objects()
+                ],
+            )
+        )
         entity.fields.append(
             Field(cap.name, FieldValue.Capability(cap.type_definition.type, cap_fields))
         )
 
     for prop in node_template.get_properties_objects():
-        if include_value(prop.value):
-            entity.fields.append(prop2field(prop))
+        field = prop2field(node_template, None, prop)
+        if field:
+            entity.fields.append(field)
 
     type_requirements: Dict[str, Dict[str, Any]] = (
         node_template.type_definition.requirement_definitions
@@ -285,14 +313,14 @@ def add_match(
     if isinstance(match, dict) and (node_type := match.get("get_nodes_of_type")):
         terms.append(CriteriaTerm.NodeType(node_type))
     else:
-        query, start_node = expr2query(node_template, match)
+        start_node, query = expr2query(node_template, match)
         if query:
             terms.append(CriteriaTerm.NodeMatch(start_node, query))
 
 
 def expr2query(
-    node_template: NodeTemplate, match: Union[str, dict]
-) -> Tuple[QueryTerms, str]:
+    node_template: NodeTemplate, match: Union[str, dict, list, None]
+) -> Tuple[str, QueryTerms]:
     from .support import resolve_function_keyword  # avoid circular import
 
     if isinstance(match, dict) and (get_property := match.get("get_property")):
@@ -304,14 +332,17 @@ def expr2query(
 
     query: QueryTerms = []
     start_node: str = node_template.name
-    result = analyze_expr(match)
+    result = analyze_expr(match, ["SOURCE"])
     if result:
+        # logger.trace(f"expr_list: {node_template.name} with {match}:\n {result=}")
         expr_list = result.get_keys()
-        # logger.warning(f"expr_list: {node_template.name} with {match}:\n {expr_list=}")
         query_type = None
         cap = ""
         for key in expr_list:
             if key == "$start":
+                continue
+            if key == "SOURCE":
+                start_node = node_template.name
                 continue
             if cap == ".capabilities":
                 cap = key  # assume this key is capability name
@@ -335,41 +366,35 @@ def expr2query(
                     elif key == ".instances":
                         query.append((QueryType.Sources, "host", ""))
                     elif key == ".configured_by":
-                        query.append(
-                            (
-                                QueryType.RequiredByType,
-                                "unfurl.relationships.Configures",
-                                "",
-                            )
-                        )
+                        query.append((
+                            QueryType.RequiredByType,
+                            "unfurl.relationships.Configures",
+                            "",
+                        ))
                     elif key == ".parents" or key == ".ancestors":
-                        query.append(
-                            (
-                                QueryType.TransitiveRelation,
-                                "host",
-                                "SELF" if key == ".ancestors" else "",
-                            )
-                        )
+                        query.append((
+                            QueryType.TransitiveRelation,
+                            "host",
+                            "SELF" if key == ".ancestors" else "",
+                        ))
                     elif key == ".hosted_on":
-                        query.append(
-                            (
-                                QueryType.TransitiveRelationType,
-                                "tosca.relationships.HostedOn",
-                                "",
-                            )
-                        )
+                        query.append((
+                            QueryType.TransitiveRelationType,
+                            "tosca.relationships.HostedOn",
+                            "",
+                        ))
                     elif key == ".capabilities":
                         cap = ".capabilities"  # assume next key is capability name
                     else:
                         # matches Sources or Targets
                         query_type = getattr(QueryType, key[1:].title(), None)
                         if query_type is None:
-                            return [], ""
+                            return "", []
                 else:  # key is prop
                     query.append((QueryType.PropSource, key, cap))
                     cap = ""
                 # logger.warning(f"{skip} {query=}")
-    return query, start_node
+    return start_node, query
 
 
 def get_req_terms(
@@ -427,6 +452,12 @@ def get_req_terms(
             return None, False  # has an unsupported constraint, bail
         for cap_filters in node_filter.get("capabilities", []):
             cap_name, cap_filter = list(cap_filters.items())[0]
+            cap_type = topology_template.find_type(cap_name)
+            if cap_type:
+                cap_name = cap_type.type
+                if cap_name not in types:
+                    types[cap_name] = [p.type for p in cap_type.ancestors()]
+                terms.append(CriteriaTerm.CapabilityTypeGroup(cap_name))
             if not filter2term(terms, cap_filter, cap_name):
                 return None, False  # has an unsupported constraint, bail
         for req_req in node_filter.get("requirements") or []:
@@ -441,8 +472,25 @@ def get_req_terms(
             )
             if req_field:
                 restrictions.append(req_field)
-        # XXX add properties that are value constraints
-    if terms:
+        for condition in node_filter.get("properties") or []:
+            assert isinstance(condition, dict)
+            key, value = list(condition.items())[0]
+            if isinstance(value, dict):
+                if "eval" in value:
+                    start_node, query = expr2query(node_template, value)
+                    if query:
+                        restrictions.append(
+                            Field(key, FieldValue.Property(None, (start_node, query)))
+                        )
+                elif "q" in value:
+                    val = value["q"]
+                    if val is not None:
+                        tosca_type = value_to_type(val) or "any"
+                        prop = Property(key, val, dict(type=tosca_type))
+                        restrictions.append(
+                            Field(key, FieldValue.Property(tosca_to_rust(prop), None))
+                        )
+    if terms or restrictions:
         return Field(name, FieldValue.Requirement(terms, rel_type, restrictions)), bool(
             restrictions
         )
@@ -463,7 +511,7 @@ def solve_topology(topology_template: TopologyTemplate) -> Solution:
     # print("!solving " + "\n\n".join(repr(n) for n in nodes.values()))
     solved = cast(Solution, solve(nodes, types))
     logger.debug(
-        f"Solver found {len(solved)} requirements match{'es' if len(solved)!=1 else ''} for {len(nodes)} Node template{'s' if len(nodes)!=1 else ''}."
+        f"Solver found {len(solved)} requirements match{'es' if len(solved) != 1 else ''} for {len(nodes)} Node template{'s' if len(nodes) != 1 else ''}."
     )
     for (source_name, req), targets in solved.items():
         source: NodeTemplate = topology_template.node_templates[source_name]

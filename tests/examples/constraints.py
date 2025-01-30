@@ -24,9 +24,11 @@ class ProxyContainerHost(Proxy, ContainerHost):
     def _class_init(cls) -> None:
         # the backend is the container services url
         cls.backend_url = cls.hosting.url
-
+        # set the hosting to the source of the backend
         cls.set_to_property_source(cls.hosting, cls.backend_url)
-        # the following are equivalent:
+        # now you can set either "hosting" or the "backend_url" on the template and the other will be set
+
+        # note: the following are equivalent:
         # cls.set_to_property_source(cls.hosting, "backend_url")
         # cls.hosting = cls.backend_url  # type: ignore
 
@@ -38,8 +40,10 @@ class App(tosca.nodes.Root):
 
     @classmethod
     def _class_init(cls) -> None:
-        # the proxy's backend is set to the container's url
+        # the proxy's backend_url is set to the container's url
+        # by adding node_filter property constraint on the proxy requirement
         cls.proxy.backend_url = cls.container.url
+        # name is by adding a node_filter requirements constraint with a property constraint on the proxy requirement
         cls.proxy.hosting.name = "app"
         tosca.in_range(1*gb*2, 20*gb).apply_constraint(cls.proxy.hosting.mem_size)
         # the following is equivalent, but has a static type error:

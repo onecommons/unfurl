@@ -39,7 +39,7 @@ import sys
 import collections
 from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
-
+from toscaparser.common.exception import ExceptionCollector
 from unfurl.logs import UnfurlLogger
 
 from .util import validate_schema, UnfurlError, assert_form
@@ -782,13 +782,19 @@ class AnyRef(ResourceRef):
 
 def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
     start = AnyRef("$start")
+    # use SafeRefContext to avoid side effects
     ctx = ctx_cls(start, vars={n: AnyRef(n) for n in var_list})
     try:
+        ExceptionCollector.pause()
         result = Ref(expr).resolve(ctx)
     except:
         return ctx.currentResource  # type: ignore
+    finally:
+        ExceptionCollector.resume()
     # return the last AnyRef
-    return result[-1] if result else ctx.currentResource  # type: ignore
+    if result and isinstance(result[-1], AnyRef):
+        return result[-1]
+    return ctx.currentResource  # type: ignore
 
 
 def get_eval_func(name):

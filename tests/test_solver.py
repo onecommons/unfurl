@@ -1,5 +1,6 @@
 import sys
 import os
+from unfurl.util import UnfurlValidationError
 from unfurl.yamlloader import load_yaml, yaml, ImportResolver
 from unfurl.solver import (
     solve_topology,
@@ -88,6 +89,7 @@ topology_template:
             version: "6.5"
 """
 
+
 def test_convert():
     for val, toscatype in [
         (80, "PortDef"),
@@ -103,7 +105,7 @@ def test_convert():
 
 
 def test_solve():
-    f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0))))
+    f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0)), None))
     na = Node("a", "Foo", fields=[f])
     assert na.name == "a"
     assert na.tosca_type == "Foo"
@@ -173,29 +175,66 @@ def test_node_filter():
     # add an unsupported pattern, match should be skipped
     t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node_filter"
-    ]["capabilities"][0]["host"]["properties"].append(
-        {"distribution": {"pattern": "u*"}}
-    )
+    ]["capabilities"][0]["host"]["properties"].append({
+        "distribution": {"pattern": "u*"}
+    })
 
     t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
     assert not t2.topology_template.node_templates["test"].relationships
 
+
+# test node_filter on a computed property
 # test node_filter match
 # test node_filter match with property source
-# import tosca
 
-# class Thingy(tosca.nodes.Root):
-#     pass
-    
-# class Host(tosca.nodes.Root):
-#     host: "Host"
-#     thingy: Thingy
+import tosca
+from unfurl.testing import runtime_test
 
-# class App(tosca.nodes.Root):
-#     host: Host
-#     shortcut: Thingy = tosca.CONSTRAINED
 
-#     @classmethod
-#     def _class_init(cls) -> None:
-#         # generates a node_filter with match 
-#         cls.shortcut = cls.host.thingy
+class Thingy(tosca.nodes.Root):
+    a_property: int = 1
+
+
+class Host(tosca.nodes.Root):
+    thingy: Thingy
+
+
+class App(tosca.nodes.Root):
+    host: Host
+    shortcut: Thingy = tosca.CONSTRAINED
+    computed: int = tosca.CONSTRAINED
+
+    @classmethod
+    def _class_init(cls) -> None:
+        # generates a node_filter with match
+        cls.shortcut = cls.host.thingy
+        cls.computed = cls.shortcut.a_property
+
+
+class Test(tosca.nodes.Root):
+    app: App
+
+
+def test_node_filter_match(caplog: pytest.LogCaptureFixture):
+    class test(tosca.Namespace):
+        thingy = Thingy(a_property=2)
+        app = App(host=Host(thingy=thingy))
+        test2 = Test(
+            app=tosca.Requirement(node_filter=dict(properties=[{"computed": 2}]))
+        )
+
+    topology = runtime_test(test)
+    assert topology.app.shortcut == topology.thingy
+    assert "Solver set test.app.shortcut to test.thingy" in caplog.text
+    assert "Solver set test.test2.app to test.app" in caplog.text
+    assert topology.app.computed == 2
+
+    # validation error can't find requirement:
+    test.test1 = Test(
+        app=tosca.Requirement(node_filter=dict(properties=[{"computed": 1}]))
+    )
+    with pytest.raises(
+        UnfurlValidationError,
+        match='Could not find target template "App" for requirement "app" in node template "test1"',
+    ):
+        topology = runtime_test(test)

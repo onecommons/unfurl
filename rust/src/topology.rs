@@ -390,8 +390,8 @@ tv_from!(BTreeMap<String, ToscaValue>);
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub enum FieldValue {
     Property {
-        value: ToscaValue,
-        // computed: Option<Query>
+        value: Option<ToscaValue>,
+        computed: Option<(Symbol, Query)>,
     },
     Capability {
         tosca_type: String, // the capability type
@@ -440,7 +440,7 @@ impl Field {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum EntityRef {
     Node(NodeName),
     Capability(NodeName, CapabilityName),
@@ -498,7 +498,8 @@ ascent! {
     relation node(NodeName, TypeName);
 
     // reqname is set if property is on a relationship template
-    relation property_value (NodeName, CapabilityName, ReqName, PropName, ToscaValue);
+    // final bool is true when set by property_expr match
+    relation property_value (NodeName, CapabilityName, ReqName, PropName, ToscaValue, bool);
     // if property is referenced in a node_filter match:
     // translate computed property's eval expression into a query
     relation property_expr (NodeName, CapabilityName, ReqName, PropName, EntityRef);
@@ -538,9 +539,16 @@ ascent! {
         req_term_cap_name(source, req, ct, cap_name);
 
     term_match(source, req, criteria, ct, target, None) <--
-        property_value(target, capname, sym(""), propname, value),
+        property_value(target, capname, sym(""), propname, value, ?computed),
         requirement(source, req, criteria, _),
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
+
+    // for node filters with capability typename instead of capability name:
+    term_match(source, req, criteria, ct, target, None) <--
+        property_value(target, capname, sym(""), propname, value, ?computed),
+        requirement(source, req, criteria, _),
+        capability(target, capname, cap_id), entity(cap_id, typename),
+        req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
 
     term_match(source, req, criteria, ct, target, None) <--
         result(entity_ref, q_id, target, true),
@@ -570,6 +578,7 @@ ascent! {
     transitive_match(x, r, z) <-- requirement_match(x, r, y, c), transitive_match(y, r, z);
 
     // querying
+    // bool indicates whether the query or result is last in the query chain
     relation query(EntityRef, QueryId, QueryType, ReqName, Symbol, bool);
     relation result(EntityRef, QueryId, NodeName, bool);
 
@@ -612,15 +621,17 @@ ascent! {
         result(r, q_id, current, false);
 
     // when property_expr query finishes with a target node, update property_value and property_source
+    // property_expr found a result, set property_source to the target
     property_source(node_name, cap, prop_name, target) <--
        property_expr(node_name, cap, sym(""), prop_name, query_key),
        result(query_key, _, target, true);
 
-    property_value(node_name, cap, sym(""), prop_name, value) <--
+    // in this context (a property expression with a PropSource as last term), PropSource selects the property value from target
+    property_value(node_name, cap, sym(""), prop_name, value, true) <--
       property_expr(node_name, cap, sym(""), prop_name, query_key),
-      result(query_key, q_id, target, true),
       query(query_key, q_id, QueryType::PropSource, target_prop, target_cap, true),
-      property_value(target, target_cap, sym(""), target_prop, value);
+      result(query_key, q_id + 1, target, true),
+      property_value(target, target_cap, sym(""), target_prop, value, ?computed);
 }
 
 #[cfg(test)]

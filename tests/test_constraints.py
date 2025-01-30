@@ -5,6 +5,7 @@ import unittest
 import pytest
 
 import unfurl
+from unfurl.job import Runner
 from .utils import init_project, run_job_cmd
 from mypy import api
 import tosca
@@ -15,11 +16,11 @@ import sys
 from unfurl.yamlloader import yaml, load_yaml
 from tosca.python2yaml import PythonToYaml
 from click.testing import CliRunner
-from unfurl.util import change_cwd
+from unfurl.util import UnfurlError, change_cwd
 from unfurl.testing import assert_no_mypy_errors
 
 
-def test_constraints():
+def test_constraints(caplog):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     # loads yaml with with a json include
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
@@ -59,11 +60,11 @@ def test_constraints():
         "eval": "$SOURCE::.targets::container::url",
         "vars": {"SOURCE": {"eval": "::myapp"}},
     }
+    assert myapp_proxy_spec.properties["backend_url"] == expected_prop_value
     assert (
         myapp_proxy_spec.toscaEntityTemplate.get_property_value("backend_url")
         == expected_prop_value
     )
-    assert myapp_proxy_spec.properties["backend_url"] == expected_prop_value
     node_types = {
         "ContainerService": {
             "derived_from": "tosca.nodes.Root",
@@ -171,9 +172,15 @@ def test_constraints():
     # deduced container from backend_url
     hosting = proxy.get_relationship("hosting").target
     assert hosting == container, (hosting, container)
-    # XXX mem_size should have failed validation because of node_filter constraint
-    # XXX deduced inverse
+
+    Runner(manifest).static_plan()  # generate instances
+    with pytest.raises(UnfurlError, match='The value "1 GB" of property "mem_size" is out of range'):
+        assert manifest.get_root_resource().find_instance("container_service").attributes["mem_size"] == "1 GB"
+
+    assert "Solver set myapp_proxy.hosting to container" in caplog.text
+    # XXX support for deducing inverse and test
     # assert container.get_relationship("host") == proxy
+
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
