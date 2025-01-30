@@ -1323,7 +1323,7 @@ class EvalData:
             return serialize_value(self.expr, **options)
         return serialize_value(self.expr)
 
-    def set_start(self, root) -> Self:
+    def set_start(self, root: str) -> Self:
         # set source if expr is relative
         if self._path:
             # leading empty string means absolute path ("::".join(_path))
@@ -2390,14 +2390,30 @@ class ToscaType(_ToscaType):
                 yield name, (t_field or value.field, value)
             elif isinstance(value, _Tosca_Field):
                 # field assigned directly to the object
-                field = value
-                if field.default is not dataclasses.MISSING:
-                    value = field.default
-                elif field.default_factory is not dataclasses.MISSING:
-                    value = field.default_factory()
+                if value.tosca_field_type in (
+                  ToscaFieldType.requirement, ToscaFieldType.capability, ToscaFieldType.artifact
+                ):
+                    # fields returned by Requirement(), etc. won't have type or owner set and maybe not name
+                    value.name = name
+                    value.owner = self.__class__
+                    if not value.type:
+                        if t_field:
+                            value.type = t_field.type
+                        else:
+                            if field.default is not dataclasses.MISSING:
+                                value.type = type(field.default)
+                            elif isinstance(field.default_factory, type):  # its a ctor
+                                value.type = field.default_factory
+                    yield name, (t_field or value, value)
                 else:
-                    continue
-                yield name, (field, value)
+                    field = value
+                    if field.default is not dataclasses.MISSING:
+                        value = field.default
+                    elif field.default_factory is not dataclasses.MISSING:
+                        value = field.default_factory()
+                    else:
+                        continue
+                    yield name, (field, value)
             # skip inference for methods and attributes starting with "_"
             elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
@@ -2417,7 +2433,10 @@ class ToscaType(_ToscaType):
             body["metadata"] = metadata_to_yaml(self._metadata)
         for field, value in self.get_instance_fields().values():
             if field.section == "requirements":
-                if value and value is not CONSTRAINED:
+                if isinstance(value, _Tosca_Field):
+                    parent = None if field is value else field
+                    body.setdefault("requirements", []).append(value.to_yaml(converter))
+                elif value and value is not CONSTRAINED:
                     # XXX handle case where value is a type not an instance
                     if not isinstance(value, (list, tuple)):
                         value = [value]
@@ -2434,7 +2453,9 @@ class ToscaType(_ToscaType):
                                 field.tosca_name: shorthand or req
                             })
             elif field.section in ["capabilities", "artifacts"]:
-                if value:
+                if isinstance(value, _Tosca_Field):
+                    body.setdefault(field.section, {}).update(value.to_yaml(converter))
+                elif value:
                     assert isinstance(value, (CapabilityEntity, ArtifactEntity))
                     if (
                         field.default_factory
