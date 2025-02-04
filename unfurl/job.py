@@ -971,7 +971,7 @@ class Job(ConfigChange):
         if not self.jobOptions.parentJob:
             # don't do this when running a nested job
             # (planned was already removed and new tasks have already been rendered there)
-            rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
+            rmtree(os.path.join(self.rootResource.base_dir, Folders.planned))
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
