@@ -459,7 +459,11 @@ def get_descriptions(body):
     doc_strings = {}
     current_name = None
     for node in body:
-        if isinstance(node, Assign) and len(node.targets) == 1 and isinstance(node.targets[0], Name):
+        if (
+            isinstance(node, Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], Name)
+        ):
             current_name = node.targets[0].id
             continue
         elif isinstance(node, AnnAssign) and isinstance(node.target, Name):
@@ -633,11 +637,11 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
     old_basedir = service_template_basedir
     if base_dir:
         service_template_basedir = base_dir
-        if base_dir != old_basedir:
-            # delete modules whose contents are relative to the base dir that has changed
-            _clear_private_modules()
     else:
         service_template_basedir = os.getcwd()
+    if service_template_basedir != old_basedir:
+        # delete modules whose contents are relative to the base dir that has changed
+        _clear_private_modules()
     global installed
     if installed:
         return old_basedir
@@ -745,17 +749,15 @@ def restricted_exec(
         "type",
     ]:
         tosca_builtins[name] = getattr(builtins, name)
-    namespace.update(
-        {
-            "_getattr_": default_guarded_getattr,
-            "_getitem_": default_guarded_getitem,
-            "_getiter_": default_guarded_getiter,
-            "_apply_": default_guarded_apply,
-            "_write_": safe_guarded_write if safe_mode else default_guarded_write,
-            "_print_": PrintCollector,
-            "__metaclass__": type,
-        }
-    )
+    namespace.update({
+        "_getattr_": default_guarded_getattr,
+        "_getitem_": default_guarded_getitem,
+        "_getiter_": default_guarded_getiter,
+        "_apply_": default_guarded_apply,
+        "_write_": safe_guarded_write if safe_mode else default_guarded_write,
+        "_print_": PrintCollector,
+        "__metaclass__": type,
+    })
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = full_name
     if base_dir and "__file__" not in namespace:

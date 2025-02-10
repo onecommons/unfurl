@@ -1012,7 +1012,8 @@ def python_to_yaml(
     with open(src_path) as f:
         python_src = f.read()
     src_path = os.path.abspath(src_path)
-    base_dir = os.path.dirname(src_path)
+    base_dir = os.path.abspath(os.getcwd())
+    module_name = os.path.splitext(os.path.relpath(src_path, base_dir))[0].replace("/", ".")
     # add to sys.path so relative imports work
     sys.path.insert(0, base_dir)
     try:
@@ -1021,6 +1022,7 @@ def python_to_yaml(
             python_src,
             namespace,
             base_dir,
+            full_name=module_name,
             write_policy=write_policy,
             safe_mode=safe_mode,
         )

@@ -1481,7 +1481,8 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     if path.endswith(".py"):
         from tosca import python2yaml
 
-        python2yaml.python_to_yaml(path, file, overwrite)
+        safe_mode  = os.getenv("UNFURL_TEST_SAFE_LOADER") in ["warn", "stacktrace"]
+        python2yaml.python_to_yaml(path, file, overwrite, safe_mode=safe_mode)
         return
 
     try:
