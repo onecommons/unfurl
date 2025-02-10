@@ -49,6 +49,7 @@ logger = getLogger("unfurl")
 
 T = TypeVar("T")
 
+
 def _get_digest(value, kw):
     getter = getattr(value, "__digestable__", None)
     if getter:
@@ -437,6 +438,12 @@ class Result(ChangeAware):
 
     def project(self, key: Any, ctx) -> "Result":
         from .eval import Ref
+
+        if key == ".super":
+            result = ctx._lastResource.get_attribute_manager().get_super(ctx)
+            if result is None:
+                raise KeyError(key)
+            return Result(result)
 
         value = self._resolve_key(key, ctx._lastResource)
         if isinstance(value, Result):
@@ -971,7 +978,7 @@ class ResultsMap(Results, MutableMapping[str, Any]):
             for mapping in self._attributes._maps:
                 if name in mapping:
                     if isinstance(mapping, ResultsMap):
-                          return mapping.get_original(name)
+                        return mapping.get_original(name)
                     original = mapping[name]
                     break
         else:

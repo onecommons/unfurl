@@ -1073,7 +1073,7 @@ def find_parent_resource(
     source_nodetemplate = cast(NodeTemplate, source.toscaEntityTemplate)
     parentTemplate = find_parent_template(source_nodetemplate)
     source_root = root.get_root_instance(source_nodetemplate)
-    if not parentTemplate:
+    if not parentTemplate or parentTemplate is source_nodetemplate:
         return source_root
     root = root.get_root_instance(parentTemplate)
     if root is not source_root:

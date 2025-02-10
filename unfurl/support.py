@@ -81,6 +81,7 @@ from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.properties import Property
 
 from .tosca_plugins.functions import (
     urljoin,
@@ -525,6 +526,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     templar._available_variables = vars
 
     oldvalue = value
+    ctx.trace("evaluating template", value)
     index = ctx.referenced.start()
     # set referenced to track references (set by Ref.resolve)
     # need a way to turn on and off
@@ -1608,6 +1610,7 @@ class AttributeManager:
     def __init__(self, yaml=None, task=None):
         self.attributes: Dict[str, Tuple[EntityInstance, ResultsMap]] = {}
         self.statuses: StatusMap = {}
+        self.super_maps: Dict[Tuple[str, str], ResultsMap] = {}
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
         self._context_vars = None
@@ -1681,6 +1684,56 @@ class AttributeManager:
         else:
             attributes = self.attributes[resource.nested_key][1]
             return attributes
+
+    def get_super(self, ctx: RefContext) -> Optional[ResultsMap]:
+        if (
+            not ctx._lastResource.template
+            or not ctx._lastResource.template.toscaEntityTemplate.type_definition
+        ):
+            return None
+        key = (ctx._lastResource.key, ctx.tosca_type and ctx.tosca_type.global_name or "")
+        super_map = self.super_maps.get(key)
+        if super_map is not None:
+            return super_map
+        base_defs = None
+        if ctx.tosca_type:
+            tosca_type = (
+                ctx._lastResource.template.toscaEntityTemplate.type_definition.super(
+                    ctx.tosca_type
+                )
+            )
+        else:
+            tosca_type = ctx._lastResource.template.toscaEntityTemplate.type_definition
+            base_type = ctx._lastResource.template.toscaEntityTemplate.type_definition.parent_type
+            if base_type:
+                base_defs = base_type.get_properties_def()
+        if not tosca_type:  # no more super classes
+            return None
+        _attributes = {}
+        defs = {}
+        for p_def in tosca_type.get_properties_def_objects():
+            if p_def.schema and "default" in p_def.schema:
+                if not ctx.tosca_type:
+                    # if a property is not defined on the template its value will be set to its type's default value
+                    # so super() should that type's superclass's default instead of the type's default value
+                    if (
+                        p_def.name
+                        not in ctx._lastResource.template.toscaEntityTemplate._properties_tpl
+                    ):
+                        if not base_defs or p_def.name not in base_defs:
+                            continue
+                        p_def = base_defs[p_def.name]
+                        if not p_def.schema or "default" not in p_def.schema:
+                            continue
+                _attributes[p_def.name] = p_def.default
+                defs[p_def.name] = Property(
+                    p_def.name, p_def.default, p_def.schema, tosca_type.custom_def
+                )
+        super_map = ResultsMap(
+            _attributes, ctx.copy(tosca_type=tosca_type), self.validate, defs
+        )
+        self.super_maps[(ctx._lastResource.key, tosca_type and tosca_type.global_name or "")] = super_map
+        return super_map
 
     def _reset(self):
         self.attributes = {}

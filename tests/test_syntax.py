@@ -10,6 +10,7 @@ from unfurl.to_json import to_blueprint, to_deployment, node_type_to_graphql
 from unfurl.localenv import LocalEnv
 from unfurl.planrequests import _find_implementation
 from toscaparser.common.exception import TypeMismatchError
+from unfurl.job import Runner, JobOptions
 
 
 Atlas = "Atlas@github.com/onecommons/unfurl.git/tests/examples:include-json-ensemble"
@@ -209,6 +210,10 @@ spec:
     node_types:
       Base:
         derived_from: tosca:Root
+        properties:
+          test_super:
+            type: string
+            default: base
         interfaces:
           defaults:
             implementation: foo
@@ -228,6 +233,10 @@ spec:
 
       Derived:
         derived_from: Base
+        properties:
+          test_super:
+            default:
+              "{{ '.super::test_super' | eval }} derived"
         interfaces:
           Standard:
             operations:
@@ -250,6 +259,8 @@ spec:
 
         base:
           type: Base
+          properties:
+            test_super: "{{ '.super::test_super' | eval }} template"
           requirements:
           - host:
               node: the_app
@@ -276,6 +287,19 @@ spec:
         assert not _find_implementation("Standard", "delete", app_template)
         base_template = manifest.tosca.topology.node_templates["base"]
         assert _find_implementation("Standard", "delete", base_template)
+
+        # generate instances
+        job = Runner(manifest)
+        job = job.run(JobOptions(planOnly=True, skip_save=True))
+        assert job
+        assert manifest.rootResource and manifest.rootResource.attributes
+        base = manifest.rootResource.find_instance("base")
+        assert base
+        assert base.attributes["test_super"] == "base template"
+        the_app = manifest.rootResource.find_instance("the_app")
+        assert the_app
+        # the_app.attributes.context._trace = 1
+        assert the_app.attributes["test_super"] == "base derived"
 
 
 class ToscaSyntaxTest(unittest.TestCase):

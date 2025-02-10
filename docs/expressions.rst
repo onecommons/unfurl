@@ -673,7 +673,7 @@ Special keys
 ~~~~~~~~~~~~~
 Built-in keys start with a leading **.**:
 
-============== ========================================================
+============== =============================================================
 **.**          self
 **..**         parent
 .name          name of this instance
@@ -700,4 +700,5 @@ Built-in keys start with a leading **.**:
 .uri           Unique URI for this instance (`URI<uris>` plus the tosca_id)
 .deployment    Name of the ensemble
 .apex          Root ancestor of the outermost topology
-============== ========================================================
+.super         map of properties defined on the template's type or base type
+============== =============================================================

@@ -7,6 +7,7 @@ The state of the system is represented as a collection of Instances.
 Each instance have a status; attributes that describe its state; and a TOSCA template
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
+
 from datetime import datetime
 import os
 from typing import (
@@ -284,6 +285,7 @@ class OperationalInstance(Operational):
     """
     A concrete implementation of Operational
     """
+
     _lastStatus: Optional[Status] = None
 
     def __init__(
@@ -425,7 +427,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
             p = getattr(parent, self.parentRelation)
             p.append(self)
 
-        self.template: EntitySpec = template or self.templateType(None, cast(TopologySpec, None))
+        self.template: EntitySpec = template or self.templateType(
+            None, cast(TopologySpec, None)
+        )
         assert isinstance(self.template, self.templateType)
         self._properties: Dict[str, Any] = {}
 
@@ -459,16 +463,16 @@ class EntityInstance(OperationalInstance, ResourceRef):
             # deleted properties (missing in template)
             return instance_keys - template_keys
         template_props = ResultsMap(self.template.properties, self)
-        instance_props = ResultsMap(self._properties, self) # serialized values
-        instance_attrs = ResultsMap(self._attributes, self) # serialized values
+        instance_props = ResultsMap(self._properties, self)  # serialized values
+        instance_attrs = ResultsMap(self._attributes, self)  # serialized values
         overridden = set(self._attributes) & template_keys
         for key in overridden:
             # attribute overrides property and is different
-            if instance_attrs[key] != template_props[key]: # evaluates
+            if instance_attrs[key] != template_props[key]:  # evaluates
                 return key
         # check if previously evaluated, non-overridden properties have changed
         for key in instance_keys - overridden:
-            if instance_props[key] != template_props[key]: # evaluates
+            if instance_props[key] != template_props[key]:  # evaluates
                 # property changed since last save
                 return key
         return False
@@ -572,24 +576,24 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def artifacts(self):
         return {}
 
+    def get_attribute_manager(self) -> AttributeManager:
+        if not self.apex.attributeManager and not self.attributeManager:
+            # inefficient but create a local one for now
+            self.attributeManager = AttributeManager()
+        return self.apex.attributeManager or self.attributeManager  # type: ignore
+
     @property
     def attributes(self) -> ResultsMap:
-        """attributes are live values but _attributes will be the serialized value"""
-        if not self.apex.attributeManager:
-            if not self.attributeManager:
-                # inefficient but create a local one for now
-                self.attributeManager = AttributeManager()
-            return self.attributeManager.get_attributes(self)
-
-        # returned registered attribute or create a new one
-        # attribute class getter resolves references
-        return self.apex.attributeManager.get_attributes(self)
+        """attributes are live values but attributes._attributes will be the serialized value"""
+        return self.get_attribute_manager().get_attributes(self)
 
     @property
     def names(self):
         return self.attributes
 
-    def get_default_relationships(self, relation: Optional[str]=None) -> List["RelationshipInstance"]:
+    def get_default_relationships(
+        self, relation: Optional[str] = None
+    ) -> List["RelationshipInstance"]:
         return self.root.get_default_relationships(relation)
 
     @property
@@ -1097,7 +1101,7 @@ class NodeInstance(HasInstancesInstance):
             return self.template.spec.get_repository(self.template.name)
         return None
 
-    def _get_default_relationships(self, relation: Optional[str]=None):
+    def _get_default_relationships(self, relation: Optional[str] = None):
         if self.root is self:
             return
         for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
@@ -1105,7 +1109,9 @@ class NodeInstance(HasInstancesInstance):
                 if rel.template.matches_target(capability.template):
                     yield rel
 
-    def get_default_relationships(self, relation: Optional[str]=None) -> List[RelationshipInstance]:
+    def get_default_relationships(
+        self, relation: Optional[str] = None
+    ) -> List[RelationshipInstance]:
         return list(self._get_default_relationships(relation))
 
     @property
@@ -1273,7 +1279,11 @@ class TopologyInstance(HasInstancesInstance):
 
     def set_base_dir(self, baseDir: str) -> None:
         self._baseDir = baseDir
-        if not self._templar or not self._templar._loader or self._templar._loader.get_basedir() != baseDir:
+        if (
+            not self._templar
+            or not self._templar._loader
+            or self._templar._loader.get_basedir() != baseDir
+        ):
             loader = DataLoader()
             loader.set_basedir(baseDir)
             self._templar = Templar(loader)

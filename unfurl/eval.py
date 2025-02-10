@@ -40,6 +40,7 @@ import collections
 from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from toscaparser.common.exception import ExceptionCollector
+from toscaparser.elements.statefulentitytype import StatefulEntityType
 from unfurl.logs import UnfurlLogger
 
 from .util import validate_schema, UnfurlError, assert_form
@@ -69,7 +70,7 @@ def map_value(
     value: Any,
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
-    as_list: bool = False
+    as_list: bool = False,
 ) -> Any:
     """Resolves any expressions or template strings embedded in the given string, dict or list."""
     # as_list always returns a list but preserves wantList semantics for internal evaluation
@@ -189,6 +190,7 @@ class RefContext:
         self.referenced = _Tracker()
         self.task = task
         self.kw: Mapping[str, Any] = {}
+        self.tosca_type: Optional[StatefulEntityType] = None
 
     @property
     def strict(self) -> bool:
@@ -213,6 +215,7 @@ class RefContext:
         wantList: Optional[Union[bool, str]] = None,
         trace: int = 0,
         strict: Optional[bool] = None,
+        tosca_type: Optional[StatefulEntityType] = None,
     ) -> "RefContext":
         if not isinstance(resource or self.currentResource, ResourceRef) and isinstance(
             self._lastResource, ResourceRef
@@ -235,12 +238,18 @@ class RefContext:
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
+        if tosca_type:
+            copy.tosca_type = tosca_type
+        else:
+            copy.tosca_type = self.tosca_type
         return copy
 
     def trace(self, *msg: Any) -> None:
         if self._trace:
             log = logger.info if self._trace >= 2 else logger.trace
-            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")  # type: ignore
+            log(
+                f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource} {self.tosca_type and self.tosca_type.type or ''})"
+            )  # type: ignore
 
     def add_external_reference(self, external: ExternalValue) -> Result:
         result = Result(external)
@@ -702,12 +711,16 @@ _CoreFuncs = {
     "foreach": for_each_func,
     "is_function_defined": func_defined_func,
 }
+
+
 def _make_op_func(op):
     op_func = getattr(operator, op)
     return lambda arg, ctx: op_func(*map_value(arg, ctx))
+
+
 for op in "ne gt ge lt le add mul pow truediv floordiv mod sub".split():
     _CoreFuncs[op] = _make_op_func(op)
-_CoreFuncs['div'] = _CoreFuncs['truediv']
+_CoreFuncs["div"] = _CoreFuncs["truediv"]
 RefContext._Funcs = _CoreFuncs.copy()
 _FuncsTop = ["q"]
 
@@ -800,7 +813,9 @@ def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"
 def get_eval_func(name):
     return RefContext._Funcs.get(name)
 
+
 EvalFunc = Callable[[Any, RefContext], Any]
+
 
 def set_eval_func(name, val: EvalFunc, topLevel=False, safe=False):
     RefContext._Funcs[name] = val
