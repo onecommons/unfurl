@@ -72,6 +72,16 @@ logger = logging.getLogger("tosca")
 value_indent = 2
 
 
+def _pprint_multiline(self, object, stream, indent, allowance, context, level):
+    lines = str(object)
+    if "\n" not in lines:
+        return pprint.PrettyPrinter._pprint_str(  # type:ignore
+            self, object, stream, indent, allowance, context, level
+        )  # type: ignore
+    # we dont want to indent since that might affect correctness if leading spaces in the string are significant
+    stream.write(multiline_repr(lines, "", "r", "\\"))
+
+
 try:
     from ruamel.yaml.comments import CommentedMap
     from ruamel.yaml.scalarstring import LiteralScalarString, FoldedScalarString
@@ -87,10 +97,10 @@ try:
 
     pprint.PrettyPrinter._dispatch[  # type: ignore
         LiteralScalarString.__repr__
-    ] = pprint.PrettyPrinter._pprint_str  # type: ignore
+    ] = _pprint_multiline  # type: ignore
     pprint.PrettyPrinter._dispatch[  # type: ignore
         FoldedScalarString.__repr__
-    ] = pprint.PrettyPrinter._pprint_str  # type: ignore
+    ] = _pprint_multiline  # type: ignore
 except ImportError:
     pass
 
@@ -146,23 +156,29 @@ def value2python_repr(value, quote=False, imports: Optional["Imports"] = None) -
     return pprinted
 
 
-def add_description(defs, indent):
+def multiline_repr(description, indent, prefix="", suffix="") -> str:
+    for q in ['"""', "'''", '"', '"']:
+        # avoid """foo""""
+        if q not in description and description[-1] != q[0]:
+            quote = prefix + q + suffix
+            break
+    else:
+        return indent + repr(description)
+    if "\n" in description:
+        src = f"{indent}{quote}\n"
+        src += textwrap.indent(description.rstrip(), indent)
+        src += f"\n{indent}{q}\n\n"
+    else:
+        src = f"{indent}{quote}{description}{q}\n\n"
+    return src
+
+
+def add_description(defs, indent) -> str:
     description = isinstance(defs, dict) and defs.get("description")
     if description:
-        for q in ['"""', "'''", '"', '"']:
-            # avoid """foo""""
-            if q not in description and description[-1] != q[0]:
-                quote = q
-                break
-        if "\n" in description:
-            src = f"{indent}{quote}\n"
-            src += textwrap.indent(description.rstrip(), indent)
-            src += f"\n{indent}{quote}\n\n"
-        else:
-            src = f"{indent}{quote}{description}{quote}\n\n"
+        return multiline_repr(description, indent)
     else:
-        src = ""
-    return src
+        return ""
 
 
 def metadata_repr(metadata) -> str:
