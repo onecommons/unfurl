@@ -8,7 +8,7 @@ Job Variables
 When a `task <Tasks>` is being evaluated the following variables are available as an `expression <Eval Expressions>` variable or a jinja2 template variable.
 Instances are represented as a dictionary containing its properties and attributes and its `special keys`.
 
-  :implementation: the artifact used by the operation's implementation (or null if one wasn't set).
+  :implementation: The artifact used by the operation's implementation (or null if one wasn't set).
   :inputs: A dictionary containing the inputs declared on the task's operation.
   :arguments: A dictionary containing inputs and properties passed to task's `artifact`.
   :connections: See :std:ref:`Connections` below.

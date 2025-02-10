@@ -612,7 +612,7 @@ class TaskView:
                 ctx.base_dir = self.configSpec.base_dir
             self._inputs = self._to_resultsmap(ctx)
             if artifact:
-                vars["implementation"] = artifact.attributes
+                vars["implementation"] = artifact
                 artifact.attributes.context.vars = self._inputs.context.vars
             else:
                 vars["implementation"] = None
