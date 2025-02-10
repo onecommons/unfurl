@@ -146,7 +146,7 @@ node_types:
                     image: "{{ image_path }}" # Repository path and tag
                     state: "<%  inputs.state %>"
                     {%if SELF.container is defined %}
-                    {%if SELF.container.pull_policy is defined %}                    
+                    {%if SELF.container.pull_policy is defined %}
                     pull: <% SELF.container.pull_policy == "always" %>
                     {%endif%}
                     # filter out env vars set to none
@@ -171,7 +171,7 @@ node_types:
                           {% elif status == 'exited' or status == 'dead' %}absent
                           {% elif status == 'running' %}ok
                           {%else%}pending{%endif%}
-            # attributes: # XXX 
+            # attributes: # XXX
             #   container_image.digest:  outputs.container.Image
             #   e.g. sha256:a5ab4ab35b15731c675a531b85ec15c8dd50e36b22d96bcceeca37d016537c8e
       Install:
