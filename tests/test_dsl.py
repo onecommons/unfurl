@@ -1391,11 +1391,15 @@ if __name__ == "__main__":
       - repository: unfurl
         file: configurators/templates/docker.yaml
       - repository: unfurl
+        file: configurators/templates/supervisor.yaml
+      - repository: unfurl
         file: tosca_plugins/artifacts.yaml
       - repository: unfurl
         file: tosca_plugins/k8s.yaml
       - repository: unfurl
         file: tosca_plugins/googlecloud.yaml
+      - repository: unfurl
+        file: tosca_plugins/localhost.yaml
     """
     manifest = Manifest(path)
     _to_python(yaml_src, 7, tosca.WritePolicy.always, manifest)
