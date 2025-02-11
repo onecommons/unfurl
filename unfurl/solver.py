@@ -23,7 +23,7 @@ from toscaparser.activities import value_to_type
 from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.capabilities import Capability
-from toscaparser.topology_template import TopologyTemplate
+from toscaparser.topology_template import TopologyTemplate, find_type
 from toscaparser.common import exception
 from .eval import Ref, analyze_expr
 from .logs import getLogger
@@ -238,16 +238,16 @@ def convert(
     # XXX if node_template is in nested topology and replaced, partially convert the outer node instead
     if not node_template.type_definition:
         return Node(node_template.name, "tosca.nodes.Root")
-    entity = Node(node_template.name, node_template.type_definition.type)
+    entity = Node(node_template.name, node_template.type_definition.global_name)
     has_restrictions = False
-    types[node_template.type_definition.type] = [
-        p.type for p in node_template.type_definition.ancestors()
+    types[node_template.type_definition.global_name] = [
+        p.global_name for p in node_template.type_definition.ancestors()
     ]
     for cap in node_template.get_capabilities_objects():
         # if cap.name == "feature":
         #     continue
-        types[cap.type_definition.type] = [
-            p.type for p in cap.type_definition.ancestors()
+        types[cap.type_definition.global_name] = [
+            p.global_name for p in cap.type_definition.ancestors()
         ]
         cap_fields: List[Field] = list(
             filter(
@@ -259,7 +259,10 @@ def convert(
             )
         )
         entity.fields.append(
-            Field(cap.name, FieldValue.Capability(cap.type_definition.type, cap_fields))
+            Field(
+                cap.name,
+                FieldValue.Capability(cap.type_definition.global_name, cap_fields),
+            )
         )
 
     for prop in node_template.get_properties_objects():
@@ -277,7 +280,7 @@ def convert(
         if type_req_dict:
             type_req_dict = type_req_dict.copy()
             for key in ("node", "relationship", "capability"):
-                if key in req_dict:
+                if key in req_dict:  # overridden on template, so remove namespace-id
                     type_req_dict.pop("!namespace-" + key, None)
             req_dict = dict(type_req_dict, **req_dict)
         if "occurrences" not in req_dict:
@@ -308,10 +311,18 @@ QueryTerms = List[Tuple[QueryType, str, str]]
 
 
 def add_match(
-    node_template: NodeTemplate, terms: list, match: Union[str, dict]
+    node_template: NodeTemplate,
+    terms: list,
+    match: Union[str, dict],
+    namespace: Optional[str],
 ) -> None:
-    if isinstance(match, dict) and (node_type := match.get("get_nodes_of_type")):
-        terms.append(CriteriaTerm.NodeType(node_type))
+    if isinstance(match, dict) and (node_type_name := match.get("get_nodes_of_type")):
+        node_type = node_template.topology_template.find_type(node_type_name, namespace)
+        terms.append(
+            CriteriaTerm.NodeType(
+                node_type.global_name if node_type else node_type_name
+            )
+        )
     else:
         start_node, query = expr2query(node_template, match)
         if query:
@@ -416,7 +427,7 @@ def get_req_terms(
             terms.append(CriteriaTerm.CapabilityName(capability))
         elif match_type:
             # only match by type if the template has declared the requirement
-            terms.append(CriteriaTerm.CapabilityTypeGroup([capability]))
+            terms.append(CriteriaTerm.CapabilityTypeGroup([cap_type.global_name]))
     rel_type = None
     relationship = req_dict.get("relationship")
     if relationship and match_type:
@@ -429,34 +440,41 @@ def get_req_terms(
                 ),
             )
             if rel:
-                rel_type = rel.type
-                types[rel.type] = [p.type for p in rel.ancestors()]
+                rel_type = rel.global_name
+                types[rel.global_name] = [p.global_name for p in rel.ancestors()]
                 if rel.valid_target_types:
-                    terms.append(
-                        CriteriaTerm.CapabilityTypeGroup(rel.valid_target_types)
-                    )
+                    valid_target_types = []
+                    for target_type_name in rel.valid_target_types:
+                        target_type = find_type(target_type_name, rel.custom_def)
+                        valid_target_types.append(
+                            target_type.global_name if target_type else target_type_name
+                        )
+                    terms.append(CriteriaTerm.CapabilityTypeGroup(valid_target_types))
     node = req_dict.get("node")
+    node_namespace = req_dict.get("!namespace-node")
     if node:
         if node in topology_template.node_templates:
             # XXX if node_template.substitution: node_template.substitution.add_relationship(name, node)  # replacement nested node template with this outer one
             terms.append(CriteriaTerm.NodeName(node))
         elif match_type:
-            # only match by type if the template declared the requirement
-            terms.append(CriteriaTerm.NodeType(node))
+            node_type = topology_template.find_type(node, node_namespace)
+            if node_type:
+                # only match by type if the template declared the requirement
+                terms.append(CriteriaTerm.NodeType(node_type.global_name))
     node_filter = req_dict.get("node_filter")
     if node_filter:
         match = node_filter.get("match")
         if match:
-            add_match(node_template, terms, match)
+            add_match(node_template, terms, match, node_namespace)
         if not filter2term(terms, node_filter, None):
             return None, False  # has an unsupported constraint, bail
         for cap_filters in node_filter.get("capabilities", []):
             cap_name, cap_filter = list(cap_filters.items())[0]
             cap_type = topology_template.find_type(cap_name)
             if cap_type:
-                cap_name = cap_type.type
+                cap_name = cap_type.global_name
                 if cap_name not in types:
-                    types[cap_name] = [p.type for p in cap_type.ancestors()]
+                    types[cap_name] = [p.global_name for p in cap_type.ancestors()]
                 terms.append(CriteriaTerm.CapabilityTypeGroup(cap_name))
             if not filter2term(terms, cap_filter, cap_name):
                 return None, False  # has an unsupported constraint, bail
