@@ -2170,6 +2170,41 @@ def find_hosted_on(
     return cast(_T, _search(field_name, ".hosted_on", cls_or_obj))
 
 
+def from_owner(
+    field_name: _T,
+    cls_or_obj=None,
+) -> _T:
+    """
+    from_owner(field_name: str | FieldProjection)
+
+    Return ``field_name`` on the ``.owner`` of the template (see `Special keys`).
+
+    .. code-block:: python
+
+        class App(Node):
+          name: str
+          my_artifact: MyArtifact = MyArtifact(app_name=from_owner("name")))
+
+        a = App(name="foo")
+        assert a.my_artifact.app_name == a.name
+        # also available as a method:
+        assert a.my_artifact.from_owner(App.name) == a.name
+
+
+    If called during class definition this will return an eval expression.
+    If called as a classmethod or as a free function it will use the current context's instance.
+    If the template instance is an embedded template (an artifact, a relationship, a data entity, or a capability),
+    the field will be evaluated on the node template the template is embedded in, otherwise it will be evaluated on the template itself.
+
+    Args:
+        field_name (str | FieldProjection): Either the name of the field, or for a more type safety, a reference to the field (e.g. ``A.url`` in the example above).
+
+    Returns:
+        Any: The value of the referenced field
+    """
+    return cast(_T, _search(field_name, ".owner", cls_or_obj))
+
+
 # XXX make unconditional when type_extensions 4.13 is released (and use Self)
 if sys.version_info >= (3, 11):
     _OperationFunc = Callable[Concatenate["ToscaType", ...], Any]
@@ -2334,6 +2369,18 @@ class ToscaType(_ToscaType):
     else:
         find_hosted_on = anymethod(find_hosted_on, keyword="cls_or_obj")
 
+    if typing.TYPE_CHECKING:
+        # trick the type checker to support both class and instance method calls
+        @classmethod
+        def from_owner(
+            cls,
+            prop_ref: _T,
+        ) -> _T:
+            return cast(_T, None)
+
+    else:
+        from_owner = anymethod(from_owner, keyword="cls_or_obj")
+
     @classmethod
     def _get_parameter_and_explicit_fields(cls):
         for b in cls.__bases__:
@@ -2391,7 +2438,9 @@ class ToscaType(_ToscaType):
             elif isinstance(value, _Tosca_Field):
                 # field assigned directly to the object
                 if value.tosca_field_type in (
-                  ToscaFieldType.requirement, ToscaFieldType.capability, ToscaFieldType.artifact
+                    ToscaFieldType.requirement,
+                    ToscaFieldType.capability,
+                    ToscaFieldType.artifact,
                 ):
                     # fields returned by Requirement(), etc. won't have type or owner set and maybe not name
                     value.name = name

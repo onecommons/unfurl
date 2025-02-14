@@ -52,7 +52,7 @@ tfoutput = tosca.AttributeOptions(dict(tfoutput=True))
 sensitive = tosca.Options(dict(sensitive=True))
 
 
-def validate(factory):
+def validate(factory: Callable) -> tosca.Options:
     return tosca.Options(
         dict(
             validation={

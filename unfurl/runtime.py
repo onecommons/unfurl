@@ -536,11 +536,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.key
 
     @property
-    def tosca_name(self):
+    def tosca_name(self) -> str:
         return self.template.name
 
     @property
-    def type(self):
+    def type(self) -> str:
         return self.template.type
 
     @property
@@ -549,6 +549,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return self.shadow.base_dir
         else:
             return self.root._baseDir
+
+    @property
+    def owner(self) -> "EntityInstance":
+        return self
 
     @property
     def _manifest(self) -> Optional["YamlManifest"]:
@@ -799,6 +803,10 @@ class CapabilityInstance(EntityInstance):
         return self._relationships
 
     @property
+    def owner(self) -> EntityInstance:
+        return self.parent or self
+
+    @property
     def key(self) -> InstanceKey:
         # XXX implement something like _ChildResources to enable ::name instead of [.name]
         assert self.parent
@@ -844,6 +852,10 @@ class RelationshipInstance(EntityInstance):
                 if sourceNode:
                     self._source = sourceNode
         return self._source
+
+    @property
+    def owner(self) -> EntityInstance:
+        return self.source or self
 
     @property
     def capability(self) -> Optional[CapabilityInstance]:
@@ -900,6 +912,10 @@ class ArtifactInstance(EntityInstance):
     @property
     def base_dir(self) -> str:
         return self.template.base_dir
+
+    @property
+    def owner(self) -> EntityInstance:
+        return self.parent or self
 
     @property
     def file(self) -> str:

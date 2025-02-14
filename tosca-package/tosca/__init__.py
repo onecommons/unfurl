@@ -233,6 +233,7 @@ __all__ = [
     "find_required_by",
     "find_relationship",
     "find_node",
+    "from_owner",
     "gb",
     "gbps",
     "ghz",

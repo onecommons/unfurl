@@ -37,6 +37,8 @@ TOSCA Types
 
   .. automethod:: find_hosted_on
 
+  .. automethod:: from_owner
+
   .. automethod:: set_to_property_source
 
   .. automethod:: set_operation

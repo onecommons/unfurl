@@ -2,7 +2,7 @@ import os
 import pytest
 import unfurl
 import tosca
-from tosca import Size, MB
+from tosca import Size, MB, EvalData
 from unfurl.eval import Ref
 from unfurl.logs import is_sensitive
 from unfurl.testing import runtime_test, create_runner
@@ -360,6 +360,9 @@ def test_units(safe_mode):
     topology.test.mem_size = 2 * MB  # set attribute value so expression resolves
     assert topology.test.mem_size == 2 * MB
     assert topology.test3.host.mem_size == 4 * MB
+
+    assert Topology.test3.host.from_owner(Topology.Test.mem_size) == EvalData({'eval': '::Topology.test3::.capabilities[.name=host]::.owner::mem_size'})
+    assert topology.test.host.from_owner(Topology.Test.mem_size) == 2 * MB
     tosca.global_state.safe_mode = False
     result = Ref(topology.type_pun.expr).resolve_one(
         tosca.global_state.context.copy(trace=0)

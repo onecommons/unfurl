@@ -520,6 +520,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     ) -> T:
         return self._search(prop_ref, tosca.find_hosted_on)
 
+    def from_owner(
+        self,
+        prop_ref: T,
+    ) -> T:
+        return self._search(prop_ref, tosca.from_owner)
+
     def find_all_required_by(
         self,
         requirement: Union[str, FieldProjection],

@@ -684,6 +684,9 @@ Built-in keys start with a leading **.**:
 .state         the instance's :class:`unfurl.support.NodeState`
 .parents       list of parents starting from root
 .ancestors     self and parents
+.owner         parent or source if embedded instance otherwise self
+.source        SOURCE node if instance is a relationship
+.target        TARGET node if instance is a relationship
 .root          root ancestor
 .instances     child instances (via the ``HostedOn`` relationship)
 .capabilities  list of capabilities
