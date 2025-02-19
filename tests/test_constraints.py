@@ -199,7 +199,7 @@ def test_mypy_errors():
     expected = [
         'error: Unsupported operand types for * ("Size" and "str")  [operator]',
         'Unsupported operand types for * ("Size" and "_Unit[Frequency]")  [operator]',
-        'Argument 1 to "apply_constraint" of "DataConstraint" has incompatible type "str"; expected "Size"  [arg-type]',
+        'Argument 1 to "apply_constraint" of "DataConstraint" has incompatible type "str"; expected ',
         'Unsupported operand types for + ("Size" and "Frequency")',
         'Argument 1 to "as_int" of "_Unit" has incompatible type "Size"; expected "Frequency"',
         "Found 6 errors in 1 file",
@@ -243,7 +243,6 @@ def test_class_init() -> None:
 
         @classmethod
         def _class_init(cls) -> None:
-            #
             min_length(2).apply_constraint(cls.name)
             # you can also but you lose static type checking:
             cls.name = max_length(20)  # type: ignore

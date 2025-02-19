@@ -250,7 +250,7 @@ class DataConstraint(ToscaObject, Generic[T]):
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return {self.__class__.__name__: to_tosca_value(self.constraint)}
 
-    def apply_constraint(self, val: T) -> bool:
+    def apply_constraint(self, val: Optional[T]) -> bool:
         assert isinstance(val, FieldProjection), val
         val.apply_constraint(self)
         return True
@@ -285,16 +285,19 @@ class valid_values(DataConstraint[T]):
     pass
 
 
-class length(DataConstraint[T]):
-    pass
+class length(DataConstraint[int]):
+    def apply_constraint(self, val: Optional[typing.Sized]) -> bool:  # type: ignore[override]
+        return super().apply_constraint(val)  # type: ignore[arg-type]
 
 
-class min_length(DataConstraint[T]):
-    pass
+class min_length(DataConstraint[int]):
+    def apply_constraint(self, val: Optional[typing.Sized]) -> bool:  # type: ignore[override]
+        return super().apply_constraint(val)  # type: ignore[arg-type]
 
 
-class max_length(DataConstraint[T]):
-    pass
+class max_length(DataConstraint[int]):
+    def apply_constraint(self, val: Optional[typing.Sized]) -> bool:  # type: ignore[override]
+        return super().apply_constraint(val)  # type: ignore[arg-type]
 
 
 class pattern(DataConstraint[T]):
