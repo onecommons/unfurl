@@ -508,8 +508,7 @@ class PythonToYaml:
         tpl = dict_cls({tosca_name: body})
         return tpl
 
-    @staticmethod
-    def set_bases(t_cls: Type[ToscaObject], body):
+    def set_bases(self, t_cls: Type[ToscaObject], body):
         tosca_name = t_cls.tosca_type_name()
         bases: Union[list, str] = [
             b.tosca_type_name() for b in t_cls.tosca_bases() if b != tosca_name
@@ -521,6 +520,10 @@ class PythonToYaml:
             body["derived_from"] = bases
             for b in t_cls.tosca_bases():
                 if issubclass(b, ToscaType):
+                    current_module = self.globals.get("__name__", "builtins")
+                    if b.__module__ != current_module:
+                          module_path = self.globals.get("__file__")
+                          self._import_module(current_module, module_path, b.__module__)
                     super_fields.update(b.__dataclass_fields__)
         return super_fields
 
