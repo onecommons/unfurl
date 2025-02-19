@@ -1779,12 +1779,32 @@ class InstanceProxy(Generic[_PT]):
     """
 
     _cls: Type[_PT]
+    _obj: Optional[_PT]
 
     def __str__(self):
         return f"<{self.__class__.__name__} of {self._cls} at {hex(id(self))}>"
 
     def __repr__(self):
         return f"<{self.__class__.__name__} of {self._cls} at {hex(id(self))}>"
+
+    def _getattr(self, name):
+        val = getattr(self._obj or self._cls, name)
+        if callable(val):
+            if isinstance(val, types.MethodType) and val.__self__ is self._obj:
+                # so we can call with proxy as self
+                val = val.__func__
+            elif (
+                isinstance(val, functools.partial)
+                and val.args
+                and val.args[0] is self._obj
+            ):
+                val = val.func
+            else:
+                return val
+            # should have been set by _invoke() earlier in the call stack.
+            assert global_state.context
+            return functools.partial(val, self)
+        return val
 
 
 class _DataclassType(type):

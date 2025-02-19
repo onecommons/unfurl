@@ -50,7 +50,7 @@ from typing import (
 )
 
 import tosca
-from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
+from tosca import InstanceProxy, ToscaType, DataEntity, ToscaFieldType, TypeInfo
 import tosca.loader
 from tosca._tosca import (
     _Tosca_Field,
@@ -58,9 +58,7 @@ from tosca._tosca import (
     global_state,
     FieldProjection,
     EvalData,
-    _BaseDataType,
     _get_field_from_prop_ref,
-    _get_expr_prefix,
 )
 from .logs import getLogger
 from .eval import RefContext, _map_value, set_eval_func, Ref
@@ -300,7 +298,7 @@ class ProxyCollection(CollectionProxy):
             return self._cache[key]
         val = self._values[key]
         prop_type = self._type_info.types[0]
-        if issubclass(prop_type, tosca.DataType):
+        if issubclass(prop_type, tosca.DataEntity):
             proxy = get_proxy_class(prop_type, DataTypeProxyBase)(val)
             self._cache[key] = proxy
             return proxy
@@ -343,22 +341,22 @@ class ProxyList(ProxyCollection, MutableSequence):
         self._values.insert(index, val)
 
 
-def _proxy_prop(type_info: tosca.TypeInfo, value: Any):
+def _proxy_prop(type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None):
     # converts a value set on an instance to one usable when globalstate.mode == "runtime"
     prop_type = type_info.types[0]
-    if type_info.collection == dict:
+    if type_info.collection is dict or dict in type_info.types:
         return ProxyMap(value, type_info)
-    elif type_info.collection == list:
+    elif type_info.collection is list or list in type_info.types:
         return ProxyList(value, type_info)
-    elif issubclass(prop_type, tosca.DataType):
+    elif issubclass(prop_type, tosca.DataEntity):
         if isinstance(value, MutableMapping):
-            return get_proxy_class(prop_type, DataTypeProxyBase)(value)
+            return get_proxy_class(prop_type, DataTypeProxyBase)(value, obj)
         elif isinstance(value, (type(None), prop_type)):
             return value
         else:
             raise TypeError(f"can't convert value to {prop_type}: {value}")
     elif not type_info.instance_check(value):
-        raise TypeError(f"value is not type {prop_type}: {value}")
+        raise TypeError(f"value of type {type(value)} is not type {prop_type}: {value}")
     return value
 
 
@@ -410,6 +408,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     """
 
     _cls: Type[PT]
+    _obj: Optional[PT]
 
     def __init__(
         self, instance: EntityInstance, obj: Optional[PT], context: RefContext
@@ -421,10 +420,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         self._cache = Cache(self._context)
         # when calling into python code context won't have the basedir for the location of the code
         # (since its not imported as yaml). So set it now.
-        if self._cls.__module__ == "builtins":
-            path = __file__
-        else:
-            path = cast(str, sys.modules[self._cls.__module__].__file__)
+        path = getattr(sys.modules[self._cls.__module__], "__file__", __file__)
         assert path
         self._context.base_dir = os.path.dirname(path)
 
@@ -638,24 +634,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 #     self.instance.template.type_definition, name.lstrip("_")
                 # )
             elif hasattr(self._obj or self._cls, name):
-                if self._obj:
-                    val = getattr(self._obj, name)
-                else:
-                    val = getattr(self._cls, name, None)
-                if callable(val):
-                    if isinstance(val, types.MethodType):
-                        # so we can call with proxy as self
-                        val = val.__func__
-                    elif (
-                        isinstance(val, functools.partial)
-                        and val.args
-                        and val.args[0] is self._obj
-                    ):
-                        val = val.func
-                    # should have been set by _invoke() earlier in the call stack.
-                    assert global_state.context
-                    return functools.partial(val, self)
-                return val
+                return super()._getattr(name)
             elif name in self._instance.attributes:  # untyped properties
                 return self._instance.attributes[name]
         else:
@@ -673,7 +652,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     val = None  # don't raise KeyError if the property isn't required
                 else:
                     val = _proxy_prop(
-                        type_info, self._instance.attributes[field.tosca_name]
+                        type_info,
+                        self._instance.attributes[field.tosca_name],
+                        getattr(self._obj, name) if self._obj else None,
                     )
                 self._cache[name] = val
                 return val
@@ -727,13 +708,14 @@ def get_proxy_class(cls, base: type = InstanceProxyBase):
     return _proxies[cls]
 
 
-DT = TypeVar("DT", bound="DataType")
+DT = TypeVar("DT", bound="DataEntity")
 
 
 class DataTypeProxyBase(InstanceProxy, Generic[DT]):
-    def __init__(self, values):
+    def __init__(self, values, obj: Optional[DT]=None):
         self._values = values
         self._cache: Dict[str, Any] = {}
+        self._obj = obj
 
     def __str__(self):
         return f"<{self._cls.__name__}({self._values})>"
@@ -756,6 +738,9 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
                 val = val.to_yaml(tosca.yaml_cls)
         self._values[name] = val
 
+    def to_yaml(self, dict_cls=dict):
+        return dict_cls(self._values)
+
     def _getattr(self, name):
         if name in self._cache:
             return self._cache[name]
@@ -764,9 +749,9 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
             proxy = _proxy_prop(field.get_type_info(), self._values[name])
             self._cache[name] = proxy
             return proxy
-        elif hasattr(self._cls, name):
+        elif hasattr(self._obj or self._cls, name):
             # XXX if val is method, proxy and set context
-            return getattr(self._cls, name)
+            return super()._getattr(name)
         elif name in self._values:  # untyped properties
             return self._values[name]
         raise AttributeError(name)
