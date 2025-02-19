@@ -38,12 +38,6 @@ class ClusterTerraform(unfurl.artifacts.TerraformModule, ClusterOp):
     # need to merge properties with inputs for configurator
     file: str = "kubernetes"
 
-    # def execute(self, inputs: KubernetesClusterInputs) -> KubernetesClusterOutputs:
-    #     ToscaInputs._get_inputs(self)  # type: ignore
-    #     return None # type: ignore
-    #     # print("Cluster.execute!!", inputs)
-    #     # return configurator(self.className)(self).execute(inputs)
-
 class DOCluster(tosca.nodes.Root, KubernetesClusterInputs, KubernetesClusterOutputs):
     clusterconfig: "ClusterOp" = ClusterTerraform()
 

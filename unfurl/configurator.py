@@ -627,11 +627,13 @@ class TaskView:
                 self.configSpec.artifact.parentNode.nested_name
             )
             if parent:
-                artifact = ArtifactInstance(
-                    self.configSpec.artifact.name,
-                    template=self.configSpec.artifact,
-                    parent=parent,
-                )
+                artifact = parent.artifacts.get(self.configSpec.artifact.name)
+                if not artifact:
+                    artifact = ArtifactInstance(
+                        self.configSpec.artifact.name,
+                        template=self.configSpec.artifact,
+                        parent=parent,
+                    )
         return artifact
 
     def _to_resultsmap(self, ctx) -> ResultsMap:
@@ -648,12 +650,6 @@ class TaskView:
             if executeOp and executeOp.input_defs:
                 # add defs to provide validation for operation inputs with the same name
                 for name, prop in executeOp.get_declared_inputs().items():
-                    # add metadata so the configurator knows these inputs are for execution
-                    # prop.schema.schema.setdefault("metadata", {})[
-                    #     ToscaInputs._metadata_key
-                    # ] = True
-                    # if executeOp.inputs and name in executeOp.inputs:
-                    #     prop.schema.schema["default"] = executeOp.inputs[name]
                     defs[name] = prop
             if self.configSpec.input_defs:
                 defs.update(self.configSpec.input_defs)

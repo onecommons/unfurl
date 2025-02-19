@@ -203,12 +203,7 @@ def _get_python_manifest(pyfile, yamlfile=None):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     with open(os.path.join(basepath, pyfile)) as f:
         python_src = f.read()
-        py_tpl = _to_yaml(python_src)
-        manifest_tpl = dict(
-            apiVersion="unfurl/v1alpha1",
-            kind="Ensemble",
-            spec=dict(service_template=py_tpl),
-        )
+        manifest_tpl = get_manifest_tpl(python_src)
         yaml.dump(manifest_tpl, sys.stdout)
         if yamlfile:
             with open(os.path.join(basepath, yamlfile)) as f:
@@ -218,6 +213,47 @@ def _get_python_manifest(pyfile, yamlfile=None):
 
     return manifest_tpl
 
+def get_manifest_tpl(python_src):
+    py_tpl = _to_yaml(python_src)
+    print( py_tpl )
+    manifest_tpl = dict(
+            apiVersion="unfurl/v1alpha1",
+            kind="Ensemble",
+            spec=dict(service_template=py_tpl),
+        )
+    return manifest_tpl
+
+service_template = """
+import unfurl
+import tosca
+
+class NodePool(tosca.DataEntity):
+    name: str
+    count: int = 1
+
+class Cluster(tosca.nodes.Root):
+    node_pool: NodePool
+    config: unfurl.artifacts.TemplateOperation = unfurl.artifacts.TemplateOperation(file="")
+
+    def configure(self, **kw):
+        # this can't be converted to declarative yaml (the node_pool.count assignment will throw an exception)
+        # so this method will be invoked during task render time
+        node_pool = self.node_pool
+        node_pool.count = 3
+        return self.config.execute(done=dict(outputs=node_pool.to_yaml()))
+
+cluster = Cluster(node_pool=NodePool(name="node_pool"))
+"""
+def test_render_operation():
+    # test non-declarative TOSCA operations that execute an artifact at render time
+    manifest_tpl = get_manifest_tpl(service_template)
+    manifest = YamlManifest(manifest_tpl)
+    job = Runner(manifest)
+    job = job.run(JobOptions(skip_save=True))
+    assert job
+    assert len(job.workDone) == 1, len(job.workDone)
+    task = list(job.workDone.values())[0]
+    assert task.outputs["count"] == 3
 
 def test_artifact_dsl():
     manifest_tpl = _get_python_manifest("dsl_artifacts.py")

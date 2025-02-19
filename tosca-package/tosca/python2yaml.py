@@ -901,6 +901,7 @@ class _ToscaTypeProxy(InstanceProxy):
 
 
 class _OperationProxy:
+    # intercept calls to execute when executing an operation, collects arguments as inputs (without default arguments)
     _artifact_executed: Union[None, _ArtifactProxy, FieldProjection, ToscaType] = None
     _inputs = None
 
@@ -910,7 +911,7 @@ class _OperationProxy:
         sig = self.get_execute_signature()
         if sig:
             # if plain values are passed as positional args, we need to know the signature to get the argument name
-            bound = sig.bind(*args, **kw)
+            bound = sig.bind(*args)
             for name, parameter in sig.parameters.items():
                 if name in bound.arguments and parameter.kind in [
                     inspect.Parameter.POSITIONAL_ONLY,
@@ -921,11 +922,19 @@ class _OperationProxy:
                         ti_args.append(val)
                     else:
                         kwargs[name] = val
+            kwargs.update(kw)
         else:
             ti_args = args  # type: ignore
             kwargs = kw
-
         self._inputs = ToscaInputs._get_inputs(*ti_args, **kwargs)
+        return None
+
+    def get_artifact_name(self) -> Optional[str]:
+        if isinstance(self._artifact_executed, ArtifactEntity):
+            return self._artifact_executed._name
+        elif isinstance(self._artifact_executed, _ArtifactProxy) and isinstance(self._artifact_executed.name_or_tpl, str):
+            return self._artifact_executed.name_or_tpl
+        # note: we don't have instance if _artifact_executed is a FieldProjection so we can't get the name
         return None
 
     def get_execute_signature(self) -> Optional[inspect.Signature]:
@@ -949,7 +958,7 @@ class _OperationProxy:
     def handleattr(
         self, field_or_obj: Union[_ArtifactProxy, FieldProjection, ToscaType], name
     ):
-        if name in ["execute", "set_inputs"]:
+        if name in ["execute"]:
             self._artifact_executed = field_or_obj
             return self.execute
         return dataclasses.MISSING

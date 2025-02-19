@@ -62,13 +62,19 @@ from tosca._tosca import (
 )
 from .logs import getLogger
 from .eval import RefContext, _map_value, set_eval_func, Ref
-from .result import Results, ResultsItem, ResultsMap, CollectionProxy
-from .runtime import EntityInstance, NodeInstance, RelationshipInstance
-from .spec import EntitySpec, NodeSpec, RelationshipSpec
+from .result import ResultsItem, CollectionProxy
+from .runtime import (
+    ArtifactInstance,
+    CapabilityInstance,
+    EntityInstance,
+    NodeInstance,
+    RelationshipInstance,
+)
+from .spec import EntitySpec, NodeSpec, RelationshipSpec, PolicySpec, GroupSpec
 from .support import Status
 from .repo import RepoView
-from .util import UnfurlError, get_base_dir
-from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
+from .util import UnfurlError, UnfurlTaskError, get_base_dir
+from tosca.python2yaml import _OperationProxy, python_src_to_yaml_obj, WritePolicy
 from .configurator import Configurator, ConfiguratorResult, TaskView
 import sys
 
@@ -150,6 +156,10 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
         section = "node_templates"
     elif isinstance(template, RelationshipSpec):
         section = "relationship_templates"
+    elif isinstance(template, PolicySpec):
+        section = "policies"
+    elif isinstance(template, GroupSpec):
+        section = "groups"
     else:
         return None
     metadata = template.toscaEntityTemplate.entity_tpl.get("metadata")
@@ -159,18 +169,31 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
     return None
 
 
-def proxy_instance(instance, cls: Type[_ToscaType], context: RefContext):
+def proxy_instance(
+    instance: EntityInstance, cls: Type[_ToscaType], context: RefContext
+):
     if instance.proxy:
         # XXX make sure existing proxy context matches context argument
         return instance.proxy
-    obj = find_template(instance.template)
+    if instance.parent and isinstance(instance, (ArtifactInstance, CapabilityInstance)):
+        obj = None
+        parent = find_template(instance.parent.template)
+        if parent:
+            field_type = ToscaFieldType(
+                instance.parentRelation[1:]
+            )  # strip leading '_'
+            field = parent.get_field_from_tosca_name(instance.template.name, field_type)
+            if field:
+                obj = getattr(parent, field.name)
+    else:
+        obj = find_template(instance.template)
     if obj:
         found_cls: Optional[Type[_ToscaType]] = obj.__class__
     else:
         # if target is subtype of cls, use the subtype
-        found_cls = cls._all_types.get(instance.template.type)
+        found_cls = cls._all_types.get(instance.template.type, cls)
 
-    proxy = get_proxy_class(found_cls or cls)(instance, obj, context)
+    proxy = get_proxy_class(found_cls)(instance, obj, context)
     instance.proxy = proxy
     return proxy
 
@@ -186,12 +209,18 @@ class DslMethodConfigurator(Configurator):
         if self.action == "render":
             # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
-            result = obj._invoke(self.func)
+            execute_proxy = _OperationProxy()
+            try:
+                global_state._type_proxy = execute_proxy
+                result = obj._invoke(self.func)
+            finally:
+                global_state._type_proxy = None
+
             if isinstance(result, Generator):
                 # render the yielded configurator
                 result = result.send(None)
                 # need a way to mark yielded configurator as already rendered
-            if isinstance(result, Configurator):
+            elif isinstance(result, Configurator):
                 self.configurator = result
                 # configurators rely on task.inputs, so update them
                 task.inputs.update(result._inputs)
@@ -199,9 +228,32 @@ class DslMethodConfigurator(Configurator):
                 # so we need to set configSpec.inputs too in order to preserve them for run()
                 task.configSpec.inputs.update(result._inputs)
                 return self.configurator.render(task)
-            else:
-                assert callable(result), result
+            elif callable(result):
                 self.func = result
+            elif execute_proxy._artifact_executed:
+                name = execute_proxy.get_artifact_name()
+                artifact = task.target.artifacts.get(name)
+                if not artifact:
+                    raise UnfurlTaskError(
+                        task,
+                        f"Implementation artifacts set during render must be declared on node template: {execute_proxy._artifact_executed}",
+                    )
+                task.configSpec.artifact = artifact.template
+                task.configSpec.className = artifact.template.properties.get(
+                    "className"
+                )
+                if execute_proxy._inputs:
+                    task.configSpec.inputs.update(execute_proxy._inputs)
+                    task.configSpec.arguments = list(execute_proxy._inputs)
+                self.configurator = task.configSpec.create()
+                # regenerate task.inputs:
+                task._inputs = None
+                task.inputs
+                return self.configurator.render(task)
+            else:
+                raise UnfurlError(
+                    f"unsupported configurator type: {type(result)} {result._obj} {result._cls}"
+                )
         return super().render(task)
 
     def _is_generator(self) -> bool:
@@ -248,7 +300,7 @@ def eval_computed(arg, ctx: RefContext):
     if cls_name:
         cls = getattr(module, cls_name)
         func = getattr(cls, func_name)
-        proxy = proxy_instance(ctx.currentResource, cls, ctx)
+        proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), cls, ctx)
         return proxy._invoke(func, *args, **kw)
     else:
         return getattr(module, func_name)(*args, **kw)
@@ -273,7 +325,7 @@ def eval_validate(arg, ctx: RefContext):
     if cls_name:
         cls = getattr(module, cls_name)
         func = getattr(cls, func_name)
-        proxy = proxy_instance(ctx.currentResource, cls, ctx)
+        proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), cls, ctx)
         return proxy._invoke(func, ctx.vars["value"])
     else:
         return getattr(module, func_name)(ctx.vars["value"])
