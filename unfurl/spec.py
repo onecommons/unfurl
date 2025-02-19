@@ -733,7 +733,7 @@ class EntitySpec(ResourceRef):
         self.toscaEntityTemplate: EntityTemplate = toscaNodeTemplate
         self.topology: TopologySpec = topology
         self.spec = topology.spec
-        self.name = toscaNodeTemplate.name
+        self.name: str = toscaNodeTemplate.name
         if not validate_unfurl_identifier(self.name):
             ExceptionCollector.appendException(
                 UnfurlValidationError(

@@ -58,8 +58,8 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     className: Optional[str]
     preConditions: Optional[dict]
     primary: Optional["ArtifactSpec"]
-    inputs: Optional[Mapping[str, Any]]
-    input_defs: Optional[Mapping[str, Property]]
+    inputs: Optional[Dict[str, Any]]
+    input_defs: Optional[Dict[str, Property]]
     base_dir: Optional[str]
     dependencies: Optional[List["ArtifactSpec"]]
     outputs: Optional[Dict[str, Any]]
@@ -76,27 +76,27 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
 class ConfigurationSpec:
     def __init__(
         self,
-        name,
-        operation,
-        className=None,
+        name: str,
+        operation: str,
+        className: Optional[str]=None,
         majorVersion=0,
         minorVersion="",
         workflow=Defaults.workflow,
-        timeout=None,
-        operation_host=None,
-        environment=None,
-        inputs=None,
+        timeout: Optional[int]=None,
+        operation_host: Optional[str]=None,
+        environment: Optional[Dict[str, str]]=None,
+        inputs: Optional[Dict[str, Any]]=None,
         inputSchema=None,
-        preConditions=None,
+        preConditions: Optional[dict]=None,
         postConditions=None,
-        primary=None,
-        dependencies=None,
-        outputs=None,
-        interface=None,
-        entry_state=None,
-        base_dir=None,
-        input_defs=None,
-        arguments=None,
+        primary: Optional[ArtifactSpec]=None,
+        dependencies: Optional[List[ArtifactSpec]]=None,
+        outputs: Optional[Dict[str, Any]]=None,
+        interface: Optional[str]=None,
+        entry_state: Optional[str]=None,
+        base_dir: Optional[str]=None,
+        input_defs: Optional[Dict[str, Property]]=None,
+        arguments: Optional[List[str]]=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -545,7 +545,7 @@ class TaskRequest(PlanRequest):
         return name
 
     def _summary_dict(self, include_rendered=True):
-        summary = dict(
+        summary: Dict[str, Any] = dict(
             operation=self.configSpec.operation or self.configSpec.name,
             reason=self.reason,
         )
@@ -1190,7 +1190,7 @@ def create_task_request(
     operation: str,
     resource: "EntityInstance",
     reason: Optional[str] = None,
-    inputs: Optional[Mapping[str, Any]] = None,
+    inputs: Optional[Dict[str, Any]] = None,
     startState=None,
     operation_host=None,
     skip_filter=False,
@@ -1380,7 +1380,7 @@ def _set_config_spec_args(
 
 def _get_config_spec_args_from_implementation(
     iDef: OperationDef,
-    inputs: Mapping[str, Any],
+    inputs: Dict[str, Any],
     template: Optional[EntitySpec],
     operation_host: Optional[str],
     dry_run: bool = False,
