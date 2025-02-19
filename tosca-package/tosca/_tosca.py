@@ -706,7 +706,7 @@ class ToscaFieldType(Enum):
 
 
 class _REQUIRED_TYPE:
-    "sentinel object"
+    __slots__ = ()
 
 
 REQUIRED = _REQUIRED_TYPE()
@@ -716,14 +716,14 @@ MISSING = dataclasses.MISSING
 
 
 class _DEFAULT_TYPE:
-    pass
+    __slots__ = ()
 
 
 DEFAULT: Any = _DEFAULT_TYPE()
 
 
 class _CONSTRAINED_TYPE:
-    pass
+    __slots__ = ()
 
 
 CONSTRAINED: Any = _CONSTRAINED_TYPE()
@@ -802,15 +802,15 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
 
     def set_constraint(self, val):
         # this called via _class_init
-        if isinstance(val, EvalData):
-            if self._tosca_field_type in [
+        if isinstance(val, EvalData) and not global_state._in_process_class:
+            if self.tosca_field_type in [
                 ToscaFieldType.capability,
                 ToscaFieldType.artifact,
             ]:
                 raise AttributeError(
                     "can not set {val} on {self}: {self._tosca_field_type} attributes can't be references"
                 )
-            if self._tosca_field_type == ToscaFieldType.requirement:
+            if self.tosca_field_type == ToscaFieldType.requirement:
                 # if requirement and value is a Ref, set a node filter
                 self.add_node_filter(val)
                 return
@@ -819,21 +819,25 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         self._set_default(val)
 
     def set_property_constraint(self, name: str, val: Any):
-        # this called via _class_init
         # if self is a requirement, name is a property on the target node or the relationship
-        if self._tosca_field_type == ToscaFieldType.requirement:
+        if (
+            not global_state._in_process_class
+            and self.tosca_field_type == ToscaFieldType.requirement
+        ):
+            # this called via _class_init
             # if requirement, set a node filter (val can be Ref or concrete value)
             self.add_node_filter(val, name)
             return
 
         # if self is a capability or artifact, name is a property on the capability or artifact
         # if self is property or attribute, name is a field on the value (which must be a datatype or map)
-        if (self.default is MISSING and self.default_factory is MISSING) or isinstance(
-            self.default, EvalData
-        ):
+        if (
+            self.default in [MISSING, REQUIRED, CONSTRAINED]
+            and self.default_factory is MISSING
+        ) or isinstance(self.default, EvalData):
             # there's no value to set the attribute on!
             raise AttributeError(
-                "can not set value for {name} on {self}: property constraints require a concrete default value"
+                f"can not set value for {name} on {self}: property constraints require a concrete default value, not {type(self.default)}"
             )
         elif self.default_factory is not MISSING:
             # default exists but not created until object initialization
