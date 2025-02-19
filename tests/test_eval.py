@@ -119,6 +119,7 @@ class EvalTest(unittest.TestCase):
             ["f", [{"a": 1, "b": 1}]],
             ["::*", [resource]],
             ["::*::.template::type", ["tosca.nodes.Root"]],
+            ["$missing::a", []],
 
 
             # [{"q": "{{ foo }}"}, ["{{ foo }}"]]

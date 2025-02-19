@@ -358,7 +358,11 @@ class Expr:
             paths = self.paths[1:]
         elif self.paths[0].key and self.paths[0].key[0] == "$":
             # if starts with a var, use that as the start
-            currentResource = context.resolve_var(self.paths[0].key)
+            try:
+                currentResource = context.resolve_var(self.paths[0].key)
+            except KeyError:
+                context.trace("initial variable in expression not found", self.source)
+                return []
             if len(self.paths) == 1:
                 # bare reference to a var, just return it's value
                 return [Result(currentResource)]
