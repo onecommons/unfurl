@@ -744,8 +744,12 @@ class AnyRef(ResourceRef):
                 break
             else:
                 parent = parent.parent
-        self.key = name
+        self._key = name
         self.children: List[AnyRef] = []
+
+    @property
+    def key(self):
+        return self._key
 
     class _ChildResources(Mapping):
         def __init__(self, resource):
@@ -788,7 +792,7 @@ class AnyRef(ResourceRef):
         # assumes this is called from an expression's filter test and we want to proceed for analysis
         if isinstance(other, AnyRef):
             if self.key == ".name":
-                self.key = other.key
+                self._key = other.key
             return True
         return False
 
@@ -1043,7 +1047,7 @@ def recursive_eval(v, exp, context):
             else:
                 # flattens
                 rest = exp
-                context.trace("flattening", item)
+                context.trace("flattening", item, "rest:", rest)
 
         # iv will be a generator or list
         if rest:

@@ -171,6 +171,10 @@ class ResourceRef(ABC):
     def environ(self):
         return self.root._environ
 
+    @property
+    def key(self):
+        return self.name
+
 
 class ChangeRecord:
     """
