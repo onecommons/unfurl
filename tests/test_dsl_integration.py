@@ -349,7 +349,7 @@ def test_units(safe_mode):
           - tests.test_dsl_integration:calc_size
           - eval:
               scalar: 28000 MB
-          - eval: ::Topology.test3::.capabilities[.name=host]::mem_size
+          - eval: ::Topology.test3::.capabilities::[.name=host]::mem_size
     """.replace(" ", "")
         in str_io.getvalue().replace(" ", "")
     )
@@ -360,8 +360,9 @@ def test_units(safe_mode):
     topology.test.mem_size = 2 * MB  # set attribute value so expression resolves
     assert topology.test.mem_size == 2 * MB
     assert topology.test3.host.mem_size == 4 * MB
-
-    assert Topology.test3.host.from_owner(Topology.Test.mem_size) == EvalData({'eval': '::Topology.test3::.capabilities[.name=host]::.owner::mem_size'})
+    expr = EvalData({'eval': '::Topology.test3::.capabilities::[.name=host]::.owner::mem_size'})
+    assert Topology.test3.host.from_owner(Topology.Test.mem_size) == expr
+    assert runner.manifest.rootResource.query('::Topology.test::.capabilities::[.name=host]::.owner::mem_size', trace=2) == 2 * MB
     assert topology.test.host.from_owner(Topology.Test.mem_size) == 2 * MB
     tosca.global_state.safe_mode = False
     result = Ref(topology.type_pun.expr).resolve_one(

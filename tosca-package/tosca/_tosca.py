@@ -2983,7 +2983,7 @@ class CapabilityEntity(_OwnedToscaType):
 
     def get_embedded_name(self) -> str:
         if self._node:
-            return f"{self._node._name}::.capabilities[.name={self._local_name}]"
+            return f"{self._node._name}::.capabilities::[.name={self._local_name}]"
         return self._name
 
 
@@ -3026,7 +3026,7 @@ class Relationship(_OwnedToscaType):
 
     def get_embedded_name(self) -> str:
         if self._node:
-            return f"{self._node._name}::.requirements[.name={self._local_name}]"
+            return f"{self._node._name}::.requirements::[.name={self._local_name}]"
         return self._name
 
 
