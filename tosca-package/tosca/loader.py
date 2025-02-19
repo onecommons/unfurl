@@ -780,7 +780,6 @@ def restricted_exec(
         print(ast.unparse(c_ast))  # type: ignore
     if result.errors:
         raise SyntaxError("\n".join(result.errors))
-    temp_module = None
     if full_name not in modules:
         temp_module = ModuleType(full_name)
         temp_module.__dict__.update(namespace)
@@ -789,8 +788,9 @@ def restricted_exec(
         modules[full_name] = temp_module
     else:
         temp_module = modules[full_name]
+        temp_module.__dict__.update(namespace)
     remove_temp_module = False
-    if temp_module and full_name not in sys.modules:
+    if full_name not in sys.modules:
         # dataclass._process_class() might assume the current module is in sys.modules
         # so to make it happy add a dummy one if its missing
         sys.modules[full_name] = temp_module
