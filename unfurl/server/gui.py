@@ -40,7 +40,7 @@ Running ``unfurl serve --gui /path/to/your/project`` will start Unfurl's built-i
 When the server starts it checks for the web application's files at
 ``{DIST_DIR}`` in your unfurl home project if there is one set or in the current project.
 
-If that directory is missing or the web application version there isn't compatible with the version required by your unfurl (currently "{TAG}"), the web application is downloaded from ``{RELEASE_URL}`` to ``{DIST_DIR}``.
+If that directory is missing or the web application version there isn't compatible with the version required by your local unfurl (currently "{TAG}"), the web application is downloaded from ``{RELEASE_URL}`` to ``{DIST_DIR}``.
 
 You can set an alternative download URL with the ``UNFURL_GUI_DIST_URL`` environment variable or set it to "skip" to skip downloading a release. If a version tag is embedded in that URL then the local download needs to exactly match that version otherwise a semantic version compatibility check is made.
 You can also set an alternative download location with the ``UNFURL_GUI_DIST_DIR`` environment variable.

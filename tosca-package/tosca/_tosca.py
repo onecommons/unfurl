@@ -2028,6 +2028,7 @@ def _field_as_eval(
 
 
 class ToscaInputs(_ToscaType):
+    "Base class for defining TOSCA operation inputs."
     _metadata_key: ClassVar[str] = "input_match"
 
     @classmethod
@@ -2079,6 +2080,7 @@ class ToscaInputs(_ToscaType):
 
 
 class ToscaOutputs(_ToscaType):
+    "Base class for defining TOSCA operation outputs."
     _metadata_key: ClassVar[str] = "output_match"
 
     @classmethod

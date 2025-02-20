@@ -363,13 +363,16 @@ def unit(unit: str) -> _Unit:
 _unit = unit
 
 
-def scalar(val) -> Optional[_Scalar]:
+def scalar(val: Any) -> Optional[_Scalar]:
     """
     Parse the string into a scalar or return None if parsing fails.
 
     Supported syntax:
 
     ``(+|-)?[digits]+ *? [unit]``  (spaces between number and unit is optional)
+
+    Args:
+        val: value to attempt to parse (The value is first converted to string, so _Scalars can be used).
     """
     val, unit = parse_scalar_unit(val)
     if val is not None and unit:
@@ -377,8 +380,8 @@ def scalar(val) -> Optional[_Scalar]:
     return None
 
 
-def scalar_value(val_, unit=None, round=None) -> Union[float, int, None]:
-    """Convert a scalar to a number denominated by the given unit. If the scalar_value is a string, parse it as a scalar.
+def scalar_value(val_: Any, unit=None, round=None) -> Union[float, int, None]:
+    """Convert a scalar to a number denominated by the given unit. If the scalar_value is a string or a _Scalar, parse it as a scalar.
     If the scalar_value is a number assume it is already in the given unit. If the unit keyword is omitted, use the unit parsed from the scalar.
 
     Return a float or an int depending on the “round” parameter: if a integer the number of digits to round to, or “ceil’, “floor” to round up or down to the nearest integer.

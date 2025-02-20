@@ -15,7 +15,7 @@ Repositories
 
 You declare repositories using TOSCA's `repository <tosca_repositories>` syntax at the top-level of a TOSCA service template or in the `environment` section of your project's `unfurl.yaml`.
 
-You can also create "virtual" repositories by declaring node templates of type ``unfurl.nodes.Repository`` or ``unfurl.nodes.LocalRepository``. This will instantiate a repository of with same name as the template and it will contain the artifacts listed in the ``artifacts`` section of the node template -- here's `an example <https://github.com/onecommons/unfurl/blob/f5da8de13ae2dcce293508c4ccac9b373e66dd49/unfurl/tosca_plugins/artifacts.yaml#L140>`_.
+You can also create "virtual" repositories by declaring node templates of type ``unfurl.nodes.Repository`` or ``unfurl.nodes.LocalRepository``. This will instantiate a repository with same name as the template and it will contain the artifacts listed in the ``artifacts`` section of the node template -- here's `an example <https://github.com/onecommons/unfurl/blob/f5da8de13ae2dcce293508c4ccac9b373e66dd49/unfurl/tosca_plugins/artifacts.yaml#L140>`_.
 
 The contents of a `repository <tosca_repositories>` can be referenced in the following ways:
 
