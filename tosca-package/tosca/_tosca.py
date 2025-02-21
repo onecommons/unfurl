@@ -312,7 +312,13 @@ class Namespace(types.SimpleNamespace):
     @classmethod
     def get_defs(cls) -> Dict[str, Any]:
         ignore = ("__doc__", "__module__", "__dict__", "__weakref__", "_tosca_name")
-        return {k: v for k, v in cls.__dict__.items() if k not in ignore}
+        defs = {k: v for k, v in cls.__dict__.items() if k not in ignore}
+        defs["__name__"] = cls.__module__
+        if cls.__module__ in sys.modules:
+            mod = sys.modules[cls.__module__]
+            if hasattr(mod, "__file__"):
+                defs["__file__"] = mod.__file__
+        return defs
 
     @classmethod
     def set_name(cls, obj, name):
