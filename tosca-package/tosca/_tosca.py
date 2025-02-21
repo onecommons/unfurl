@@ -2035,6 +2035,7 @@ def _field_as_eval(
 
 class ToscaInputs(_ToscaType):
     "Base class for defining TOSCA operation inputs."
+
     _metadata_key: ClassVar[str] = "input_match"
 
     @classmethod
@@ -2087,6 +2088,7 @@ class ToscaInputs(_ToscaType):
 
 class ToscaOutputs(_ToscaType):
     "Base class for defining TOSCA operation outputs."
+
     _metadata_key: ClassVar[str] = "output_match"
 
     @classmethod
@@ -2290,7 +2292,7 @@ class ToscaType(_ToscaType):
                 and issubclass(val.field.owner, Node)
             ):
                 # if a relative field projection from a node template, assume its the parent
-                setattr(self, field.name, val.set_start(".parent"))
+                setattr(self, field.name, val.set_start(".owner"))
         self._initialized = True
 
     def _enforce_required_fields(self) -> bool:

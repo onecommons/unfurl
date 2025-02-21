@@ -679,7 +679,7 @@ def test_class_init() -> None:
                     "shellScript": {
                         "type": "tosca.artifacts.Root",
                         "file": "example.sh",
-                        "intent": {"eval": ".parent::prop1"},
+                        "intent": {"eval": ".owner::prop1"},
                     }
                 },
                 "requirements": [{"host": "my_compute"}],
@@ -704,7 +704,7 @@ def test_class_init() -> None:
                     "file": "example.sh",
                     "type": "tosca.artifacts.Root",
                     "intent": {
-                        "eval": ".parent::prop1",
+                        "eval": ".owner::prop1",
                     },
                 }
             },
