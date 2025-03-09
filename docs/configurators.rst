@@ -2,6 +2,8 @@
 Configurators
 ===============
 
+Configurators is a software plugin that implements an operation and applies changes to instances. There are built-in configurators for shell scripts, Ansible playbooks, Terraform configurations, and Kubernetes resources or you can include your own as part of your blueprint.
+
 To use a configurator, set it in the ``implementation`` field of an :std:ref:`Operation`
 and set its inputs as documented below. Configurator names are case-sensitive;
 if a configurator name isn't found it is treated as an external command.
@@ -29,6 +31,8 @@ it will use the ``Ansible`` configurator and generate a playbook that invokes it
   .. literalinclude:: ./examples/configurators-1.py
     :language: python
 
+
+Configurators are fairly low-level. You can use "Installer" nodes that. Artifacts
 
 Available configurators include:
 
@@ -82,7 +86,7 @@ Inputs
   :playbook: (*required*) If string, treat as a file path to the Ansible playbook to run, otherwise treat as an inline playbook
   :inventory: If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline YAML inventory.
               If omitted, the inventory will be generated (see below)
-  :arguments: A dictionary of variables that will be passed to the playbook as Ansible facts
+  :arguments: A dictionary of variables that will be passed to the playbook as Ansible facts. See `arguments`
   :playbookArgs: A list of strings that will be passed to ``ansible-playbook`` as command-line arguments
   :resultTemplate: Same behavior as defined for `Shell` but will also include ``outputs`` as a variable.
 
@@ -250,6 +254,7 @@ Inputs
 ------
 
   :command: (*required*) The command to execute It can be either a string or a list of command arguments.
+  :arguments: A map of arguments to pass to the command.
   :cwd:  Set the current working directory to execute the command in.
   :dryrun: During a during a dryrun job this will be either appended to the command line
            or replace the string ``%dryrun%`` if it appears in the command. (``%dryrun%`` is stripped out when running regular jobs.)
@@ -445,6 +450,17 @@ Multiple provisioners become a list:
               destination: /tmp/example.txt
           - remote-exec:
               inline: ["sudo install-something -f /tmp/example.txt"]
+
+You can convert HCL to JSON and YAML using tools like `hcl2json <https://github.com/tmccombs/hcl2json>`_ and `yq <https://github.com/mikefarah/yq/>`_, for example:
+
+.. code-block:: shell
+
+  hcl2json main.tf | yq -P -oyaml
+
+Expressing terraform modules as YAML or JSON instead of HCL exposes the terraform in a structured way, making it easier to provide extensibility.
+For example a subtype node template or artifact could add or update terraform resources defined on the base type: In the example below, a derived could redefines its base type's "main" property without have to replace the entire definition by using Ansible Jinja2's combine filter :
+
+  main: "{{ combine('.super::main' | eval,  SELF.custom_changes, recursive=True, list_merge='append_rp') }}"
 
 ==================
 Installers
@@ -724,3 +740,59 @@ properties
 
   :name: (string) The name of this program.
   :program: (map) A map of `settings <http://supervisord.org/configuration.html#program-x-section-values>`_ for this program.
+
+
+=============
+Artifacts
+=============
+
+Instead of setting an operation's implementation to a configurator, you can set it to an `artifact`.
+Using an artifact allows you to reuse an implementation with more than one operation. For example, you can create artifacts for specific Terraform modules, Ansible playbooks, or executables.
+
+You define an ``execute`` operation on an artifact's type or template definition to specify the inputs and outputs that can be passed to the artifacts configurator. How the inputs and outputs are used depends on the artifact's type. For example, with a Terraform module artifact, its inputs will be used as the Terraform module's variables and its outputs the Terraform module's outputs. Or with a shell executable artifact, the inputs specify the command line arguments passed to the executable.
+
+The example below declares an artifact that represents shell script and shows how an operation can invoke the artifact and pass values to artifact itself.
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/artifact2.py
+    :language: python
+
+  .. literalinclude:: ./examples/artifact2.yaml
+    :language: yaml
+
+Arguments
+=========
+
+When an artifact is assigned as an operation's implementation, the operation `arguments` are passed to the artifact as the execute operation's inputs.
+
+If ``arguments`` isn't explicitly declared as an operation input, one will be created:
+
+* input defaults defined on the execution operation
+* properties mapped to on the node or on the implementation artifact (see `Shared Properties`)
+* operation inputs listed in "arguments" metadata key, if set. The Python DSL sets this based on the call to the ``execute`` method, as shown in the example above.
+* if "arguments" metadata key is missing, operation inputs with the same name as above inputs or the execute operation's input definitions.
+
+If an operation input with the same name as an execute input override any execute arguments and it is a validation error inputs doesn't meet the arguments input spec requirement (and the Python DSL will report a static type error).
+
+Shared Properties
+=================
+
+In the Python DSL, TOSCA types can inherit from :py:class:`tosca.ToscaInputs` and  :py:class:`tosca.ToscaOutputs` classes using multiple inheritance and their fields will be inherited as TOSCA properties and attributes respectively. If an execute operation uses ToscaInputs as an argument in its method signature, any node or artifact that inherit that ToscaInputs class will have those properties passed as arguments. This way implementation definitions stay in sync with the nodes that use them.
+
+In YAML, you can do the equivalent by adding a ``input_match`` metadata key to those properties to indicate they should be treated as arguments to operations. When invoking an operation, any property on the node or on the implementation artifact has that set will be added arguments. Its value can be a boolean or the name of an artifact to indicate that it should only be passed as arguments to operations that use that artifact. You can also control with properties are passed as arguments by adding an ``input_match`` metadata key to the artifact ``execute`` interface's metadata -- if set, only properties with matching ``input_match`` values will be set.  The YAML generated by the Python DSL uses that mechanism as the example below shows:
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/shared-properties.py
+    :language: python
+
+  .. literalinclude:: ./examples/shared-properties.yaml
+    :language: yaml
+
+Abstract artifacts
+==================
+
+You can define abstract artifact types that just define the inputs and outputs it expects by defining an artifact type with an ``execute`` operation that doesn't have an implementation declared. Artifacts can implement that by, for example, by using multiple inheritance to inherit both the abstract artifact type and a concrete artifact type like ``unfurl.artifacts.TerraformModule``.
+
+This way a node type can declare operations with abstract artifacts and node templates or a node subclass can set a concrete artifact without having to reimplement the operations that use it -- with the assurance that the static type checker will check that operation signatures are compatible.
