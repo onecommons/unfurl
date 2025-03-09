@@ -8,7 +8,8 @@ metadata:
 
 repositories:
   asdf:
-    url: https://github.com/asdf-vm/asdf.git#v0.8.0
+    # last version before go rewrite
+    url: https://github.com/asdf-vm/asdf.git#v0.15.0
 
 artifact_types:
   artifact.AsdfTool:
