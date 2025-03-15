@@ -574,7 +574,8 @@ class TaskView:
         if self._inputs is None:
             assert self._attributeManager
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
-            ctx = RefContext(self.target, task=self)
+            ctx = self.target.attributes.context
+            ctx.task = self
             ctx.referenced = self._attributeManager.tracker
             relationship = None
             if isinstance(self.target, RelationshipInstance):
@@ -637,7 +638,6 @@ class TaskView:
         return artifact
 
     def _to_resultsmap(self, ctx) -> ResultsMap:
-        # task.inputs: execute arguments (explicit operation inputs) + signature defaults + artifact properties
         inputs: MutableMapping = self.configSpec.inputs
         artifact = self._artifact
         if artifact:
