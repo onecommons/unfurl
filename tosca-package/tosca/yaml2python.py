@@ -808,7 +808,7 @@ class Convert:
         return f"({', '.join(src_list)})"
 
     def _prop_type(self, schema: Schema) -> str:
-        datatype = schema.type
+        datatype = schema.schema["type"]
         typename = _tosca.TOSCA_SIMPLE_TYPES.get(datatype)
         if typename:
             if typename in __all__:

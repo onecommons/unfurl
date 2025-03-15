@@ -782,11 +782,11 @@ topology_template:
 
 def test_datatype():
     import tosca
-    from tosca import DataType, DEFAULT
+    from tosca import DataEntity, DEFAULT
 
     with tosca.set_evaluation_mode("parse"):
 
-        class MyDataType(DataType):
+        class MyDataType(DataEntity):
             prop1: str = ""
             map: Dict[str, int] = DEFAULT
 
@@ -953,6 +953,57 @@ def test_relationship():
     # print(python_src)
     assert parsed_yaml == _to_yaml(python_src, True)
     tosca_tpl2 = _to_yaml(test_relationship_python, True)
+    # pprint(tosca_tpl2)
+    assert parsed_yaml == tosca_tpl2
+
+
+test_simple_datatype_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+data_types:
+  MyStringType:
+    type: string
+node_types:
+  MyNode:
+    derived_from: tosca.nodes.Root
+    properties:
+      prop1:
+        type: MyStringType
+      map:
+        type: map
+        default: {}
+        entry_schema:
+          type: MyStringType
+"""
+
+test_simple_datatype_python = """
+import unfurl
+from typing import List, Dict, Any, Tuple, Union, Sequence
+import tosca
+from tosca import DataEntity, Node, Property
+
+
+class MyStringType(tosca.ValueType, str):
+    pass
+
+
+class MyNode(tosca.nodes.Root):
+    prop1: MyStringType
+    map: Dict[str, "MyStringType"] = Property(factory=lambda: ({}))
+
+
+__all__ = ["MyStringType", "MyNode"]
+"""
+
+
+def test_simple_datatype():
+    python_src, parsed_yaml = _to_python(test_simple_datatype_yaml)
+    # print(python_src)
+    parsed_yaml.pop("topology_template")
+    parsed_yaml2 = _to_yaml(python_src, True)
+    parsed_yaml2.pop("topology_template")
+    assert parsed_yaml == parsed_yaml
+    tosca_tpl2 = _to_yaml(test_simple_datatype_python, True)
+    tosca_tpl2.pop("topology_template")
     # pprint(tosca_tpl2)
     assert parsed_yaml == tosca_tpl2
 
