@@ -308,7 +308,7 @@ class Imports:
         """
             )
             + from_tosca_stmt
-            + "\n".join([f"import {name}" for name in self._import_statements])
+            + "\n".join([f"import {name}" for name in sorted(self._import_statements)])
             + "\n"
         )
 
@@ -608,6 +608,8 @@ class Convert:
                 self._builtin_name(fullname, self._builtin_prefix, minimize),
                 fullname,
             )
+        elif fullname in EntityType.TOSCA_DEF:  # unfurl built-in defs
+            return fullname, ""
         elif (
             minimize
             and self.namespace_prefix
