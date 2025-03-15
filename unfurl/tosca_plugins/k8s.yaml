@@ -272,6 +272,10 @@ relationship_types:
           type: string
         metadata:
           user_settable: false
+      expires_at:
+        description: The timestamp when these credentials will expire and need to be regenerated.
+        required: false
+        type: timestamp
     interfaces:
       Install:
         check:
