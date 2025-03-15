@@ -8,6 +8,7 @@ import copy
 import sys
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.elements.nodetype import NodeType
+from toscaparser.elements.relationshiptype import RelationshipType
 from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
@@ -1672,7 +1673,7 @@ class TopologySpec(EntitySpec):
         key = self.substitute_of.nested_name + ":"
         for n, tpl in self.spec.nested_discovered.items():
             if n.startswith(key):
-                self.add_node_template(n[len(key) :], tpl)
+                self.add_template(n[len(key) :], tpl)
 
     @property
     def substitute_of(self) -> Optional[NodeSpec]:
@@ -1799,7 +1800,7 @@ class TopologySpec(EntitySpec):
         else:
             return self.node_templates.get(name)
 
-    def add_node_template(self, name, tpl, discovered=True):
+    def add_template(self, name, tpl, discovered=True):
         custom_types = None
         if "custom_types" in tpl:
             custom_types = tpl.pop("custom_types")
@@ -1811,9 +1812,7 @@ class TopologySpec(EntitySpec):
                 )
                 self.topology_template.custom_defs.update(custom_types)
 
-        nodeTemplate = self.topology_template.add_template(name, tpl)
-        nodeSpec = NodeSpec(nodeTemplate, self)
-        self.node_templates[name] = nodeSpec
+        nodeSpec = self._add_template(name, tpl)
         if discovered:
             if self.spec.discovered is None:
                 self.spec.discovered = CommentedMap()
@@ -1823,6 +1822,21 @@ class TopologySpec(EntitySpec):
             tpl["custom_types"] = custom_types
         return nodeSpec
 
+    def _add_template(self, name, tpl):
+        type_def = self.topology_template.find_type(tpl["type"])
+        if not type_def or isinstance(type_def, (NodeType, StatefulEntityType)):
+            nodeTemplate = self.topology_template.add_node_template(name, tpl)
+            nodeSpec = NodeSpec(nodeTemplate, self)
+            self.node_templates[name] = nodeSpec
+            return nodeSpec
+        elif isinstance(type_def, RelationshipType):
+            relationshipTemplate = self.topology_template.add_relationship_template(name, tpl)
+            relationshipSpec = RelationshipSpec(relationshipTemplate, self)
+            self.relationship_templates[name] = relationshipSpec
+            # XXX need to invalidate all _defaultRelationships and TopologyInstance._relationships
+            return relationshipSpec
+        else:
+            raise UnfurlError(f"Unsupported tosca type {type_def.type} for dynamically added template.")
 
 class Workflow:
     def __init__(self, workflow, topology: TopologySpec):

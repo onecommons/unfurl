@@ -365,7 +365,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     ntype = op.ntype.type if op.ntype else "tosca:Root"
                     topology = self.manifest.tosca.topology.topology_template
                     nname = f"_{ntype}"
-                    node_template = topology.add_template(
+                    node_template = topology.add_node_template(
                         nname, dict(type=ntype, imported="ignore")
                     )
                     del topology.node_templates[nname]

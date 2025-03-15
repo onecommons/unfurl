@@ -27,7 +27,7 @@ from toscaparser.elements.interfaces import OperationDef
 from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.artifacts import Artifact
-from .spec import ArtifactSpec, EntitySpec
+from .spec import ArtifactSpec, EntitySpec, NodeSpec
 import tosca.loader
 
 if TYPE_CHECKING:
@@ -1103,10 +1103,10 @@ def create_instance_from_spec(
         else:
             pname = resourceSpec["parent"] = "root"
 
-    if isinstance(resourceSpec.get("template"), dict):
+    template = resourceSpec.get("template")
+    if isinstance(template, dict):
         # inline node template, add it to the spec
         tname = resourceSpec["template"].pop("name", rname)
-        template = resourceSpec["template"]
         if pname and pname != "root":
             requirements = template.setdefault("requirements", [])
             for req in requirements:
@@ -1114,7 +1114,9 @@ def create_instance_from_spec(
                     break  # don't mess with this
             else:
                 requirements.append(dict(host=pname))
-        nodeSpec = target.template.topology.add_node_template(tname, template)
+        nodeSpec = target.template.topology.add_template(tname, template)
+        if not isinstance(nodeSpec, NodeSpec):
+            return None
         resourceSpec["template"] = nodeSpec.name
 
     if resourceSpec.get("readyState") and "created" not in resourceSpec:
@@ -1162,6 +1164,7 @@ def get_success_status(workflow):
         return Status.absent
     return None
 
+
 def _find_operation(interface, action, resource, inputs):
     iDef = _find_implementation(interface, action, resource.template)
     if iDef and iDef.name != "default":
@@ -1184,6 +1187,7 @@ def _find_operation(interface, action, resource, inputs):
                     inputs = cls(iDef.inputs, **inputs)
                 iDef.invoker = action  # type: ignore[assignment]
     return iDef, inputs
+
 
 def create_task_request(
     jobOptions: "JobOptions",

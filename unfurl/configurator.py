@@ -1231,7 +1231,7 @@ class TaskView:
             if isinstance(template, dict):
                 tname = existingResource.template.name
                 existingResource.template = (
-                    existingResource.template.topology.add_node_template(
+                    existingResource.template.topology.add_template(
                         tname, template
                     )
                 )
@@ -1312,7 +1312,6 @@ class TaskView:
               state: started
             protected: true
             customized: true
-
         """
         instances, err = self._parse_instances_tpl(instances)  # type: ignore
         if err:
@@ -1360,7 +1359,7 @@ class TaskView:
                     newResource = create_instance_from_spec(
                         self._manifest, self.target, rname, resourceSpec
                     )
-                    if "priority" not in resourceSpec:
+                    if newResource and "priority" not in resourceSpec:
                         # set priority so this resource isn't ignored even if no one if referencing it
                         newResource.priority = Priority.required
 
