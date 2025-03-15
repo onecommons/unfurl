@@ -148,13 +148,15 @@ class PythonToYaml:
             if include_types:
                 types_used: dict = {}
                 for t in self.templates:
-                    self._add_type(t.__class__, types_used)
+                    if t.__class__.__name__ not in self.globals:
+                        self._add_type(t.__class__, types_used)
                     for name in t.__annotations__:
                         field = t.get_instance_field(name)
                         if isinstance(field, _Tosca_Field):
                             ti = field.get_type_info_checked()
                             if ti and ti.types and issubclass(ti.types[0], ToscaType):
-                                self._add_type(ti.types[0], types_used)
+                                if ti.types[0].__name__ not in self.globals:
+                                    self._add_type(ti.types[0], types_used)
                 for module_name, classes in types_used.items():
                     self.globals["__name__"] = module_name
                     self._namespace2yaml(classes)
@@ -335,7 +337,7 @@ class PythonToYaml:
         for name, obj in namespace.items():
             if isinstance(obj, ModuleType):
                 continue
-            if hasattr(obj, "get_defs") and issubclass(obj, Namespace):
+            if isinstance(obj, type) and issubclass(obj, Namespace):
                 obj.to_yaml(self)
                 continue
             module_name: str = getattr(obj, "__module__", "")
@@ -411,7 +413,10 @@ class PythonToYaml:
         self, current_module: str, module_path: Optional[str], module_name: str
     ) -> None:
         # note: should only be called for modules with tosca objects we need to convert to yaml
-        if module_name.startswith("tosca."):
+        if (
+            module_name.startswith("tosca.")
+            or module_name == "unfurl.tosca_plugins.tosca_ext"
+        ):
             return
         if not module_path:
             logger.warning(
@@ -522,8 +527,8 @@ class PythonToYaml:
                 if issubclass(b, ToscaType):
                     current_module = self.globals.get("__name__", "builtins")
                     if b.__module__ != current_module:
-                          module_path = self.globals.get("__file__")
-                          self._import_module(current_module, module_path, b.__module__)
+                        module_path = self.globals.get("__file__")
+                        self._import_module(current_module, module_path, b.__module__)
                     super_fields.update(b.__dataclass_fields__)
         return super_fields
 
@@ -932,7 +937,9 @@ class _OperationProxy:
     def get_artifact_name(self) -> Optional[str]:
         if isinstance(self._artifact_executed, ArtifactEntity):
             return self._artifact_executed._name
-        elif isinstance(self._artifact_executed, _ArtifactProxy) and isinstance(self._artifact_executed.name_or_tpl, str):
+        elif isinstance(self._artifact_executed, _ArtifactProxy) and isinstance(
+            self._artifact_executed.name_or_tpl, str
+        ):
             return self._artifact_executed.name_or_tpl
         # note: we don't have instance if _artifact_executed is a FieldProjection so we can't get the name
         return None
@@ -1025,7 +1032,9 @@ def python_to_yaml(
         python_src = f.read()
     src_path = os.path.abspath(src_path)
     base_dir = os.path.abspath(os.getcwd())
-    module_name = os.path.splitext(os.path.relpath(src_path, base_dir))[0].replace("/", ".")
+    module_name = os.path.splitext(os.path.relpath(src_path, base_dir))[0].replace(
+        "/", "."
+    )
     # add to sys.path so relative imports work
     sys.path.insert(0, base_dir)
     try:
