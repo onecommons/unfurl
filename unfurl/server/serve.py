@@ -1550,7 +1550,7 @@ def _make_readonly_localenv(
             overrides["format"] = requested_format
         clone_location = os.path.join(clone_root, deployment_path)
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
-        if app.config.get("UNFURL_CURRENT_WORKING_DIR") != clone_root:
+        if app.config.get("UNFURL_CURRENT_WORKING_DIR", clone_root) != clone_root:
             home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
         else:
             home_dir = current_app.config["UNFURL_OPTIONS"].get("home")
