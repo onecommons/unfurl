@@ -847,7 +847,7 @@ class DeployPlan(Plan):
             assert (
                 jobOptions.repair == "error"
             ), f"repair: {jobOptions.repair} status: {instance.status}"
-            return Reason.error  # repair this
+            return Reason.repair  # repair this
 
     def is_instance_read_only(self, instance):
         return instance.shadow or "discover" in instance.template.directives

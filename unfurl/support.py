@@ -157,7 +157,7 @@ class Reason(str, Enum):
     upgrade = "upgrade"
     update = "update"
     missing = "missing"
-    error = "error"
+    repair = "repair"
     degraded = "degraded"
     prune = "prune"
     run = "run"
@@ -165,6 +165,8 @@ class Reason(str, Enum):
     undeploy = "undeploy"
     stop = "stop"
     connect = "connect"
+    error = "error"
+    """Synonym for repair. Deprecated."""
 
     def __str__(self) -> str:
         return self.value
@@ -813,7 +815,6 @@ def set_context_vars(vars, resource: "EntityInstance"):
                 ).find_instance(req.relationship.target.name)
                 if target:
                     ROOT[name] = target.attributes
-
     return vars
 
 
