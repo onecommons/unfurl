@@ -341,7 +341,7 @@ jobs:
         pip install -U setuptools-rust
         python setup.py sdist
 
-    - uses: pypa/cibuildwheel@v2.22
+    - uses: pypa/cibuildwheel@v2.23.1
       name: build ${{  matrix.os }} binaries
       with:
         output-dir: dist
@@ -359,7 +359,6 @@ jobs:
         CIBW_ENVIRONMENT: 'PATH="$HOME/.cargo/bin:$PATH" MACOSX_DEPLOYMENT_TARGET=10.12'
         CIBW_ENVIRONMENT_WINDOWS: 'PATH="$UserProfile\.cargo\bin;$PATH"'
         CIBW_ARCHS_MACOS: "universal2"
-        CIBW_MANYLINUX_I686_IMAGE: manylinux2014
         CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
         CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_1
         CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64:latest
