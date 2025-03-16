@@ -341,7 +341,7 @@ jobs:
         pip install -U setuptools-rust
         python setup.py sdist
 
-    - uses: pypa/cibuildwheel@v2.22
+    - uses: pypa/cibuildwheel@v2.23.1
       name: build ${{  matrix.os }} binaries
       with:
         output-dir: dist
