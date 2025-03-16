@@ -1355,6 +1355,37 @@ class EvalData:
                 return new
         return self
 
+    def __getattr__(self, key) -> Self:
+        if key.startswith("__"):
+            raise AttributeError(key)
+        new = self._project(key)
+        if not new:
+            raise AttributeError(f"cannot access {key} on {self}")
+        return new
+
+    def __getitem__(self, key) -> Self:
+        new = self._project(key)
+        if not new:
+            raise KeyError(key)
+        return new
+
+    def _project(self, key):
+        if self._path:
+            new = copy.copy(self)
+            new._path = copy.copy(new._path)
+            new._path.append(key)
+            return new
+        elif isinstance(self._expr, dict):
+            expr = self._expr.get("eval")
+            new = copy.copy(self)
+            new._expr = copy.copy(self._expr)
+            if isinstance(expr, str):
+                new._expr["eval"] = expr + "::" + key
+            elif isinstance(expr, dict) and "select" not in expr:
+                new._expr["select"] = key
+            return new
+        return None
+
     def set_foreach(self, foreach):
         self._foreach = foreach
 
@@ -1377,16 +1408,6 @@ class EvalData:
                 ref["foreach"] = map_expr
                 return EvalData(ref)
         raise ValueError(f"cannot map {self.expr} with {func.expr}")
-
-    def __getattr__(self, name) -> NoReturn:
-        e = AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{name}'"
-        )
-        if sys.version_info >= (3, 11):
-            e.add_note(
-                "To handle EvalData here, move this logic to a function decorated with @unfurl.tosca_plugins.expr.runtime_func"
-            )
-        raise e
 
     def _op(self, op, other) -> "EvalData":
         return EvalData({"eval": {op: [self, other]}})
@@ -1495,6 +1516,8 @@ class FieldProjection(EvalData):
         self.parent = parent
 
     def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
         # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
         field = object.__getattribute__(self, "field")
@@ -1522,12 +1545,12 @@ class FieldProjection(EvalData):
                 raise AttributeError(f"{cls} has no field '{name}'")
         return FieldProjection(field, self)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> "FieldProjection":
+        new = self._project(key)
+        if not new:
+            raise KeyError(key)
         indexed = FieldProjection(self.field, self.parent)
-        if isinstance(indexed.expr, dict):
-            expr = indexed.expr.get("eval")
-            if expr and isinstance(expr, str):
-                indexed.expr["eval"] = f"{expr}::{key}"
+        indexed._expr = new._expr
         return indexed
 
     def get_requirement_filter(self, tosca_name: str):

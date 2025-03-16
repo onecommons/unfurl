@@ -265,9 +265,7 @@ def calc_size(size1: Size, size2: Size) -> Size:
     return GB.as_int(max(size1, size2)) * GB
 
 
-@pytest.mark.parametrize(
-    "safe_mode", [True, False]
-)
+@pytest.mark.parametrize("safe_mode", [True, False])
 def test_units(safe_mode):
     tosca.global_state.safe_mode = safe_mode
     tosca.global_state.mode = "parse"
@@ -295,7 +293,6 @@ def test_units(safe_mode):
     assert mem_size == 14 * GB
     assert mem_size == 14000000000
 
-    
     class Topology(tosca.Namespace):
         host = tosca.capabilities.Compute(
             num_cpus=1,
@@ -323,10 +320,6 @@ def test_units(safe_mode):
         # compute.mem_size depends on Test.mem_size which is a tosca attribute so it needs to be EvalData
         assert isinstance(compute.mem_size, tosca.EvalData)
         assert isinstance(compute.mem_size * 2, tosca.EvalData)
-        with pytest.raises(AttributeError):
-            assert Test.mem_size.as_unit
-        with pytest.raises(AttributeError):
-            assert compute.mem_size.as_unit
         type_pun: Size = calc_size(compute.disk_size, compute.mem_size) + 4 * GB
         assert isinstance(type_pun, tosca.EvalData)
         if not tosca.global_state.safe_mode:
