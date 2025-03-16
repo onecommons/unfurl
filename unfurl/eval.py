@@ -1,22 +1,9 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-Public Api:
-
-map_value - returns a copy of the given value resolving any embedded queries or template strings
-
-Ref.resolve given an expression, returns a list of values or Result
-Ref.resolve_one given an expression, return value, none or a list of values
-Ref.is_ref return true if the given diction looks like a Ref
-
-Internal:
-
-eval_ref() given expression (string or dictionary) return list of Result
-Expr.resolve() given expression string, return list of Result
-Results._map_value same as map_value but with lazily evaluation
+API for evaluating `eval expressions`. See also `unfurl.configurator.TaskView.query`.
 """
 
-from functools import partial
 from typing import (
     Any,
     Callable,
@@ -72,7 +59,18 @@ def map_value(
     applyTemplates: bool = True,
     as_list: bool = False,
 ) -> Any:
-    """Resolves any expressions or template strings embedded in the given string, dict or list."""
+    """
+    Return a copy of the given string, dict, or list, resolving any expressions or template strings embedded in it.
+
+    Args:
+      value (Any): The value to be processed, which can be a string, dictionary, or list.
+      resourceOrCxt (Union["RefContext", "ResourceRef"]): The context or resource instance used for resolving expressions.
+      applyTemplates (bool, optional): Whether to evaluate Jinja2 templates embedded in strings. Defaults to True.
+      as_list (bool, optional): Whether to return the result as a list. Defaults to False.
+
+    Returns:
+      Any: The processed value with resolved expressions or template strings. If ``as_list`` is True, the result is always a list.
+    """
     # as_list always returns a list but preserves wantList semantics for internal evaluation
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
@@ -90,7 +88,7 @@ def map_value(
 def _map_value(
     value: Any,
     ctx: "RefContext",
-    wantList: Union[bool, str] = False,
+    wantList: Union[bool, Literal["result"]] = False,
     applyTemplates: bool = True,
 ) -> Any:
     from .support import is_template, apply_template
@@ -167,7 +165,7 @@ class RefContext:
         self,
         currentResource: "ResourceRef",
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, str]] = False,
+        wantList: Optional[Union[bool, Literal["result"]]] = False,
         resolveExternal: bool = False,
         trace: Optional[int] = None,
         strict: Optional[bool] = None,
@@ -212,11 +210,25 @@ class RefContext:
         self,
         resource: Optional["ResourceRef"] = None,
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, str]] = None,
+        wantList: Optional[Union[bool, Literal["result"]]] = None,
         trace: int = 0,
         strict: Optional[bool] = None,
         tosca_type: Optional[StatefulEntityType] = None,
     ) -> "RefContext":
+        """
+        Create a copy of the current RefContext with optional modifications.
+
+        Args:
+          resource (Optional[ResourceRef]): The resource reference to use for the copy. Defaults to None.
+          vars (Optional[dict]): A dictionary of variables to update in the copy. Defaults to None.
+          wantList (Optional[Union[bool, Literal["result"]]]): Determines if a list is desired. Defaults to None.
+          trace (int): The trace level for the copy. Defaults to 0.
+          strict (Optional[bool]): Whether to enforce strict mode. Defaults to None.
+          tosca_type (Optional[StatefulEntityType]): The TOSCA type for the copy. Defaults to None.
+
+        Returns:
+          RefContext: A new instance of RefContext with the specified modifications.
+        """
         if not isinstance(resource or self.currentResource, ResourceRef) and isinstance(
             self._lastResource, ResourceRef
         ):
@@ -289,7 +301,7 @@ class RefContext:
         self,
         expr: Union[str, Mapping],
         vars: Optional[dict] = None,
-        wantList: Union[bool, str] = False,
+        wantList: Union[bool, Literal["result"]] = False,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         return Ref(expr, vars).resolve(self, wantList)
 
@@ -351,7 +363,6 @@ class Expr:
         return f"Expr('{self.source}')"
 
     def resolve(self, context: RefContext) -> List[Result]:
-        # returns a list of Result
         currentResource = context.currentResource
         if not self.paths[0].key and not self.paths[0].filters:  # starts with "::"
             currentResource = currentResource.all
@@ -432,7 +443,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: str,  # == "result"
+        wantList: Literal["result"],
         strict: Optional[bool] = None,
     ) -> List[Result]: ...
 
@@ -440,22 +451,26 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, str] = True,
+        wantList: Union[bool, Literal["result"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]: ...
 
-    # returns a list of values, a list of Result, or resolve_one
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, str] = True,
+        wantList: Union[bool, Literal["result"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         """
-        If wantList=True (default) returns list of values
-        Note that values in the list can be a list or None
-        If wantList=False return `resolve_one` semantics
-        If wantList='result' return a list of Result
+        Given an expression, returns a value, a list of values, or or list of Result, depending on ``wantList``:
+
+        If wantList=True (default), return a list of matches.
+
+        Note that values in the list can be a list or None.
+
+        If wantList=False, return `resolve_one` semantics.
+
+        If wantList='result', return a list of Result.
         """
         if self.strict is not None:
             # overrides RefContext's strict
@@ -507,18 +522,25 @@ class Ref:
         strict: Optional[bool] = None,
     ) -> ResolveOneUnion:
         """
-        If no match return None
-        If more than one match return a list of matches
-        Otherwise return the match
+        Given an expression, return a value, None or a list of values.
+
+        If there is no match, return None.
+
+        If there is more than one match, return a list of matches.
+
+        Otherwise return the match.
 
         Note: If you want to distinguish between None values and no match
         or between single match that is a list and a list of matches
-        use resolve() which always returns a (possible empty) of matches
+        use `Ref.resolve`, which always returns a (possible empty) of matches
         """
         return self.resolve(ctx, False, strict)
 
     @staticmethod
     def is_ref(value: Union[Mapping, "Ref"]) -> bool:
+        """
+        Return true if the given value looks like a Ref.
+        """
         if isinstance(value, Mapping):
             if not value:
                 return False
@@ -836,7 +858,7 @@ def set_eval_func(name, val: EvalFunc, topLevel=False, safe=False):
 def eval_ref(
     val: Union[Mapping, str], ctx: RefContext, top: bool = False
 ) -> List[Result]:
-    "val is assumed to be an expression, evaluate and return a list of Result"
+    "Evaluate and return a list of Result. ``val`` is assumed to be an expression."
     from .support import is_template, apply_template
 
     # functions and ResultsMap assume resolve_one semantics

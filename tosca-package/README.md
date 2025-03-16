@@ -6,7 +6,7 @@ TOSCA (Topology and Orchestration Specification for Cloud Applications) is an [O
 
 ## Why a DSL (Domain Specic Language)?
 
-Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or internal) DSL](https://en.wikipedia.org/wiki/Domain-specific_language#External_and_Embedded_Domain_Specific_Languages) -- a DSL that is a subset of existing programming language?
+Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or internal) DSL](https://en.wikipedia.org/wiki/Domain-specific_language#External_and_Embedded_Domain_Specific_Languages) -- a DSL that is a subset of an existing programming language?
 
 * Avoid what is affectionately known as "YAML hell". YAML's syntax is limited to expressing basic data types and has [various quirks](https://noyaml.com) that makes it hard to manage at scale. But TOSCA is a fairly strongly typed language, so expressing it in a syntax that can reflect that makes for a much more powerful solution with regard to developer usability and tooling.
 

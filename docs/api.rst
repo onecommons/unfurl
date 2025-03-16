@@ -115,6 +115,9 @@ Eval Expression Functions
 API for writing configurators
 -----------------------------
 
+Configurators
+~~~~~~~~~~~~~
+
 .. automodule:: unfurl.configurator
   :members: Configurator, TaskRequest, JobRequest, TaskView, ConfiguratorResult
   :undoc-members:
@@ -168,10 +171,10 @@ Utility classes and functions
     sensitive_bytes, sensitive_str, sensitive_dict, sensitive_list,
     filter_env
 
-Eval module
-~~~~~~~~~~~~~~
+Eval Expression API
+~~~~~~~~~~~~~~~~~~~
 .. automodule:: unfurl.eval
-  :members: Ref, map_value, eval_ref, RefContext
+  :members: map_value, Ref, RefContext
 
 Graphql module
 ~~~~~~~~~~~~~~

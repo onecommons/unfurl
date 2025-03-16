@@ -78,25 +78,25 @@ class ConfigurationSpec:
         self,
         name: str,
         operation: str,
-        className: Optional[str]=None,
+        className: Optional[str] = None,
         majorVersion=0,
         minorVersion="",
         workflow=Defaults.workflow,
-        timeout: Optional[int]=None,
-        operation_host: Optional[str]=None,
-        environment: Optional[Dict[str, str]]=None,
-        inputs: Optional[Dict[str, Any]]=None,
+        timeout: Optional[int] = None,
+        operation_host: Optional[str] = None,
+        environment: Optional[Dict[str, str]] = None,
+        inputs: Optional[Dict[str, Any]] = None,
         inputSchema=None,
-        preConditions: Optional[dict]=None,
+        preConditions: Optional[dict] = None,
         postConditions=None,
-        primary: Optional[ArtifactSpec]=None,
-        dependencies: Optional[List[ArtifactSpec]]=None,
-        outputs: Optional[Dict[str, Any]]=None,
-        interface: Optional[str]=None,
-        entry_state: Optional[str]=None,
-        base_dir: Optional[str]=None,
-        input_defs: Optional[Dict[str, Property]]=None,
-        arguments: Optional[List[str]]=None,
+        primary: Optional[ArtifactSpec] = None,
+        dependencies: Optional[List[ArtifactSpec]] = None,
+        outputs: Optional[Dict[str, Any]] = None,
+        interface: Optional[str] = None,
+        entry_state: Optional[str] = None,
+        base_dir: Optional[str] = None,
+        input_defs: Optional[Dict[str, Property]] = None,
+        arguments: Optional[List[str]] = None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -461,7 +461,9 @@ class TaskRequest(PlanRequest):
                 return True
         return False
 
-    def _get_artifact_plan(self, artifact: Optional[ArtifactSpec]) -> Optional["JobRequest"]:
+    def _get_artifact_plan(
+        self, artifact: Optional[ArtifactSpec]
+    ) -> Optional["JobRequest"]:
         # the artifact has an interface so it needs to be installed on the operation_host
         if artifact and self._should_deploy(artifact):
             # the same global artifact can have different local names when declared on a node template
