@@ -136,6 +136,7 @@ Expression Functions
   `eq`                             [a, b]
   external                         name
   `file`                           (see below)
+  :std:ref:`find_connection`       expr
   foreach                          {key?, value?}
   `ge`                             [a, b]
   :std:ref:`get_ensemble_metadata` key?
@@ -326,6 +327,19 @@ get_ensemble_metadata
             eval:
               get_ensemble_metadata:
 
+
+find_connection
+^^^^^^^^^^^^^^^
+
+Find a relationship that can be used to connect to the given instance. See `TaskView.find_connection`.
+
+.. code-block:: YAML
+
+    eval:
+      find_connection:
+        eval: ::a_instance
+      # optional: use the "relation" keyword to restrict connection to a subtype of tosca.relationships.ConnectsTo:
+      relation: "tosca.relationships.RoutesTo"
 
 foreach
 ^^^^^^^

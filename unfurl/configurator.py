@@ -35,6 +35,7 @@ from .support import (
     Status,
     ResourceChanges,
     Priority,
+    find_connection,
     set_context_vars,
 )
 from .result import (
@@ -538,7 +539,7 @@ class TaskView:
 
     def set_envvars(self):
         """
-        Update os.environ with the task's environ and save the current one so it can be restored by ``restore_envvars``
+        Update os.environ with the task's environment variables and save the current one so it can be restored by `restore_envvars`.
         """
         # self.logger.trace("update os.environ with %s", self.environ)
         for key in os.environ:
@@ -550,7 +551,7 @@ class TaskView:
                 os.environ[key] = str(value)
 
     def restore_envvars(self):
-        # restore the environ set on root resource
+        """Restore the os.environ to the environment's state before this task ran."""
         # self.logger.trace("restoring os.environ with %s", self.target.root.environ)
         for key in os.environ:
             current = self.target.root.environ.get(key)
@@ -900,27 +901,7 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection: Optional[RelationshipInstance] = None
-        if ctx.vars.get("OPERATION_HOST"):
-            operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
-            connection = cast(
-                Optional[RelationshipInstance],
-                Ref(
-                    f"$operation_host::.requirements::*[.type={relation}][.target=$target]",
-                    vars=dict(target=target, operation_host=operation_host),
-                ).resolve_one(ctx),
-            )
-
-        # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
-        if not connection:
-            # no connection, see if there's a default relationship template defined for this target
-            endpoints = target.get_default_relationships(relation)
-            if endpoints:
-                connection = endpoints[0]
-        if connection:
-            assert isinstance(connection, RelationshipInstance)
-            return connection
-        return None
+        return find_connection(ctx, target, relation)
 
     def sensitive(self, value: object) -> Union[sensitive, object]:
         """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
@@ -1053,12 +1034,32 @@ class TaskView:
         name: Optional[str] = None,
         required: bool = False,
         wantList: bool = False,
-        resolveExternal: bool = True,
         strict: bool = True,
         vars: Optional[dict] = None,
         throw: bool = False,
         trace: Optional[int] = None,
     ) -> Union[Any, Result, List[Result], None]:
+        """
+        Executes a query using this task's current context and returns the result.
+
+        Args:
+          query (Union[str, dict]): The query to be executed. Can be a string or a dictionary.
+          dependency (bool, optional): If True, saves the query result as a dependency. Defaults to False.
+          name (Optional[str], optional): The name of the dependency. Defaults to None.
+          required (bool, optional): If True, marks the dependency as required. Defaults to False.
+          wantList (bool, optional): If True, expects the result to be a list. Defaults to False.
+          strict (bool, optional): If True, enforces strict resolution rules. Defaults to True.
+          vars (Optional[dict], optional): Variables to be added to the query context. Defaults to None.
+          throw (bool, optional): If True, raises an exception on error, otherwise add to task errors and returns None. Defaults to False.
+          trace (Optional[int], optional): Trace level for debugging. Defaults to None.
+
+        Returns:
+          Union[Any, Result, List[Result], None]: The result of the query, which can be of various types
+          depending on the query and options provided. Returns None if an error occurs and throw is False.
+
+        Raises:
+          Exception: If an error occurs during query evaluation and throw is True.
+        """
         # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars, trace=trace).resolve(

@@ -2,14 +2,22 @@ import os
 import pytest
 import unfurl
 import tosca
-from tosca import Size, MB, EvalData
+from tosca import Size, MB, EvalData, operation
 from unfurl.eval import Ref
-from unfurl.logs import is_sensitive
+from unfurl.job import JobOptions
+from unfurl.logs import is_sensitive, getLogger
 from unfurl.testing import runtime_test, create_runner
 from unfurl.tosca_plugins import expr, functions
 from typing import Optional, Type
 from unfurl.util import UnfurlError
 import tosca._tosca
+from unfurl.tosca_plugins.expr import tfvar, tfoutput, find_connection
+from typing import Any
+from unfurl.configurators import DoneDict, TemplateConfigurator, TemplateInputs
+from unfurl.tosca_plugins.k8s import (
+    unfurl_nodes_K8sCluster,
+    unfurl_relationships_ConnectsTo_K8sCluster,
+)
 
 
 class Service(tosca.nodes.Root):
@@ -353,12 +361,64 @@ def test_units(safe_mode):
     topology.test.mem_size = 2 * MB  # set attribute value so expression resolves
     assert topology.test.mem_size == 2 * MB
     assert topology.test3.host.mem_size == 4 * MB
-    expr = EvalData({'eval': '::Topology.test3::.capabilities::[.name=host]::.owner::mem_size'})
+    expr = EvalData({
+        "eval": "::Topology.test3::.capabilities::[.name=host]::.owner::mem_size"
+    })
     assert Topology.test3.host.from_owner(Topology.Test.mem_size) == expr
-    assert runner.manifest.rootResource.query('::Topology.test::.capabilities::[.name=host]::.owner::mem_size', trace=2) == 2 * MB
+    assert (
+        runner.manifest.rootResource.query(
+            "::Topology.test::.capabilities::[.name=host]::.owner::mem_size", trace=2
+        )
+        == 2 * MB
+    )
     assert topology.test.host.from_owner(Topology.Test.mem_size) == 2 * MB
     tosca.global_state.safe_mode = False
     result = Ref(topology.type_pun.expr).resolve_one(
         tosca.global_state.context.copy(trace=0)
     )
     assert result == 32 * GB
+
+
+def test_find_connection():
+    class Topology(tosca.Namespace):
+        cluster = unfurl_nodes_K8sCluster()
+        cluster_connection = unfurl_relationships_ConnectsTo_K8sCluster(
+            _default_for=cluster,
+            api_server="https://127.0.0.1",
+            cluster_ca_certificate_file="cert.crt",
+        )
+
+        class ExampleTerraformManagedResource(tosca.nodes.Root):
+            @operation(apply_to=["Standard.configure", "Standard.delete"])
+            def default(self, **kw: Any):
+                connection = find_connection(
+                    self.cluster, unfurl_relationships_ConnectsTo_K8sCluster
+                )
+                if connection:
+                    tfvars = dict(
+                        cert=connection.cluster_ca_certificate_file,
+                        api_server=connection.api_server,
+                    )
+                else:
+                    assert False
+                # getLogger(__name__).debug("tfvars %s", tfvars)
+                return TemplateConfigurator(
+                    TemplateInputs(done=DoneDict(outputs=tfvars))
+                )
+
+            cluster: unfurl_nodes_K8sCluster
+
+        test = ExampleTerraformManagedResource(cluster=cluster)
+        assert cluster_connection._default_for is cluster
+
+    topology, runner = create_runner(Topology)
+    job = runner.run(JobOptions(skip_save=True))
+    assert job
+    assert len(job.workDone) == 1, len(job.workDone)
+    task = list(job.workDone.values())[0]
+    assert runner.manifest.rootResource.template.relationship_templates
+    assert (
+        task.outputs
+        and task.outputs["cert"] == "cert.crt"
+        and task.outputs["api_server"] == "https://127.0.0.1"
+    )

@@ -42,6 +42,7 @@ from tosca import (
     safe_mode,
     global_state_mode,
     global_state_context,
+    Relationship,
 )
 import tosca
 
@@ -68,6 +69,7 @@ if TYPE_CHECKING or not safe_mode():
     from ..dsl import InstanceProxyBase, proxy_instance
     from ..eval import Ref, RefContext, map_value
     from ..util import UnfurlError
+    from ..runtime import EntityInstance
     from ..yamlloader import cleartext_yaml
     from ..projectpaths import FilePath, TempFile, _abspath
     from tosca.yaml2python import has_function
@@ -83,6 +85,13 @@ if TYPE_CHECKING or not safe_mode():
             raise ValueError(
                 f"ToscaType object cannot be converted to a RefContext -- executed from a live instance? {obj}"
             )
+
+    def _to_instance(obj: ToscaType) -> EntityInstance:
+        if isinstance(obj, InstanceProxyBase):
+            return obj._instance
+        if isinstance(obj, EntityInstance):
+            return obj
+        # return obj
 
 else:
     # if this module is loaded in safe_mode these will never by referenced:
@@ -123,9 +132,30 @@ __all__ = [
     # XXX get_artifact
     # XXX python
     "runtime_func",
+    "find_connection"
 ]
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+RI = TypeVar("RI", bound=tosca.relationships.ConnectsTo)
+
+
+def find_connection(
+    target: ToscaType,
+    rel_type: Type[RI] = tosca.relationships.ConnectsTo,  # type: ignore[assignment]
+) -> Optional[RI]:
+    rel_type_name = rel_type.tosca_type_name()
+    if global_state_mode() == "runtime":
+        ctx = global_state_context()
+        rel = support.find_connection(ctx, _to_instance(target), rel_type_name)
+        if rel:
+            return cast(RI, proxy_instance(rel, tosca.relationships.ConnectsTo, ctx))
+        return None
+    else:
+        return cast(
+            Optional[RI],
+            EvalData(dict(eval={"find_connection": target, "relation": rel_type_name})),
+        )
 
 
 @overload

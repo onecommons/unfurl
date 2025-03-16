@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         InstanceKey,
         HasInstancesInstance,
         TopologyInstance,
+        RelationshipInstance,
     )
     from .configurator import Dependency
 
@@ -1455,6 +1456,43 @@ class DelegateAttributes:
                 return result
 
 
+def find_connection(
+    ctx: RefContext,
+    target: "EntityInstance",
+    relation: str = "tosca.relationships.ConnectsTo",
+) -> Optional["RelationshipInstance"]:
+    connection: Optional["RelationshipInstance"] = None
+    if ctx.vars.get("OPERATION_HOST"):
+        operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
+        connection = cast(
+            Optional["RelationshipInstance"],
+            Ref(
+                f"$operation_host::.requirements::*[.type={relation}][.target=$target]",
+                vars=dict(target=target, operation_host=operation_host),
+            ).resolve_one(ctx),
+        )
+
+    # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
+    if not connection:
+        # no connection, see if there's a default relationship template defined for this target
+        endpoints = target.get_default_relationships(relation)
+        if endpoints:
+            connection = endpoints[0]
+    if connection:
+        from .runtime import RelationshipInstance
+
+        assert isinstance(connection, RelationshipInstance)
+        return connection
+    return None
+
+
+def _find_connection(arg, ctx):
+    return find_connection(ctx, map_value(arg, ctx), relation=map_value(ctx.kw.get("relation"), ctx))
+
+
+set_eval_func("find_connection", _find_connection)
+
+
 AttributeChange = MutableMapping[str, Any]
 AttributesChanges = NewType("AttributesChanges", Dict["InstanceKey", AttributeChange])
 
@@ -1691,7 +1729,10 @@ class AttributeManager:
             or not ctx._lastResource.template.toscaEntityTemplate.type_definition
         ):
             return None
-        key = (ctx._lastResource.key, ctx.tosca_type and ctx.tosca_type.global_name or "")
+        key = (
+            ctx._lastResource.key,
+            ctx.tosca_type and ctx.tosca_type.global_name or "",
+        )
         super_map = self.super_maps.get(key)
         if super_map is not None:
             return super_map
@@ -1732,7 +1773,9 @@ class AttributeManager:
         super_map = ResultsMap(
             _attributes, ctx.copy(tosca_type=tosca_type), self.validate, defs
         )
-        self.super_maps[(ctx._lastResource.key, tosca_type and tosca_type.global_name or "")] = super_map
+        self.super_maps[
+            (ctx._lastResource.key, tosca_type and tosca_type.global_name or "")
+        ] = super_map
         return super_map
 
     def _reset(self):
