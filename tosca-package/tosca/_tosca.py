@@ -3035,7 +3035,9 @@ class Relationship(_OwnedToscaType):
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
     _valid_target_types: ClassVar[Optional[List[Type[CapabilityEntity]]]] = None
-    _default_for: Optional[str] = field(default=None)
+    _default_for: Optional[
+        Union[str, CapabilityEntity, Node, Type[CapabilityEntity], Type[Node]]
+    ] = field(default=None)
     _target: Node = field(default=None, builtin=True)
 
     @classmethod
@@ -3055,7 +3057,13 @@ class Relationship(_OwnedToscaType):
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
         if self._default_for:
-            tpl["default_for"] = self._default_for
+            if isinstance(self._default_for, _DataclassType):
+                _default_for = self._default_for.tosca_type_name()
+            elif isinstance(self._default_for, ToscaType):
+                _default_for = self._default_for._name
+            else:
+                _default_for = self._default_for
+            tpl["default_for"] = _default_for
         return tpl
 
     def __getitem__(self, target: Node) -> Self:

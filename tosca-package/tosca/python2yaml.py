@@ -364,10 +364,15 @@ class PythonToYaml:
                     ).update(dict(node_type=obj.tosca_type_name()))
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
+                 # embedded templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                 if (
-                    (isinstance(obj, (Node, Group, Policy)) or obj._name)
+                    (
+                        isinstance(obj, (Node, Group, Policy))
+                        or obj._name
+                        or getattr(obj, "_default_for", None)  # include default Relationships
+                    )
                     and not isinstance(obj, InstanceProxy)
-                ):  # besides node templates, templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
+                ):
                     if not obj._template_section:
                         if not isinstance(obj, _OwnedToscaType) or not obj._node:
                             logger.warning(

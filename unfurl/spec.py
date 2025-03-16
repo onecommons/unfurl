@@ -1446,23 +1446,25 @@ class RelationshipSpec(EntitySpec):
         suffix = "~r~" + self.name
         return self.source.name + suffix if self.source else suffix
 
-    def matches_target(self, capability):
-        defaultFor = self.toscaEntityTemplate.default_for
-        if not defaultFor:
+    def matches_target(self, capability: "CapabilitySpec"):
+        rel_template = cast(RelationshipTemplate, self.toscaEntityTemplate)
+        default_for = rel_template.default_for
+        if not default_for:
             return False
         nodeTemplate = capability.parentNode.toscaEntityTemplate
-        if defaultFor == self.toscaEntityTemplate.ANY and capability.name == "feature":
+        if default_for == rel_template.ANY and capability.name == "feature":
             # XXX get_matching_capabilities() buggy in this case
             return True  # optimization
         # XXX defaultFor might be type, resolve to global
         if (
-            defaultFor == self.toscaEntityTemplate.ANY
-            or defaultFor == nodeTemplate.name
-            or nodeTemplate.is_derived_from(defaultFor)
-            or defaultFor == capability.name
-            or capability.is_derived_from(defaultFor)
+            default_for == rel_template.ANY
+            or (default_for == "SELF" and self.source and self.source.name == nodeTemplate.name)
+            or default_for == nodeTemplate.name
+            or nodeTemplate.is_derived_from(default_for)
+            or default_for == capability.name
+            or capability.toscaEntityTemplate.is_derived_from(default_for)
         ):
-            return self.toscaEntityTemplate.get_matching_capabilities(
+            return rel_template.get_matching_capabilities(
                 nodeTemplate, capability.name
             )
 
