@@ -451,6 +451,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
         # force resolve, might return a Result
         return self.attributes._getresult(key)
 
+    def __getitem__(self, key):
+        # allow attribute access in jinja2 templates
+        return self.attributes[key]
+
     def query(self, expr, vars=None, wantList=False, trace=None):
         from .eval import Ref, RefContext
 
@@ -1122,7 +1126,7 @@ class NodeInstance(HasInstancesInstance):
             return
         for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
             for capability in self.capabilities:
-                if rel.template.matches_target(capability.template):
+                if rel.template.matches_target(cast(CapabilitySpec, capability.template)):
                     yield rel
 
     def get_default_relationships(
