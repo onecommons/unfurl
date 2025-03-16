@@ -1550,7 +1550,7 @@ def _make_readonly_localenv(
             overrides["format"] = requested_format
         clone_location = os.path.join(clone_root, deployment_path)
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
-        if app.config.get("UNFURL_CURRENT_WORKING_DIR") != clone_root:
+        if app.config.get("UNFURL_CURRENT_WORKING_DIR", clone_root) != clone_root:
             home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
         else:
             home_dir = current_app.config["UNFURL_OPTIONS"].get("home")
@@ -1933,13 +1933,13 @@ def _patch_node_template(
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
-            assert isinstance(
-                value, list
-            ), f"bad patch value {value} for {key} in {patch}"
+            assert isinstance(value, list), (
+                f"bad patch value {value} for {key} in {patch}"
+            )
             for prop in value:
-                assert isinstance(
-                    prop, dict
-                ), f"bad {prop} in {value} for {key} in {patch}"
+                assert isinstance(prop, dict), (
+                    f"bad {prop} in {value} for {key} in {patch}"
+                )
                 if prop["value"] == {"__deleted": True}:
                     props.pop(prop["name"], None)
                 else:
@@ -2251,10 +2251,13 @@ def _patch_ensemble(
         was_dirty = False
     starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
-    current_working_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
+    current_working_dir = app.config.get(
+        "UNFURL_CURRENT_WORKING_DIR",
+        parent_localenv.project.project_repoview.repo.working_dir,
+    )
     if current_working_dir == parent_localenv.project.project_repoview.repo.working_dir:
-        # don't set home if its current project
-        current_working_dir = None
+        # don't set as home if its current project
+        current_working_dir = current_app.config["UNFURL_OPTIONS"].get("home")
     make_resolver = ServerCacheResolver.make_factory(
         None, dict(username=username, password=password)
     )
@@ -2490,9 +2493,11 @@ def enter_safe_mode():
 
     tosca.loader.FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER") or "1"
 
+
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
+
 
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
@@ -2537,14 +2542,14 @@ def serve(
 
     current_project_id = get_current_project_id()
     if current_project_id:
-        set_local_server_url = f'{urljoin(app.config["UNFURL_CLOUD_SERVER"], current_project_id)}?unfurl-server=http://{host}:{port}'
+        set_local_server_url = f"{urljoin(app.config['UNFURL_CLOUD_SERVER'], current_project_id)}?unfurl-server=http://{host}:{port}"
         logger.info(
             f"***Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
             extra=dict(rich=dict(markup=True)),
         )
     elif app.config.get("UNFURL_CURRENT_GIT_URL"):
         logger.warning(
-            f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
+            f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
         )
 
     if gui and local_env:
