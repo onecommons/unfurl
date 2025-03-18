@@ -195,8 +195,10 @@ class Configurator(metaclass=AutoRegisterClass):
             yield task.done(None, None, result)
         elif isinstance(result, (bool, type(None))):
             yield task.done(result)
+        elif isinstance(result, ToscaOutputs):
+            yield task.done(True, outputs=result.to_yaml())
         else:
-            raise UnfurlTaskError(task, "bad return valuate")
+            raise UnfurlTaskError(task, "configurator.run() returned a bad value")
 
     def _is_generator(self):
         if self.__is_generator is None:

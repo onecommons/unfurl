@@ -1292,7 +1292,7 @@ class EvalData:
 
     def __init__(
         self,
-        expr: Union["EvalData", _EvalDataExpr],
+        expr: Union["EvalData", _EvalDataExpr, Callable],
         path: Optional[List[Union[str, _GetName]]] = None,
     ):
         if isinstance(expr, EvalData):
@@ -1373,6 +1373,7 @@ class EvalData:
         if self._path:
             new = copy.copy(self)
             new._path = copy.copy(new._path)
+            assert new._path
             new._path.append(key)
             return new
         elif isinstance(self._expr, dict):
@@ -2044,6 +2045,64 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     _default_key: ClassVar[str] = "default"
 
+    def get_instance_fields(self) -> Dict[str, Tuple[_Tosca_Field, Any]]:
+        if self._instance_fields is None:  # type: ignore
+            # only do this once and save any generated values
+            self._instance_fields = dict(self._get_instance_fields())
+        return self._instance_fields
+
+    def _get_instance_fields(self) -> Iterator[Tuple[str, Tuple[_Tosca_Field, Any]]]:
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        __dict__ = object.__getattribute__(self, "__dict__")
+        for name, value in __dict__.items():
+            field = fields.get(name)
+            if isinstance(field, _Tosca_Field):
+                t_field = field
+            else:
+                t_field = None
+            if (
+                isinstance(value, FieldProjection)
+                and value.field.owner == self.__class__
+            ):
+                yield name, (t_field or value.field, value)
+            elif isinstance(value, _Tosca_Field):
+                # field assigned directly to the object
+                if value.tosca_field_type in (
+                    ToscaFieldType.requirement,
+                    ToscaFieldType.capability,
+                    ToscaFieldType.artifact,
+                ):
+                    # fields returned by Requirement(), etc. won't have type or owner set and maybe not name
+                    value.name = name
+                    value.owner = self.__class__
+                    if not value.type:
+                        if t_field:
+                            value.type = t_field.type
+                        else:
+                            if field.default is not dataclasses.MISSING:
+                                value.type = type(field.default)
+                            elif isinstance(field.default_factory, type):  # its a ctor
+                                value.type = field.default_factory
+                    yield name, (t_field or value, value)
+                else:
+                    field = value
+                    if field.default is not dataclasses.MISSING:
+                        value = field.default
+                    elif field.default_factory is not dataclasses.MISSING:
+                        value = field.default_factory()
+                    else:
+                        continue
+                    yield name, (field, value)
+            # skip inference for methods and attributes starting with "_"
+            elif not field and name[0] != "_" and is_data_field(value):
+                # attribute is not part of class definition, try to deduce from the value's type
+                field = _Tosca_Field.infer_field(self.__class__, name, value)
+                field.default = MISSING  # this whole field was missing
+                yield name, (field, value)
+            elif t_field:
+                yield name, (t_field, value)
+            # otherwise skip the field
+
 
 def _field_as_eval(
     tt: "ToscaType", name: str, attribute_only: bool
@@ -2119,6 +2178,12 @@ class ToscaOutputs(_ToscaType):
         field.owner_type = ToscaOutputs
         field._tosca_field_type = ToscaFieldType.attribute
         return field
+
+    def to_yaml(self, dict_cls=dict):
+        body = dict_cls()
+        for field, value in self.get_instance_fields().values():
+            body[field.tosca_name] = to_tosca_value(value, dict_cls)
+        return body
 
 
 class anymethod:
@@ -2477,64 +2542,6 @@ class ToscaType(_ToscaType):
         if field_and_value:
             return field_and_value[0]
         return None
-
-    def get_instance_fields(self) -> Dict[str, Tuple[_Tosca_Field, Any]]:
-        if self._instance_fields is None:
-            # only do this once and save any generated values
-            self._instance_fields = dict(self._get_instance_fields())
-        return self._instance_fields
-
-    def _get_instance_fields(self) -> Iterator[Tuple[str, Tuple[_Tosca_Field, Any]]]:
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        __dict__ = object.__getattribute__(self, "__dict__")
-        for name, value in __dict__.items():
-            field = fields.get(name)
-            if isinstance(field, _Tosca_Field):
-                t_field = field
-            else:
-                t_field = None
-            if (
-                isinstance(value, FieldProjection)
-                and value.field.owner == self.__class__
-            ):
-                yield name, (t_field or value.field, value)
-            elif isinstance(value, _Tosca_Field):
-                # field assigned directly to the object
-                if value.tosca_field_type in (
-                    ToscaFieldType.requirement,
-                    ToscaFieldType.capability,
-                    ToscaFieldType.artifact,
-                ):
-                    # fields returned by Requirement(), etc. won't have type or owner set and maybe not name
-                    value.name = name
-                    value.owner = self.__class__
-                    if not value.type:
-                        if t_field:
-                            value.type = t_field.type
-                        else:
-                            if field.default is not dataclasses.MISSING:
-                                value.type = type(field.default)
-                            elif isinstance(field.default_factory, type):  # its a ctor
-                                value.type = field.default_factory
-                    yield name, (t_field or value, value)
-                else:
-                    field = value
-                    if field.default is not dataclasses.MISSING:
-                        value = field.default
-                    elif field.default_factory is not dataclasses.MISSING:
-                        value = field.default_factory()
-                    else:
-                        continue
-                    yield name, (field, value)
-            # skip inference for methods and attributes starting with "_"
-            elif not field and name[0] != "_" and is_data_field(value):
-                # attribute is not part of class definition, try to deduce from the value's type
-                field = _Tosca_Field.infer_field(self.__class__, name, value)
-                field.default = MISSING  # this whole field was missing
-                yield name, (field, value)
-            elif t_field:
-                yield name, (t_field, value)
-            # otherwise skip the field
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
