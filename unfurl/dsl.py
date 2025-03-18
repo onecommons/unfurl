@@ -204,30 +204,37 @@ class DslMethodConfigurator(Configurator):
         self.func = func
         self.action = action
         self.configurator: Optional[Configurator] = None
+        self._generator: Optional[Generator] = None
 
     def render(self, task: TaskView) -> Any:
-        if self.action == "render":
+        if self.action == "render" or self.action == "parse":
             # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
             execute_proxy = _OperationProxy()
             try:
                 global_state._type_proxy = execute_proxy
+                # XXX pass task
                 result = obj._invoke(self.func)
             finally:
                 global_state._type_proxy = None
 
             if isinstance(result, Generator):
+                self._generator = result
                 # render the yielded configurator
                 result = result.send(None)
-                # need a way to mark yielded configurator as already rendered
-            elif isinstance(result, Configurator):
+                assert isinstance(result, Configurator), (
+                    "Only yielding configurators is currently support"
+                )
+            if isinstance(result, Configurator):
                 self.configurator = result
-                # configurators rely on task.inputs, so update them
-                task.inputs.update(result._inputs)
                 # task.inputs get reset after render phase
-                # so we need to set configSpec.inputs too in order to preserve them for run()
+                # so we need to set configSpec.inputs in order to preserve them for run()
                 task.configSpec.inputs.update(result._inputs)
-                return self.configurator.render(task)
+                # regenerate task.inputs:
+                task._inputs = None
+                task.inputs
+                if not self._generator:
+                    return self.configurator.render(task)
             elif callable(result):
                 self.func = result
             elif execute_proxy._artifact_executed:
@@ -258,6 +265,8 @@ class DslMethodConfigurator(Configurator):
 
     def _is_generator(self) -> bool:
         # Note: this needs to called after configurator is set in render()
+        if self._generator:
+            return True
         if self.configurator:
             return self.configurator._is_generator()
         return inspect.isgeneratorfunction(self.func)
@@ -265,6 +274,15 @@ class DslMethodConfigurator(Configurator):
     def run(
         self, task: "TaskView"
     ) -> Union[Generator, ConfiguratorResult, "Status", bool]:
+        # XXX
+        # if self._generator:
+        #     # XXX render in render() with subtask, assign subtask to yield'd TaskRequest
+        #     subtask = yield task.create_sub_task(task.configSpec)
+        #     assert subtask
+        #     outputs = self._generator.send(subtask.outputs)
+        #     yield task.done(outputs=outputs)
+        #     return
+        # XXX live artifact.execute() should return a configurator with _inputs set
         if self.configurator:
             return self.configurator.run(task)
         obj = proxy_instance(task.target, self.cls, task.inputs.context)
@@ -284,7 +302,7 @@ def eval_computed(arg, ctx: RefContext):
     or
 
     eval:
-       computed: mod:func
+      computed: mod:func
     """
     if isinstance(arg, list):
         arg, args = arg[0], arg[1:]

@@ -364,15 +364,14 @@ class PythonToYaml:
                     ).update(dict(node_type=obj.tosca_type_name()))
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
-                 # embedded templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
+                # embedded templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
                 if (
-                    (
-                        isinstance(obj, (Node, Group, Policy))
-                        or obj._name
-                        or getattr(obj, "_default_for", None)  # include default Relationships
-                    )
-                    and not isinstance(obj, InstanceProxy)
-                ):
+                    isinstance(obj, (Node, Group, Policy))
+                    or obj._name
+                    or getattr(
+                        obj, "_default_for", None
+                    )  # include default Relationships
+                ) and not isinstance(obj, InstanceProxy):
                     if not obj._template_section:
                         if not isinstance(obj, _OwnedToscaType) or not obj._node:
                             logger.warning(
@@ -698,7 +697,7 @@ class PythonToYaml:
                 f"Couldn't execute {operation} on {cls_or_self} at parse time, falling back to render time execution",
                 exc_info=True,
             )
-            className = f"{operation.__module__}:{operation.__qualname__}:render"
+            className = f"{operation.__module__}:{operation.__qualname__}:parse"
             result = None
             # if this operation can't be executed while converting to yaml
             # it is the responsibility of the operation to instantiate a configurator with its inputs set
@@ -737,7 +736,11 @@ class PythonToYaml:
             if ret_cls:
                 _set_outputs(outputs, self, op_def, ret_cls)
         elif isinstance(result, types.FunctionType):
-            className = f"{result.__module__}:{result.__qualname__}:run"
+            if inspect.isgeneratorfunction(result):
+                action = "render"
+            else:
+                action = "run"
+            className = f"{result.__module__}:{result.__qualname__}:{action}"
             implementation = dict_cls(className=className)
         elif result:  # with unfurl this should be a Configurator
             className = f"{result.__class__.__module__}.{result.__class__.__name__}"
