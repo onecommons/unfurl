@@ -1093,9 +1093,8 @@ class NodeSpec(EntitySpec):
                 raise KeyError(key)
             relationship = req.relationship
             if relationship:
-                # hack!
-                tpl = list(req.entity_tpl.values())[0]
-                relationship.toscaEntityTemplate.entity_tpl = tpl
+                # XXX hack!
+                relationship.toscaEntityTemplate.entity_tpl = req.entity_tpl
             return relationship
 
     @property
@@ -1153,7 +1152,7 @@ class NodeSpec(EntitySpec):
             assert self.topology
             has_substitution = self.toscaEntityTemplate.substitution
             for relTpl, req, req_type_def in nodeTemplate.relationships:
-                name, values = next(iter(req.items()))
+                name, value = next(iter(req.items()))
                 if has_substitution and relTpl.target:
                     type_req = nodeTemplate.type_definition.get_requirement_definition(
                         name
@@ -1165,7 +1164,11 @@ class NodeSpec(EntitySpec):
                             f'Omitting requirement "{name}" on substituted template "{self.name}": the target node "{relTpl.target.name}" is only declared on the type.'
                         )
                         continue
-                reqSpec = RequirementSpec(name, req, self, req_type_def)
+                if isinstance(value, str):
+                    entity_tpl = dict(node=value)
+                else:
+                    entity_tpl = value
+                reqSpec = RequirementSpec(name, entity_tpl, self, req_type_def)
                 if relTpl.target:
                     nodeSpec = self.spec.node_from_template(relTpl.target)
                     if nodeSpec:
