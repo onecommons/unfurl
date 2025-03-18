@@ -698,7 +698,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         if not field or not isinstance(field, _Tosca_Field):
             if name in ["_name", "_metadata", "_directives"]:
                 # XXX other special attributes
-                return getattr(self._instance.template.toscaEntityTemplate, name[1:])
+                return getattr(self._instance.template, name[1:])
                 # elif if name[0] == "_": not self._obj
                 # return getattr(self.instance, name.lstrip("_")) or getattr(
                 #     self.instance.template.type_definition, name.lstrip("_")

@@ -963,8 +963,12 @@ class EntitySpec(ResourceRef):
         return []
 
     @property
-    def tpl(self) -> dict:
+    def tpl(self) -> Dict[str, Any]:
         return self.toscaEntityTemplate.entity_tpl
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return self.tpl.get("metadata", {})
 
     def get_interface_requirements(self) -> List[str]:
         return self.toscaEntityTemplate.get_interface_requirements()
