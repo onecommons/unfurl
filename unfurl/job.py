@@ -26,7 +26,7 @@ from typing import (
     TYPE_CHECKING,
     overload,
 )
-from typing_extensions import Literal
+from typing_extensions import Literal, Self
 from .support import (
     Status,
     Priority,
@@ -396,7 +396,7 @@ class ConfigTask(TaskView, ConfigChange):
         ):
             instance.created = self.changeId
 
-    def finished(self, result: ConfiguratorResult):
+    def finished(self, result: ConfiguratorResult) -> Self:
         assert result
         self.restore_envvars()
         if self.generator:
@@ -687,9 +687,9 @@ def _dependency_check(
                 return f"{dep.name} is {dep.status.name}"
 
         ready = "operational" if operational else state.name if state else "ready"
-        reason = f"required dependencies not {ready}: %s" % ", ".join(
-            [dep_message(dep) for dep in missing]
-        )
+        reason = f"required dependencies not {ready}: %s" % ", ".join([
+            dep_message(dep) for dep in missing
+        ])
     else:
         reason = ""
     return missing, reason
@@ -1087,9 +1087,9 @@ class Job(ConfigChange):
             manifest, requests = external_requests.pop(0)
             instance_specs = []
             for request in requests:
-                assert isinstance(
-                    request, JobRequest
-                ), "only JobRequest currently supported"
+                assert isinstance(request, JobRequest), (
+                    "only JobRequest currently supported"
+                )
                 instance_specs.extend(request.get_instance_specs())
             jobOptions = self.jobOptions.copy(
                 instances=instance_specs,
@@ -1399,7 +1399,7 @@ class Job(ConfigChange):
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
         task.start()
-        change = None
+        change: Union[ConfigTask, Job, None] = None
         while True:
             try:
                 result = task.send(change)

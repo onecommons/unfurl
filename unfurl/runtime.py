@@ -1018,8 +1018,14 @@ class NodeInstance(HasInstancesInstance):
         """
         Find RelationshipInstance that has the give relationship template
         """
-        assert relationship and relationship.capability and relationship.target
+        if not relationship.target and relationship.is_default_connection():
+            def_rels = [
+                rel for rel in self.root.requirements if rel.template is relationship
+            ]
+            return def_rels[0] if def_rels else None
         # find the Capability instance that corresponds to this relationship template's capability
+        assert relationship.capability
+        assert relationship.target
         targetNodeInstance = self.root.get_root_instance(
             relationship.target.toscaEntityTemplate
         ).find_resource(relationship.target.name)
@@ -1126,7 +1132,9 @@ class NodeInstance(HasInstancesInstance):
             return
         for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
             for capability in self.capabilities:
-                if rel.template.matches_target(cast(CapabilitySpec, capability.template)):
+                if rel.template.matches_target(
+                    cast(CapabilitySpec, capability.template)
+                ):
                     yield rel
 
     def get_default_relationships(
@@ -1293,7 +1301,7 @@ class TopologyInstance(HasInstancesInstance):
         attributes = dict(inputs=template.inputs, outputs=template.outputs)
         HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
-        self._relationships: Optional[List["RelationshipInstance"]] = None
+        self._relationships: List["RelationshipInstance"] = []
         self._tmpDir: Optional[str] = None
         self.parent_topology = parent_topology
 
@@ -1320,13 +1328,13 @@ class TopologyInstance(HasInstancesInstance):
         """
         The root node returns RelationshipInstances representing default relationship templates
         """
-        if self._relationships is None:
-            self._relationships = []
-            relTemplates = cast(TopologySpec, self.template).default_relationships
-            for template in relTemplates:
-                # this constructor will add itself to _relationships
-                RelationshipInstance(template.name, parent=self, template=template)
-
+        rel_templates = cast(TopologySpec, self.template).default_relationships
+        if len(self._relationships) != len(rel_templates):
+            instantiated = {id(r.template) for r in self._relationships}
+            for template in rel_templates:
+                if id(template) not in instantiated:
+                    # this constructor will add itself to _relationships
+                    RelationshipInstance(template.name, parent=self, template=template)
         return self._relationships
 
     def get_default_relationships(

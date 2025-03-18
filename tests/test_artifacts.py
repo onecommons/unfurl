@@ -1,3 +1,4 @@
+from io import StringIO
 import os
 import sys
 from pathlib import Path
@@ -233,13 +234,23 @@ class NodePool(tosca.DataEntity):
 
 class Cluster(tosca.nodes.Root):
     node_pool: NodePool
-    config: unfurl.artifacts.TemplateOperation = unfurl.artifacts.TemplateOperation(file="")
+
+    def set_connection(self):
+        outputs: dict = tosca.global_state_context().vars["outputs"]
+        # check that default_connection was found as a connection for this node:
+        assert tosca.global_state_context().vars["connections"]["default_connection"]
+        self.default_connection.node_pool_name = outputs["name"]
+
+    default_connection: tosca.relationships.ConnectsTo = tosca.Requirement(factory=lambda: tosca.relationships.ConnectsTo(_default_for="SELF"))
+
+    config: unfurl.artifacts.TemplateOperation = unfurl.artifacts.TemplateOperation(file="", resultTemplate = tosca.Eval(set_connection))
 
     def configure(self, **kw):
         # this can't be converted to declarative yaml (the node_pool.count assignment will throw an exception)
         # so this method will be invoked during task render time
         node_pool = self.node_pool
         node_pool.count = 3
+        node_pool.name = node_pool.name + "-1"
         return self.config.execute(done=dict(outputs=node_pool.to_yaml()))
 
 cluster = Cluster(node_pool=NodePool(name="node_pool"))
@@ -249,11 +260,14 @@ def test_render_operation():
     manifest_tpl = get_manifest_tpl(service_template)
     manifest = YamlManifest(manifest_tpl)
     job = Runner(manifest)
-    job = job.run(JobOptions(skip_save=True))
+    job = job.run(JobOptions(out=StringIO()))
     assert job
     assert len(job.workDone) == 1, len(job.workDone)
     task = list(job.workDone.values())[0]
     assert task.outputs["count"] == 3
+    assert task.outputs["name"] == "node_pool-1"
+    # make sure we serialized custom attribute on the default_connection:
+    assert "node_pool_name: node_pool-1" in job.out.getvalue()
 
 def test_artifact_dsl():
     manifest_tpl = _get_python_manifest("dsl_artifacts.py")

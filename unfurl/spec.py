@@ -1176,6 +1176,12 @@ class NodeSpec(EntitySpec):
                     else:
                         msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
                         ExceptionCollector.appendException(UnfurlValidationError(msg))
+                elif relTpl.is_default_connection():
+                    relSpec = RelationshipSpec(relTpl, self.topology)
+                    reqSpec.relationship = relSpec
+                    relSpec.requirement = reqSpec
+                    # add to topology default_requirements:
+                    self.topology.add_default_relationship(relSpec)
                 if name in self._requirements:
                     logger.warning(
                         f"More than one requirement for {name} on {self.nested_name} not supported."
@@ -1438,6 +1444,15 @@ class RelationshipSpec(EntitySpec):
         else:
             return None
 
+    @property
+    def default_for(self) -> Optional[str]:
+        return cast(RelationshipTemplate, self.toscaEntityTemplate).default_for
+
+    def is_default_connection(self) -> bool:
+        return cast(
+            RelationshipTemplate, self.toscaEntityTemplate
+        ).is_default_connection()
+
     def _resolve(self, key):
         try:
             return super()._resolve(key)
@@ -1465,15 +1480,17 @@ class RelationshipSpec(EntitySpec):
         # XXX defaultFor might be type, resolve to global
         if (
             default_for == rel_template.ANY
-            or (default_for == "SELF" and self.source and self.source.name == nodeTemplate.name)
+            or (
+                default_for == "SELF"
+                and self.source
+                and self.source.name == nodeTemplate.name
+            )
             or default_for == nodeTemplate.name
             or nodeTemplate.is_derived_from(default_for)
             or default_for == capability.name
             or capability.toscaEntityTemplate.is_derived_from(default_for)
         ):
-            return rel_template.get_matching_capabilities(
-                nodeTemplate, capability.name
-            )
+            return rel_template.get_matching_capabilities(nodeTemplate, capability.name)
 
         return False
 
@@ -1556,7 +1573,8 @@ class CapabilitySpec(EntitySpec):
         assert capability
         # capabilities.Capability isn't an EntityTemplate but duck types with it
         EntitySpec.__init__(self, capability, parent.topology)
-        self._defaultRelationships: Optional[List[RelationshipSpec]] = None
+        self._default_relationships: List[RelationshipSpec] = []
+        self._rel_counter = 0
 
     @property
     def parent(self):
@@ -1581,13 +1599,15 @@ class CapabilitySpec(EntitySpec):
 
     @property
     def default_relationships(self):
-        if self._defaultRelationships is None:
-            self._defaultRelationships = [
+        rel_templates = self.parentNode.topology.relationship_templates
+        if len(rel_templates) != self._rel_counter:
+            self._default_relationships = [
                 relSpec
-                for relSpec in self.parentNode.topology.relationship_templates.values()
+                for relSpec in rel_templates.values()
                 if relSpec.matches_target(self)
             ]
-        return self._defaultRelationships
+            self._rel_counter = len(rel_templates)
+        return self._default_relationships
 
     def get_default_relationships(self, relation=None):
         if not relation:
@@ -1640,7 +1660,7 @@ class TopologySpec(EntitySpec):
         self.propertyDefs = {}
         self.attributeDefs = {}
         # XXX! broken for nested topologies
-        self._defaultRelationships: Optional[List[RelationshipSpec]] = None
+        self._default_relationships: Optional[List[RelationshipSpec]] = None
         self._isReferencedBy = []
         self.add_discovered()
 
@@ -1711,8 +1731,8 @@ class TopologySpec(EntitySpec):
     def default_relationships(self) -> List[RelationshipSpec]:
         if self.parent_topology:
             return self.parent_topology.default_relationships
-        if self._defaultRelationships is None:
-            self._defaultRelationships = [
+        if self._default_relationships is None:
+            self._default_relationships = [
                 relSpec
                 for relSpec in self.relationship_templates.values()
                 if relSpec.toscaEntityTemplate.default_for
@@ -1723,15 +1743,22 @@ class TopologySpec(EntitySpec):
                     RelationshipTemplate(
                         dict(
                             type="unfurl.relationships.ConnectsTo.ComputeMachines",
-                            default_for=True,
+                            default_for=RelationshipTemplate.ANY,
                         ),
                         "_default_provider",
                         self.topology_template.custom_defs,
                     ),
                     self,
                 )
-                self._defaultRelationships.append(generic)
-        return self._defaultRelationships
+                self._default_relationships.append(generic)
+        return self._default_relationships
+
+    def add_default_relationship(self, relSpec: RelationshipSpec):
+        if self.parent_topology:
+            return self.parent_topology.add_default_relationship(relSpec)
+        self.default_relationships  # make sure _default_relationships exists
+        assert self._default_relationships
+        self._default_relationships.append(relSpec)
 
     @property
     def base_dir(self) -> str:
@@ -1839,13 +1866,19 @@ class TopologySpec(EntitySpec):
             self.node_templates[name] = nodeSpec
             return nodeSpec
         elif isinstance(type_def, RelationshipType):
-            relationshipTemplate = self.topology_template.add_relationship_template(name, tpl)
+            relationshipTemplate = self.topology_template.add_relationship_template(
+                name, tpl
+            )
             relationshipSpec = RelationshipSpec(relationshipTemplate, self)
             self.relationship_templates[name] = relationshipSpec
-            # XXX need to invalidate all _defaultRelationships and TopologyInstance._relationships
+            if relationshipSpec.default_for:
+                self.add_default_relationship(relationshipSpec)
             return relationshipSpec
         else:
-            raise UnfurlError(f"Unsupported tosca type {type_def.type} for dynamically added template.")
+            raise UnfurlError(
+                f"Unsupported tosca type {type_def.type} for dynamically added template."
+            )
+
 
 class Workflow:
     def __init__(self, workflow, topology: TopologySpec):
