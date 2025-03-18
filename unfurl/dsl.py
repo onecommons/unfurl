@@ -55,6 +55,7 @@ import tosca.loader
 from tosca._tosca import (
     _Tosca_Field,
     _ToscaType,
+    Node,
     global_state,
     FieldProjection,
     EvalData,
@@ -172,19 +173,22 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
 def proxy_instance(
     instance: EntityInstance, cls: Type[_ToscaType], context: RefContext
 ):
-    if instance.proxy:
-        # XXX make sure existing proxy context matches context argument
+    if instance.proxy and instance.proxy._context.vars == context.vars:
+        # XXX better comparison of contexts
         return instance.proxy
     if instance.parent and isinstance(instance, (ArtifactInstance, CapabilityInstance)):
         obj = None
-        parent = find_template(instance.parent.template)
-        if parent:
+        owner = find_template(instance.parent.template)
+        if owner:
+            if issubclass(cls, Node):  # class is the owner node
+                # this happens when references to the owner's methods are parsed to computed eval expressions in yaml
+                return proxy_instance(instance.parent, owner.__class__, context)
             field_type = ToscaFieldType(
                 instance.parentRelation[1:]
             )  # strip leading '_'
-            field = parent.get_field_from_tosca_name(instance.template.name, field_type)
+            field = owner.get_field_from_tosca_name(instance.template.name, field_type)
             if field:
-                obj = getattr(parent, field.name)
+                obj = getattr(owner, field.name)
     else:
         obj = find_template(instance.template)
     if obj:
@@ -502,7 +506,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
 
     def _invoke(self, func, *args, **kwargs):
         saved_context = global_state.context
-        global_state.context = self._context.copy(self._instance.root)
+        global_state.context = self._context.copy(self._instance)
         try:
             return func(self, *args, **kwargs)
         finally:
@@ -782,7 +786,7 @@ DT = TypeVar("DT", bound="DataEntity")
 
 
 class DataTypeProxyBase(InstanceProxy, Generic[DT]):
-    def __init__(self, values, obj: Optional[DT]=None):
+    def __init__(self, values, obj: Optional[DT] = None):
         self._values = values
         self._cache: Dict[str, Any] = {}
         self._obj = obj
