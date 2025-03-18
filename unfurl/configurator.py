@@ -15,7 +15,6 @@ from typing import (
     cast,
     MutableSequence,
 )
-from typing_extensions import TypedDict
 from collections.abc import Mapping
 import os
 import copy
@@ -35,6 +34,7 @@ from .support import (
     Status,
     ResourceChanges,
     Priority,
+    Reason,
     find_connection,
     set_context_vars,
 )
@@ -1174,7 +1174,7 @@ class TaskView:
         #  self.add_dependency(expr, required=required)
 
         # otherwise operation should be a ConfigurationSpec
-        return TaskRequest(operation, resource, "subtask", persist, required)
+        return TaskRequest(operation, resource, Reason.subtask, persist, required)
 
     def _update_instance(
         self, existingResource: EntityInstance, resourceSpec: Mapping
@@ -1232,9 +1232,7 @@ class TaskView:
             if isinstance(template, dict):
                 tname = existingResource.template.name
                 existingResource.template = (
-                    existingResource.template.topology.add_template(
-                        tname, template
-                    )
+                    existingResource.template.topology.add_template(tname, template)
                 )
             elif (
                 isinstance(template, str) and template != existingResource.template.name

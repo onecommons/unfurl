@@ -165,6 +165,7 @@ class Reason(str, Enum):
     undeploy = "undeploy"
     stop = "stop"
     connect = "connect"
+    subtask = "subtask"
     error = "error"
     """Synonym for repair. Deprecated."""
 
