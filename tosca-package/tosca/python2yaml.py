@@ -296,9 +296,11 @@ class PythonToYaml:
             self.write_policy,
             self.import_resolver,
         )
+        output = io.StringIO()
+        yaml.dump(yaml_dict, output)
         with open(yaml_path, "w") as yo:
             logger.info("saving imported python module as YAML at %s", yaml_path)
-            yaml.dump(yaml_dict, yo)
+            yo.write(output.getvalue())
         return yaml_path
 
     def add_alias(self, name, type_obj: Type[ToscaType]):
