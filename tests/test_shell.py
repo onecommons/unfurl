@@ -122,18 +122,15 @@ class TestDryRun:
         cmd = task.result.result["cmd"].strip()
         assert cmd == "echo hello world --use-dry-run"
 
-    def test_error_if_dry_run_not_defined_for_task(self):
+    def test_error_if_dry_run_not_defined_for_task(self, caplog):
         ensemble = ENSEMBLE_DRY_RUN.format(
             command="command: echo hello world", dryrun=""
         )
         runner = Runner(YamlManifest(ensemble))
 
         job = runner.run(JobOptions(instance="test_node", dryrun=True))
-
-        task = list(job.workDone.values())[0]
-        assert job.status == Status.error
-        assert task.result.result == "could not run: dry run not supported"
-
+        assert not job.workDone
+        assert "Skipping task: it doesn't support dry run" in caplog.text
 
 def test_lifecycle():
     path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"

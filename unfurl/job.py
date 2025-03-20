@@ -1116,6 +1116,9 @@ class Job(ConfigChange):
         """
         try:
             if task._configurator:
+                if task.dry_run and not task._configurator.can_dry_run(task):
+                    task.logger.warning("Skipping task: it doesn't support dry run.")
+                    return False, "task doesn't support dry run"
                 priority = task.configurator.should_run(task)
             else:
                 priority = task.priority
@@ -1163,8 +1166,6 @@ class Job(ConfigChange):
         try:
             if task._errors:
                 reason = "Error while creating task"  # XXX + str(_errors)
-            elif task.dry_run and not task.configurator.can_dry_run(task):
-                reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies(not_ready)
                 if missing:
@@ -1416,14 +1417,17 @@ class Job(ConfigChange):
                     else:
                         ready, _, error_reqs = do_render_requests(self, [result])
                         assert result.task
-                        if not ready:
+                        if not ready and result.required:
                             err_msg = "render failed"
                             if error_reqs and error_reqs[0].render_errors:
                                 err_msg = str(error_reqs[0].render_errors[0])
                             return result.task.finished(
                                 ConfiguratorResult(False, False, result=err_msg)
                             )
-                    change = self.apply(ready, not_ready, depth + 1)
+                    if ready:
+                        change = self.apply(ready, not_ready, depth + 1)
+                    else:
+                        change = result.task
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job
@@ -1434,7 +1438,7 @@ class Job(ConfigChange):
                 )
                 return retVal
             else:
-                UnfurlTaskError(task, "unexpected result from configurator")
+                UnfurlTaskError(task, f"unexpected result from configurator: {result}")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
 
     def add_work(self, task: ConfigTask) -> None:

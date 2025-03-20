@@ -9,7 +9,11 @@ from ..configurator import Configurator, TaskView
 from ..result import Results, ResultsMap
 from ..util import UnfurlTaskError, register_short_names
 from ..support import Status
-from ..planrequests import set_default_command, ConfigurationSpecKeywords
+from ..planrequests import (
+    set_default_command,
+    ConfigurationSpecKeywords,
+    TaskRequest,
+)
 import importlib
 from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union, cast
 from collections.abc import Mapping
@@ -193,7 +197,13 @@ class DelegateConfigurator(Configurator):
             yield task.done(True, modified=False)
         else:
             subtaskRequest = task.rendered
-            assert subtaskRequest
+            assert isinstance(subtaskRequest, TaskRequest), subtaskRequest
             # note: this will call can_run_task() for the subtask but not shouldRun()
             subtask = yield subtaskRequest
-            yield subtask.result
+            if not subtask.result and not subtaskRequest.required:
+                # subtask was skipped
+                # if skipping because subtask didn't support dry run, set modified to simulate
+                modified = task.dry_run and task.configSpec.operation != "check"
+                yield task.done(True, modified=modified)
+            else:
+                yield subtask.result
