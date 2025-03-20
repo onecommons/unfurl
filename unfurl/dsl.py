@@ -295,7 +295,10 @@ class DslMethodConfigurator(Configurator):
     def can_dry_run(self, task: "TaskView") -> bool:
         if self.configurator:
             return self.configurator.can_dry_run(task)
-        return False
+        can_dry_run = getattr(self.func, "can_dry_run", False)
+        if callable(can_dry_run):
+            return can_dry_run(task)  # type: ignore
+        return can_dry_run
 
 
 def eval_computed(arg, ctx: RefContext):
