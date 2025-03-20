@@ -714,7 +714,7 @@ class Convert:
 
     def _get_prop_value_repr(self, schema: Schema, value: Any) -> str:
         return self._get_typed_value_repr(
-            schema.type, schema.entry_schema, value, schema.metadata
+            schema.schema["type"], schema.entry_schema, value, schema.metadata
         )[0]
 
     def _get_typed_value_repr(
@@ -870,7 +870,7 @@ class Convert:
 
         if default_value is not MISSING:
             value_repr, mutable = self._get_typed_value_repr(
-                prop.schema.type, prop.schema.entry_schema, default_value
+                prop.schema.schema["type"], prop.schema.entry_schema, default_value
             )
             if mutable or value_repr[0] in ("{", "["):
                 fieldparams.append(f"factory=lambda:({value_repr})")
@@ -973,7 +973,7 @@ class Convert:
         metadata = toscatype.defs and toscatype.defs.get("metadata")
         if metadata and metadata.get("alias"):
             assert "," not in base_names
-            return f"{cls_name} = {base_names}"
+            return f"{initial_indent}{cls_name} = {base_names}"
         simple_type = cast(str, toscatype.get_value("type"))
         if simple_type and simple_type in _tosca.TOSCA_SIMPLE_TYPES:
             # its a value datatype
