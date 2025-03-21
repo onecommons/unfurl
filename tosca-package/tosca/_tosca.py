@@ -950,6 +950,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             # XXX mark default as a constraint
             # XXX default is shared across template instances and subtypes -- what about mutable values like dicts and basically all Toscatypes?
             self.default = val
+            self.default_factory = MISSING
 
     def as_ref_expr(self) -> str:
         if self.tosca_field_type in [
@@ -1519,6 +1520,8 @@ class FieldProjection(EvalData):
     def __getattr__(self, name):
         if name.startswith("__"):
             raise AttributeError(name)
+        if name in ["_name", "tosa_name"]:
+            return self._project(".name")
         # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
         field = object.__getattribute__(self, "field")
@@ -1542,8 +1545,8 @@ class FieldProjection(EvalData):
         if not field:
             # __dataclass_fields__ might not be updated yet, do a regular getattr
             field = getattr(cls, name)
-            if not isinstance(field, _Tosca_Field):
-                raise AttributeError(f"{cls} has no field '{name}'")
+        if not isinstance(field, _Tosca_Field):
+            raise AttributeError(f"{cls} has no field '{name}'")
         return FieldProjection(field, self)
 
     def __getitem__(self, key) -> "FieldProjection":
@@ -1665,6 +1668,8 @@ class _DataclassTypeProxy:
     def __getattr__(self, name):
         # we need to check the base class's __dataclass_fields__ first
         fields = getattr(self.cls, "__dataclass_fields__", {})
+        if name in ("_name", "tosca_name"):
+            return EvalData(".name")
         val = fields.get(name)
         if not val:
             # but our __dataclass_fields__ isn't updated yet, do a regular getattr

@@ -638,6 +638,8 @@ def test_class_init() -> None:
         prop1: Optional[str] = tosca.CONSTRAINED
         host: tosca.nodes.Compute = tosca.CONSTRAINED
         self_reference: "Example" = tosca.CONSTRAINED
+        prop2: Optional[str] = None
+        prop3: str = tosca.DEFAULT
 
         @classmethod
         def _class_init(cls) -> None:
@@ -653,6 +655,8 @@ def test_class_init() -> None:
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
             cls.set_to_property_source(cls.host, cls.prop1)
+            cls.prop2 = cls.host._name  # XXX tosca_name is shadowed
+            cls.prop3 = cls._name
 
         def create(self, **kw) -> tosca.artifacts.Root:
             self.shellScript.execute(input1=self.prop1)
@@ -697,7 +701,18 @@ def test_class_init() -> None:
                     "default": {
                         "eval": ".targets::host::.capabilities::[.name=os]::distribution"
                     },
-                }
+                },
+                "prop2": {
+                    "default": {
+                        "eval": ".targets::host::.name",
+                    },
+                    "required": False,
+                    "type": "string",
+                },
+                "prop3": {
+                    "default": ".name",
+                    "type": "string",
+                },
             },
             "artifacts": {
                 "shellScript": {
