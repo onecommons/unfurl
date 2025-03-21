@@ -602,6 +602,25 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_ADFS_AUTHORITY_URL }
         required: false
+      AZURE_STORAGE_ACCOUNT:
+        description: The storage account name.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_ACCOUNT }
+        required: false
+      AZURE_STORAGE_KEY:
+        description: The storage account key.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_KEY }
+        required: false
+        metadata:
+          sensitive: true
+      AZURE_STORAGE_CONNECTION_STRING:
+        description: A connection string that includes the storage account key or a SAS token.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_CONNECTION_STRING }
+        required: false
+        metadata:
+          sensitive: true
 
   unfurl.relationships.ConnectsTo.Packet:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
