@@ -128,8 +128,8 @@ def test_builtin_generation():
         )  # !namespace attributes might get added by other tests
         print(yaml2python.value2python_repr(diffs))
         if diffs:
-            # these diffs exist because requirements include inherited types
-            assert section == "node_types" and len(diffs) == 5
+            # these diffs exist because requirements include inherited types and aliased block and object storaged types
+            assert section == "node_types" and len(diffs) == 9
 
 
 def test_builtin_ext_generation():
