@@ -3,8 +3,9 @@
 """
 Utility functions for unit tests.
 """
+
 from dataclasses import dataclass
-from typing import Any, List, Optional, Iterable, Tuple, Union
+from typing import Any, Dict, List, Optional, Iterable, Sequence, Tuple, Union
 import shutil
 import traceback
 import time
@@ -31,16 +32,20 @@ import pprint
 try:
     from mypy import api
 
-    def assert_no_mypy_errors(path, *args, expected=["no issues found in 1 source file"]):
-        stdout, stderr, return_code = api.run([path, *args] )
+    def assert_no_mypy_errors(
+        path, *args, expected=["no issues found in 1 source file"]
+    ):
+        stdout, stderr, return_code = api.run([path, *args])
         if stdout:
             print(stdout)
             for msg in expected:
                 assert msg in stdout, f"not found in stdout: {msg}"
         # if errors, return_code == 1
         assert return_code != 2, (stderr, stdout)
+
 except ImportError:
     assert_no_mypy_errors = None  # type: ignore
+
 
 @dataclass
 class Step:
@@ -93,37 +98,45 @@ def _check_job(job, i, step):
     print(job.json_summary(True))
 
     if step.total is not None:
-        assert summary["job"]["total"] == step.total, f"{step_str} unexpected total jobs {summary}"
+        assert summary["job"]["total"] == step.total, (
+            f"{step_str} unexpected total jobs {summary}"
+        )
 
     if step.changed is not None:
         if step.changed == -1:
-            assert summary["job"]["changed"], f"{step_str} expected to see modified tasks {summary}"
+            assert summary["job"]["changed"], (
+                f"{step_str} expected to see modified tasks {summary}"
+            )
         else:
-            assert (
-                summary["job"]["changed"] == step.changed
-            ), f"{step_str} number {step.changed} of tasks mismatch: {summary}"
+            assert summary["job"]["changed"] == step.changed, (
+                f"{step_str} number {step.changed} of tasks mismatch: {summary}"
+            )
 
     for task in job.workDone.values():
         if task.status is not None and task.priority > Priority.ignore:
             if task.target.name not in step.ignore_target_status:
-                assert (
-                    task.target.status == step.target_status
-                ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
+                assert task.target.status == step.target_status, (
+                    f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
+                )
     job.step = step
     return job
 
 
 def lifecycle(
-    manifest: YamlManifest, steps: Iterable[Step] = DEFAULT_STEPS
+    manifest: YamlManifest,
+    steps: Iterable[Step] = DEFAULT_STEPS,
+    job_options: Optional[Dict[str, Any]] = None,
 ) -> Iterable[Job]:
     runner = Runner(manifest)
     for i, step in enumerate(steps, start=1):
         print(f"starting step #{i} - {step.workflow}")
-        job = runner.run(JobOptions(workflow=step.workflow, starttime=i))
+        job = runner.run(
+            JobOptions(workflow=step.workflow, starttime=i, **(job_options or {}))
+        )
         yield _check_job(job, i, step)
 
 
-def _home(env):
+def _home(env: Optional[Dict[str, str]]):
     if env and "UNFURL_HOME" in env:
         return env
     else:
@@ -133,7 +146,12 @@ def _home(env):
         return env
 
 
-def init_project(cli_runner, path=None, env=None, args=None):
+def init_project(
+    cli_runner: CliRunner,
+    path: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    args: Optional[Sequence[str]] = None,
+):
     args = args or [
         "init",
         "--mono",
@@ -145,7 +163,7 @@ def init_project(cli_runner, path=None, env=None, args=None):
     )
     # uncomment this to see output:
     # print("result.output", result.exit_code, result.output)
-    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
+    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))  # type: ignore
     assert result.exit_code == 0, result
 
     if path and os.path.isfile(path):
@@ -162,7 +180,7 @@ def isolated_lifecycle(
     tmp_dir=None,
     job_args=None,
     sleep=None,
-    wait=False
+    wait=False,
 ) -> Iterable[Union[str, Job]]:
     cli_runner = CliRunner()
     with cli_runner.isolated_filesystem(
@@ -186,7 +204,7 @@ def isolated_lifecycle(
                 args.append("-a")  # needed when called outside of tox
             result = cli_runner.invoke(cli, args, env=_home(env))
             print("result.output", result.exit_code, result.output)
-            assert not result.exception, "\n".join(  
+            assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)  # type: ignore
             )
             assert result.exit_code == 0, result
@@ -196,7 +214,12 @@ def isolated_lifecycle(
                 time.sleep(sleep)
 
 
-def run_cmd(runner: CliRunner, args, print_result=False, env=None) -> Result:
+def run_cmd(
+    runner: CliRunner,
+    args: Optional[Sequence[str]],
+    print_result: bool = False,
+    env: Optional[Dict[str, str]] = None,
+) -> Result:
     result = runner.invoke(cli, args, env=_home(env))
     if print_result:
         print("result.output", result.exit_code, result.output)
@@ -213,7 +236,7 @@ def run_job_cmd(
     ),
     starttime=1,
     print_result=False,
-    env=None,
+    env: Optional[Dict[str, str]] = None,
 ) -> Tuple[Result, Job, dict]:
     _args = list(args)
     if starttime:
@@ -236,13 +259,7 @@ def runtime_test(namespace: Type[_N]) -> _N:
 def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     from .job import Runner
 
-    converter = PythonToYaml(namespace.get_defs())
-    doc = converter.module2yaml(True)
-    # pprint.pprint(doc)
-    config = dict(
-        apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc)
-    )
-    manifest = YamlManifest(config)
+    manifest = namespace2manifest(namespace)
     assert manifest.rootResource
     # a plan is needed to create the instances
     runner = Runner(manifest)
@@ -268,3 +285,14 @@ def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     assert tosca.global_state.mode == "runtime"
     tosca.global_state.context = ctx
     return clone, runner
+
+
+def namespace2manifest(namespace: Type[tosca.Namespace]) -> YamlManifest:
+    converter = PythonToYaml(namespace.get_defs())
+    doc = converter.module2yaml(True)
+    # pprint.pprint(doc)
+    config = dict(
+        apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc)
+    )
+    manifest = YamlManifest(config)
+    return manifest
