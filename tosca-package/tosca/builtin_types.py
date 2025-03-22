@@ -496,7 +496,7 @@ class nodes(Namespace):
             factory=capabilities.Attachment
         )
 
-    BlockStorage = StorageBlockStorage
+    BlockStorage: typing_extensions.TypeAlias = StorageBlockStorage
 
     class StorageObjectStorage(AbstractStorage):
         """
@@ -515,7 +515,7 @@ class nodes(Namespace):
             factory=capabilities.Endpoint
         )
 
-    ObjectStorage = StorageObjectStorage
+    ObjectStorage: typing_extensions.TypeAlias = StorageObjectStorage
 
     class AbstractCompute(Root):
         _type_name = "tosca.nodes.Abstract.Compute"

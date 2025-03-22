@@ -973,7 +973,12 @@ class Convert:
         metadata = toscatype.defs and toscatype.defs.get("metadata")
         if metadata and metadata.get("alias"):
             assert "," not in base_names
-            return f"{initial_indent}{cls_name} = {base_names}"
+            if self.python_compatible > 9:
+                annotated_module = "typing"
+            else:
+                annotated_module = "typing_extensions"
+            self.imports.add_import(annotated_module)
+            return f"{initial_indent}{cls_name}: {annotated_module}.TypeAlias = {base_names}"
         simple_type = cast(str, toscatype.get_value("type"))
         if simple_type and simple_type in _tosca.TOSCA_SIMPLE_TYPES:
             # its a value datatype
