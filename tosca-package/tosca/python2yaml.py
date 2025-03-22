@@ -125,7 +125,8 @@ class PythonToYaml:
             repo_path = Path(root_path)
         else:
             repo_path = Path(root_path).parent
-        self.repos[repo_name] = repo_path
+        if repo_name != "unfurl":
+            self.repos[repo_name] = repo_path
         try:
             return repo_name, path.relative_to(repo_path)
         except ValueError:
@@ -170,15 +171,16 @@ class PythonToYaml:
         repositories = {}
         for repo, p in self.imports:
             _import = dict(file=str(p))
-            if repo and repo != "service_template":
+            if repo and repo not in "service_template":
                 _import["repository"] = repo
-                if not self.import_resolver:
-                    repositories[repo] = dict(url=self.repos[repo].as_uri())
-                elif not self.import_resolver.get_repository(repo, None):
-                    # the repository wasn't found, but don't add it here (this is probably an error)
-                    logger.warning(
-                        f"Added an import in {repo} but could not find {repo} in {list(self.import_resolver.manifest.repositories)}."
-                    )
+                if repo != "unfurl":
+                    if not self.import_resolver:
+                        repositories[repo] = dict(url=self.repos[repo].as_uri())
+                    elif not self.import_resolver.get_repository(repo, None):
+                        # the repository wasn't found, but don't add it here (this is probably an error)
+                        logger.warning(
+                            f"Added an import in {repo} but could not find {repo} in {list(self.import_resolver.manifest.repositories)}."
+                        )
             imports.append(_import)
         if repositories:
             self.sections.setdefault("repositories", {}).update(repositories)
