@@ -42,7 +42,7 @@ from .util import (
     get_base_dir,
     taketwo,
 )
-from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
+from .repo import Repo, normalize_git_url, split_git_url, RepoView, GitRepo
 from .packages import (
     Package,
     PackageSpec,
@@ -505,9 +505,9 @@ class Manifest(AttributeManager):
                 if not requirement:
                     continue
                 requirement._source = resource
-                assert (
-                    requirement in resource.requirements
-                ), f"{requirement} not in {resource.requirements} for {rname}"
+                assert requirement in resource.requirements, (
+                    f"{requirement} not in {resource.requirements} for {rname}"
+                )
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
@@ -704,7 +704,13 @@ class Manifest(AttributeManager):
         repoURL, filePath, revision = split_git_url(path)
         if not repoURL:
             raise UnfurlError(f"invalid git URL {path}")
-        assert self.localEnv
+        if not self.localEnv:  # can happen in unit tests
+            repo = Repo.find_containing_repo(base)
+            # XXX if url is file path compare working dir else compare normalize_git_url(repo.url) == normalize_git_url(repoURL)
+            if repo:
+                return repo, filePath, revision, None
+            else:
+                return None, None, None, None
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
             repoURL, revision, base
         )

@@ -191,7 +191,9 @@ class ToscaYamlLoader(Loader):
             from .yaml2python import yaml_to_python
 
             python_filepath = str(path.parent / (path.stem + ".py"))
-            src = yaml_to_python(self.filepath, python_filepath)
+            src = yaml_to_python(
+                self.filepath, python_filepath, import_resolver=import_resolver
+            )
         else:
             python_filepath = str(path)
             with open(path) as f:

@@ -911,13 +911,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         base_dir: str,
         yaml_dict=dict,
     ):
+        from .dsl import convert_to_yaml, maybe_reconvert
+
         if path.endswith(".py"):
-            from .dsl import convert_to_yaml
-            import tosca._tosca
-
-            tosca._tosca.yaml_cls = yaml_dict
-
-            return convert_to_yaml(self, contents, path, repo_view, base_dir)
+            return convert_to_yaml(self, contents, path, repo_view, base_dir, yaml_dict)
+        doc = maybe_reconvert(self, contents, path, repo_view, base_dir, yaml_dict)
+        if doc is not None:
+            return doc
         else:
             return load_yaml(yaml, contents, path, self.readonly)
 

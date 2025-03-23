@@ -87,15 +87,43 @@ logger = getLogger("unfurl")
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
+def maybe_reconvert(
+    import_resolver: "ImportResolver",
+    yaml_contents: str,
+    path: str,
+    repo_view: Optional[RepoView],
+    base_dir: str,
+    yaml_dict=dict,
+) -> Optional[dict]:
+    "If the YAML was generated from a Python file, regenerate if Python file is newer."
+    if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
+        return None
+    yaml_path = Path(path)
+    python_path = yaml_path.parent / (yaml_path.stem + ".py")
+    if not python_path.exists():
+        return None
+    if not WritePolicy["older"].can_overwrite(str(python_path), path):
+        return None
+    if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
+        return None
+    with open(python_path) as f:
+        contents = f.read()
+    return convert_to_yaml(
+        import_resolver, contents, str(python_path), repo_view, base_dir, yaml_dict
+    )
+
+
 def convert_to_yaml(
     import_resolver: "ImportResolver",
     contents: str,
     path: str,
     repo_view: Optional[RepoView],
     base_dir: str,
+    yaml_dict=dict,
 ) -> dict:
     from .yamlloader import yaml_dict_type
 
+    tosca._tosca.yaml_cls = yaml_dict
     path = os.path.abspath(path)
     namespace: Dict[str, Any] = dict(__file__=path)
     logger.trace(
