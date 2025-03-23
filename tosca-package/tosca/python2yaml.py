@@ -260,11 +260,6 @@ class PythonToYaml:
         return None
 
     def _imported_module2yaml(self, module: ModuleType) -> Path:
-        try:
-            from unfurl.yamlloader import yaml
-        except ImportError:
-            import yaml
-
         path = Path(get_module_path(module))
         yaml_path = path.parent / (path.stem + ".yaml")
         if module.__name__.startswith("unfurl"):
@@ -298,11 +293,8 @@ class PythonToYaml:
             self.write_policy,
             self.import_resolver,
         )
-        output = io.StringIO()
-        yaml.dump(yaml_dict, output)
-        with open(yaml_path, "w") as yo:
-            logger.info("saving imported python module as YAML at %s", yaml_path)
-            yo.write(output.getvalue())
+        _write_yaml(self.write_policy, yaml_dict, str(path), str(yaml_path))
+        logger.info("saving imported python module as YAML at %s", yaml_path)
         return yaml_path
 
     def add_alias(self, name, type_obj: Type[ToscaType]):
@@ -1030,10 +1022,6 @@ def python_to_yaml(
     overwrite="auto",
     safe_mode: bool = False,
 ) -> Optional[dict]:
-    try:
-        from unfurl.yamlloader import yaml
-    except ImportError:
-        import yaml
     write_policy = WritePolicy[overwrite]
     if dest_path and not write_policy.can_overwrite(src_path, dest_path):
         logger.info(
@@ -1064,14 +1052,29 @@ def python_to_yaml(
             sys.path.pop(sys.path.index(base_dir))
         except ValueError:
             pass
+    _write_yaml(write_policy, tosca_tpl, src_path, dest_path)
+    if dest_path:
+        logger.info("converted Python to YAML at %s", dest_path)
+    return tosca_tpl
+
+
+def _write_yaml(
+    write_policy: WritePolicy,
+    tosca_tpl: dict,
+    src_path: str,
+    dest_path: Optional[str] = None,
+):
+    try:
+        from unfurl.yamlloader import yaml
+    except ImportError:
+        import yaml
     prologue = write_policy.generate_comment("tosca.python2yaml", src_path)
     if dest_path:
-        output = io.StringIO(prologue)
+        output = io.StringIO()
         yaml.dump(tosca_tpl, output)
-        logger.info("converted Python to YAML at %s", dest_path)
         with open(dest_path, "w") as f:
+            f.write(prologue)
             f.write(output.getvalue())
     else:
         print(prologue)
         yaml.dump(tosca_tpl, sys.stdout)
-    return tosca_tpl
