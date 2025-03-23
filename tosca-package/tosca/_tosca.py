@@ -2367,7 +2367,7 @@ class ToscaType(_ToscaType):
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for field in fields.values():
             val = object.__getattribute__(self, field.name)
-            if val is REQUIRED:
+            if val is REQUIRED and field._tosca_field_type != ToscaFieldType.attribute and not field.declare_attribute:
                 if self._enforce_required_fields():
                     # on Python < 3.10 we set this to workaround the lack of keyword only fields
                     raise ValueError(
