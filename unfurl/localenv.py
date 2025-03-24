@@ -119,7 +119,11 @@ class Project:
         )
         self.parentProject = parentProject
         if parentProject and save:
-            parentProject.register_project(self)  # saves config
+            saved = parentProject.register_project(self)  # saves config
+            if saved:
+                logger.verbose(
+                    "registered project with parent project at %s", parentProject.projectRoot
+                )
         self._set_contexts()
         # depends on _set_contexts():
         self.project_repoview.yaml = make_yaml(self.make_vault_lib())
@@ -445,11 +449,25 @@ class Project:
         # merge project contexts with parent contexts
         expanded = cast(dict, self.localConfig.config.expanded)
         contexts = expanded.get("environments") or {}
-        # handle null environments:
         dict_cls = getattr(expanded, "mapCtor", expanded.__class__)
-        contexts = dict_cls(
-            (n, dict_cls() if v is None else v) for n, v in contexts.items()
-        )
+
+        def _normalize(v: dict) -> dict:
+            if v is None:  # handle null environments:
+                return dict_cls()
+            # handle python dsl imports:
+            if "topology_template" in v:
+                if "node_templates" in v["topology_template"]:
+                    v["instances"] = merge_dicts(
+                        v["topology_template"]["node_templates"], v.get("instances", {})
+                    )
+                if "relationship_templates" in v["topology_template"]:
+                    v["connections"] = merge_dicts(
+                        v["topology_template"]["relationship_templates"],
+                        v.get("connections", {}),
+                    )
+            return v
+
+        contexts = dict_cls((n, _normalize(v)) for n, v in contexts.items())
         if self.parentProject:
             parentContexts = self.parentProject.contexts
             contexts = merge_dicts(
@@ -632,21 +650,33 @@ class Project:
             location.update(props)
         else:
             self.localConfig.ensembles.append(props)
-        if managedBy or project:
+        saved = False
+        dest_project = managedBy or project
+        if dest_project:
             assert not (managedBy and project)
-            self.register_project(managedBy or project, changed=True)
+            saved = self.register_project(dest_project, changed=True)
         elif self.localConfig.config.config:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
             if not self.localConfig.config.readonly:
                 self.localConfig.config.save()
+                saved = True
+        if saved:
+            logger.verbose("registered ensemble: %s", manifestPath)
 
     def register_project(
-        self, project, for_context=None, changed=False, save_project=True
-    ):
-        self.localConfig.register_project(project, for_context, changed, save_project)
+        self,
+        project: "Project",
+        for_context: Optional[str] = None,
+        changed: bool = False,
+        save_project: bool = True,
+    ) -> bool:
+        saved = self.localConfig.register_project(
+            project, for_context, changed, save_project
+        )
         self.workingDirs[project.project_repoview.working_dir] = (
             project.project_repoview
         )
+        return saved
 
     def load_yaml_include(
         self,
@@ -837,8 +867,12 @@ class LocalConfig:
         return key, include
 
     def register_project(
-        self, project: Project, for_context=None, changed=False, save_project=True
-    ):
+        self,
+        project: Project,
+        for_context: Optional[str] = None,
+        changed: bool = False,
+        save_project: bool = True,
+    ) -> bool:
         """
         Register an external project with current project.
         If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
@@ -898,7 +932,7 @@ class LocalConfig:
             self.config.config["ensembles"] = self.ensembles
             if not self.config.readonly:
                 self.config.save()
-        return lock
+        return changed and not self.config.readonly
 
 
 def _maplist(template, environment_scope=None):
@@ -1014,9 +1048,9 @@ class LocalEnv:
                 )
 
         if override_context and override_context != "defaults":
-            assert (
-                override_context == self.manifest_context_name
-            ), self.manifest_context_name
+            assert override_context == self.manifest_context_name, (
+                self.manifest_context_name
+            )
             project = self.project or self.homeProject
             if not project or self.manifest_context_name not in project.contexts:
                 raise UnfurlError(
