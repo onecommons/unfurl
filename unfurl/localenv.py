@@ -40,6 +40,7 @@ from .repo import (
     normalize_git_url_hard,
 )
 from .util import (
+    API_VERSION,
     UnfurlError,
     filter_env,
     get_base_dir,
@@ -736,7 +737,7 @@ class LocalConfig:
     def __init__(
         self, path=None, validate=True, yaml_include_hook=None, readonly=False
     ):
-        defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
+        defaultConfig = {"apiVersion": API_VERSION, "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
             path,

@@ -27,6 +27,7 @@ from .support import Status, Priority
 import tosca
 from tosca.python2yaml import PythonToYaml
 from .dsl import proxy_instance
+from .util import API_VERSION
 import pprint
 
 try:
@@ -292,7 +293,7 @@ def namespace2manifest(namespace: Type[tosca.Namespace]) -> YamlManifest:
     doc = converter.module2yaml(True)
     # pprint.pprint(doc)
     config = dict(
-        apiVersion="unfurl/v1alpha1", kind="Ensemble", spec=dict(service_template=doc)
+        apiVersion=API_VERSION, kind="Ensemble", spec=dict(service_template=doc)
     )
     manifest = YamlManifest(config)
     return manifest

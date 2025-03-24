@@ -366,7 +366,7 @@ spec:
 
 def test_deployment_blueprint():
     dp_yaml = """
-apiVersion: unfurl/v1beta1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 environment:
   deployment_blueprint: test

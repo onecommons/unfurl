@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("unfurl")
 
-API_VERSION = "unfurl/v1alpha1"
+API_VERSION = "unfurl/v1.0.0"
 
 try:
     from importlib.metadata import files

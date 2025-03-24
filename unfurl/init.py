@@ -31,6 +31,7 @@ from .util import (
     get_base_dir,
     is_relative_to,
     substitute_env,
+    API_VERSION
 )
 from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib, yaml
@@ -168,9 +169,9 @@ def _create_repo(gitDir, ignore=True) -> GitRepo:
     return GitRepo(repo)
 
 
-def write_service_template(projectdir, templateDir=None):
+def write_service_template(projectdir, templateDir, vars):
     return write_template(
-        projectdir, "service_template.py", "service_template.py.j2", {}, templateDir
+        projectdir, "service_template.py", "service_template.py.j2", vars or {}, templateDir
     )
 
 
@@ -265,13 +266,15 @@ def render_project(
                 os.path.join(ensembleRepo.working_dir, ensembleDirName)
             )
             ensembleDir = externalProject.get_unique_path(relPath)
-        manifestName = names.Ensemble
-        ensemblePath = os.path.join(ensembleDir, manifestName)
+    manifestName = names.Ensemble
+    ensemblePath = os.path.join(ensembleDir, manifestName)
 
     if skeleton_vars:
         vars = skeleton_vars.copy()
     else:
         vars = {}
+    if "api_version" not in vars:
+        vars["api_version"] = API_VERSION
     if use_vault:
         if not vars.get("VAULT_PASSWORD"):
             vars["VAULT_PASSWORD"] = get_random_password()
@@ -329,7 +332,7 @@ def render_project(
         secretsInclude = ""
 
     # note: local overrides secrets
-    vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid)
+    vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid, api_version=API_VERSION)
     if skeleton_vars:
         vars.update(skeleton_vars)
     if use_context and not localExternal:
@@ -358,17 +361,18 @@ def render_project(
             projectdir,
             names.EnsembleTemplate,
             "manifest-template.yaml.j2",
-            {},
+            vars,
             templateDir,
         )
         # write service_template.py
-        write_service_template(projectdir, templateDir)
+        write_service_template(projectdir, templateDir, vars)
 
     if ensembleRepo:
         extraVars = dict(
             ensembleUri=ensembleRepo.get_url_with_path(ensemblePath, True),
             # include the ensembleTemplate in the root of the specDir
             ensembleTemplate=names.EnsembleTemplate,
+            api_version=API_VERSION
         )
         if skeleton_vars:
             extraVars.update(skeleton_vars)
@@ -433,6 +437,7 @@ def _commit_repos(
         else:
             message = "Default ensemble repository boilerplate"
         ensembleRepo.repo.index.commit(message)
+        ensembleRepo.repo.__del__()
 
     if kw.get("submodule"):
         repo.add_sub_module(ensembleDir)
@@ -449,6 +454,7 @@ def _commit_repos(
 
     repo.add_all(projectdir)
     repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
+    repo.repo.__del__()
 
 
 def _get_shared(kw, homePath) -> Optional[str]:
@@ -621,7 +627,7 @@ def _add_ensemble_specific_unfurl_config(repo: GitRepo, kw: dict):
 
 def _create_ensemble_repo(
     manifest: "yamlmanifest.ReadOnlyManifest", repo: Optional[GitRepo], kw: dict
-):
+) -> None:
     manifest_path = manifest.manifest.path
     assert manifest_path
     destDir = os.path.dirname(manifest_path)
@@ -638,7 +644,6 @@ def _create_ensemble_repo(
     if not kw.get("render"):  # don't commit if --render set
         repo.repo.index.add([manifest_path])
         repo.repo.index.commit("Default ensemble repository boilerplate")
-    return repo
 
 
 def _looks_like(path, name):
@@ -849,12 +854,16 @@ class EnsembleBuilder:
                 % os.path.abspath(sourceDir)
             )
         self.template_vars["revision"] = self.source_revision or ""
+        self.template_vars["api_version"] = API_VERSION
+        skeleton_vars = self.template_vars.copy()
+        if self.skeleton_vars:
+             skeleton_vars.update(self.skeleton_vars)
         manifestPath = write_ensemble_manifest(
             os.path.join(project.projectRoot, destDir),
             manifestName,
             spec_repo_view.repo,
             sourceDir,
-            self.template_vars,
+            skeleton_vars,
             self.options.get("skeleton"),
         )
         use_environment = self.options.get("use_environment")

@@ -682,7 +682,7 @@
       "type": "string",
       "enum": [
         "unfurl/v1alpha1",
-        "unfurl/v1beta1"
+        "unfurl/v1.0.0"
       ]
     },
     "kind": {

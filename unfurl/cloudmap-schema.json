@@ -5,7 +5,11 @@
   "type": "object",
   "properties": {
     "apiVersion": {
-      "const": "unfurl/v1alpha1"
+      "type": "string",
+      "enum": [
+        "unfurl/v1alpha1",
+        "unfurl/v1.0.0"
+      ]
     },
     "kind": {
       "const": "CloudMap"

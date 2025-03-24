@@ -49,6 +49,7 @@ from .packages import (
     PackagesType,
     find_canonical,
     get_package_id_from_url,
+    is_semver,
 )
 from .merge import merge_dicts
 from .result import ChangeRecord, ResourceRef
@@ -211,16 +212,22 @@ class Manifest(AttributeManager):
             if name not in repositoriesTpl:
                 repositoriesTpl[name] = value
 
+        validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
         # make sure this is present
         if "tosca_definitions_version" not in toscaDef:
             toscaDef["tosca_definitions_version"] = TOSCA_VERSION
-        if self.apiVersion == "unfurl/v1beta1":
+        api_version = self.apiVersion[len("unfurl/") :]
+        if is_semver(api_version):  # old version with non-semver syntax is less strict
+            if validation_mode is None:
+                validation_mode = "types"
+
             # if overriding a template, make sure it is compatible with the old one by adding "should_implement" hint
             def replaceStrategy(key, old, new):
                 old_type = old.get("type")
                 if old_type:
                     new.setdefault("metadata", {})["should_implement"] = old_type
                 return new
+
         else:
             replaceStrategy = "replace"  # type: ignore
         if more_spec:
@@ -229,7 +236,7 @@ class Manifest(AttributeManager):
                 toscaDef,
                 more_spec,
                 replaceKeys=["node_templates", "relationship_templates"],
-                replaceStrategy=replaceStrategy
+                replaceStrategy=replaceStrategy,
             )
         yaml_dict_cls = yaml_dict_type(bool(self.localEnv and self.localEnv.readonly))
         if not isinstance(toscaDef, yaml_dict_cls):
@@ -246,6 +253,7 @@ class Manifest(AttributeManager):
             self.get_import_resolver(expand=True),
             skip_validation,
             fragment,
+            validation_mode,
         )
 
     def get_spec_digest(self, spec):

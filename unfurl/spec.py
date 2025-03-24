@@ -228,7 +228,9 @@ class ToscaSpec:
         fragment,
     ):
         # need to set a path for the import loader
-        mode = os.getenv("UNFURL_VALIDATION_MODE")
+        mode = self.validation_mode
+        if mode is None:
+            mode = os.getenv("UNFURL_VALIDATION_MODE")
         additionalProperties = False
         validate_type_type = False
         if mode is not None:
@@ -303,12 +305,14 @@ class ToscaSpec:
         resolver=None,
         skip_validation: bool = False,
         fragment: str = "",
+        validation_mode: Optional[str] = None,
     ):
         self.discovered: Optional[CommentedMap] = None
         self.nested_discovered: Dict[str, dict] = {}
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
         self.overridden_default_templates: Set[str] = set()
+        self.validation_mode = validation_mode
         if spec:
             inputs = cast(Dict[str, Any], spec.get("inputs") or {})
         else:
