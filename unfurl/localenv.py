@@ -1139,6 +1139,16 @@ class LocalEnv:
                 if managed_project:
                     return managed_project
 
+        if self.manifestPath:
+            ensemble_project_path = os.path.join(
+                os.path.dirname(self.manifestPath), DefaultNames.LocalConfig
+            )
+            # look for a project in the same directory as the manifest
+            if ensemble_project_path != project.projectRoot and os.path.exists(
+                ensemble_project_path
+            ):
+                project = self.get_project(ensemble_project_path, self.homeProject)
+
         # projects can be nested (handle stand-alone ensemble repositories)
         parent_project = self.find_project(
             os.path.dirname(project.projectRoot), stop_at
@@ -1485,9 +1495,9 @@ class LocalEnv:
             ):
                 repo.pull(revision=revision)
         else:
-            assert isinstance(
-                repoview_or_url, str
-            ), repoview_or_url  # it's the repoUrl (possibly rewritten) at this point
+            assert isinstance(repoview_or_url, str), (
+                repoview_or_url
+            )  # it's the repoUrl (possibly rewritten) at this point
             url = repoview_or_url
             # git-local repos must already exist locally
             if url.startswith("git-local://"):
