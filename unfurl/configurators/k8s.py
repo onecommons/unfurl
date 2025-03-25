@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: MIT
 from __future__ import absolute_import
 import re
+import os
 from base64 import b64encode
-from typing import Dict, Mapping, Union, cast
+from typing import Any, Dict, List, Mapping, Union, cast
+
+from ..projectpaths import get_path
 from ..configurator import Configurator, TaskView
 from ..support import Status, Priority, to_kubernetes_label
 from ..runtime import EntityInstance, NodeInstance, RelationshipInstance
@@ -185,7 +188,7 @@ def make_pull_secret(name, hostname, username, password) -> str:
     apiVersion: v1
     kind: Secret
     metadata:
-      name: { name }
+      name: {name}
     type: kubernetes.io/dockerconfigjson
     data:
       .dockerconfigjson: {b64encode(json.dumps(data).encode()).decode()}
@@ -285,13 +288,26 @@ def mark_sensitive(task, resource):
                                 env["value"] = task.sensitive(env["value"])
 
 
-class ResourceConfigurator(AnsibleConfigurator):
+ClusterScoped_Kinds = [
+    "ClusterRole",
+    "ClusterRoleBinding",
+    "CustomResourceDefinition",
+    "MutatingWebhookConfiguration",
+    "ValidatingWebhookConfiguration",
+    "Node",
+    "PersistentVolume",
+    "PriorityClass",
+    "StorageClass",
+    "VolumeSnapshotClass",
+    "RuntimeClass",
+    "APIService",
+]
 
+
+class ResourceConfigurator(AnsibleConfigurator):
     @classmethod
     def set_config_spec_args(cls, kw: dict, template):
-        artifact = template.find_or_create_artifact(
-            "kubernetes.core", predefined=True
-        )
+        artifact = template.find_or_create_artifact("kubernetes.core", predefined=True)
         if artifact:
             kw["dependencies"].append(artifact)
         return kw
@@ -306,51 +322,58 @@ class ResourceConfigurator(AnsibleConfigurator):
         task.logger.info("dry run: generating playbook:\n%s", self.find_playbook(task))
         yield task.done(True)
 
-    def make_secret(self, data, type="Opaque"):
+    def make_secret(self, data, type="Opaque") -> Dict[str, Any]:
         return dict(
             type=type,
             apiVersion="v1",
             kind="Secret",
-            data=sensitive_dict(
-                {k: b64encode(str(v).encode()).decode() for k, v in data.items() if v is not None}
-            ),
+            data=sensitive_dict({
+                k: b64encode(str(v).encode()).decode()
+                for k, v in data.items()
+                if v is not None
+            }),
         )
 
-    def get_definition(self, task):
+    def get_definition(self, task: TaskView) -> List[Dict[str, Any]]:
         if task.target.template.is_compatible_type("unfurl.nodes.K8sNamespace"):
-            return dict(apiVersion="v1", kind="Namespace")
-
-        # get copy so subsequent modifications don't affect the definition
-        if "definition" in task.target.attributes:
-            definition = task.target.attributes.get_copy("definition") or {}
-        elif "src" in task.target.attributes:
-            with open(task.target.attributes["src"]) as f:
-                definition = f.read()
-        else:
-            definition = task.target.attributes.get_copy("apiResource") or {}
+            return [dict(apiVersion="v1", kind="Namespace")]
 
         if (
             task.target.template.is_compatible_type("unfurl.nodes.K8sSecretResource")
             and "data" in task.target.attributes
         ):
-            return self.make_secret(
-                task.target.attributes["data"], task.target.attributes["type"]
-            )
-        else:
-            if isinstance(definition, str):
-                definition = yaml.load(definition)
-            kind = definition.get("kind")
-            if not kind:
-                raise UnfurlTaskError(
-                    task, 'invalid Kubernetes resource definition, "kind" is missing'
+            return [
+                self.make_secret(
+                    task.target.attributes["data"], task.target.attributes["type"]
                 )
-            if kind == "Secret" and "data" in definition:
-                definition["data"] = wrap_sensitive_value(definition["data"])
-            return definition
+            ]
+
+        # get copy so subsequent modifications don't affect the definition
+        if "definition" in task.target.attributes:
+            definition = task.target.attributes.get_copy("definition") or {}
+        elif "src" in task.target.attributes:
+            src = task.target.attributes["src"]
+            if not os.path.isabs(src):
+                src = get_path(task.inputs.context, src, "src")
+            with open(src) as f:
+                definition = f.read()
+        else:
+            definition = task.target.attributes.get_copy("apiResource") or {}
+
+        if isinstance(definition, str):
+            definition = list(yaml.load_all(definition))
+        elif isinstance(definition, dict):
+            return [definition]
+        return definition
 
     def update_metadata(self, definition, task, namespace):
+        "Add name and namespace to metadata if missing from metadata."
         md = definition.setdefault("metadata", {})
-        if namespace and "namespace" not in md:
+        if (
+            namespace
+            and "namespace" not in md
+            and definition["kind"] not in ClusterScoped_Kinds
+        ):
             md["namespace"] = namespace
         # else: error if namespace mismatch?
 
@@ -361,6 +384,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             md["name"] = name
 
     def _make_check(self, connectionConfig, definition, extra_configuration):
+        "Make a k8s_info play for checking the existence of a resource."
         moduleSpec = connectionConfig.copy()
         moduleSpec["kind"] = definition.get("kind", "")
         moduleSpec["name"] = definition["metadata"]["name"]
@@ -370,14 +394,29 @@ class ResourceConfigurator(AnsibleConfigurator):
             moduleSpec.update(extra_configuration)
         return [{"kubernetes.core.k8s_info": moduleSpec}]
 
-    def _find_host(self, task: TaskView):
+    def _find_host(self, task: TaskView):  # override
         if task.configSpec.operation_host:  # explicitly set
             return super()._find_host(task)
         return None, None  # use local connection, don't search for hosts
 
     def find_playbook(self, task: TaskView):
         # this is called by AnsibleConfigurator.get_playbook()
-        definition = self.get_definition(task)
+        definitions = self.get_definition(task)
+        playbook = []
+        for definition in definitions:
+            if definition:
+                playbook.extend(self._find_playbook(definition, task))
+        return playbook
+
+    def _find_playbook(self, definition, task: TaskView):
+        kind = definition.get("kind")
+        if not kind:
+            raise UnfurlTaskError(
+                task, 'invalid Kubernetes resource definition, "kind" is missing'
+            )
+        if kind == "Secret" and "data" in definition:
+            definition["data"] = wrap_sensitive_value(definition["data"])
+
         connectionConfig = _get_connection(task.inputs.context)
         self.update_metadata(definition, task, connectionConfig.get("namespace"))
         extra_configuration = task.inputs.get("configuration")
@@ -402,7 +441,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             and task.target.status in [Status.pending, Status.unknown]
         ):
             # we don't want delete resources that already exist (especially namespaces!)
-            # so the first time we try to create the resource check for its exists first
+            # so the first time we try to create the resource check if it exists first
             task.logger.trace(
                 "adding k8s resource existence check for %s", task.target.name
             )
