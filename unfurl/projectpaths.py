@@ -494,19 +494,15 @@ class FilePath(_ArtifactExternalValue):
         manifest: Optional["Manifest"] = options and options.get("manifest")
         if manifest:
             repo, relPath, revision, bare = manifest.find_path_in_repos(
-                self.get_full_path()
+                fullpath
             )
-            if repo and not repo.is_path_excluded(relPath):
+            if repo and not repo.is_dirty(True, relPath):
                 if relPath:
                     # equivalent to git rev-parse HEAD:path
                     digest = "git:" + repo.repo.rev_parse("HEAD:" + relPath).hexsha
                 else:
-                    digest = "git:" + revision  # root of repo
-                if repo.is_dirty(True, relPath):
-                    fstat = os.stat(fullpath)
-                    return f"{digest}:{fstat[stat.ST_SIZE]}:{fstat[stat.ST_MTIME]}"
-                else:
-                    return digest
+                    digest = "git:" + (revision or "HEAD") # root of repo
+                return digest
 
         if os.path.isfile(fullpath):
             with open(fullpath, "r") as f:

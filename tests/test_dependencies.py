@@ -130,10 +130,6 @@ def test_digests(caplog):
     digestContents = filepath.__digestable__(dict(manifest=manifest))
     assert digestContents == "git:800472c7b1b2ea128464b9144c1440ca7289a5fa"
 
-    filepath = FilePath(__file__ + "/../..")  # root of repo
-    digestContents = filepath.__digestable__(dict(manifest=manifest))
-    assert digestContents.startswith("git:"), digestContents
-
     with caplog.at_level(logging.DEBUG):
         manifest2 = YamlManifest(
             job.out.getvalue(), path=os.path.dirname(path), localEnv=manifest.localEnv
