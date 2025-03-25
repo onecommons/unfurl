@@ -481,6 +481,7 @@ class TaskView:
 
     Attributes:
         target: The instance this task is operating on.
+        configSpec (ConfigurationSpec)
         reason (str): The reason this operation was planned. See :class:`~unfurl.support.Reason`
         cwd (str): Current working directory
         dry_run (bool): Dry run only
@@ -1393,13 +1394,15 @@ class TaskView:
         preserve: Optional[bool] = None,
         always_apply: bool = False,
     ) -> WorkFolder:
-        if location in self._workFolders:
-            return self._workFolders[location]
         if preserve is None:
             preserve = True if location in Folders.Persistent else False
-        wf = WorkFolder(self, location, preserve)
+        if location in self._workFolders:
+            wf = self._workFolders[location]
+            wf.preserve = preserve
+        else:
+            wf = WorkFolder(self, location, preserve)
+            self._workFolders[location] = wf
         wf.always_apply = always_apply
-        self._workFolders[location] = wf
         return wf
         # XXX multiple tasks can be accessing the same workfolder, so:
         # return self.job.setFolder(
@@ -1410,7 +1413,7 @@ class TaskView:
         # return self.job.getFolder(self, location)
         if location is None:
             if not self._workFolders:
-                raise UnfurlTaskError(self, f"No task folder was set.")
+                raise UnfurlTaskError(self, "No task folder was set.")
             # XXX error if there is more than one?
             return next(iter(self._workFolders.values()))
         else:

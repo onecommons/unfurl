@@ -290,7 +290,7 @@ class TerraformConfigurator(ShellConfigurator):
                 if not os.path.isabs(main):
                     main = get_path(task.inputs.context, main, "src")
                 if os.path.exists(main):
-                    # it's a directory -- if difference from cwd, treat it as a module to call
+                    # it's a directory -- if difference from cwd, treat location as a module to call
                     relpath = cwd.relpath_to_current(main)
                     if relpath != ".":
                         write_vars = False
@@ -523,7 +523,14 @@ class TerraformConfigurator(ShellConfigurator):
         )
 
     def _apply_state(
-        self, task, statePath, cwd, providerSchema, result, success, modified
+        self,
+        task: TaskView,
+        statePath: str,
+        cwd: WorkFolder,
+        providerSchema,
+        result,
+        success,
+        modified,
     ):
         # read state file
         current_path = cwd.cwd
