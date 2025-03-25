@@ -196,7 +196,7 @@ class JobOptions:
         instance = kw.pop("instance", None)
         if instance:
             if isinstance(instance, tuple):
-                instances = kw.pop("instance")
+                instances = instance
                 if instances:
                     kw["instances"] = list(instances)
             elif "instances" not in kw:
