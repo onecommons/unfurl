@@ -1418,7 +1418,7 @@ class Job(ConfigChange):
                     else:
                         ready, _, error_reqs = do_render_requests(self, [result])
                         assert result.task
-                        if not ready and result.required:
+                        if not ready and result.required is not False:
                             err_msg = "render failed"
                             if error_reqs and error_reqs[0].render_errors:
                                 err_msg = str(error_reqs[0].render_errors[0])

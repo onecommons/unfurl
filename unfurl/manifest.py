@@ -707,17 +707,17 @@ class Manifest(AttributeManager):
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
 
-    def find_repo_from_git_url(self, path, base):
+    def find_repo_from_git_url(self, url, base):
         revision: Optional[str]
-        repoURL, filePath, revision = split_git_url(path)
+        repoURL, filePath, revision = split_git_url(url)
         if not repoURL:
-            raise UnfurlError(f"invalid git URL {path}")
+            raise UnfurlError(f"invalid git URL {url}")
         if not self.localEnv:  # can happen in unit tests
             repo = Repo.find_containing_repo(base)
-            # XXX if url is file path compare working dir else compare normalize_git_url(repo.url) == normalize_git_url(repoURL)
-            if repo:
+            if repo and (repo.find_remote(url=url) or toscaparser.imports.normalize_path(url) == repo.working_dir):
                 return repo, filePath, revision, None
             else:
+                logger.warning("Can't resolve repository %s because there's no localenv.", url)
                 return None, None, None, None
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
             repoURL, revision, base
