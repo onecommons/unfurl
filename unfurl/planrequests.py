@@ -1234,8 +1234,8 @@ def create_task_request(
             reason or action,
         )
     else:
-        errorMsg = f'unable to find an implementation for operation "{action}" on node "{resource.template.name}"'
-        logger.trace(errorMsg)
+        # errorMsg = f'unable to find an implementation for operation "{action}" on node "{resource.template.name}"'
+        # logger.trace(errorMsg)
         return None
 
     if not startState and iDef:

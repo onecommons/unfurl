@@ -106,6 +106,7 @@ class Plan:
         self.root = root
         self.tosca = toscaSpec
         self._checked_connection_task = False
+        self._ran_workflow = False
         assert self.tosca
         if jobOptions.template:
             filterTemplate = self.tosca.get_template(jobOptions.template)
@@ -243,6 +244,7 @@ class Plan:
             self.jobOptions, op, resource, reason, inputs, startState
         )
         if req:
+            self._ran_workflow = True
             yield req
 
     def _execute_default_configure(
@@ -318,6 +320,7 @@ class Plan:
         )
         # if the resource doesn't exist or failed while creating:
         initialState = not resource.state or resource.state == NodeState.creating
+        self._ran_workflow = False
         if (
             missing
             or self.jobOptions.force
@@ -332,6 +335,7 @@ class Plan:
                 NodeState.creating,
             )
             if req:
+                self._ran_workflow = True
                 yield req
             else:
                 # no create operation defined, run configure instead
@@ -357,6 +361,10 @@ class Plan:
             yield from self._run_operation(
                 NodeState.starting, "Standard.start", resource, reason, inputs
             )
+        if not self._ran_workflow:
+              errorMsg = f'unable to find a deploy operation on node "{resource.template.name}"'
+              logger.debug(errorMsg)
+        self._startworkflow = False
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
         # add_target: Operation to notify source some property or attribute of the target changed
@@ -375,6 +383,7 @@ class Plan:
 
             yield from self._run_operation(nodeState, op, resource, reason, inputs)
 
+        self._ran_workflow = False
         if self.workflow == "stop":
             return
 
@@ -414,6 +423,10 @@ class Plan:
             op = "Install.revert"
 
         yield from self._run_operation(nodeState, op, resource, reason, inputs)
+        if not self._ran_workflow:
+              errorMsg = f'unable to find a teardown operation on node "{resource.template.name}"'
+              logger.debug(errorMsg)
+        self._ran_workflow = False
 
     def execute_default_install_op(
         self,

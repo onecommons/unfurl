@@ -785,6 +785,7 @@ class Job(ConfigChange):
         # we want to run these even if we just generating a plan
         self.external_jobs = self.run_external(planOnly=False)
         if self.external_jobs and self.external_jobs[-1].status == Status.error:
+            logger.error("Running local installation job failed, aborting render.")
             return [], [], []
 
         ready, notReady, errors = do_render_requests(self, ready)
