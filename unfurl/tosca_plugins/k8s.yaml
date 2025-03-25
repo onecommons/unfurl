@@ -165,14 +165,17 @@ relationship_types:
             - KUBE_CTX_CLUSTER
         default: { get_env: KUBE_CTX_CLUSTER }
       KUBECONFIG:
-        type: unfurl.datatypes.EnvVar
+        type: string
         description: >
           Path to an existing Kubernetes config file. If not provided, and no other connection
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
-        default: { get_env: KUBECONFIG }
+        default: { get_env: [KUBECONFIG,  {get_env: KUBE_CONFIG_PATH}] }
         required: false
         metadata:
           user_settable: false
+          env_vars:
+            - KUBE_CONFIG_PATH
+            - KUBECONFIG
       context:
         type: string
         description: >

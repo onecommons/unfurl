@@ -35,8 +35,12 @@ class unfurl_relationships_ConnectsTo_K8sCluster(tosca.relationships.ConnectsTo)
         metadata={"env_vars": ["KUBE_CTX_CLUSTER"]},
         default=Eval({"get_env": "KUBE_CTX_CLUSTER"}),
     )
-    KUBECONFIG: Union["unfurl.datatypes.EnvVar", None] = Property(
-        metadata={"user_settable": False}, default=Eval({"get_env": "KUBECONFIG"})
+    KUBECONFIG: Union[str, None] = Property(
+        metadata={
+            "env_vars": ["KUBE_CONFIG_PATH", "KUBECONFIG"],
+            "user_settable": False,
+        },
+        default=Eval({"get_env": ["KUBE_CONFIG_PATH", {"get_env": "KUBECONFIG"}]}),
     )
     """
     Path to an existing Kubernetes config file. If not provided, and no other connection options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
