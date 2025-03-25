@@ -329,9 +329,9 @@ class relationships(Namespace):
         """The secret key for Spaces object storage."""
 
         default_region: str = Property(
-            title="Default Region", metadata={"user_settable": True}, default="nyc1"
+            title="Default Region", metadata={"user_settable": True}, default="nyc3"
         )
-        """The default region to use, e.g. fra1, nyc2, etc."""
+        """The default region to use, e.g. fra1, nyc3, etc."""
 
     class ConnectsToAzure(ConnectsToCloudAccount):
         _type_name = "unfurl.relationships.ConnectsTo.Azure"

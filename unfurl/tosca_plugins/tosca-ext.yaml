@@ -533,8 +533,8 @@ relationship_types:
       default_region:
         type: string
         title: Default Region
-        default: nyc1
-        description: "The default region to use, e.g. fra1, nyc2, etc."
+        default: nyc3
+        description: "The default region to use, e.g. fra1, nyc3, etc."
         metadata:
           user_settable: true
 
