@@ -292,13 +292,13 @@ Creating an ensemble in a new repository will add a ``vault_secrets`` secret wit
   Store the vault password found in ``ensemble/local/unfurl.yaml`` in a safe place! This password is used to encrypt any sensitive data committed to repository. See :doc:`secrets` for more information.
 
 Project Skeletons
------------------
+=================
 
-New Unfurl projects and ensembles are created from a ``project skeleton``, which is a directory containing Jinja2 templates that are used to render the project files.
+New Unfurl projects and ensembles are created from a "project skeleton", which is a directory containing Jinja2 templates that are used to render the project files.
 
-The ``--skeleton`` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
+The :cli:`--skeleton<cmdoption-unfurl-init-skeleton>` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
 
-You can pass skeleton variables to the skeleton Jinj2a templates using the ``--var`` option, like the example `below<vault_password_var>`.
+You can pass skeleton variables to the skeleton Jinj2a templates using the :cli:`--var<cmdoption-unfurl-init-var>` option, like the example `below<vault_password_var>`.
 
 
 Cloning projects and ensembles

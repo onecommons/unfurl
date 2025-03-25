@@ -1,13 +1,19 @@
 # This file is included by ensemble-template.yaml 
 # You can define TOSCA types and templates here in Python, see 
-# https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md
+# https://docs.unfurl.run/dsl.html
 
 # for example:
 
+{%- if std | default("") %}
+import tosca
+
+from tosca_repositories import std
+{% else %}
 # import tosca
 
 # uncomment if you declared the "std" repository in ensemble-template.yaml
 # from tosca_repositories import std
+{% endif %}
 
 # class MyNodeType(tosca.nodes.Root):
 #     name: str

@@ -10,10 +10,16 @@ spec:
     +?include: service_template.py
     # It will be merged with the YAML TOSCA definitions defined here.
 
+    {%- if std | default("") %}
+    repositories:
+      std:
+        url: https://unfurl.cloud/onecommons/std.git
+    {% else %}
     # uncomment if you want to use the Unfurl Cloud standard library
     # repositories:
     #  std:
     #    url: https://unfurl.cloud/onecommons/std.git
+    {% endif %}
 
     topology_template:
       node_templates: {}
