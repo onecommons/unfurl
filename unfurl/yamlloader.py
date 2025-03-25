@@ -228,6 +228,7 @@ def make_yaml(vault=None):
     if not vault:
         vault = VaultLib(secrets=None)
     yaml = YAML()
+    yaml.preserve_quotes = True  # type:ignore[assignment]
 
     # monkey patch for better error message
     yaml.representer.represent_undefined = represent_undefined
