@@ -1,6 +1,7 @@
 import fnmatch
 import pathlib
 import shutil
+import subprocess
 import unittest
 import os
 import glob
@@ -14,7 +15,7 @@ from unfurl.yamlmanifest import YamlManifest, _basepath
 from unfurl.yamlloader import YamlConfig
 from unfurl.spec import ToscaSpec
 from tosca import global_state
-from unfurl.testing import CliRunner, assert_no_mypy_errors, run_cmd
+from unfurl.testing import CliRunner, assert_no_mypy_errors, run_cmd, run_job_cmd
 
 basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
 
@@ -43,7 +44,12 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
 """
 
         def skip(py_file):
-            for skip in ["*quickstart_*", "*/inputs.py", "*node-types-2.py", "*tosca-node-template.py"]:
+            for skip in [
+                "*quickstart_*",
+                "*/inputs.py",
+                "*node-types-2.py",
+                "*tosca-node-template.py",
+            ]:
                 if fnmatch.fnmatch(py_file, skip):
                     print(f"Skipping {py_file}")
                     return True
@@ -71,22 +77,27 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
         )
         with open(os.path.join(basedir, "service_template.py")) as pyfile:
             from_py = _to_yaml(pyfile.read(), True)
-        assert from_py["topology_template"]["outputs"] == yaml_template.topology_template._tpl_outputs()
-        assert from_py["topology_template"]["inputs"] == yaml_template.topology_template._tpl_inputs()
+        assert (
+            from_py["topology_template"]["outputs"]
+            == yaml_template.topology_template._tpl_outputs()
+        )
+        assert (
+            from_py["topology_template"]["inputs"]
+            == yaml_template.topology_template._tpl_inputs()
+        )
+
 
 def test_inputs():
     basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
-    yaml_template = ToscaTemplate(
-        path=os.path.join(basedir, "tosca_inputs.yaml")
-    )
+    yaml_template = ToscaTemplate(path=os.path.join(basedir, "tosca_inputs.yaml"))
 
     interfaces = yaml_template.topology_template.node_templates["example"].interfaces
     create_op = interfaces[0]
     assert create_op.name == "create"
     default_op = interfaces[1]
     assert default_op.name == "default"
-    assert create_op.inputs == {'foo': 'base:create', 'bar': 'derived:create'}
-    assert default_op.inputs =={'foo': 'derived:default', 'bar': 'derived:default'}
+    assert create_op.inputs == {"foo": "base:create", "bar": "derived:create"}
+    assert default_op.inputs == {"foo": "derived:default", "bar": "derived:default"}
 
     with open(os.path.join(basedir, "tosca_inputs.py")) as pyfile:
         from_py = _to_yaml(pyfile.read(), False)
@@ -96,8 +107,9 @@ def test_inputs():
     assert create_op.name == "create"
     default_op = interfaces[1]
     assert default_op.name == "default"
-    assert create_op.inputs == {'foo': 'base:create', 'bar': 'derived:create'}
-    assert default_op.inputs =={'foo': 'derived:default', 'bar': 'derived:default'}
+    assert create_op.inputs == {"foo": "base:create", "bar": "derived:create"}
+    assert default_op.inputs == {"foo": "derived:default", "bar": "derived:default"}
+
 
 ensemble_template = """
 apiVersion: unfurl/v1alpha1
@@ -109,38 +121,93 @@ spec:
        url: https://unfurl.cloud/onecommons/std.git
 """
 
-@pytest.mark.skipif(
-    "k8s" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP for k8s set"
-)
+SAVE_TMP = None
+
+
+@pytest.fixture
+def namespace(request):
+    namespace = request.param
+    if "k8s" in os.getenv("UNFURL_TEST_SKIP", ""):
+        yield namespace
+    else:
+        os.system(f"kubectl create namespace {namespace}")
+        # skip setting context since k8s configurator always sets a namespace now
+        # old_namespace = subprocess.run("kubectl config view --minify -o jsonpath='{..namespace}'", shell=True, capture_output=True).stdout.strip()
+        # os.system(f"kubectl config set-context --current --namespace {namespace}")
+        yield namespace
+        # os.system(f"kubectl config set-context --current --namespace {old_namespace}")
+        os.system(f"kubectl delete namespace {namespace} --wait=false")
+
+
+@pytest.mark.parametrize("namespace", ["doctest"], indirect=True)
 # skip if we don't have kompose installed but require CI to have it
 @pytest.mark.skipif(
     not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
 )
-def test_quickstart():
+def test_quickstart(namespace):
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        run_cmd(runner, ["init", "myproject", "--empty"])
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("saving to", test_dir)
+        run_cmd(runner, ["init", "myproject", "--empty", "--var", "std", "true"])
         os.chdir("myproject")
-        with open("ensemble-template.yaml", "w") as f:
-            f.write(ensemble_template)
+        # with open("ensemble-template.yaml", "w") as f:
+        #     f.write(ensemble_template)
         base = pathlib.Path(basedir)
         shutil.copy(base / "quickstart_service_template.py", "service_template.py")
         run_cmd(runner, "validate")
         run_cmd(runner, "init production --skeleton aws --use-environment production")
-        run_cmd(runner, "init development --skeleton k8s --use-environment development")
+        run_cmd(
+            runner,
+            "init development --skeleton k8s --use-environment development --var namespace "
+            + namespace,
+        )
         with open(base / "quickstart_deployment_blueprints.py") as src_file:
-           deployment_blueprint  = src_file.read()
+            deployment_blueprint = src_file.read()
         with open("service_template.py", "a") as f:
             f.write(deployment_blueprint)
-        run_cmd(runner, "plan production")
-        if "slow" not in os.getenv("UNFURL_TEST_SKIP", ""):
-            run_cmd(runner, "deploy --dryrun --approve development")
 
-@pytest.mark.skipif("slow" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set")
-@pytest.mark.parametrize(
-    "path", ["artifact2.py", "tosca-interfaces.py"]
+        if "slow" not in os.getenv("UNFURL_TEST_SKIP", ""):
+            run_cmd(
+                runner,
+                "-vvv deploy --approve --dryrun --jobexitcode error production".split(),
+            )
+            dryrun = "--dryrun" if "k8s" in os.getenv("UNFURL_TEST_SKIP", "") else ""
+            result, job, summary = run_job_cmd(
+                runner, f"-vvv deploy --approve {dryrun} development".split(), print_result=True
+            )
+            summary["job"].pop("id")
+            assert summary["job"].pop("ok") >= 14
+            assert summary["job"].pop("changed") >= 14
+            blocked = summary["job"].pop("blocked", None)
+            assert blocked is None or blocked == 1 # dns blocked on ingress
+            assert {
+                "status": "error",
+                "total": 16,
+                "error": 1,  # ingress or unfurl_dns
+                "unknown": 0,
+                "skipped": 0,
+            } == summary["job"]
+            result, job, summary = run_job_cmd(
+                runner, f"-vvv teardown --approve {dryrun} development".split(), print_result=True
+            )
+            summary["job"].pop("id")
+            assert summary["job"].pop("total") >= 6
+            assert summary["job"].pop("error") <= 3
+            assert {
+                "status": "error",
+                "ok": 5,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 6,
+            } == summary["job"]
+
+
+@pytest.mark.skipif(
+    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
 )
+@pytest.mark.parametrize("path", ["artifact2.py", "tosca-interfaces.py"])
 def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "..", "docs", "examples", path)
-    assert_no_mypy_errors(basepath) # , "--disable-error-code=override")
+    assert_no_mypy_errors(basepath)  # , "--disable-error-code=override")

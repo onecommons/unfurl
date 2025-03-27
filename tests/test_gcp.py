@@ -69,7 +69,7 @@ spec:
 
 # @pytest.mark.skip
 def test_plan():
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     with runner.isolated_filesystem():
         init_project(
             runner,
@@ -91,8 +91,10 @@ def test_plan():
         # print(job.manifest.status_summary())
         planoutput = result.output.strip()
         assert planoutput
-        plan = json.loads(planoutput)
-        # print(plan)
+        # print("planoutput", planoutput)
+        plan: list = json.loads(planoutput)
+        if "job_request" in plan[0]:  # external artifact setup
+            plan.pop(0)
         assert plan[0]["instance"] == "dev_gcp_project"
         folder = plan[0]["plan"][0]["sequence"][0]["rendered"]["tasks"]
         with open(Path(folder) / "main.unfurl.tmp.tf") as tf:
