@@ -62,7 +62,10 @@ def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
     # _check_key checks 'results' if task was a loop
     # 'warnings': result._check_key('warning'),
     result = result.clean_copy()
-    logger.debug("playbook task result: %s", str(result._result))
+    if result.is_failed():
+        logger.error("Playbook task failed: %s", result._result, extra=dict(truncate=0))
+    else:
+        logger.debug("Playbook task result: %s", result._result, extra=dict(truncate=0))
     resultDict = {}
     ignoredKeys = []
     # map keys in results to match the names that ShellConfigurator uses

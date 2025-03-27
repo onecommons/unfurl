@@ -414,15 +414,18 @@ class JobReporter:
                 output = task.result.result
                 if isinstance(output, Mapping):
                     # sort dict so that the longest values are last if a string, list, or dict otherwise preserve key order
-                    output = {
-                        k: v.map_all() if isinstance(v, Results) else v
-                        for i, (k, v) in sorted(
-                            enumerate(output.items()),
-                            key=lambda x: (
-                                len(x[1][1]) if isinstance(x[1][1], (str, list, dict)) else x[0]
-                            ),
-                        )
-                    }
+                    if output.get("msg"):
+                        output = output["msg"]
+                    else:
+                        output = {
+                            k: v.map_all() if isinstance(v, Results) else v
+                            for i, (k, v) in sorted(
+                                enumerate(output.items()),
+                                key=lambda x: (
+                                    len(x[1][1]) if isinstance(x[1][1], (str, list, dict)) else x[0]
+                                ),
+                            )
+                        }
                 result = escape(f"Output: {SensitiveFilter.redact(output)}")
             else:
                 result = ""

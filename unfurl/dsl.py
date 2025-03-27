@@ -174,7 +174,7 @@ def convert_to_yaml(
         logger.debug(
             "converted %s to:\n%s",
             path,
-            pprint.pformat(yaml_src),
+            pprint.pformat(yaml_src, compact=True, indent=2, sort_dicts=False),
             extra=dict(truncate=0),
         )
     return yaml_src
