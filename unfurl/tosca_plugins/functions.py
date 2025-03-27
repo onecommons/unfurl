@@ -149,7 +149,7 @@ _label_defaults = LabelKwArgs(
 )
 
 
-def _validate_allowed(chars):
+def _validate_allowed(chars: str) -> str:
     # avoid common footgun
     if chars and chars[0] == "[" and chars[-1] == "]":
         return chars[1:-1]
@@ -203,6 +203,7 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
     sep: str = kw.get("sep", _label_defaults["sep"])
     digest: Optional[str] = kw.pop("digest", _label_defaults["digest"])
     replace: str = kw.get("replace", _label_defaults["replace"])
+    allowed: str = _validate_allowed(kw.get("allowed", _label_defaults["allowed"]))
     elide_chars = replace
 
     if isinstance(arg, Mapping):
@@ -232,8 +233,10 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
         trunc_chars = trunc - min(len(sep) * (len(arg) - 1), trunc - 1)
         seg_max = max(trunc_chars // len(arg), 1)
         segments = [str(n) for n in arg]
-        labels = [to_label(n, digestlen=0, max=9999, **kw) for n in segments]  # type: ignore
+        # don't do beginning/end conversion until we have the whole string
+        labels = [to_label(n, replace=replace, start=allowed, start_prepend="", end=None, allowed=allowed, digestlen=0, max=9999) for n in segments]  # type: ignore
         length = sum(map(len, labels))
+        joined_label = sep.join(labels)[:trunc]
         if length > trunc_chars or digest is not None:
             # needs truncation and/or digest
             # redistribute space from short segments
@@ -242,16 +245,18 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
             labels = [_mid_truncate(seg, elide_chars, seg_max) for seg in labels]
             if checksum:
                 # one of the labels was truncated, add a digest
-                trunc -= len(sep) + maxchecksum
-                hash = _digest("".join(segments), case, digest)[:maxchecksum]
-                if trunc <= 0:
+                trunctrunc = trunc - maxchecksum
+                hash = _digest("".join(segments), case, digest)
+                hash = hash[:maxchecksum]
+                if trunctrunc <= 0:
                     return hash
-                return sep.join(labels)[:trunc] + sep + hash
-        return sep.join(labels)[:trunc]
+                joined_label = sep.join(labels)[:trunctrunc] + hash
+        if sep:
+            kw["allowed"] = allowed + sep
+        return to_label(joined_label, digestlen=0, max=trunc, **kw)  # type: ignore
     elif isinstance(arg, str):
         start: str = _validate_allowed(kw.get("start", _label_defaults["start"]))
         start_prepend: str = kw.get("start_prepend", _label_defaults["start_prepend"])
-        allowed: str = _validate_allowed(kw.get("allowed", _label_defaults["allowed"]))
         end: Optional[str] = kw.get("end")
 
         if arg and re.match(rf"[^{start}]", arg[0]):

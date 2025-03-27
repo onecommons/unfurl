@@ -58,6 +58,7 @@ def map_value(
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
     as_list: bool = False,
+    flatten: bool = False,
 ) -> Any:
     """
     Return a copy of the given string, dict, or list, resolving any expressions or template strings embedded in it.
@@ -75,7 +76,7 @@ def map_value(
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
     ret_val = _map_value(
-        value, resourceOrCxt, resourceOrCxt.wantList or False, applyTemplates
+        value, resourceOrCxt, resourceOrCxt.wantList or False, applyTemplates, flatten
     )
     if as_list and not isinstance(ret_val, list):
         if ret_val is None:
@@ -90,6 +91,7 @@ def _map_value(
     ctx: "RefContext",
     wantList: Union[bool, Literal["result"]] = False,
     applyTemplates: bool = True,
+    flatten=False,
 ) -> Any:
     from .support import is_template, apply_template
 
@@ -110,7 +112,17 @@ def _map_value(
         finally:
             ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
-        return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
+        if flatten:
+            result = []
+            for item in value:
+                item_val = _map_value(item, ctx, wantList, applyTemplates)
+                if isinstance(item_val, list):
+                    result.extend(item_val)
+                else:
+                    result.append(item_val)
+            return result
+        else:
+            return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
     elif applyTemplates and is_template(value, ctx):
         return apply_template(value, ctx.copy(wantList=wantList))
     return value
@@ -160,6 +172,7 @@ class RefContext:
 
     DefaultTraceLevel = 0
     _Funcs: Dict = {}
+    currentFunc: Optional[str] = None
 
     def __init__(
         self,
@@ -873,7 +886,7 @@ def eval_ref(
             if func:
                 args = val[key]
                 ctx.kw = val
-                ctx.currentFunc = key  # type: ignore
+                ctx.currentFunc = key
                 if "var" in val:
                     unexpected: Union[bool, str] = "var"
                 elif key != "foreach" and "foreach" in val:

@@ -884,28 +884,28 @@ set_eval_func("to_env", to_env)
 
 set_eval_func(
     "to_label",
-    lambda arg, ctx: to_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_label(map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)),
     safe=True,
 )
 
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)),
     safe=True,
 )
 
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)),
     safe=True,
 )
 
 set_eval_func(
     "to_googlecloud_label",
     lambda arg, ctx: to_googlecloud_label(
-        map_value(arg, ctx), **map_value(ctx.kw, ctx)
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
     ),
     safe=True,
 )

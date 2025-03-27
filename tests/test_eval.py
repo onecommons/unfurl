@@ -775,7 +775,8 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert label == "lo.na.s.RC"
+        assert len(label) == 10
+        assert label == "lo.na.suRC"
 
         src = """
           eval:
@@ -791,7 +792,8 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert label == "longpr.name.suffi.RC"
+        assert len(label) == 20
+        assert label == "longpr.name.suffixRC"
 
         src = """
           eval:
@@ -806,8 +808,8 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert len(label) == 20
-        assert label == "reall-refix.short.yi"
+        assert len(label) == 19
+        assert label == "reall-refix.shortyi"
 
         src = """
           eval:
@@ -840,7 +842,10 @@ SUB: '1'
         assert 'cy-cy-wordpress-lrtkxtb8-lruwqqt2-container--service' == to_dns_label(
                 "cy-cy-wordpress-lrtkxtb8-lruwqqt2-container_service", max=52
         )
-
+        assert 'x--foo--bar' == map_value(
+            "{{ __unfurl.to_dns_label('_foo/_bar'.split('/')) }}",
+            ctx
+        )
 
     def test_urljoin(self):
         resource = self._getTestResource()
