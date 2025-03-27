@@ -49,7 +49,7 @@ import os.path
 from pathlib import Path
 
 
-TIMEOUT = 180  # default timeout in seconds (3 minutes)
+TIMEOUT = int(os.getenv("UNFURL_KOMPOSE_TIMEOUT") or 180)  # default timeout in seconds (3 minutes)
 NAMEMAX = 52  # max service name length
 
 if TYPE_CHECKING:
@@ -297,7 +297,10 @@ class KomposeConfigurator(ShellConfigurator):
 def configure_inputs(kind, timeout):
     timeout = timeout or TIMEOUT
     delay = 10
-    configuration = dict(wait=True, wait_timeout=timeout)
+    if timeout:
+        configuration = dict(wait=True, wait_timeout=timeout)
+    else:
+        configuration = {}
     if kind == "Deployment":
         configuration["wait_condition"] = {"status": "True", "type": "Progressing"}
     inputs = {"configuration": configuration}
