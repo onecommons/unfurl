@@ -87,6 +87,7 @@ class PythonToYaml:
         self.write_policy = write_policy
         self.import_resolver = import_resolver
         self.templates: List[ToscaType] = []
+        self.current_module = None
 
     def find_yaml_import(
         self, module_name: str
@@ -190,8 +191,8 @@ class PythonToYaml:
     def add_template(
         self,
         obj: ToscaType,
-        name: str = "",
-        module_name="",
+        name: str,
+        referenced: bool,
     ) -> str:
         name = obj._name or name
         for topology_section in reversed(self.topology_templates):
@@ -199,8 +200,8 @@ class PythonToYaml:
             section = topology_section.get(obj._template_section)
             if section and name in section:
                 return name
-            if module_name:
-                # only do a shallow search if not adding because of a requirement reference
+            if not referenced:
+                # only do a shallow search unless we're adding because of a requirement reference
                 break
         section = self.topology_templates[-1].setdefault(
             obj._template_section, self.yaml_cls()
@@ -208,6 +209,7 @@ class PythonToYaml:
         assert name
         section[name] = obj  # placeholder to prevent circular references
         section[name] = obj.to_template_yaml(self)
+        module_name = self.current_module
         if module_name:
             section[name].setdefault("metadata", {})["module"] = module_name
             obj.register_template(module_name, name)
@@ -217,9 +219,7 @@ class PythonToYaml:
                     and not obj.__class__.__module__.startswith("tosca.")
                 ):  # skip built-in modules, we don't need to generate import yaml
                     module_path = self.globals.get("__file__")
-                    self._import_module(
-                        module_name, module_path, obj.__class__.__module__
-                    )
+                    self._import_module(module_path, obj.__class__.__module__)
         self.templates.append(obj)
         return name
 
@@ -237,7 +237,7 @@ class PythonToYaml:
                 req["capability"] = value.tosca_type_name()
         elif isinstance(value, Relationship):
             if value._name:  # named, not inline
-                rel: Union[str, dict] = self.add_template(value)
+                rel: Union[str, dict] = self.add_template(value, "", True)
             else:  # inline
                 rel = value.to_template_yaml(self)
             req["relationship"] = rel
@@ -253,7 +253,7 @@ class PythonToYaml:
                 f'Invalid value for requirement: "{value}" ({type(value)}) on {field.name}"'
             )
         if node:
-            node_name = self.add_template(node, default_node_name)
+            node_name = self.add_template(node, default_node_name, True)
             req["node"] = node_name
             if len(req) == 1:
                 return node_name
@@ -306,7 +306,7 @@ class PythonToYaml:
         }
 
     def _namespace2yaml(self, namespace):
-        current_module = self.globals.get(
+        current_module = self.current_module = self.globals.get(
             "__name__", "builtins"
         )  # exec() adds to builtins
         module_path = self.globals.get("__file__")
@@ -339,7 +339,7 @@ class PythonToYaml:
             module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):
                 if module_name and module_name != current_module:
-                    self._import_module(current_module, module_path, module_name)
+                    self._import_module(module_path, module_name)
                     continue
                 # this is a class not an instance
                 section = obj._type_section  # type: ignore
@@ -377,7 +377,7 @@ class PythonToYaml:
                             )
                         continue
                     obj.__class__._globals = self.globals  # type: ignore
-                    self.add_template(obj, name, current_module)
+                    self.add_template(obj, name, False)
                     if name == "__root__":
                         topology_sections.setdefault(
                             "substitution_mappings", self.yaml_cls()
@@ -387,7 +387,7 @@ class PythonToYaml:
                 to_yaml = getattr(obj, "to_yaml", None)
                 if section:
                     if module_name and module_name != current_module:
-                        self._import_module(current_module, module_path, module_name)
+                        self._import_module(module_path, module_name)
                         continue
                     if isinstance(obj, type) and issubclass(
                         obj, (ValueType, Interface)
@@ -409,10 +409,9 @@ class PythonToYaml:
                             to_yaml(self.yaml_cls)
                         )
 
-    def _import_module(
-        self, current_module: str, module_path: Optional[str], module_name: str
-    ) -> None:
+    def _import_module(self, module_path: Optional[str], module_name: str) -> None:
         # note: should only be called for modules with tosca objects we need to convert to yaml
+        current_module = self.current_module
         if (
             module_name.startswith("tosca.")
             or module_name == "unfurl.tosca_plugins.tosca_ext"
@@ -525,10 +524,9 @@ class PythonToYaml:
             body["derived_from"] = bases
             for b in t_cls.tosca_bases():
                 if issubclass(b, ToscaType):
-                    current_module = self.globals.get("__name__", "builtins")
-                    if b.__module__ != current_module:
+                    if b.__module__ != self.current_module:
                         module_path = self.globals.get("__file__")
-                        self._import_module(current_module, module_path, b.__module__)
+                        self._import_module(module_path, b.__module__)
                     super_fields.update(b.__dataclass_fields__)
         return super_fields
 
@@ -690,7 +688,7 @@ class PythonToYaml:
             result = operation(*list(args.values()), **kwargs)
         except Exception:
             logger.debug(
-                f"Couldn't execute {operation} on {cls_or_self} at parse time, falling back to render time execution",
+                f"Couldn't execute {operation} on {cls_or_self} at parse time, falling back to render time execution (here's the stack trace):",
                 exc_info=True,
             )
             className = f"{operation.__module__}:{operation.__qualname__}:parse"

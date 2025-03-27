@@ -43,9 +43,11 @@ def test_constraints(caplog):
                 "name": "app",  # applied by the app's node_filter
                 "mem_size": "1 GB",  # XXX node_filter constraints aren't being applied
             },
+            'metadata': {'module': 'service_template.constraints'}
         },
         "myapp_proxy": {
             "type": "ProxyContainerHost",
+             'metadata': {'module': 'service_template.constraints'}
         },
     }
     for name, value in node_templates.items():

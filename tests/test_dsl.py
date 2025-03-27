@@ -676,7 +676,12 @@ def test_class_init() -> None:
     # yaml.dump(yaml_dict, sys.stdout)
     assert yaml_dict["topology_template"] == {
         "node_templates": {
-            "my_compute": {"type": "tosca.nodes.Compute"},
+            "my_compute": {
+                "type": "tosca.nodes.Compute",
+                "metadata": {
+                    "module": "tests.test_dsl",
+                },
+            },
             "my_template": {
                 "type": "Example",
                 "artifacts": {
