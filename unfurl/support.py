@@ -1095,7 +1095,7 @@ class ContainerImage(ExternalValue):
         name, sep, digest = name.partition("@")
         if not sep:
             digest = None
-            name, sep, qualifier = artifact_name.partition(":")
+            name, sep, qualifier = name.partition(":")
             if sep:
                 tag = qualifier
         return name.lower(), tag, digest, hostname
@@ -1493,7 +1493,9 @@ def find_connection(
 
 
 def _find_connection(arg, ctx):
-    return find_connection(ctx, map_value(arg, ctx), relation=map_value(ctx.kw.get("relation"), ctx))
+    return find_connection(
+        ctx, map_value(arg, ctx), relation=map_value(ctx.kw.get("relation"), ctx)
+    )
 
 
 set_eval_func("find_connection", _find_connection)
