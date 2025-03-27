@@ -928,11 +928,8 @@ def get_ensemble_metadata(arg, ctx: RefContext):
     if arg:
         key = map_value(arg, ctx)
         if key == "project_namespace_subdomain" and ensemble.repo:
-            return ".".join(
-                reversed(
-                    os.path.dirname(ensemble.repo.project_path().lower()).split("/")
-                )
-            )
+            parts = os.path.dirname(ensemble.repo.project_path().lower()).split("/")
+            return ".".join(reversed([to_dns_label(p) for p in parts]))
         return metadata.get(key, "")
     else:
         return metadata
