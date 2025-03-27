@@ -19,16 +19,28 @@ environments:
       # declare the primary_provider as a connection to a Kubernetes cluster:
       primary_provider:
         type: unfurl.relationships.ConnectsTo.K8sCluster
-        # properties:
+        properties:
+        {% if name | default("") %}
+            name: [% name %]
+        {% else %}
         #   name:
-        #   Defaults to envvar: KUBE_CTX_CLUSTER
+        {% endif %}
+        #   Name of the cluster. Defaults to envvar: KUBE_CTX_CLUSTER
 
+        {% if KUBECONFIG | default("") %}
+            KUBECONFIG: [% KUBECONFIG %]
+        {% else %}
         #   KUBECONFIG:
+        {% endif %}
         #   Path to an existing Kubernetes config file. If not provided, and no other connection
         #   options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
-        #   Defaults to envvar: KUBECONFIG
+        #   Defaults to envvar: KUBECONFIG or KUBE_CONFIG_PATH
 
+        {% if context | default("") %}
+            context: [% context %]
+        {% else %}
         #   context:
+        {% endif %}
         #   The name of a context found in the config file. If not set the current-context will be used.
         #   Defaults to envvar: KUBE_CTX
 
@@ -49,8 +61,12 @@ environments:
         #   "ca_cert": Path to a client certificate file for TLS
         #   "key_file": Path to a client key file for TLS
 
+        {% if namespace is string %}
+            namespace: [% namespace %]
+        {% else %}
         #   namespace:
-        #   The default namespace scope to use
+        {% endif %}
+        #   The default kubernetes namespace to use if not otherwise set.
 
         #   api_server:
         #   The address and port of the Kubernetes API server

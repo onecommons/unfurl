@@ -1142,6 +1142,8 @@ class EnsembleBuilder:
         use_context = cast(Optional[str], kw.get("use_environment"))
         if use_context and use_context not in existing_project.contexts:
             skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+            if "api_version" not in skeleton_vars:
+                skeleton_vars["api_version"] = API_VERSION
             skeleton_vars["default_context"] = use_context
             content = write_project_config(
                 None,
