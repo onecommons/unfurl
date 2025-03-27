@@ -5,6 +5,7 @@ import json
 import pickle
 import io
 
+import tosca
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, UnfurlEvalError, analyze_expr, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
@@ -184,8 +185,11 @@ class EvalTest(unittest.TestCase):
         assert 3 == Ref(test6).resolve_one(RefContext(resource))
         test7 = {"eval": {"sub": [1, 1]}}
         assert 0 == Ref(test7).resolve_one(RefContext(resource))
-        test8 = {"eval":  dict(scalar_value="6 mb", unit="gb", round=2)}
-        assert 0.01 == Ref(test8).resolve_one(RefContext(resource))
+        with tosca.set_evaluation_mode("runtime"):
+            test8 = {"eval":  dict(scalar_value="6 mb", unit="gb", round=2)}
+            assert 0.01 == Ref(test8).resolve_one(RefContext(resource))
+            assert Ref(dict(eval=dict(generate_string=None,preset= "password"))).resolve_one(RefContext(resource))
+            assert Ref(dict(eval=dict(_generate={ "preset": "password" }))).resolve_one(RefContext(resource))
 
     def test_circular_refs(self):
         more = {}

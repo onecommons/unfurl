@@ -55,6 +55,7 @@ else:
         def wrapped(*args, **kwargs):
             if global_state_mode() == "runtime":
                 ctx = global_state_context()
+                assert ctx
                 return func(*map_value(args, ctx), **map_value(kwargs, ctx))
             elif (
                 not safe_mode() and not has_function(args) and not has_function(kwargs)
@@ -68,7 +69,7 @@ else:
 
             def _eval_func(arg, ctx):
                 kw = ctx.kw.copy()
-                kw.pop(func.__name__, None)
+                kw.pop(ctx.currentFunc or func.__name__, None)
                 return func(*map_value(arg, ctx, as_list=True), **map_value(kw, ctx))
 
             set_eval_func(
@@ -76,6 +77,8 @@ else:
                 _eval_func,
                 safe=True,
             )
+            wrapped._func = func  # type:ignore [attr-defined]
+            wrapped._eval_func = _eval_func  # type:ignore [attr-defined]
         return cast(F, wrapped)
 
 

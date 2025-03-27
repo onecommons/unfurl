@@ -993,8 +993,15 @@ def get_nodes_of_type(type_name: str, ctx: RefContext):
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
-# use this alias for compability with unfurl-gui (note that arg are kw args)
-set_eval_func("_generate", lambda arg, ctx: generate_string(**arg), True, True)
+
+# use this alias for compatibility with unfurl-gui (note that arg are kw args)
+# (generate_string is wrapped by the eval_func decorator)
+set_eval_func(
+    "_generate",
+    lambda arg, ctx: generate_string._func(**map_value(arg, ctx)),  # type:ignore [attr-defined]
+    True,
+    True,
+)
 
 
 class ContainerImage(ExternalValue):
