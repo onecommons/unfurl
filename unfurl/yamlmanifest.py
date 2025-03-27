@@ -625,11 +625,14 @@ class YamlManifest(ReadOnlyManifest):
         prefixes: Dict[str, list] = {}
         if imports and not include_all_imports:
             # only include imports that match a prefix required by a connection
-            for imp_def in imports:
+            all_imports = list(imports)
+            imports = []
+            for imp_def in all_imports:
                 prefix = imp_def.get("namespace_prefix")
                 if prefix:
                     prefixes.setdefault(prefix + ".", []).append(imp_def)
-            imports = []
+                else:
+                    imports.append(imp_def)
         connections = relabel_dict(context, localEnv, "connections")
         for name, c in connections.items():
             for prefix, imp_defs in prefixes.items():
@@ -986,9 +989,7 @@ class YamlManifest(ReadOnlyManifest):
                 None,
                 map(
                     lambda r: self.save_resource(r, discovered),
-                    cast(
-                        Iterable[NodeInstance], root.get_operational_dependencies()
-                    ),
+                    cast(Iterable[NodeInstance], root.get_operational_dependencies()),
                 ),
             )
         )
