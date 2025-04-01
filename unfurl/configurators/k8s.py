@@ -427,6 +427,12 @@ class ResourceConfigurator(AnsibleConfigurator):
         extra_playbook = task.inputs.get("playbook")
 
         if task.configSpec.operation in ["check", "discover"]:
+            labels = definition["metadata"].get("labels")
+            if task.configSpec.operation == "discover" and labels:
+                if not extra_configuration:
+                    extra_configuration = dict(label_selectors=labels)
+                else:
+                    extra_configuration.setdefault("label_selectors", []).extend(labels)
             return self._make_check(connectionConfig, definition, extra_configuration)
 
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
@@ -445,7 +451,8 @@ class ResourceConfigurator(AnsibleConfigurator):
             and task.target.status in [Status.pending, Status.unknown]
         ):
             # we don't want delete resources that already exist (especially namespaces!)
-            # so the first time we try to create the resource check if it exists first
+            # so the first time we try to create the resource check if it exists first,
+            # that way we know whether to mark resources as created by us or not
             task.logger.trace(
                 "adding k8s resource existence check for %s", task.target.name
             )
