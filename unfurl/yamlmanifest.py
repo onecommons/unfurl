@@ -22,7 +22,6 @@ import numbers
 import os
 import os.path
 import itertools
-
 try:
     # added in python 3.9
     from functools import cache  # type: ignore
@@ -38,9 +37,21 @@ from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .spec import ArtifactSpec, NodeSpec, encode_unfurl_identifier, find_env_vars
-from .runtime import EntityInstance, NodeInstance, TopologyInstance
-from .eval import map_value
+from .packages import is_semver_compatible_with, is_semver
+from .spec import (
+    ArtifactSpec,
+    NodeSpec,
+    RelationshipSpec,
+    encode_unfurl_identifier,
+    find_env_vars,
+)
+from .runtime import (
+    EntityInstance,
+    NodeInstance,
+    TopologyInstance,
+    RelationshipInstance,
+)
+from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
 from .init import get_input_vars
@@ -322,8 +333,12 @@ class ReadOnlyManifest(Manifest):
         return uri in self.uris
 
     @property
-    def metadata(self):
+    def metadata(self) -> Dict[str, Any]:
         return self.manifest.config.setdefault("metadata", CommentedMap())
+
+    @property
+    def version(self) -> Optional[str]:
+        return self.tosca.template.metadata.get("template_version") if self.tosca else None
 
     @property
     def yaml(self):
@@ -713,6 +728,22 @@ class YamlManifest(ReadOnlyManifest):
             raise UnfurlError(
                 f"Can not import external ensemble '{name}': instance '{rname}' not found"
             )
+        version = value.get("version")
+        if version:
+            imported_version = importedManifest.version
+            if not imported_version:
+                raise UnfurlError(
+                    f"Can not import external ensemble '{name}': requires version '{version}' and ensemble doesn't specify a version."
+                )
+            else:
+                has_semver = is_semver(imported_version)
+                if (not has_semver and imported_version != version) or (
+                    has_semver
+                    and not is_semver_compatible_with(version, imported_version)
+                ):
+                    raise UnfurlError(
+                        f"Can not import external ensemble '{name}': ensemble's version '{imported_version}' isn't compatible with '{version}'"
+                    )
         self.imports.add_import(name, resource, value)
         self._importedManifests[id(root)] = importedManifest
 

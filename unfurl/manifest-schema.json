@@ -205,6 +205,10 @@
         },
         "schema": {
           "$ref": "#/definitions/attributes"
+        },
+        "version": {
+          "$ref": "#/definitions/version",
+          "description": "Imported template requires compatible version."
         }
       },
       "additionalProperties": false
@@ -600,7 +604,7 @@
               "type": "object",
               "properties": {
                 "version": {
-                  "type": "string"
+                  "$ref": "#/definitions/version"
                 },
                 "digest": {
                   "type": "string"

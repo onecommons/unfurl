@@ -509,6 +509,8 @@ class AbstractTemplateTest(unittest.TestCase):
     kind: Ensemble
     spec:
       service_template:
+        metadata:
+          template_version: 1.1
         node_types:
           test.nodes.AbstractTest:
             derived_from: tosca.nodes.Root
@@ -553,6 +555,7 @@ class AbstractTemplateTest(unittest.TestCase):
                   manifest:
                     file:  foreignmanifest.yaml
                   instance: "*"  # this is the default
+                  version: 1.0
         """
 
         # import a node from a external manifest and have an abstract node template select it
