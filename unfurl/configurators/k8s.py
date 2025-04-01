@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Mapping, Union, cast
 
 from ..projectpaths import get_path
 from ..configurator import Configurator, TaskView
-from ..support import Status, Priority, to_kubernetes_label
+from ..support import Status, Priority, to_kubernetes_label, find_connection
 from ..runtime import EntityInstance, NodeInstance, RelationshipInstance
 from ..util import UnfurlTaskError, wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
@@ -116,7 +116,7 @@ def _get_connection(ctx: RefContext) -> dict:
     cluster = Ref("[.type=unfurl.nodes.K8sCluster]").resolve_one(ctx)
     relation = "unfurl.relationships.ConnectsTo.K8sCluster"
     if cluster:
-        instance = TaskView.find_connection(ctx, cast(NodeInstance, cluster), relation)
+        instance = find_connection(ctx, cast(NodeInstance, cluster), relation)
     else:
         relationships = cast(
             EntityInstance, ctx.currentResource
@@ -366,28 +366,32 @@ class ResourceConfigurator(AnsibleConfigurator):
             return [definition]
         return definition
 
-    def update_metadata(self, definition, task, namespace):
+    def update_metadata(self, definition: Dict[str, Any], task: TaskView, namespace):
         "Add name and namespace to metadata if missing from metadata."
         md = definition.setdefault("metadata", {})
+        name = to_kubernetes_label(task.target.attributes.get("name", task.target.name))
+        if "name" in md and md["name"] != name:
+            name = task.target.attributes["name"] = md["name"]
+        elif task.configSpec.operation != "discover":
+            md["name"] = name
+
         if (
             namespace
             and "namespace" not in md
             and definition["kind"] not in ClusterScoped_Kinds
         ):
-            md["namespace"] = namespace
+            if namespace:
+                md["namespace"] = namespace
+            else:
+                task.logger.warning(f"No kubernetes namespace set for {name}.")
         # else: error if namespace mismatch?
-
-        name = to_kubernetes_label(task.target.attributes.get("name", task.target.name))
-        if "name" in md and md["name"] != name:
-            task.target.attributes["name"] = md["name"]
-        else:
-            md["name"] = name
 
     def _make_check(self, connectionConfig, definition, extra_configuration):
         "Make a k8s_info play for checking the existence of a resource."
         moduleSpec = connectionConfig.copy()
         moduleSpec["kind"] = definition.get("kind", "")
-        moduleSpec["name"] = definition["metadata"]["name"]
+        if "name" in definition["metadata"]:
+            moduleSpec["name"] = definition["metadata"]["name"]
         if "namespace" in definition["metadata"]:
             moduleSpec["namespace"] = definition["metadata"]["namespace"]
         if extra_configuration:
