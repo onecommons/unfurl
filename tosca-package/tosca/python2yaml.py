@@ -336,6 +336,9 @@ class PythonToYaml:
             if isinstance(obj, type) and issubclass(obj, Namespace):
                 obj.to_yaml(self)
                 continue
+            if name == "dsl_definitions":
+                self.sections["dsl_definitions"] = obj
+                continue
             module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):
                 if module_name and module_name != current_module:
@@ -344,8 +347,9 @@ class PythonToYaml:
                 # this is a class not an instance
                 section = obj._type_section  # type: ignore
                 if id(obj) in seen:
-                    # name is a alias referenced, treat as subtype in TOSCA
-                    as_yaml = self.add_alias(name, obj)
+                    if name != "__root__":
+                        # name is a alias referenced, treat as subtype in TOSCA
+                        as_yaml = self.add_alias(name, obj)
                 else:
                     seen.add(id(obj))
                     obj._globals = self.globals  # type: ignore

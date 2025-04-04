@@ -1440,6 +1440,28 @@ def test_export():
     assert result.exit_code == 0
 
 
+dsl_definitions_yaml = """
+dsl_definitions:
+  def1: &def1
+    SomeYaml: "yes"
+  def2: &def2
+    MoreYaml: yes
+
+topology_template:
+  node_templates: {}
+  relationship_templates: {}
+"""
+
+def test_dsl_definitions():
+    python_src, parsed_yaml = _to_python(dsl_definitions_yaml)
+    # print(python_src)
+    # pprint(parsed_yaml)
+    parsed_yaml.pop("topology_template")
+    test_yaml = _to_yaml(python_src, True)
+    test_yaml.pop("topology_template")
+    # yaml.dump(test_yaml, sys.stdout)
+    assert parsed_yaml == test_yaml
+
 if __name__ == "__main__":
     _generate_builtin(
         yaml2python.generate_builtins, "tosca-package/tosca/builtin_types"

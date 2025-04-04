@@ -1131,8 +1131,8 @@ class Convert:
         for op in cast(
             List[OperationDef], EntityTemplate._create_interfaces(nodetype, template)
         ):
-            # XXX this will have skipped not_implemented operations but they need to converted too
-            if op.interfacetype != "Mock":
+            # XXX this will have skipped not_implemented operations but they need to be converted too
+            if op.interfacetype != "Mock": # XXX handle Mock
                 op_id = (op.interfacename, op.name)
                 if op_id in declared_ops and op_id not in default_ops:
                     name, op_src = self.operation2func(
@@ -2115,6 +2115,10 @@ def convert_service_template(
         imports.from_tosca.add("DeploymentBlueprint")
         for name, tpl in deployment_blueprints.items():
             src += converter.convert_blueprint(name, tpl)
+
+    dsl_definitions = template.tpl and template.tpl.get("dsl_definitions")
+    if dsl_definitions:
+        src += "\ndsl_definitions=" + value2python_repr(dsl_definitions, True)
 
     prologue = write_policy.generate_comment("tosca.yaml2python", template.path or "")
     src = prologue + add_description(tpl, "") + imports.prelude() + src
