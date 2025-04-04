@@ -209,6 +209,11 @@ class PythonToYaml:
         assert name
         section[name] = obj  # placeholder to prevent circular references
         section[name] = obj.to_template_yaml(self)
+        if referenced and not obj._name and isinstance(obj, Node):
+           # add "dependent" directive to anonymous, inline templates
+           directives = section[name].setdefault("directives", [])
+           if "dependent" not in directives:
+              directives.append("dependent")
         module_name = self.current_module
         if module_name:
             section[name].setdefault("metadata", {})["module"] = module_name

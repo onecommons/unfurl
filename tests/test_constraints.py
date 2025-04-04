@@ -47,6 +47,7 @@ def test_constraints(caplog):
         },
         "myapp_proxy": {
             "type": "ProxyContainerHost",
+            'directives': ['dependent'],
              'metadata': {'module': 'service_template.constraints'}
         },
     }
