@@ -43,6 +43,9 @@ from tosca import (
     global_state_mode,
     global_state_context,
     Relationship,
+    Node,
+    ArtifactEntity,
+    CapabilityEntity,
 )
 import tosca
 
@@ -69,7 +72,13 @@ if TYPE_CHECKING or not safe_mode():
     from ..dsl import InstanceProxyBase, proxy_instance
     from ..eval import Ref, RefContext, map_value
     from ..util import UnfurlError
-    from ..runtime import EntityInstance
+    from ..runtime import (
+        EntityInstance,
+        NodeInstance,
+        ArtifactInstance,
+        CapabilityInstance,
+        RelationshipInstance,
+    )
     from ..yamlloader import cleartext_yaml
     from ..projectpaths import FilePath, TempFile, _abspath
     from tosca.yaml2python import has_function
@@ -86,19 +95,70 @@ if TYPE_CHECKING or not safe_mode():
                 f"ToscaType object cannot be converted to a RefContext -- executed from a live instance? {obj}"
             )
 
-    def _to_instance(obj: ToscaType) -> EntityInstance:
+    @overload
+    def get_instance_maybe(obj: Node) -> Optional[NodeInstance]: ...
+
+    @overload
+    def get_instance_maybe(obj: Relationship) -> Optional[RelationshipInstance]: ...
+
+    @overload
+    def get_instance_maybe(obj: ArtifactEntity) -> Optional[ArtifactInstance]: ...
+
+    @overload
+    def get_instance_maybe(obj: CapabilityEntity) -> Optional[CapabilityInstance]: ...
+
+    @overload
+    def get_instance_maybe(obj: ToscaType) -> Optional[EntityInstance]: ...
+
+    def get_instance_maybe(obj):
+        """
+        In `"runtime" mode <global_state_mode>` return the instance the given TOSCA template is proxying,
+        otherwise return None.
+        """
         if isinstance(obj, InstanceProxyBase):
             return obj._instance
         if isinstance(obj, EntityInstance):
             return obj
-        # return obj
+        return None
+
+    @overload
+    def get_instance(obj: Node) -> NodeInstance: ...
+
+    @overload
+    def get_instance(obj: Relationship) -> RelationshipInstance: ...
+
+    @overload
+    def get_instance(obj: ArtifactEntity) -> ArtifactInstance: ...
+
+    @overload
+    def get_instance(obj: CapabilityEntity) -> CapabilityInstance: ...
+
+    @overload
+    def get_instance(obj: ToscaType) -> EntityInstance: ...
+
+    def get_instance(obj):
+        """Returns the instance the given TOSCA template is proxying.
+        If not in `"runtime" mode <global_state_mode>` or the template is not proxying an instance an exception is raised.
+        """
+        instance = get_instance_maybe(obj)
+        if not instance:
+            if global_state_mode() != "runtime":
+                msg = "get_instance() must be called in 'runtime' mode"
+            else:
+                msg = f"ToscaType obj not associated with an instance: {obj}"
+            raise UnfurlError(msg)
+        return instance
 
 else:
     # if this module is loaded in safe_mode these will never by referenced:
     support = object()
     UnfurlError = RuntimeError
     get_context = None
+    get_instance = None
     FilePath = Any
+
+    def get_instance_maybe(obj):
+        return None
 
 
 __all__ = [
@@ -132,7 +192,10 @@ __all__ = [
     # XXX get_artifact
     # XXX python
     "runtime_func",
-    "find_connection"
+    "find_connection",
+    "get_instance",
+    "get_instance_maybe",
+    "get_context",
 ]
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -147,7 +210,8 @@ def find_connection(
     rel_type_name = rel_type.tosca_type_name()
     if global_state_mode() == "runtime":
         ctx = global_state_context()
-        rel = support.find_connection(ctx, _to_instance(target), rel_type_name)
+        instance = get_instance(target)
+        rel = support.find_connection(ctx, instance, rel_type_name)
         if rel:
             return cast(RI, proxy_instance(rel, tosca.relationships.ConnectsTo, ctx))
         return None

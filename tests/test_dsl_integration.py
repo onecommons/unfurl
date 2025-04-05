@@ -6,6 +6,7 @@ from tosca import Size, MB, EvalData, operation
 from unfurl.eval import Ref
 from unfurl.job import JobOptions
 from unfurl.logs import is_sensitive, getLogger
+from unfurl.support import Status
 from unfurl.testing import runtime_test, create_runner
 from unfurl.tosca_plugins import expr, functions
 from typing import Optional, Type
@@ -225,6 +226,9 @@ def test_expressions():
     assert Inputs.domain == tosca.EvalData({"get_input": "domain"})
 
     topology = runtime_test(test)
+    assert expr.get_instance(topology.test_node).status == Status.ok
+    expr.get_instance(topology.test_node).local_status = Status.error
+    assert expr.get_instance(topology.test_node).status == Status.error
     assert expr.get_env("MISSING", "default") == "default"
     assert not expr.has_env("MISSING")
     assert expr.get_env("PATH")
@@ -248,6 +252,7 @@ def test_expressions():
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"
     assert topology.test_node.label == "fo--o"
+    assert "to_dns_label" in topology.test_node._instance.attributes.defs["label"].default["eval"]
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):
         topology.test_node.password = ""
@@ -259,7 +264,6 @@ def test_expressions():
     # "not_",
     # "as_bool",
     # tempfile
-
 
 from tosca import MB, GB, mb, gb, Size
 import math
