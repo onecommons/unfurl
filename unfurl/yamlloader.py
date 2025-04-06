@@ -462,32 +462,38 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if tpl is None:
             return None
 
-        if isinstance(tpl, dict) and "url" in tpl:
-            url = tpl["url"]
-            if (
-                "://" not in url and "@" in url
-            ):  # scp style used by git: user@server:project.git
-                # convert to ssh://user@server/project.git
-                url = "ssh://" + url.replace(":", "/", 1)
-            tpl["url"] = url
+        if isinstance(tpl, dict):
+            if "url" in tpl:
+                url = tpl["url"]
+                if (
+                    "://" not in url and "@" in url
+                ):  # scp style used by git: user@server:project.git
+                    # convert to ssh://user@server/project.git
+                    url = "ssh://" + url.replace(":", "/", 1)
+                tpl["url"] = url
 
-        if tpl.get("credential") and not self.manifest.safe_mode:
-            credential = tpl["credential"]
-            # support expressions to resolve credential secrets
-            if self.manifest.rootResource:
-                from .eval import map_value
+            if tpl.get("credential") and not self.manifest.safe_mode:
+                credential = tpl["credential"]
+                # support expressions to resolve credential secrets
+                if self.manifest.rootResource:
+                    from .eval import map_value
 
-                tpl["credential"] = map_value(credential, self.manifest.rootResource)
-            elif self.manifest.localEnv:
-                # we're including or importing before we finished initializing
-                context = self.manifest.localEnv.get_context(
-                    self.config.get("environment")
-                )
-                tpl["credential"] = self.manifest.localEnv.map_value(
-                    credential, cast(dict, context.get("variables"))
-                )
-            tpl["credential"] = wrap_sensitive_value(tpl["credential"])
-
+                    tpl["credential"] = map_value(
+                        credential, self.manifest.rootResource
+                    )
+                elif self.manifest.localEnv:
+                    # we're including or importing before we finished initializing
+                    context = self.manifest.localEnv.get_context(
+                        self.config.get("environment")
+                    )
+                    tpl["credential"] = self.manifest.localEnv.map_value(
+                        credential, cast(dict, context.get("variables"))
+                    )
+                tpl["credential"] = wrap_sensitive_value(tpl["credential"])
+        elif isinstance(tpl, str):
+            tpl = dict(url=tpl)
+        else:
+            raise UnfurlError(f'invalid repository "{name}": definition {tpl} is type {type(tpl)}, not a map or string')
         return Repository(name, tpl)
 
     def get_repository_url(
