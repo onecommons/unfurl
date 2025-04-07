@@ -504,7 +504,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         elif isinstance(tpl, str):
             tpl = dict(url=tpl)
         else:
-            raise UnfurlError(f'invalid repository "{name}": definition {tpl} is type {type(tpl)}, not a map or string')
+            raise UnfurlError(
+                f'invalid repository "{name}": definition {tpl} is type {type(tpl)}, not a map or string'
+            )
         return Repository(name, tpl)
 
     def get_repository_url(
@@ -952,6 +954,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             logger.trace(
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
             )
+            if isFile and path.endswith(".yaml") and not os.path.isfile(path):
+                py_path = path[: -len(".yaml")] + ".py"
+                if os.path.isfile(py_path):
+                    logger.verbose(
+                        "%s is missing but %s was found, attempting to convert to yaml.",
+                        path,
+                        py_path,
+                    )
+                    path = py_path  # try to convert dsl py to yaml
             f, cacheable = self._open(path, isFile)
             if f is None:
                 return None, cacheable
