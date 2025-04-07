@@ -122,9 +122,9 @@ class Plan:
         self, template: EntitySpec, match=is_external_template_compatible
     ) -> Optional[EntityInstance]:
         imported = template.tpl.get("imported")
-        assert self.root.imports is not None
         if imported:
-            _external = self.root.imports.find_import(imported)
+            assert self.root.imports is not None
+            _external = self.root.imports.find_instance(imported)
             if not _external:
                 return None
             if _external.shadow and _external.root is self.root:
@@ -198,7 +198,7 @@ class Plan:
             if self.root.template.topology is not template.topology:
                 name = ":" + template.topology.nested_name
                 assert self.root.imports is not None
-                root = self.root.imports.find_import(name)
+                root = self.root.imports.find_instance(name)
                 if not root:
                     self.root.create_nested_topology(template.topology)
                     return
@@ -220,11 +220,13 @@ class Plan:
             assert self.root.imports is not None
             # get the nested TopologyInstance
             nested_root_name = ":" + template.substitution.nested_name
-            nested_root = self.root.imports.find_import(nested_root_name)
+            nested_root = self.root.imports.find_instance(nested_root_name)
             assert nested_root, f"{nested_root_name} should already have been created"
             name = template.substitution.substitution_node.name
             inner = nested_root.find_instance(name)
-            assert inner, f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            assert inner, (
+                f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            )
             assert inner is not instance
             instance.imported = (
                 ":" + template.substitution.substitution_node.nested_name
@@ -362,8 +364,10 @@ class Plan:
                 NodeState.starting, "Standard.start", resource, reason, inputs
             )
         if not self._ran_workflow:
-              errorMsg = f'unable to find a deploy operation on node "{resource.template.name}"'
-              logger.debug(errorMsg)
+            errorMsg = (
+                f'unable to find a deploy operation on node "{resource.template.name}"'
+            )
+            logger.debug(errorMsg)
         self._startworkflow = False
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
@@ -424,8 +428,8 @@ class Plan:
 
         yield from self._run_operation(nodeState, op, resource, reason, inputs)
         if not self._ran_workflow:
-              errorMsg = f'unable to find a teardown operation on node "{resource.template.name}"'
-              logger.debug(errorMsg)
+            errorMsg = f'unable to find a teardown operation on node "{resource.template.name}"'
+            logger.debug(errorMsg)
         self._ran_workflow = False
 
     def execute_default_install_op(
@@ -574,16 +578,19 @@ class Plan:
         if not self._checked_connection_task:
             self._checked_connection_task = True
             if self.tosca.topology and self.tosca.topology.primary_provider:
-                for rel in self.root.requirements:
+                for rel in self.root.default_relationships:
                     if rel.name == "primary_provider":
                         req = create_task_request(self.jobOptions, "Install.check", rel)
                         if req:
                             yield req
                         return
-                assert False, self.root.requirements
+                assert False, self.root.default_relationships
 
     def _generate_configurations(
-        self, resource: "NodeInstance", reason: Optional[str], workflow: Optional[str] = None
+        self,
+        resource: "NodeInstance",
+        reason: Optional[str],
+        workflow: Optional[str] = None,
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
@@ -857,9 +864,9 @@ class DeployPlan(Plan):
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
         else:
-            assert (
-                jobOptions.repair == "error"
-            ), f"repair: {jobOptions.repair} status: {instance.status}"
+            assert jobOptions.repair == "error", (
+                f"repair: {jobOptions.repair} status: {instance.status}"
+            )
             return Reason.repair  # repair this
 
     def is_instance_read_only(self, instance):
@@ -1002,7 +1009,9 @@ class WorkflowPlan(Plan):
             ):
                 continue
             if self.tosca.is_type_name(step.target):
-                templates: Iterable[NodeSpec] = workflow.topology.find_matching_templates(step.target)
+                templates: Iterable[NodeSpec] = (
+                    workflow.topology.find_matching_templates(step.target)
+                )
             else:
                 template = workflow.topology.get_node_template(step.target)
                 if not template:

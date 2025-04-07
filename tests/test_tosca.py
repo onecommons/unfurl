@@ -647,7 +647,7 @@ spec:
                 # test that restored manifest create a shadow instance for the foreign instance
                 imported = manifest2.imports["foreign"]
                 assert imported
-                imported2 = manifest2.imports.find_import("foreign:anInstance")
+                imported2 = manifest2.imports.find_instance("foreign:anInstance")
                 assert imported2
                 assert imported2.imported == "foreign:anInstance"
                 assert imported2.shadow

@@ -6,7 +6,18 @@ import os.path
 import hashlib
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
+from typing import (
+    Dict,
+    List,
+    Optional,
+    Any,
+    Sequence,
+    TYPE_CHECKING,
+    Tuple,
+    Type,
+    TypeVar,
+    cast,
+)
 from urllib.parse import urlparse
 from ruamel.yaml.comments import CommentedMap
 
@@ -75,6 +86,8 @@ if TYPE_CHECKING:
 logger = getLogger("unfurl")
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
+
+_TI = TypeVar("_TI", bound=EntityInstance)
 
 
 def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str, Any]:
@@ -485,7 +498,7 @@ class Manifest(AttributeManager):
         rname: str,
         resourceSpec: Dict[str, Any],
         parent: HasInstancesInstance,
-    ) -> NodeInstance:
+    ) -> Optional[NodeInstance]:
         # if parent property is set it overrides the parent argument
         root: ResourceRef = assert_not_none(parent.root)
         pname = resourceSpec.get("parent")
@@ -502,6 +515,8 @@ class Manifest(AttributeManager):
         resource = self._create_entity_instance(
             NodeInstance, rname, resourceSpec, parent
         )
+        if not resource:
+            return None
         if resourceSpec.get("capabilities"):
             for key, val in resourceSpec["capabilities"].items():
                 self._create_entity_instance(CapabilityInstance, key, val, resource)
@@ -535,14 +550,14 @@ class Manifest(AttributeManager):
         return self.changeSets.get(jobId)
 
     def _create_entity_instance(
-        self, ctor, name: str, status: Dict[str, Any], parent: EntityInstance
-    ):
+        self, ctor: Type[_TI], name: str, status: Dict[str, Any], parent: EntityInstance
+    ) -> Optional[_TI]:
         templateName = status.get("template", name)
 
         imported = None
         importName = status.get("imported")
         if importName is not None:
-            imported = self.imports.find_import(importName)
+            imported = self.imports.find_instance(importName)
             if not imported:
                 self.load_error(f"missing import {importName}")
 
@@ -571,9 +586,10 @@ class Manifest(AttributeManager):
                 # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
         if template is None:
-            return self.load_error(
+            self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"
             )
+            return None
         # logger.debug("creating instance for template %s: %s", templateName, template)
 
         # omit keys that match <<REDACTED>> so can we use the computed property
@@ -582,9 +598,7 @@ class Manifest(AttributeManager):
             for k, v in status.get("attributes", {}).items()
             if v != sensitive_str.redacted_str
         }
-        instance = cast(
-            EntityInstance, ctor(name, attributes, parent, template, operational)
-        )
+        instance = ctor(name, attributes, parent, template, operational)
         if "created" in status:
             instance.created = status["created"]
         if "protected" in status:

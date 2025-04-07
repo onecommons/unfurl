@@ -606,6 +606,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def shadow(self) -> Optional["EntityInstance"]:
+        # shadowed node from an external manifest or a nested topology
         if self.imported:
             imports = self.root.imports
             if imports and self.imported in imports:
@@ -749,7 +750,7 @@ class HasInstancesInstance(EntityInstance):
         if instance:
             return instance
         if self.imports:
-            return self.imports.find_import(resourceid)
+            return self.imports.find_instance(resourceid)
         return None
 
     @property
@@ -1376,7 +1377,7 @@ class TopologyInstance(HasInstancesInstance):
         assert topology
         if self.template.topology is not topology:
             assert self.imports is not None
-            nested_root = self.imports.find_import(":" + topology.nested_name)
+            nested_root = self.imports.find_instance(":" + topology.nested_name)
             if nested_root:
                 return cast(TopologyInstance, nested_root)
             else:

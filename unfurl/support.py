@@ -35,6 +35,7 @@ from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .manifest import Manifest
+    from .yamlmanifest import YamlManifest
     from .runtime import (
         EntityInstance,
         InstanceKey,
@@ -884,21 +885,27 @@ set_eval_func("to_env", to_env)
 
 set_eval_func(
     "to_label",
-    lambda arg, ctx: to_label(map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_label(
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_dns_label(
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_kubernetes_label(
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 
@@ -1306,51 +1313,69 @@ class _Import:
         self.local_instance = local_instance
 
 
-ImportsBase = OrderedDict[str, _Import]
+class Imports(OrderedDict[str, _Import]):
+    """
+    Track shadowed nodes from external manifests and nested topologies.
+    The key syntax is import_name[":"node_name] for imported nodes and ":"nested_name for nested nodes.
 
+    external instance   key syntax                    created by
+    -----------------   ----------------------------  ---------------------------------------------------
+    local instances     "locals", "secrets"           YamlManifest.__init__
+    external root       import_name                   load_external_ensemble
+    external nodes      import_name:external_name     Plan.create_shadow_instance
+    nested topologies   :outer_node_name:"root"       TopologyInstance.create_nested_topology
+    nested root nodes   :outer_node_name:nested_node  _create_substituted_topology, Plan.create_resource
+    """
 
-class Imports(ImportsBase):
     manifest: Optional["Manifest"] = None
 
-    def find_import(self, qualified_name: str) -> Optional["HasInstancesInstance"]:
-        # return a local shadow of the imported instance
-        # or the imported instance itself if no local shadow exist (yet).
+    def find_import(self, qualified_name: str) -> Optional[_Import]:
         imported = self._find_import(qualified_name)
         if imported:
             return imported
         iName, sep, rName = qualified_name.partition(":")
         if not iName:
-            # name is in the current ensemble (but maybe a different topology)
             return None
         assert self.manifest
         localEnv = self.manifest.localEnv
-        if iName not in self and localEnv:
+        if localEnv:
             project = localEnv.project or localEnv.homeProject
             tpl = project and project.find_ensemble_by_name(iName)
             if tpl:
-                self.manifest.load_external_ensemble(iName, dict(manifest=tpl))  # type: ignore
+                cast("YamlManifest", self.manifest).load_external_ensemble(
+                    iName, dict(manifest=tpl)
+                )
                 return self._find_import(qualified_name)
         return None
 
-    def _find_import(self, name: str) -> Optional["HasInstancesInstance"]:
-        if name in self:
-            # fully qualified name already added
-            return self[name].local_instance or self[name].external_instance
-        iName, sep, rName = name.partition(":")
+    def find_instance(self, qualified_name: str) -> Optional["HasInstancesInstance"]:
+        # return a local shadow of the imported instance
+        # or the imported instance itself if no local shadow exist (yet).
+        imported = self.find_import(qualified_name)
+        if imported:
+            return imported.local_instance or imported.external_instance
+        iName, sep, rName = qualified_name.partition(":")
         if not iName:
             # name is in the current ensemble (but maybe a different topology)
             assert self.manifest and self.manifest.rootResource
             assert sep and rName
             return self.manifest.rootResource.find_instance(rName)
-        if iName not in self:
+        return None
+
+    def _find_import(self, name: str) -> Optional[_Import]:
+        if name in self:
+            # fully qualified name already added
+            return self[name]
+        iName, sep, rName = name.partition(":")
+        if not iName or iName not in self:
             return None
         # do a unqualified look up to find the declared import
         imported = self[iName].external_instance.root.find_instance(rName or "root")
         if imported:
-            self.add_import(iName, imported)
-        return imported
+            return self.add_import(iName, imported)
+        return None
 
-    def set_shadow(self, key, local_instance, external_instance):
+    def set_shadow(self, key: str, local_instance, external_instance) -> _Import:
         if key not in self:
             record = self.add_import(key, external_instance)
         else:
@@ -1361,7 +1386,8 @@ class Imports(ImportsBase):
         record.local_instance = local_instance
         return record
 
-    def add_import(self, key, external_instance, spec=None):
+    def add_import(self, key, external_instance, spec=None) -> _Import:
+        # Adds an external (imported or nested) instance
         self[key] = _Import(external_instance, spec or {})
         return self[key]
 
