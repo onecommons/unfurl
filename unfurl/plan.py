@@ -707,13 +707,18 @@ class Plan:
                 ):
                     operationHostSpec = templates.get(operation_host)
                     if operationHostSpec:
+                        if (
+                            operationHostSpec is not source
+                            and source not in operationHostSpec._isReferencedBy
+                        ):
+                            cast(list, operationHostSpec._isReferencedBy).append(source)
                         if operationHostSpec in seen:
                             continue
                         seen.add(operationHostSpec)
                         yield operationHostSpec
 
             for nodespec in get_ancestor_templates([source], templates):
-                if nodespec is not source:
+                if nodespec is not source and source not in nodespec._isReferencedBy:
                     # ancestor is required by source
                     cast(list, nodespec._isReferencedBy).append(source)
                 if nodespec in seen:
@@ -756,7 +761,9 @@ class Plan:
                 visited.add(id(resource))
                 yield from self._generate_workflow_configurations(resource, template)
 
-            if not found and "dependent" not in template.directives:
+            if not found:
+                if not template._isReferencedBy and "dependent" in template.directives:
+                    continue
                 abstract = template.abstract
                 if abstract == "select":
                     continue

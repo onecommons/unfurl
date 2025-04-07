@@ -496,7 +496,7 @@ class NodeTemplateDirective(str, Enum):
     "Only use this template if one with the same name isn't already defined in the root topology."
 
     dependent = "dependent"
-    "Exclude from plan generation"
+    "Exclude from plan generation if not referenced by other templates."
 
     virtual = "virtual"
     "Don't instantiate"
