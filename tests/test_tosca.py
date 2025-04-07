@@ -522,6 +522,11 @@ class AbstractTemplateTest(unittest.TestCase):
                   sensitive: true
               filter_prop: 
                 type: string
+            requirements:
+              - connection:
+                  relationship:
+                    type: tosca.relationships.ConnectsTo
+                    default_for: SELF
             interfaces:
                Install:
                 operations:
@@ -556,6 +561,9 @@ class AbstractTemplateTest(unittest.TestCase):
                     file:  foreignmanifest.yaml
                   instance: "*"  # this is the default
                   version: 1.0
+                  connections:
+                  # import this connection so we can connect to "anInstance"
+                  - anInstance::connection
         """
 
         # import a node from a external manifest and have an abstract node template select it
@@ -655,6 +663,11 @@ spec:
                 # modifications to imported instances are not saved:
                 assert "private_address" not in imported2.attributes
                 self.assertIsNot(imported2.shadow.root, manifest2.get_root_resource())
+                assert manifest2.get_root_resource().imports.connections
+                rel = manifest2.get_root_resource().imports.connections[0]
+                assert rel.name == "connection"
+                assert manifest2.get_root_resource().default_relationships[0].name == "_default_provider"
+                assert manifest2.get_root_resource().default_relationships[1] is rel
         finally:
             if UNFURL_HOME is not None:
                 os.environ["UNFURL_HOME"] = UNFURL_HOME

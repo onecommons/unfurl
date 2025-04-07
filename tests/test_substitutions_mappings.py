@@ -45,6 +45,11 @@ spec:
             foo: bar
           requirements:
             - host: external
+          # XXX test that this overrides the nested default connection and the global default connection":
+          #   - cluster:
+          #       relationship:
+          #          type: unfurl.relationships.ConnectsTo.Ansible
+          #          default_for: SELF
 
         # creates a copy of the nested topology's templates
         nested2:
@@ -55,6 +60,14 @@ spec:
             foo: baz
           requirements:
             - host: external
+
+        cluster:  # test that its default connection is visible to the nested topologies
+          type: tosca:Root
+          requirements:
+            - defaultconnection:
+                relationship:
+                  type: unfurl.relationships.ConnectsTo.Ansible
+                  default_for: SELF
 
 """
 
@@ -154,7 +167,7 @@ topology_template:
 """
 )
 
-ensemble_template_dsl="""\
+ensemble_template_dsl = """\
 apiVersion: unfurl/v1alpha1
 spec:
   service_template:
@@ -162,6 +175,7 @@ spec:
     # This include allows you to also declare your TOSCA as Python code:
     +?include: ensemble_template.py
 """
+
 
 def test_substitution_with_type():
     cli_runner = CliRunner()
@@ -181,9 +195,7 @@ def test_substitution_with_type():
         node1 = manifest.tosca.get_template("nested1")
         assert node1
         assert node1.substitution and node1.topology is not node1.substitution
-        sub_mapped_node_template = (
-            node1.substitution.topology_template.substitution_mappings.sub_mapped_node_template
-        )
+        sub_mapped_node_template = node1.substitution.topology_template.substitution_mappings.sub_mapped_node_template
         assert sub_mapped_node_template and sub_mapped_node_template.name == "nested1"
         assert node1.substitution.substitute_of is node1
         assert sub_mapped_node_template is node1.toscaEntityTemplate
@@ -193,8 +205,12 @@ def test_substitution_with_type():
         assert inner_template
         inner_nodespec = node1.substitution.get_node_template(inner_template.name)
         assert inner_nodespec.nested_name == "nested1:_substitution_mapping"
-        assert inner_nodespec.requirements["host"].entity_tpl["node"] == "external", inner_nodespec.requirements["host"].entity_tpl
-        assert node1.requirements["host"].entity_tpl["node"]== "external", node1.requirements["host"].entity_tpl
+        assert inner_nodespec.requirements["host"].entity_tpl["node"] == "external", (
+            inner_nodespec.requirements["host"].entity_tpl
+        )
+        assert node1.requirements["host"].entity_tpl["node"] == "external", (
+            node1.requirements["host"].entity_tpl
+        )
         external = manifest.tosca.get_template("external")
         assert [r.source.name for r in external.relationships] == ["nested1", "nested2"]
 
@@ -206,9 +222,7 @@ def test_substitution_with_type():
             and node1.substitution is not node2.substitution
         )
         assert node2.substitution.substitute_of is node2
-        sub_mapped_node_template = (
-            node2.substitution.topology_template.substitution_mappings.sub_mapped_node_template
-        )
+        sub_mapped_node_template = node2.substitution.topology_template.substitution_mappings.sub_mapped_node_template
         assert sub_mapped_node_template and sub_mapped_node_template.name == "nested2"
         result, job, summary = run_job_cmd(cli_runner)
         assert job.json_summary() == {
@@ -269,8 +283,21 @@ def test_substitution_with_type():
         # with open("ensemble/ensemble.yaml") as f:
         #     print(f.read())
         manifest2 = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
-        assert manifest2.rootResource.find_instance("nested2:_substitution_mapping")
-        expected = ["root", "external", "nested1", "nested2"]
+        nested_root_node = manifest2.rootResource.find_instance(
+            "nested2:_substitution_mapping"
+        )
+        assert nested_root_node
+        assert nested_root_node.root is not manifest2.rootResource
+        assert (
+            len(
+                nested_root_node.get_default_relationships(
+                    "unfurl.relationships.ConnectsTo.Ansible"
+                )
+            )
+            == 1
+        )
+
+        expected = ["root", "external", "nested1", "nested2", "cluster"]
         assert expected == [
             i.name for i in manifest2.rootResource.get_self_and_descendants()
         ]
@@ -281,9 +308,18 @@ def test_substitution_with_type():
             ]
         )
         jsonExport = to_deployment(manifest2.localEnv)
-        nested_type = [v for (t, v) in jsonExport["ResourceType"].items() if t.startswith("Nested@")][0]
+        nested_type = [
+            v
+            for (t, v) in jsonExport["ResourceType"].items()
+            if t.startswith("Nested@")
+        ][0]
         assert nested_type["directives"] == ["substitute"]
-        assert list(jsonExport["Resource"]) == ["external", "nested1", "nested2"]
+        assert list(jsonExport["Resource"]) == [
+            "external",
+            "nested1",
+            "nested2",
+            "cluster",
+        ]
 
 
 def test_substitution_with_node():
@@ -301,8 +337,13 @@ def test_substitution_with_node():
             f.write(nested_node_import)
 
         # convert to python so we can test that too
-        run_cmd(cli_runner, ["export", "--format", "python", "ensemble-template.yaml"], True,
-                dict(UNFURL_EXPORT_PYTHON_STYLE = "concise", UNFURL_LOGGING="trace") )
+        run_cmd(
+            cli_runner,
+            ["export", "--format", "python", "ensemble-template.yaml"],
+            True,
+            dict(UNFURL_EXPORT_PYTHON_STYLE="concise", UNFURL_LOGGING="trace"),
+        )
+        # print(open("ensemble_template.py").read())
         with open("ensemble-template.yaml", "w") as f:
             f.write(ensemble_template_dsl)
 
@@ -310,9 +351,7 @@ def test_substitution_with_node():
         node1 = manifest.tosca.get_template("nested1")
         assert node1
         assert node1.substitution and node1.topology is not node1.substitution
-        sub_mapped_node_template = (
-            node1.substitution.topology_template.substitution_mappings.sub_mapped_node_template
-        )
+        sub_mapped_node_template = node1.substitution.topology_template.substitution_mappings.sub_mapped_node_template
         assert sub_mapped_node_template and sub_mapped_node_template.name == "nested1"
         assert node1.substitution.substitute_of is node1
         assert sub_mapped_node_template is node1.toscaEntityTemplate
@@ -339,6 +378,18 @@ def test_substitution_with_node():
             "changed": 5,
         }
 
+        nested_root_node = job.rootResource.find_instance("nested1:inner")
+        assert nested_root_node
+        assert nested_root_node.root is not job.rootResource
+        assert (
+            len(
+                nested_root_node.get_default_relationships(
+                    "unfurl.relationships.ConnectsTo.Ansible"
+                )
+            )
+            == 1
+        )
+
         # test serialization and loading:
         manifest2 = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
 
@@ -348,7 +399,7 @@ def test_substitution_with_node():
         assert inner.attributes["from_outer"] == "outer"
 
         assert manifest2.rootResource.find_instance("nested2:nested")
-        expected = ["root", "external", "nested1", "nested2"]
+        expected = ["root", "external", "nested1", "nested2", "cluster"]
         assert expected == [
             i.name for i in manifest2.rootResource.get_self_and_descendants()
         ]
@@ -359,7 +410,11 @@ def test_substitution_with_node():
             ]
         )
         jsonExport = to_deployment(manifest2.localEnv)
-        nested_type = [v for (t, v) in jsonExport["ResourceType"].items() if t.startswith("Nested@")][0]
+        nested_type = [
+            v
+            for (t, v) in jsonExport["ResourceType"].items()
+            if t.startswith("Nested@")
+        ][0]
         assert nested_type["directives"] == ["substitute"]
         assert list(jsonExport["Resource"]) == [
             "external",
@@ -367,6 +422,7 @@ def test_substitution_with_node():
             "nested1:inner",
             "nested2",
             "nested2:inner",
+            "cluster",
         ]
 
 

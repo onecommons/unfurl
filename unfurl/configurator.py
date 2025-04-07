@@ -756,12 +756,8 @@ class TaskView:
 
     @staticmethod
     def _get_connection(
-        source: HasInstancesInstance, target: Optional[NodeInstance], seen: dict
+        source: HasInstancesInstance, target: NodeInstance, seen: dict
     ) -> None:
-        """
-        Find the requirements on source that match the target
-        If source is root, requirements will be the connections that are the default_for the target.
-        """
         if source is target:
             return None
         for rel in source.get_requirements(target):
@@ -774,7 +770,7 @@ class TaskView:
         might to connect to (transitively following the target's hostedOn relationship)
         and adding any connections (relationships) that the operation_host has with those instances.
         Then add any default connections, prioritizing default connections to those instances.
-        (Connections that explicity set a ``default_for`` key that matches those instances.)
+        (Connections that explicitly set a ``default_for`` key that matches those instances.)
         """
         seen: Dict[int, Any] = {}
         for parent in self.target.ancestors:
@@ -784,9 +780,10 @@ class TaskView:
                 break
             if self.operation_host:
                 self._get_connection(self.operation_host, parent, seen)
-            self._get_connection(self.target.root, parent, seen)
         # get the rest of the default connections
-        self._get_connection(self.target.root, None, seen)
+        for rel in self.target.root.get_default_relationships():
+            if id(rel) not in seen:
+                seen[id(rel)] = rel
 
         # reverse so nearest relationships replace less specific ones that have matching names
         connections = _ConnectionsMap(  # the list() is for Python 3.7

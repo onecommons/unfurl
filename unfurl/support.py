@@ -1328,6 +1328,7 @@ class Imports(OrderedDict[str, _Import]):
     """
 
     manifest: Optional["Manifest"] = None
+    connections: Optional[List["RelationshipInstance"]] = None
 
     def find_import(self, qualified_name: str) -> Optional[_Import]:
         imported = self._find_import(qualified_name)

@@ -209,6 +209,13 @@
         "version": {
           "$ref": "#/definitions/version",
           "description": "Imported template requires compatible version."
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of connection names to import."
         }
       },
       "additionalProperties": false

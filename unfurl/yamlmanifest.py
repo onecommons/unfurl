@@ -341,7 +341,9 @@ class ReadOnlyManifest(Manifest):
 
     @property
     def version(self) -> Optional[str]:
-        return self.tosca.template.metadata.get("template_version") if self.tosca else None
+        return (
+            self.tosca.template.metadata.get("template_version") if self.tosca else None
+        )
 
     @property
     def yaml(self):
@@ -449,8 +451,10 @@ class YamlManifest(ReadOnlyManifest):
         # need to load external ensembles before we cal _set_spec
         importsSpec = self.context.get("external", {})
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
+        connections = []
         for name, value in importsSpec.items():
-            self.load_external_ensemble(name, value)
+            connections.extend(self.load_external_ensemble(name, value))
+        self.imports.connections = connections
 
         if self.context.get("instances") and load_env_instances:
             # add context instances to spec instances but skip ones that are just in there because they were shared
@@ -583,7 +587,7 @@ class YamlManifest(ReadOnlyManifest):
         # values maybe wrong before we set up the env vars so disable validation to suppress validation exceptions
         self.validate = False
         try:
-            for rel in root.requirements:
+            for rel in root.default_relationships:
                 rules.update(rel.merge_props(find_env_vars, True))
             rules = cast(
                 dict, serialize_value(map_value(rules, root), resolveExternal=True)
@@ -658,6 +662,13 @@ class YamlManifest(ReadOnlyManifest):
                     imports.extend(imp_defs)
             if "default_for" not in c:
                 c["default_for"] = "ANY"
+            metadata = c.setdefault("metadata", {})
+            metadata["from_environment"] = True
+        if "primary_provider" not in connections:
+            connections["_default_provider"] = dict(
+                type="unfurl.relationships.ConnectsTo.ComputeMachines",
+                default_for=RelationshipSpec.ANY,
+            )
         tosca: Dict[str, Any] = dict(
             topology_template=dict(
                 node_templates={}, relationship_templates=connections
@@ -667,7 +678,9 @@ class YamlManifest(ReadOnlyManifest):
             tosca["imports"] = imports
         return tosca
 
-    def load_external_ensemble(self, name: str, value: Dict[str, Any]) -> None:
+    def load_external_ensemble(
+        self, name: str, value: Dict[str, Any]
+    ) -> List["RelationshipInstance"]:
         """
         :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
@@ -710,7 +723,7 @@ class YamlManifest(ReadOnlyManifest):
             )
             if self.is_path_to_self(localEnv.manifestPath):
                 # don't import self (might happen when context is shared)
-                return
+                return []
             logger.verbose("loading external ensemble at %s", localEnv.manifestPath)
             importedManifest = localEnv.get_manifest(
                 skip_validation=not self.validate, safe_mode=self.safe_mode
@@ -750,6 +763,16 @@ class YamlManifest(ReadOnlyManifest):
                     )
         self.imports.add_import(name, resource, value)
         self._importedManifests[id(root)] = importedManifest
+        matches = []
+        connections = value.get("connections")
+        if connections:
+            for rel in root.default_relationships:
+                if rel.source:
+                    if f"{rel.source.name}::{rel.name}" in connections:
+                        matches.append(rel)
+                elif rel.name in connections:
+                    matches.append(rel)
+        return matches
 
     def load_changes(self, changes: Optional[List[dict]], changeLogPath: str) -> bool:
         if changes is not None:
@@ -1143,7 +1166,9 @@ class YamlManifest(ReadOnlyManifest):
                 self.save_change_log(job.log_path(ext=".yaml"), jobRecord, changes)
             else:
                 local_changes, committed_changes = split_changes(changes)
-                self.save_change_log(job.log_path(ext=".yaml"), jobRecord, local_changes)
+                self.save_change_log(
+                    job.log_path(ext=".yaml"), jobRecord, local_changes
+                )
                 jobLogPath = job.log_path("changes", ".yaml")
                 self.save_change_log(jobLogPath, jobRecord, committed_changes)
                 self._append_log(job, jobRecord, changes, jobLogPath)

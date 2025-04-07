@@ -28,6 +28,8 @@ from collections.abc import Mapping
 
 from ansible.parsing.dataloader import DataLoader
 
+from toscaparser.relationship_template import RelationshipTemplate
+
 from .projectpaths import File
 
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
@@ -757,7 +759,12 @@ class HasInstancesInstance(EntityInstance):
     def requirements(self) -> List["RelationshipInstance"]:
         return []
 
-    def get_requirements(self, match) -> List["RelationshipInstance"]:
+    def get_requirements(
+        self,
+        match: Union[
+            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance"
+        ],
+    ) -> List["RelationshipInstance"]:
         if match is None:
             return self.requirements
         if isinstance(match, str):
@@ -902,6 +909,45 @@ class RelationshipInstance(EntityInstance):
                 env[name] = val
         return env
 
+    def matches_target(self, capability: "CapabilityInstance"):
+        # does this relationship be apply to the capability we are trying to connect to (target)?
+        rel_template = cast(RelationshipTemplate, self.template.toscaEntityTemplate)
+        default_for = rel_template.default_for
+        if not default_for:
+            return False
+        assert capability.parent
+        nodeTemplate = capability.parent.template.toscaEntityTemplate
+        if default_for == "SELF":
+            # SELF finds the target from its source
+            assert self.source
+            default_for = self.source.name
+
+        if self.root != capability.root:
+            # This connection was either imported or the capability is in a nested topology.
+            # Check if the default_for target node is visible, either because it was imported or because it was mapped to the nested topology
+            # If it isn't visible, treat as a generic default connection (ANY), this way a manifest or root topology can expose connections while maintaining encapsulation.
+            # if the default_for target was a top-level import don't switch to ANY
+            if not self.root.imports or default_for not in self.root.imports:
+                nested = cast(
+                    TopologySpec, capability.root.template
+                ).get_inner_node_replaced_by_outer_node(default_for)
+                default_for = nested.name if nested else RelationshipSpec.ANY
+
+        if default_for == RelationshipSpec.ANY and capability.name == "feature":
+            # XXX get_matching_capabilities() buggy in this case
+            return True  # optimization
+        # XXX defaultFor might be type, resolve to global
+        if (
+            default_for == RelationshipSpec.ANY
+            or default_for == nodeTemplate.name
+            or nodeTemplate.is_derived_from(default_for)
+            or default_for == capability.name
+            or capability.template.toscaEntityTemplate.is_derived_from(default_for)
+        ):
+            return rel_template.get_matching_capabilities(nodeTemplate, capability.name)
+
+        return False
+
 
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
@@ -1021,7 +1067,9 @@ class NodeInstance(HasInstancesInstance):
         """
         if not relationship.target and relationship.is_default_connection():
             def_rels = [
-                rel for rel in self.root.requirements if rel.template is relationship
+                rel
+                for rel in cast(TopologyInstance, self.root).default_relationships
+                if rel.template is relationship
             ]
             return def_rels[0] if def_rels else None
         # find the Capability instance that corresponds to this relationship template's capability
@@ -1046,6 +1094,12 @@ class NodeInstance(HasInstancesInstance):
     @property
     def requirements(self) -> List[RelationshipInstance]:
         assert isinstance(self.template, NodeSpec)
+        if self.shadow and not cast(str, self.imported).startswith(":"):
+            if self.template.tpl.get("requirements"):
+                logger.warning(
+                    f'Ignoring requirements defined on imported node template "{self.template.name}" with "select" directive, the imported node\'s requirements are used instead.'
+                )
+            return cast(NodeInstance, self.shadow).requirements
         if len(self._requirements) != len(self.template.requirements):
             # instantiate missing relationships (they are only added, never deleted)
             instantiated = {id(r.template) for r in self._requirements}
@@ -1054,6 +1108,16 @@ class NodeInstance(HasInstancesInstance):
                     # XXX ValidationError
                     continue
                 if id(template.relationship) not in instantiated:
+                    if (
+                        not template.relationship.target
+                        and template.relationship.is_default_connection()
+                    ):
+                        rel = RelationshipInstance(
+                            name, parent=self.root, template=template.relationship
+                        )
+                        rel._source = self
+                        self._requirements.append(rel)
+                        continue
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
                         logger.warning(
@@ -1081,6 +1145,8 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def capabilities(self) -> List[CapabilityInstance]:
+        if self.shadow and not cast(str, self.imported).startswith(":"):
+            return cast(NodeInstance, self.shadow).capabilities
         if len(self._capabilities) != len(self.template.capabilities):
             # instantiate missing capabilities (they are only added, never deleted)
             instantiated = {id(c.template) for c in self._capabilities}
@@ -1106,19 +1172,24 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def artifacts(self) -> dict:
+        if self.shadow and not cast(str, self.imported).startswith(":"):
+            if self.template.tpl.get("artifacts"):
+                logger.warning(
+                    f'Ignoring artifacts defined on imported node template "{self.template.name}" with "select" directive, the imported node\'s artifacts are used instead.'
+                )
+            return self.shadow.artifacts  # XXX create shadow artifacts
         if self._named_artifacts is None:
             self._named_artifacts = {}
-            if self.template:
-                instantiated = {a.name: a for a in self._artifacts if a.name}
-                for name, template in self.template.artifacts.items():
-                    artifact = instantiated.pop(name, None)
-                    if not artifact:
-                        artifact = ArtifactInstance(
-                            template.name, parent=self, template=template
-                        )
-                        assert artifact in self._artifacts
-                    self._named_artifacts[template.name] = artifact
-                self._named_artifacts.update(instantiated)
+            instantiated = {a.name: a for a in self._artifacts if a.name}
+            for name, template in self.template.artifacts.items():
+                artifact = instantiated.pop(name, None)
+                if not artifact:
+                    artifact = ArtifactInstance(
+                        template.name, parent=self, template=template
+                    )
+                    assert artifact in self._artifacts
+                self._named_artifacts[template.name] = artifact
+            self._named_artifacts.update(instantiated)
         return self._named_artifacts
 
     @property
@@ -1133,9 +1204,7 @@ class NodeInstance(HasInstancesInstance):
             return
         for rel in cast(EntityInstance, self.root).get_default_relationships(relation):
             for capability in self.capabilities:
-                if rel.template.matches_target(
-                    cast(CapabilitySpec, capability.template)
-                ):
+                if rel.matches_target(capability):
                     yield rel
 
     def get_default_relationships(
@@ -1303,6 +1372,7 @@ class TopologyInstance(HasInstancesInstance):
         HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
         self._relationships: List["RelationshipInstance"] = []
+        self._rel_counter = 0
         self._tmpDir: Optional[str] = None
         self.parent_topology = parent_topology
 
@@ -1327,26 +1397,60 @@ class TopologyInstance(HasInstancesInstance):
     @property
     def requirements(self) -> List[RelationshipInstance]:
         """
-        The root node returns RelationshipInstances representing default relationship templates
+        Return the root node RelationshipInstances representing default relationship templates defined in its topology.
+        Use self.default_relationships to get all visible defaults relationships.
         """
-        rel_templates = cast(TopologySpec, self.template).default_relationships
-        if len(self._relationships) != len(rel_templates):
+        # XXX default relationships are not serialized
+        topology = cast(TopologySpec, self.template)
+        rel_templates = topology.relationship_templates
+        if len(rel_templates) != self._rel_counter:
             instantiated = {id(r.template) for r in self._relationships}
-            for template in rel_templates:
-                if id(template) not in instantiated:
+            for template in rel_templates.values():
+                if (
+                    cast(RelationshipTemplate, template.toscaEntityTemplate).default_for
+                    and id(template) not in instantiated
+                ):
                     # this constructor will add itself to _relationships
                     RelationshipInstance(template.name, parent=self, template=template)
+            self._rel_counter = len(rel_templates)
         return self._relationships
+
+    @property
+    def default_relationships(self) -> List[RelationshipInstance]:
+        """Return a list of the default relationships visible in this topology
+        including connections defined in the environment and imported connections.
+        Nested topologies inherit its parent topology's default relationships.
+        So unlike self.requirements these relationships are not necessarily children of the topology or part of its ensemble.
+        """
+        topology = cast(TopologySpec, self.template)
+        for rel_spec in topology._default_relationships:
+            # these are default relationships defined in inline in a requirement of its source node template
+            assert rel_spec.source
+            node = self.find_instance(rel_spec.source.name)
+            if node:  # might not be instantiated yet
+                node.requirements  # this will add to self._requirements if needed
+
+        if self.parent_topology:
+            # nested topologies inherit its parent topology's default relationships
+            # (which will include the environment's connections and imported connections)
+            return self.requirements + self.parent_topology.default_relationships
+        else:
+            imported = (
+                self.imports.connections
+                if self.imports and self.imports.connections
+                else []
+            )
+            return self.requirements + imported
 
     def get_default_relationships(
         self, relation: Optional[str] = None
     ) -> List[RelationshipInstance]:
         # for root, this is the same as self.requirements
         if not relation:
-            return self.requirements
+            return self.default_relationships
         return [
             rel
-            for rel in self.requirements
+            for rel in self.default_relationships
             if rel.template.is_compatible_type(relation)
         ]
 

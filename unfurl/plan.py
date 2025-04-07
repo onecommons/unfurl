@@ -675,10 +675,55 @@ class Plan:
         seen: Set[NodeSpec] = set()
         # order by ancestors
         return list(
-            _get_templates_from_topology(
-                self.tosca.topology, seen, self.interface, filter
-            )
+            self._get_templates_from_topology(self.tosca.topology, seen, filter)
         )
+
+    def _get_templates_from_topology(
+        self, topology: TopologySpec, seen: Set[NodeSpec], filter=None
+    ) -> Iterator[NodeSpec]:
+        templates = topology.node_templates.values()
+        # order by ancestors
+        return self.order_templates(
+            {
+                t.name: t
+                for t in templates
+                if "virtual" not in t.directives
+                and interface_requirements_ok(self.root, t)
+                and (not filter or t.name == filter)
+            },
+            seen,
+        )
+
+    def order_templates(
+        self, templates: Dict[str, NodeSpec], seen: Set[NodeSpec]
+    ) -> Iterator[NodeSpec]:
+        for source in templates.values():
+            if source in seen:
+                continue
+
+            if self.interface:
+                for operation_host in find_explicit_operation_hosts(
+                    source, self.interface
+                ):
+                    operationHostSpec = templates.get(operation_host)
+                    if operationHostSpec:
+                        if operationHostSpec in seen:
+                            continue
+                        seen.add(operationHostSpec)
+                        yield operationHostSpec
+
+            for nodespec in get_ancestor_templates([source], templates):
+                if nodespec is not source:
+                    # ancestor is required by source
+                    cast(list, nodespec._isReferencedBy).append(source)
+                if nodespec in seen:
+                    continue
+                seen.add(nodespec)
+                if nodespec.substitution:
+                    yield from self._get_templates_from_topology(
+                        nodespec.substitution, seen
+                    )
+                yield nodespec
 
     def include_not_found(self, template):
         return True
@@ -1077,17 +1122,15 @@ def find_explicit_operation_hosts(template, interface):
                 yield operation_host
 
 
-def interface_requirements_ok(spec: ToscaSpec, template: NodeSpec):
+def interface_requirements_ok(root: TopologyInstance, template: NodeSpec):
     reqs = template.get_interface_requirements()
     if reqs:
         assert isinstance(reqs, list)
         for req in reqs:
-            if not any(
-                [
-                    rel.is_compatible_type(req)
-                    for rel in cast(TopologySpec, spec.topology).default_relationships
-                ]
-            ):
+            if not any([
+                rel.template.is_compatible_type(req)
+                for rel in root.default_relationships
+            ]):
                 logger.debug(
                     'Skipping template "%s": could not find a connection for interface requirements: %s',
                     template.name,
@@ -1095,54 +1138,6 @@ def interface_requirements_ok(spec: ToscaSpec, template: NodeSpec):
                 )
                 return False
     return True
-
-
-def _get_templates_from_topology(
-    topology: TopologySpec, seen: Set[NodeSpec], interface, filter=None
-) -> Iterator[NodeSpec]:
-    templates = topology.node_templates.values()
-    # order by ancestors
-    return order_templates(
-        {
-            t.name: t
-            for t in templates
-            if "virtual" not in t.directives
-            and interface_requirements_ok(topology.spec, t)
-            and (not filter or t.name == filter)
-        },
-        seen,
-        interface,
-    )
-
-
-def order_templates(
-    templates: Dict[str, NodeSpec], seen: Set[NodeSpec], interface=None
-) -> Iterator[NodeSpec]:
-    for source in templates.values():
-        if source in seen:
-            continue
-
-        if interface:
-            for operation_host in find_explicit_operation_hosts(source, interface):
-                operationHostSpec = templates.get(operation_host)
-                if operationHostSpec:
-                    if operationHostSpec in seen:
-                        continue
-                    seen.add(operationHostSpec)
-                    yield operationHostSpec
-
-        for nodespec in get_ancestor_templates([source], templates):
-            if nodespec is not source:
-                # ancestor is required by source
-                cast(list, nodespec._isReferencedBy).append(source)
-            if nodespec in seen:
-                continue
-            seen.add(nodespec)
-            if nodespec.substitution:
-                yield from _get_templates_from_topology(
-                    nodespec.substitution, seen, interface
-                )
-            yield nodespec
 
 
 def get_ancestor_templates(
