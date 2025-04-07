@@ -76,6 +76,7 @@ from .logs import getLogger
 from . import DEFAULT_CLOUD_SERVER, __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
+from toscaparser.nodetemplate import NodeTemplate
 import tosca
 from tosca.loader import install
 
@@ -606,6 +607,7 @@ class Manifest(AttributeManager):
         if "customized" in status:
             instance.customized = status["customized"]
         if imported:
+            assert isinstance(importName, str)
             instance.imported = importName
             self.imports.set_shadow(importName, instance, imported)
         properties = status.get("properties")
@@ -728,10 +730,15 @@ class Manifest(AttributeManager):
             raise UnfurlError(f"invalid git URL {url}")
         if not self.localEnv:  # can happen in unit tests
             repo = Repo.find_containing_repo(base)
-            if repo and (repo.find_remote(url=url) or toscaparser.imports.normalize_path(url) == repo.working_dir):
+            if repo and (
+                repo.find_remote(url=url)
+                or toscaparser.imports.normalize_path(url) == repo.working_dir
+            ):
                 return repo, filePath, revision, None
             else:
-                logger.warning("Can't resolve repository %s because there's no localenv.", url)
+                logger.warning(
+                    "Can't resolve repository %s because there's no localenv.", url
+                )
                 return None, None, None, None
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
             repoURL, revision, base
@@ -1005,6 +1012,108 @@ class Manifest(AttributeManager):
                 resolver._resolve_repo_to_path(repo_view, base, "")
                 return repo_view
         return None
+
+    def resolve_select(self, node_template: NodeTemplate) -> NodeTemplate:
+        # "select" templates are incomplete, we need to update them with enough of selected (imported) template
+        # so that the solver matches this template properly: i.e. the node type, capabilities, properties (for node_filters).
+        # An important consideration is what to include as part of the template specification
+        # -- we don't want to over-specify with details from the external ensemble that should be private.
+        # so requirements are excluded (and so node_filter match expressions won't work)
+
+        instance = self.find_external_instance(
+            node_template, is_external_template_compatible
+        )
+        if not instance:
+            return node_template
+        imported_tpl = node_template.entity_tpl
+        imported_type = (
+            node_template.custom_def
+            and node_template.custom_def.get_local_name(instance.template.global_type)
+        )
+        if imported_type and imported_type != node_template.type:
+            imported_tpl.setdefault("metadata", {})["select_type"] = node_template.type
+            imported_tpl["type"] = imported_type
+        # XXX else: find closest super type that is in this template's scope.
+
+        # we don't eval expressions (we don't want them applied to this topology) so use serialized values
+        # Note that live instances use properties and capabilities in the imported manifest so aren't affected by this.
+        if instance._properties:
+            imported_tpl["properties"] = instance._properties
+        if imported_tpl.get("capabilities"):
+            logger.warning(
+                f'Ignoring capabilities defined on imported node template "{node_template.name}" with "select" directive, the imported node\'s capabilities are used instead.'
+            )
+        for cap_name in cast(NodeSpec, instance.template).capabilities:
+            cap_instances = instance.get_capabilities(cap_name)
+            if cap_instances:
+                cap_tpl = imported_tpl.setdefault("capabilities", {}).setdefault(
+                    cap_name, {}
+                )
+                if cap_instances[0]._properties:
+                    cap_tpl["properties"] = cap_instances[0]._properties
+        return node_template
+
+    def find_external_instance(
+        self, template: NodeTemplate, match
+    ) -> Optional[NodeInstance]:
+        # Updates self.imports and sets "imported" on template yaml if needed
+        assert "select" in template.directives
+        imported = template.entity_tpl.get("imported")
+        assert self.imports is not None
+        logger.warning(f"searching for {imported} / {template.name}")
+        if imported:
+            _import = self.imports.find_import(imported)
+            if not _import:
+                return None
+            return cast(NodeInstance, _import.external_instance)
+
+        searchAll = []
+        for name, record in self.imports.items():
+            external = record.external_instance
+            if match(name, external.template, template):
+                template.entity_tpl["imported"] = name
+                self.imports.add_import(name, external)
+                return cast(NodeInstance, external)
+            if record.spec.get("instance") in ["root", "*"]:
+                # add root instance
+                searchAll.append((name, external))
+
+        # look in the topologies where were are importing everything
+        for name, root in searchAll:
+            for external_descendant in root.get_self_and_descendants():
+                if match(name, external_descendant.template, template):
+                    import_name = name + ":" + external_descendant.name
+                    self.imports.add_import(import_name, external_descendant)
+                    template.entity_tpl["imported"] = import_name
+                    return cast(NodeInstance, external_descendant)
+        return None
+
+
+def is_external_template_compatible(
+    import_name: str, external: EntitySpec, template: NodeTemplate
+):
+    # match by template name unless a node_filter is set
+    imported = external.tpl.get("imported")
+    if imported:
+        i_name, sep, t_name = imported.partition(":")
+        if i_name != import_name:
+            return False
+    else:
+        t_name = template.name
+
+    node_filter = template.entity_tpl.get("node_filter")
+    if node_filter:
+        return isinstance(
+            external.toscaEntityTemplate, NodeTemplate
+        ) and external.toscaEntityTemplate.match_nodefilter(node_filter)
+
+    if external.name == t_name:
+        if not external.is_compatible_type(template.type):
+            raise UnfurlError(
+                f'external template "{template.name}" not compatible with local template'
+            )
+        return True
+    return False
 
 
 # unused

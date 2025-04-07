@@ -22,6 +22,7 @@ import numbers
 import os
 import os.path
 import itertools
+
 try:
     # added in python 3.9
     from functools import cache  # type: ignore
@@ -42,8 +43,10 @@ from .spec import (
     ArtifactSpec,
     NodeSpec,
     RelationshipSpec,
+    ToscaSpec,
     encode_unfurl_identifier,
     find_env_vars,
+    get_default_topology,
 )
 from .runtime import (
     EntityInstance,
@@ -404,7 +407,7 @@ class YamlManifest(ReadOnlyManifest):
         manifest=None,
         path=None,
         validate=True,  # json schema validation
-        localEnv=None,
+        localEnv: Optional[LocalEnv] = None,
         vault=None,
         skip_validation=False,  # tosca parser validation
         safe_mode: Optional[bool] = None,
@@ -442,6 +445,13 @@ class YamlManifest(ReadOnlyManifest):
                 logger.warning(
                     "This ensemble contains deployment blueprints but none were specified for use."
                 )
+
+        # need to load external ensembles before we cal _set_spec
+        importsSpec = self.context.get("external", {})
+        # note: external "localhost" is defined in UNFURL_HOME's context by convention
+        for name, value in importsSpec.items():
+            self.load_external_ensemble(name, value)
+
         if self.context.get("instances") and load_env_instances:
             # add context instances to spec instances but skip ones that are just in there because they were shared
             env_instances = {
@@ -478,11 +488,11 @@ class YamlManifest(ReadOnlyManifest):
         for key, val in status.get("instances", {}).items():
             self.create_node_instance(key, val, rootResource)
         # create an new instances declared in the spec:
-        for name, instance in spec.get("instances", {}).items():
+        for name, instance_tpl in spec.get("instances", {}).items():
             if not rootResource.find_resource(name):
-                if "readyState" not in instance:
-                    instance["readyState"] = "ok"
-                create_instance_from_spec(self, rootResource, name, instance)
+                if "readyState" not in instance_tpl:
+                    instance_tpl["readyState"] = "ok"
+                create_instance_from_spec(self, rootResource, name, instance_tpl)
 
         self._configure_root(rootResource)
         self._set_repository_links()
@@ -612,13 +622,6 @@ class YamlManifest(ReadOnlyManifest):
         self.rootResource = root
         if not self.safe_mode:
             self._set_root_environ()
-
-        # self.load_external_ensemble("localhost", tpl) # declared in templates/home/unfurl.yaml.j2
-        importsSpec = self.context.get("external", {})
-        # note: external "localhost" is defined in UNFURL_HOME's context by convention
-        for name, value in importsSpec.items():
-            self.load_external_ensemble(name, value)
-
         root.imports = self.imports
         return root
 
@@ -696,9 +699,10 @@ class YamlManifest(ReadOnlyManifest):
             artifact = ArtifactSpec(
                 artifact_tpl,
                 path=baseDir,
-                topology=self.tosca and self.tosca.topology or None,
+                topology=(self.tosca and self.tosca.topology)
+                or ToscaSpec(get_default_topology()).topology,
             )
-            path = artifact.get_path()
+            path = artifact.get_path(self.get_import_resolver(expand=True))
             localEnv = LocalEnv(
                 path,
                 parent=self.localEnv,

@@ -57,33 +57,6 @@ from toscaparser.nodetemplate import NodeTemplate
 logger = getLogger("unfurl")
 
 
-def is_external_template_compatible(
-    import_name: str, external: EntitySpec, template: EntitySpec
-):
-    # for now, require template names to match
-    imported = external.tpl.get("imported")
-    if imported:
-        i_name, sep, t_name = imported.partition(":")
-        if i_name != import_name:
-            return False
-    else:
-        t_name = template.name
-
-    node_filter = template.tpl.get("node_filter")
-    if node_filter:
-        return isinstance(
-            external.toscaEntityTemplate, NodeTemplate
-        ) and external.toscaEntityTemplate.match_nodefilter(node_filter)
-
-    if external.name == t_name:
-        if not external.is_compatible_type(template.type):
-            raise UnfurlError(
-                f'external template "{template.name}" not compatible with local template'
-            )
-        return True
-    return False
-
-
 class Plan:
     @staticmethod
     def get_plan_class_for_workflow(workflow):
@@ -118,9 +91,7 @@ class Plan:
         else:
             self.filterTemplate = None
 
-    def find_shadow_instance(
-        self, template: EntitySpec, match=is_external_template_compatible
-    ) -> Optional[EntityInstance]:
+    def find_shadow_instance(self, template: EntitySpec) -> Optional[EntityInstance]:
         imported = template.tpl.get("imported")
         if imported:
             assert self.root.imports is not None
@@ -133,30 +104,6 @@ class Plan:
             else:
                 import_name = imported.partition(":")[0]
                 return self.create_shadow_instance(_external, import_name, template)
-
-        searchAll = []
-        for name, record in self.root.imports.items():
-            external = record.external_instance
-            # XXX if external is a Relationship and template isn't, get it's target template
-            #  if no target, create with status == unknown
-
-            if match(name, external.template, template):
-                if record.local_instance:
-                    return record.local_instance
-                else:
-                    return self.create_shadow_instance(external, name, template)
-            if record.spec.get("instance") in ["root", "*"]:
-                # add root instance
-                searchAll.append((name, external))
-
-        # look in the topologies where were are importing everything
-        for name, root in searchAll:
-            for external_descendant in root.get_self_and_descendants():
-                if match(name, external_descendant.template, template):
-                    return self.create_shadow_instance(
-                        external_descendant, name, template
-                    )
-
         return None
 
     def create_shadow_instance(
@@ -793,7 +740,9 @@ class DeployPlan(Plan):
             return Reason.add
         return None
 
-    def include_instance(self, template: EntitySpec, instance: EntityInstance) -> Optional[str]:
+    def include_instance(
+        self, template: EntitySpec, instance: EntityInstance
+    ) -> Optional[str]:
         """Return whether or not the given instance should be included in the current plan,
         based on the current job's options and whether the template changed or the instance in need of repair?
 

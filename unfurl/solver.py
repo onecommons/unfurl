@@ -516,12 +516,16 @@ def get_req_terms(
         return None, False
 
 
-def solve_topology(topology_template: TopologyTemplate) -> Solution:
+def solve_topology(topology_template: TopologyTemplate, resolve_select=None) -> Solution:
     if not topology_template.node_templates:
         return {}
     types: Dict[str, List[str]] = {}
     nodes = {}
     for node_template in topology_template.node_templates.values():
+        if resolve_select and "select" in node_template.directives:
+            node_template = resolve_select(node_template)
+            if not node_template:
+                continue
         node = convert(node_template, types, topology_template)
         nodes[node.name] = node
         # print("missing", node_template.missing_requirements)

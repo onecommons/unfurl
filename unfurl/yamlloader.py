@@ -315,7 +315,18 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
-        self.solve_topology = solve_topology
+        if manifest:
+            self.solve_topology = self._solve_topology
+        else:
+            self.solve_topology = solve_topology
+
+    def _solve_topology(self, topology_template):
+        if solve_topology is not None:
+            return solve_topology(topology_template, self.manifest.resolve_select)
+        else:
+            for node_template in topology_template.node_templates.values():
+                if "select" in node_template.directives:
+                    self.manifest.resolve_select(node_template)
 
     GLOBAL_NAMESPACE_PACKAGES = os.getenv(
         "UNFURL_GLOBAL_NAMESPACE_PACKAGES",
