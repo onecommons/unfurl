@@ -224,6 +224,13 @@ def proxy_instance(
     else:
         # if target is subtype of cls, use the subtype
         found_cls = cls._all_types.get(instance.template.type, cls)
+        # the instance was defined in yaml so has no python obj, create one now
+        # since we proxy to the instance, we don't need to worry about setting its fields
+        try:
+            global_state._enforce_required_fields = False
+            obj = found_cls(instance.template.name)  # type:ignore
+        finally:
+            global_state._enforce_required_fields = True
 
     proxy = get_proxy_class(found_cls)(instance, obj, context)
     instance.proxy = proxy

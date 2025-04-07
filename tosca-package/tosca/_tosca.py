@@ -84,6 +84,7 @@ class _LocalState(threading.local):
         self.context: Any = None  # orchestrator specific runtime state
         self.modules = {}
         self._type_proxy = None
+        self._enforce_required_fields = True
         self.__dict__.update(kw)
 
 
@@ -866,7 +867,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         # XXX ti.types[0] might not be a node type!
         field = ti.types[0].__dataclass_fields__.get(name)
         if not field:
-            # in _cls_init_() __dataclass_fields__ aren't set yet and the class attribute is the field
+            # in _class_init() __dataclass_fields__ aren't set yet and the class attribute is the field
             field = getattr(ti.types[0], name, None)
             if not isinstance(field, _Tosca_Field):
                 logger.warning(f"Property {name} is not present on {ti.types[0]}")
@@ -2367,7 +2368,11 @@ class ToscaType(_ToscaType):
         fields = object.__getattribute__(self, "__dataclass_fields__")
         for field in fields.values():
             val = object.__getattribute__(self, field.name)
-            if val is REQUIRED and field._tosca_field_type != ToscaFieldType.attribute and not field.declare_attribute:
+            if (
+                val is REQUIRED
+                and field._tosca_field_type != ToscaFieldType.attribute
+                and not field.declare_attribute
+            ):
                 if self._enforce_required_fields():
                     # on Python < 3.10 we set this to workaround the lack of keyword only fields
                     raise ValueError(
@@ -2389,7 +2394,7 @@ class ToscaType(_ToscaType):
         self._initialized = True
 
     def _enforce_required_fields(self) -> bool:
-        return True
+        return global_state._enforce_required_fields
 
     # XXX version (type and template?)
 
@@ -2848,7 +2853,7 @@ class Node(ToscaType):
         for directive in self._directives:
             for name in ("select", "substitute"):
                 return False
-        return True
+        return super()._enforce_required_fields()
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
