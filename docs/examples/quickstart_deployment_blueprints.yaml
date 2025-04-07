@@ -3,9 +3,10 @@ deployment_blueprints:
     cloud: unfurl.relationships.ConnectsTo.AWSAccount
     node_templates:
       host:
-        type: ContainerComputeHost
+        type: HttpsProxyContainerComputeHost
         requirements:
         - host: host_host
+        - dns: host_dns
       host_host:
         type: EC2Compute
         properties:
@@ -14,6 +15,10 @@ deployment_blueprints:
             get_input: mem_size
           disk_size:
             get_input: disk_size
+      host_dns:
+          type: Route53DNSZone
+          properties:
+            name: example.com
       db:
         type: AwsRdsPostgres
   dev:
@@ -39,4 +44,6 @@ imports:
 - file: k8s.yaml
   repository: std
 - file: aws/compute.yaml
+  repository: std
+- file: dns_services.yaml
   repository: std

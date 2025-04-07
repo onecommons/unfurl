@@ -111,19 +111,6 @@ def test_inputs():
     assert default_op.inputs == {"foo": "derived:default", "bar": "derived:default"}
 
 
-ensemble_template = """
-apiVersion: unfurl/v1alpha1
-spec:
-  service_template:
-    +?include: service_template.py
-    repositories:
-     std:
-       url: https://unfurl.cloud/onecommons/std.git
-"""
-
-SAVE_TMP = None
-
-
 @pytest.fixture
 def namespace(request):
     namespace = request.param
@@ -139,32 +126,48 @@ def namespace(request):
         os.system(f"kubectl delete namespace {namespace} --wait=false")
 
 
-@pytest.mark.parametrize("namespace", ["doctest"], indirect=True)
+SAVE_TMP = None  # "tmp"
+
+
+@pytest.mark.parametrize("namespace", ["doctest-py", "doctest-yaml"], indirect=True)
 # skip if we don't have kompose installed but require CI to have it
 @pytest.mark.skipif(
     not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
 )
 def test_quickstart(namespace):
     runner = CliRunner()
+    use_yaml = "yaml" in namespace
     with runner.isolated_filesystem(SAVE_TMP) as test_dir:
         if SAVE_TMP:
             print("saving to", test_dir)
-        run_cmd(runner, ["init", "myproject", "--empty", "--var", "std", "true"])
+        init_args = ["init", "myproject", "--empty", "--var", "std", "true"]
+        run_cmd(runner, init_args)
         os.chdir("myproject")
-        # with open("ensemble-template.yaml", "w") as f:
-        #     f.write(ensemble_template)
         base = pathlib.Path(basedir)
-        shutil.copy(base / "quickstart_service_template.py", "service_template.py")
+        if use_yaml:
+            ext = "yaml"
+        else:
+            ext = "py"
+        shutil.copy(
+            base / f"quickstart_service_template.{ext}", "service_template." + ext
+        )
         run_cmd(runner, "validate")
-        run_cmd(runner, "init production --skeleton aws --use-environment production")
+        extra = ""
+        if use_yaml:
+            extra += " --var serviceTemplate service_template.yaml"
+        run_cmd(
+            runner,
+            "init production --skeleton aws --use-environment production" + extra,
+        )
         run_cmd(
             runner,
             "init development --skeleton k8s --use-environment development --var namespace "
-            + namespace,
+            + namespace
+            + extra,
         )
-        with open(base / "quickstart_deployment_blueprints.py") as src_file:
+        with open(base / f"quickstart_deployment_blueprints.{ext}") as src_file:
             deployment_blueprint = src_file.read()
-        with open("service_template.py", "a") as f:
+        with open("service_template." + ext, "a") as f:  # append
             f.write(deployment_blueprint)
 
         if "slow" not in os.getenv("UNFURL_TEST_SKIP", ""):
@@ -172,15 +175,18 @@ def test_quickstart(namespace):
                 runner,
                 "-vvv deploy --approve --dryrun --jobexitcode error production".split(),
             )
+
             dryrun = "--dryrun" if "k8s" in os.getenv("UNFURL_TEST_SKIP", "") else ""
             result, job, summary = run_job_cmd(
-                runner, f"-vvv deploy --approve {dryrun} development".split(), print_result=True
+                runner,
+                f"-vvv deploy --approve {dryrun} development".split(),
+                print_result=True,
             )
             summary["job"].pop("id")
             assert summary["job"].pop("ok") >= 14
             assert summary["job"].pop("changed") >= 14
             blocked = summary["job"].pop("blocked", None)
-            assert blocked is None or blocked == 1 # dns blocked on ingress
+            assert blocked is None or blocked == 1  # dns blocked on ingress
             assert {
                 "status": "error",
                 "total": 16,
@@ -189,7 +195,9 @@ def test_quickstart(namespace):
                 "skipped": 0,
             } == summary["job"]
             result, job, summary = run_job_cmd(
-                runner, f"-vvv teardown --approve {dryrun} development".split(), print_result=True
+                runner,
+                f"-vvv teardown --approve {dryrun} development".split(),
+                print_result=True,
             )
             summary["job"].pop("id")
             assert summary["job"].pop("total") >= 6
