@@ -1224,11 +1224,16 @@ class YamlConfig:
         return find_schema_errors(config, self.schema, baseUri)
 
     def search_includes(
-        self, key: Optional[str] = None, pathPrefix: Optional[str] = None
+        self,
+        key: Optional[str] = None,
+        pathPrefix: Optional[str] = None,
+        directive: Optional[str] = None,
     ) -> Union[Tuple[None, None], Tuple[str, dict]]:
         for k in self._cachedDocIncludes:
-            path, template, directive = self._cachedDocIncludes[k]
+            path, template, extra = self._cachedDocIncludes[k]
             candidate = True
+            if directive is not None:
+                candidate = extra.lstrip("-") == directive.lstrip("-")
             if pathPrefix is not None:
                 candidate = path.startswith(pathPrefix)
             if candidate and key is not None:
