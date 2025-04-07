@@ -1700,6 +1700,8 @@ class Convert:
         cls, name, src, skipped = self.template2obj(template, indent, "Relationship")
         if not cls:
             return "", ""
+        if template.default_for:
+            src += f"_default_for={self.value2python_repr(template.default_for)}"
         src += ")"  # close ctor
         src += self.add_assignments(template, name, skipped, indent)
         return name, src
