@@ -508,7 +508,7 @@ class RepoView:
         failed = False
         for root, dirs, files in os.walk(self.working_dir):
             for d in dirs[:]:
-                if d == ".git" or os.path.join(root, d, "") in excluded:
+                if d == ".git" or os.path.join(os.path.normpath(root), d, "") in excluded:
                     dirs.remove(d)
             if ".secrets" not in Path(root).parts:
                 continue
