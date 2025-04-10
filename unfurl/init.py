@@ -7,7 +7,7 @@ This module implements creating and cloning project and ensembles as well Unfurl
 import datetime
 import os
 import os.path
-from typing import Any, Dict, Optional, cast, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple, cast, TYPE_CHECKING
 import uuid
 import zipfile
 from jinja2.loaders import FileSystemLoader
@@ -31,7 +31,7 @@ from .util import (
     get_base_dir,
     is_relative_to,
     substitute_env,
-    API_VERSION
+    API_VERSION,
 )
 from .tosca_plugins.functions import get_random_password
 from .yamlloader import make_yaml, make_vault_lib, yaml
@@ -109,7 +109,7 @@ def write_project_config(
 
 def create_home(
     home=None, render=False, replace=False, runtime=None, no_runtime=None, **kw
-):
+) -> Optional[str]:
     """
     Create the home project if missing
     """
@@ -171,7 +171,11 @@ def _create_repo(gitDir, ignore=True) -> GitRepo:
 
 def write_service_template(projectdir, templateDir, vars):
     return write_template(
-        projectdir, "service_template.py", "service_template.py.j2", vars or {}, templateDir
+        projectdir,
+        "service_template.py",
+        "service_template.py.j2",
+        vars or {},
+        templateDir,
     )
 
 
@@ -332,7 +336,11 @@ def render_project(
         secretsInclude = ""
 
     # note: local overrides secrets
-    vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid, api_version=API_VERSION)
+    vars = dict(
+        include=secretsInclude + "\n" + localInclude,
+        vaultid=vaultid,
+        api_version=API_VERSION,
+    )
     if skeleton_vars:
         vars.update(skeleton_vars)
     if use_context and not localExternal:
@@ -372,7 +380,7 @@ def render_project(
             ensembleUri=ensembleRepo.get_url_with_path(ensemblePath, True),
             # include the ensembleTemplate in the root of the specDir
             ensembleTemplate=names.EnsembleTemplate,
-            api_version=API_VERSION
+            api_version=API_VERSION,
         )
         if skeleton_vars:
             extraVars.update(skeleton_vars)
@@ -479,7 +487,7 @@ def create_project(
     creating_home=False,
     ensemble_template=True,
     **kw,
-):
+) -> Tuple[Optional[str], str, GitRepo]:
     # check both new and old name for option flag
     skeleton = kw.get("skeleton")
     create_context = kw.get("as_shared_environment") or kw.get("create_environment")
@@ -499,7 +507,7 @@ def create_project(
             empty = True
 
     names = DefaultNames(EnsembleDirectory=ensemble_name)
-    newHome = ""
+    newHome: Optional[str] = ""
     homePath = get_home_config_path(home)
     # don't try to create the home project if we are already creating the home project
     if (
@@ -579,7 +587,7 @@ def get_input_vars(skeleton_vars):
     s = ""
     for i, v in skeleton_vars.items():
         if i.startswith("input_"):
-            s += f"{i[len('input_'):]}: {v}\n"
+            s += f"{i[len('input_') :]}: {v}\n"
     return s
 
 
@@ -857,7 +865,7 @@ class EnsembleBuilder:
         self.template_vars["api_version"] = API_VERSION
         skeleton_vars = self.template_vars.copy()
         if self.skeleton_vars:
-             skeleton_vars.update(self.skeleton_vars)
+            skeleton_vars.update(self.skeleton_vars)
         manifestPath = write_ensemble_manifest(
             os.path.join(project.projectRoot, destDir),
             manifestName,
@@ -978,9 +986,9 @@ class EnsembleBuilder:
     ) -> Project:
         self.source_path = sourceProject.get_relative_path(self.input_source)
         assert self.source_path
-        assert not self.source_path.startswith(
-            ".."
-        ), f"{self.source_path} should be inside the project"
+        assert not self.source_path.startswith(".."), (
+            f"{self.source_path} should be inside the project"
+        )
         if not sourceProject.project_repoview.repo:
             raise UnfurlError(
                 f"Only local projects with a git repository can be cloned."
@@ -1211,12 +1219,14 @@ class EnsembleBuilder:
         # assert ensemble_template_path in dest_project
         assert self.dest_project and Path(sourceDir).relative_to(
             self.dest_project.projectRoot
-        )
+        ), (self.dest_project and self.dest_project.projectRoot, sourceDir)
         ensemble_template_path = os.path.join(
             sourceDir, cast(str, self.template_vars["ensembleTemplate"])
         )
         # load the template, cloning referenced repositories as needed
-        LocalEnv(ensemble_template_path).get_manifest()
+        LocalEnv(
+            ensemble_template_path, overrides=dict(format="blueprint")
+        ).get_manifest()
         return "Cloned blueprint to " + ensemble_template_path
 
     def clone_from_csar(
@@ -1273,6 +1283,12 @@ class EnsembleBuilder:
         # set template_vars to create ensemble that includes the service template
         self.template_vars = dict(sourceDir=".", serviceTemplate=service_template)
         return dest
+
+    def set_projects(self):
+        sourceProject = find_project(self.input_source, self.home_path)
+        assert sourceProject
+        self.set_source(sourceProject)
+        self.dest_project = sourceProject
 
 
 def clone(
@@ -1398,9 +1414,9 @@ def _create_local_config(clonedProject, logger, vars):
         with open(local_template) as s:
             contents = s.read()
 
-        contents = "\n".join(
-            [line for line in contents.splitlines() if not line.startswith("##")]
-        )
+        contents = "\n".join([
+            line for line in contents.splitlines() if not line.startswith("##")
+        ])
         dest = os.path.join(
             clonedProject.projectRoot, "local", DefaultNames.LocalConfig
         )

@@ -140,7 +140,7 @@ def test_quickstart(namespace):
     with runner.isolated_filesystem(SAVE_TMP) as test_dir:
         if SAVE_TMP:
             print("saving to", test_dir)
-        init_args = ["init", "myproject", "--empty", "--var", "std", "true"]
+        init_args = ["init", "myproject", "--empty", "--design", "--var", "std", "true"]
         run_cmd(runner, init_args)
         os.chdir("myproject")
         base = pathlib.Path(basedir)
@@ -151,7 +151,6 @@ def test_quickstart(namespace):
         shutil.copy(
             base / f"quickstart_service_template.{ext}", "service_template." + ext
         )
-        run_cmd(runner, "validate")
         extra = ""
         if use_yaml:
             extra += " --var serviceTemplate service_template.yaml"

@@ -947,12 +947,19 @@ def plan(ctx: Context, ensemble=None, **options):
     default=False,
     help="Generate files only (don't commit them).",
 )
+@click.option(
+    "--design",
+    default=False,
+    is_flag=True,
+    help="Set up project for blueprint development.",
+)
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
     Create a new project, or, if [project_dir] is an existing project, create a new ensemble.
     If [ensemble_name] is omitted, use a default name.
     """
     options.update(ctx.obj)
+    options["want_init"] = True
     projectPath = Project.find_path(projectdir or ".")
     if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
@@ -963,7 +970,6 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
         # this will clone the default ensemble if it exists or use ensemble-template
-        options["want_init"] = True
         message = initmod.clone(projectPath, projectdir, ensemble_name or "", **options)
         click.echo(message)
         return
@@ -993,6 +999,11 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     homePath, projectPath, repo = initmod.create_project(
         os.path.abspath(projectdir), ensemble_name, **options
     )
+    if options.get("design"):
+        builder = initmod.EnsembleBuilder(os.path.dirname(projectPath), ensemble_name or "", options)
+        builder.set_projects()
+        builder.configure(False)
+        builder.load_ensemble_template()
     if homePath:
         click.echo(f"Unfurl home created at {homePath}")
     click.echo(f"Unfurl project created at {projectPath}")
