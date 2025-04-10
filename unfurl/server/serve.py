@@ -255,16 +255,31 @@ def set_current_ensemble_git_url(gui: bool = False):
                 apply_url_credentials=True,
             )
         else:
-            overrides = None
+            overrides = {}
         local_env = LocalEnv(
             project_or_ensemble_path,
             overrides=overrides,
             can_be_empty=True,
             readonly=not gui,
         )
+        if not local_env.manifestPath and local_env.project:
+            # found project without an ensemble, try to validate the ensemble-template.yaml
+            template = os.path.join(
+                local_env.project.projectRoot, DefaultNames.EnsembleTemplate
+            )
+            if os.path.isfile(template):
+                overrides["format"] = "blueprint"
+                local_env = LocalEnv(template, overrides=overrides, readonly=not gui)
+                logger.info('Using ensemble template found at "%s"', template)
+            else:
+                logger.info(
+                    'Can not find an ensemble or ensemble template in project at "%s"',
+                    template,
+                )
+                return None
     except Exception:
         logger.info(
-            'no project found at "%s", no local project set', project_or_ensemble_path
+            'No project found at "%s", no local project set', project_or_ensemble_path
         )
         return None
     if (
@@ -296,8 +311,9 @@ def set_current_ensemble_git_url(gui: bool = False):
     return None
 
 
-# XXX we shouldn't call this twice when invoked from the cli
-set_current_ensemble_git_url()
+# SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
+if os.getenv("SERVER_SOFTWARE"):
+    set_current_ensemble_git_url()
 
 
 def get_project_id(request) -> str:
@@ -2552,7 +2568,10 @@ def serve(
             f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
         )
 
-    if gui and local_env:
+    if gui:
+        if not local_env:
+            logger.error("Unable to run local ui, could not find a valid project.")
+            return
         from . import gui as unfurl_gui
 
         unfurl_gui.create_routes(local_env)
@@ -2578,6 +2597,7 @@ def serve(
         host=host,
         port=port,
         threads=1,
+        ident="unfurl",
     )
 
     # gunicorn  , "-b", "0.0.0.0:5000", "unfurl.server:app"

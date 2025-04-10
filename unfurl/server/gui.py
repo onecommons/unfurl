@@ -32,7 +32,7 @@ import git
 TAG = "v0.1.0-alpha.2"
 RELEASE_URL = f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz"
 DIST_DIR = ".cache/unfurl_gui"
-TAG_FILE = "RELEASE.txt"
+TAG_FILE = "dist/RELEASE.txt"
 
 __doc__ = f"""
 Running ``unfurl serve --gui /path/to/your/project`` will start Unfurl's built-in web server (at http://127.0.0.1:8081 by default, see :cli:`unfurl serve<unfurl-serve>` for more options).
@@ -98,7 +98,7 @@ def serve_document(
     localrepo = localenv.project.project_repoview.repo
     assert localrepo
 
-    localrepo_is_dashboard = bool(localenv.manifestPath)
+    localrepo_is_dashboard = bool(localenv.manifestPath and localenv.overrides.get("format") != "blueprint")
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
@@ -245,7 +245,7 @@ def fetch_release(dist_dir, release_url, release_tag, exact_match):
             else:
                 msg = f"'{found_tag}' is not compatible with '{release_tag}'"
         else:
-            msg = "unfurl_gui distribution not found"
+            msg = f"unfurl_gui distribution not found in {tag_file}"
         if msg:
             logger.info(msg)
 
