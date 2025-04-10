@@ -39,6 +39,13 @@ class Service(tosca.nodes.Root):
     )
 
 
+class MyService(Service):
+    def get_scheme(self):
+        return "web+" + expr.super()["url_scheme"]
+
+    url_scheme: str = tosca.Eval(get_scheme)
+
+
 def test_runtime_test():
     tosca.global_state.mode = "parse"
 
@@ -222,6 +229,7 @@ def test_expressions():
     class test(tosca.Namespace):
         service = Service()
         test_node = Test()
+        myService = MyService()
 
     assert Inputs.domain == tosca.EvalData({"get_input": "domain"})
 
@@ -229,10 +237,12 @@ def test_expressions():
     assert expr.get_instance(topology.test_node).status == Status.ok
     expr.get_instance(topology.test_node).local_status = Status.error
     assert expr.get_instance(topology.test_node).status == Status.error
+    assert topology.service.url_scheme == "https"
+    assert topology.myService.url_scheme == "web+https"
     assert expr.get_env("MISSING", "default") == "default"
     assert not expr.has_env("MISSING")
     assert expr.get_env("PATH")
-    assert expr.get_nodes_of_type(Service) == [topology.service]
+    assert expr.get_nodes_of_type(Service) == [topology.service, topology.myService]
     assert expr.get_input("MISSING", "default") == "default"
     with pytest.raises(UnfurlError):
         input: str = expr.get_input("MISSING")
@@ -252,7 +262,10 @@ def test_expressions():
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"
     assert topology.test_node.label == "fo--o"
-    assert "to_dns_label" in topology.test_node._instance.attributes.defs["label"].default["eval"]
+    assert (
+        "to_dns_label"
+        in topology.test_node._instance.attributes.defs["label"].default["eval"]
+    )
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):
         topology.test_node.password = ""
@@ -264,6 +277,7 @@ def test_expressions():
     # "not_",
     # "as_bool",
     # tempfile
+
 
 from tosca import MB, GB, mb, gb, Size
 import math

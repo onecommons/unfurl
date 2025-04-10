@@ -536,6 +536,18 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         assert path
         self._context.base_dir = os.path.dirname(path)
 
+    def __eq__(self, other):
+        if self is other:
+            return True
+        if isinstance(other, InstanceProxyBase):
+            if self._instance:
+                return self._instance == other._instance
+            elif self._obj and not other._instance:
+                return self._obj == other._obj
+        elif self._obj is other:
+            return True
+        return False
+
     def _get_field(self, name):
         if self._obj:
             return self._obj.get_instance_field(name)

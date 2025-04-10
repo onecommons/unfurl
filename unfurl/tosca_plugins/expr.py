@@ -26,6 +26,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    MutableMapping,
     Optional,
     Type,
     TypeVar,
@@ -69,6 +70,7 @@ def validate(factory: Callable) -> tosca.Options:
 if TYPE_CHECKING or not safe_mode():
     # these imports aren't safe
     from .. import support
+    from ..result import ResultsMap
     from ..dsl import InstanceProxyBase, proxy_instance
     from ..eval import Ref, RefContext, map_value
     from ..util import UnfurlError
@@ -196,6 +198,7 @@ __all__ = [
     "get_instance",
     "get_instance_maybe",
     "get_context",
+    "super",
 ]
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -220,6 +223,34 @@ def find_connection(
             Optional[RI],
             EvalData(dict(eval={"find_connection": target, "relation": rel_type_name})),
         )
+
+
+def super() -> MutableMapping[str, Any]:
+    """Equivalent to the `.super <special keys>` eval expression key.
+    Returns a map of the current instances's attributes as a view of its nearest inherited type.
+    (Python's super() won't work in `"runtime" mode <global_state_mode>` when proxying an instance.)
+
+    For example:
+    
+    .. code-block:: python
+
+      class Base(Node):
+          prop: str = "default"
+
+      class Derived(Base):
+          def _prop(self):
+              return "prepend-" + expr.super()["prop"]
+
+          prop: str = Eval(_prop)  # evaluates to "prepend-default"
+    """
+    if global_state_mode() == "runtime":
+        ctx = global_state_context()
+        map = ctx.currentResource.get_attribute_manager().get_super(ctx)
+        if map is None:
+            return {}
+        return map
+    else:
+        return EvalData(dict(eval=".super"))  # type: ignore
 
 
 @overload
@@ -440,8 +471,8 @@ def abspath(obj: None, path: str, relativeTo=None, mkdir=False) -> str: ...
 def abspath(
     obj: Union[ToscaType, None], path: str, relativeTo=None, mkdir=False
 ) -> Union[FilePath, str]:
-    if obj and global_state_mode() == "runtime":
-        ctx = get_context(obj)
+    if global_state_mode() == "runtime":
+        ctx = get_context(obj) if obj else global_state_context()
         return _abspath(ctx, path, relativeTo, mkdir)
     else:  # this will resolve to a str
         return cast(str, EvalData({"eval": {"abspath": [path, relativeTo, mkdir]}}))
@@ -456,10 +487,10 @@ def get_dir(obj: None, relativeTo=None, mkdir=False) -> str: ...
 
 
 def get_dir(
-    obj: Union[ToscaType, None], relativeTo=None, mkdir=False
+    obj: Union[ToscaType, None] = None, relativeTo=None, mkdir=False
 ) -> Union[FilePath, str]:
-    if obj and global_state_mode() == "runtime":
-        ctx = get_context(obj)
+    if global_state_mode() == "runtime":
+        ctx = get_context(obj) if obj else global_state_context()
         return _abspath(ctx, "", relativeTo, mkdir)
     else:  # this will resolve to a str
         return cast(str, EvalData({"eval": {"get_dir": [relativeTo, mkdir]}}))
@@ -480,7 +511,7 @@ def tempfile(contents: Any, suffix="", encoding=None):
 
 
 def template(
-    obj: Union[ToscaType, None],
+    obj: Union[ToscaType, None] = None,
     *,
     path: str = "",
     contents: str = "",
@@ -490,8 +521,8 @@ def template(
         args: Any = dict(path=path)
     else:
         args = contents
-    if obj and global_state_mode() == "runtime":
-        ctx = get_context(obj)
+    if global_state_mode() == "runtime":
+        ctx = get_context(obj) if obj else global_state_context()
         if overrides:
             ctx = ctx.copy()
             ctx.kw = dict(overrides=overrides)
@@ -527,8 +558,8 @@ def get_ensemble_metadata(key=None):
 
 def uri(obj: Union[ToscaType, None] = None) -> Optional[str]:
     expr = {"eval": ".uri"}
-    if obj and global_state_mode() == "runtime":
-        ctx = get_context(obj)
+    if global_state_mode() == "runtime":
+        ctx = get_context(obj) if obj else global_state_context()
         return cast(str, Ref(expr).resolve_one(ctx))
     else:  # this will resolve to a str
         return cast(str, EvalData(expr))
