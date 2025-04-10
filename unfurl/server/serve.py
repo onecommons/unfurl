@@ -198,7 +198,7 @@ def _set_local_projects(
             continue
         remote = repo_view.repo.find_remote(host=server_host)
         if remote:
-            parts = urlparse(remote.url)
+            parts = urlparse(normalize_git_url(remote.url))
             project_id = project_id_from_urlresult(parts)
             if project_id in local_projects:
                 # unless the existing one is inside the clone_root

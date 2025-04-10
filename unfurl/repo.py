@@ -34,6 +34,8 @@ def is_git_worktree(path, gitDir=".git"):
 def add_user_to_url(url, username, password):
     assert username
     parts = urlparse(url)
+    if parts.scheme != "https" and parts.scheme != "http":
+        return url
     user, sep, host = parts.netloc.rpartition("@")
     if password:
         netloc = f"{username}:{password}@{host}"
