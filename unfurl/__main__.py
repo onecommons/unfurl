@@ -1048,12 +1048,20 @@ def init(ctx, projectdir, ensemble_name=None, **options):
 )
 def home(ctx, init=False, render=False, replace=False, **options):
     """If no options are set, display the location of current unfurl home.
-    To create a new home project use --init and the global --home option.
+    To create a new home project use --init
+    (use the global --home option to set the location and the global --no-runtime option to skip creating a runtime).
     """
     options.update(ctx.obj)
     if not render and not init:
         # just display the current home location
-        click.echo(get_home_config_path(options.get("home")))
+        home_dir = get_home_config_path(options.get("home"))
+        if home_dir is None:
+            logging.info("Unfurl home directory is not set.")
+        elif home_dir and not os.path.exists(home_dir):
+            logging.info("Unfurl home set to %s, but it does not exist.", home_dir)
+        else:
+            logging.info("Found unfurl home at %s", home_dir)
+        click.echo(home_dir)
         return
 
     homePath = initmod.create_home(render=render, replace=replace, **options)
