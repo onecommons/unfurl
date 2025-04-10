@@ -1377,6 +1377,8 @@ tosca.nodes.Root._type_name = 'pown'""",
         """from unfurl import artifacts""",
         """import unfurl; unfurl.artifacts""",
         """from unfurl.tosca_plugins import k8s; k8s.kube_artifacts""",
+        "import unfurl.tosca_plugins.expr",
+        "import unfurl.tosca_plugins; from unfurl.tosca_plugins import expr",
         """import tosca
 node = tosca.nodes.Root()
 node._name = "test"

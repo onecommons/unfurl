@@ -381,7 +381,7 @@ def __safe_import__(
             if not fromlist:
                 return modules[parts[0]]
             module = modules[name]
-            if parts[0] == "tosca_repositories":
+            if parts[0] == "tosca_repositories" or name in ALLOWED_PRIVATE_PACKAGES:
                 for from_name in fromlist:
                     if not hasattr(module, from_name):
                         # e.g. from tosca_repositories.repo import module
