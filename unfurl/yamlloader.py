@@ -82,6 +82,7 @@ from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
+import tosca.loader
 from toscaparser.repositories import Repository
 from toscaparser.elements.interfaces import OperationDef
 
@@ -338,8 +339,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         state["yamlloader"] = None
         return state
 
-    def get_safe_mode(self):
-        return (self.manifest and self.manifest.safe_mode) or self.safe_mode
+    def get_safe_mode(self) -> bool:
+        return tosca.loader.get_safe_mode((self.manifest and self.manifest.safe_mode) or self.safe_mode)
 
     def load_imports(
         self,

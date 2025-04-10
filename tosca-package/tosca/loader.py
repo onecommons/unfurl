@@ -683,6 +683,12 @@ class PrintCollector:
         # print(*object) doesn't work but this does:
         sys.stdout.write(" ".join(str(o) for o in objects))
 
+def get_safe_mode(current_safe_mode) -> bool:
+    if FORCE_SAFE_MODE == "never":
+        return False
+    elif FORCE_SAFE_MODE and not current_safe_mode:
+        return True
+    return current_safe_mode
 
 def restricted_exec(
     python_src: str,
@@ -694,15 +700,7 @@ def restricted_exec(
 ) -> CompileResult:
     # package is the full name of module
     # path is base_dir to the root of the package
-    if FORCE_SAFE_MODE == "never":
-        safe_mode = False
-    elif FORCE_SAFE_MODE and not safe_mode:
-        safe_mode = True
-        if FORCE_SAFE_MODE in ["warn", "stacktrace"]:
-            logger.warning(
-                "Forcing safe mode for the TOSCA loader.",
-                stack_info=FORCE_SAFE_MODE == "stacktrace",
-            )
+    safe_mode = get_safe_mode(safe_mode)
     package, sep, module_name = full_name.rpartition(".")
     if modules is None:
         modules = global_state.modules if safe_mode else sys.modules
