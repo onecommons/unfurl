@@ -59,6 +59,8 @@ class ShellInputs(TemplateInputs):
     keeplines: bool = False
     echo: Union[None, bool] = None
     "Echo output, default depends on job verbosity"
+    input: Union[None, str] = None
+    "Optional string to pass as stdin."
 
 
 def make_regex_filter(logregex: re.Pattern, levels: list):
@@ -97,9 +99,7 @@ class _PrintOnAppendList(list):
                 raise
 
 
-def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
-    timeout = kwargs.pop("timeout", None)
-    input = kwargs.pop("input", None)
+def _run(*args, stdout_filter=None, stderr_filter=None, input=None, timeout=None, **kwargs):
     with subprocess.Popen(*args, **kwargs) as process:
         try:
             stdout = None
@@ -165,6 +165,7 @@ class ShellConfigurator(TemplateConfigurator):
         echo=True,
         stdout_filter=None,
         stderr_filter=None,
+        input=None
     ):
         """
         Returns an object with the following attributes:
@@ -202,7 +203,7 @@ class ShellConfigurator(TemplateConfigurator):
                 timeout=timeout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                input=None,
+                input=input,
                 **kwargs,
             )
 
@@ -329,6 +330,7 @@ class ShellConfigurator(TemplateConfigurator):
         task.logger.trace("shell using env %s", env)
         keeplines = params.get("keeplines", False)
         echo = params.get("echo", cast("ConfigTask", task).verbose > -1)
+        input = params.get("input")
         result = self.run_process(
             cmd,
             shell=shell,
@@ -337,6 +339,7 @@ class ShellConfigurator(TemplateConfigurator):
             cwd=cwd,
             keeplines=keeplines,
             echo=echo,
+            input=input,
         )
         success, status, outputs = self._process_result(task, result, cwd)
         yield self.done(task, success=success, status=status, result=result.__dict__, outputs=outputs)

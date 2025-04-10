@@ -107,6 +107,9 @@ class artifacts(Namespace):
        A boolean that indicates whether or not should be standard output (and stderr) should be echoed to Unfurl's stdout while the command is being run. If omitted, true unless running with ``--quiet``. (Doesn't affect the capture of stdout and stderr.)
        """
 
+        input: Union[None, str] = None
+        "Optional string to pass as stdin."
+
         outputsTemplate: Union[object, None] = None
         """
        A `Jinja2 template or runtime expression that is processed after shell command completes, with same variables as `resultTemplate`. The template should evaluate to a map to be used as the operation's outputs or null to skip.

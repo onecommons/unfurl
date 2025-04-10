@@ -75,6 +75,10 @@ artifact_types:
           should be echoed to Unfurl's stdout while the command is being run.
           If omitted, true unless running with ``--quiet``.
           (Doesn't affect the capture of stdout and stderr.)
+      input:
+        type: string
+        required: false
+        description: Optional string to pass as stdin.
       outputsTemplate:
         type: any
         required: false

@@ -266,7 +266,7 @@ Inputs
          should be echoed to Unfurl's stdout while the command is being run.
          If omitted, true unless running with ``--quiet``.
          (Doesn't affect the capture of stdout and stderr.)
-
+  :input: Optional string to pass as stdin.
   :keeplines: (*Default: false*) If true, preserve line breaks in the given command.
   :done: As as `done` defined by the `Template` configurator.
   :outputsTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, with same variables as ``resultTemplate``. The template should evaluate to a map to be used as the operation's outputs or null to skip.
