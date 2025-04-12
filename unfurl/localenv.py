@@ -45,6 +45,7 @@ from .util import (
     filter_env,
     get_base_dir,
     is_relative_to,
+    should_include_path,
     substitute_env,
     wrap_sensitive_value,
     save_to_tempfile,
@@ -744,6 +745,13 @@ class Project:
                 template,
             )
         return includekey, template
+
+    def should_include_path(self, path: str) -> bool:
+        return should_include_path(
+            self.localConfig.config.expanded.get("include_paths") or [],
+            self.localConfig.config.expanded.get("exclude_paths") or [],
+            path,
+        )
 
 
 class LocalConfig:

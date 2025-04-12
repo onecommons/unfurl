@@ -15,6 +15,7 @@
       "const": "Project"
     },
     "ensembles": {
+      "description": "Ensembles contained in this project or managed by this project (but maybe located in a different project).",
       "type": "array",
       "items": {
         "type": "object",
@@ -107,6 +108,34 @@
       "additionalProperties": {
         "$ref": "./manifest-schema.json#/definitions/repositories"
       }
+    },
+    "include_paths": {
+      "description": "If set, only register projects in these directories. (If no match, project is included, use \"/\" in exclude_paths to exclude all by default) (reserved, unused)",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "exclude_paths": {
+      "description": "Don't register projects in these directories (longest path wins if overlaps with an include_paths). (reserved, unused)",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

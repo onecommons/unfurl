@@ -655,13 +655,43 @@ def unique_name(name: str, existing: Sequence) -> str:
 
 # python < 3.9 doesn't  support Path.is_relative_to
 def is_relative_to(p, *other) -> bool:
-    """Return True if the path is relative to another path or False."""
+    """Return True if the path is relative to another path or False. """
     try:
         Path(p).relative_to(*other)
         return True
     except ValueError:
         return False
 
+def should_include_path(include_paths: List[str], exclude_paths: List[str], target_path: str) -> bool:
+    """
+    Determine if a given path should be included or excluded based on exclusion and inclusion lists.
+    If no match is found, the path is included by default (use "/" in exclude_paths to exclude by default).
+    If exclude takes precedence over include if the same path appears in both lists. Paths are compared as absolute paths.
+
+    Args:
+        include_paths (list[str]): List of paths to include.
+        exclude_paths (list[str]): List of paths to exclude.
+        target_path (str): The path to check.
+
+    Returns:
+        bool: True if the path should be included, False if it should be excluded.
+    """
+    # Merge paths and sort by length (longest to shortest)
+    all_paths = sorted(exclude_paths + include_paths, key=lambda p: len(os.path.abspath(p)), reverse=True)
+
+    # Check the target path against the sorted list
+    target_path = os.path.abspath(target_path)
+    for path in all_paths:
+        if is_relative_to(target_path, os.path.abspath(path)):
+            # If the path is in the exclude list, return False
+            if path in exclude_paths:
+                return False
+            # If the path is in the include list, return True
+            if path in include_paths:
+                return True
+
+    # Default to include if no match is found
+    return True
 
 def substitute_env(
     contents: str, env: Optional[Mapping] = None, preserve_missing: bool = False

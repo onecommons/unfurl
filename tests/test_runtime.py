@@ -28,10 +28,10 @@ from unfurl.util import (
     lookup_class,
     API_VERSION,
     sensitive_str,
+    should_include_path
 )
 from unfurl.yamlloader import YamlConfig
 from unfurl.yamlmanifest import YamlManifest
-
 
 class SimpleConfigurator(Configurator):
     def run(self, task):
@@ -666,3 +666,17 @@ spec:
             with self.assertRaises(UnfurlError) as err:
                 manifest.lock()  # can't lock twice
             self.assertIn("already locked", str(err.exception))
+
+@pytest.mark.parametrize("include_paths, exclude_paths, target_path, expected", [
+    (["/path/to/include"], [], "/path/to/include/subdir", True),
+    (["/path/to"], ["/path/to/exclude"], "/path/to/exclude/subdir", False),
+    ([], [os.path.abspath(".")], "./subdir", False),  # compare by absolute paths
+    (["/path/to"], ["/path/to"], "/path/to/exclude/subdir", False), # exclude takes precedence
+    ([], [], "/path/to/target", True),
+    (["/path/to/include"], ["/"], "/path/to/target", False),
+    (["/path/to/target/"], ["/"], "/path/to/target", True),
+    (["/path/to/include"], [], "/path/to/include/subdir/subsubdir", True),
+    ([], ["/path/to/exclude"], "/path/to/exclude/subdir/subsubdir", False),
+])
+def test_should_include_path(include_paths, exclude_paths, target_path, expected):
+    assert should_include_path(include_paths, exclude_paths, target_path) == expected
