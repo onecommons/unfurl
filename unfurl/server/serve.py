@@ -2217,7 +2217,7 @@ def _get_commit_msg(body, default_msg):
 
 def _patch_ensemble(
     body: dict, create: bool, project_id: str, check_lastcommit=True
-) -> str:
+):
     from .cache import ServerCacheResolver
 
     patch = body.get("patch")
@@ -2357,7 +2357,7 @@ def _patch_ensemble(
             logger.info(f"committed to {committed} repositories")
             if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):
                 try:
-                    if password:
+                    if username and password:
                         url = add_user_to_url(manifest.repo.url, username, password)
                     else:
                         url = None

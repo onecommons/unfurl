@@ -663,10 +663,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if self.manifest.repo:
             candidate_parts = urlsplit(self.manifest.repo.url)
             password = candidate_parts.password
+            username = candidate_parts.username
         else:
             password = ""
+            username = ""
             candidate_parts = None
-        if password:
+        if password and username:
             url_parts = urlsplit(url)
             assert candidate_parts
             if (
@@ -674,7 +676,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 and candidate_parts.port == url_parts.port
             ):
                 # rewrite url to add credentials
-                url = add_user_to_url(url, candidate_parts.username, password)
+                url = add_user_to_url(url, username, password)
         return memoized_remote_tags(url, pattern="*")
 
     def _find_repository_root(self, base: str):

@@ -31,7 +31,7 @@ def is_git_worktree(path, gitDir=".git"):
     return os.path.exists(os.path.join(path, gitDir))
 
 
-def add_user_to_url(url, username, password):
+def add_user_to_url(url: str, username: str, password: str) -> str:
     assert username
     parts = urlparse(url)
     if parts.scheme != "https" and parts.scheme != "http":
@@ -508,7 +508,10 @@ class RepoView:
         failed = False
         for root, dirs, files in os.walk(self.working_dir):
             for d in dirs[:]:
-                if d == ".git" or os.path.join(os.path.normpath(root), d, "") in excluded:
+                if (
+                    d == ".git"
+                    or os.path.join(os.path.normpath(root), d, "") in excluded
+                ):
                     dirs.remove(d)
             if ".secrets" not in Path(root).parts:
                 continue
@@ -680,11 +683,14 @@ class RepoView:
 
 def add_transient_credentials(git, url, username, password):
     transient_url = add_user_to_url(url, username, password)
+    if transient_url == url:
+        return transient_url
     replacement = f'url."{transient_url}".insteadOf="{url}"'
     # _git_options get cleared after next git command is issued
     git._git_options = git.transform_kwargs(
         split_single_char_options=True, c=replacement
     )
+    return transient_url
 
 
 class GitRepo(Repo):
@@ -697,12 +703,14 @@ class GitRepo(Repo):
             self.url = remote.url
         self.push_url: Optional[str] = None
 
-    def add_transient_push_credentials(self, username, password):
+    def add_transient_push_credentials(self, username: str, password: str) -> str:
         if not self.remote:
-            return
+            return ""
         if self.push_url is None:
             self.push_url = self.repo.git.remote("get-url", "--push", self.remote.name)
-        add_transient_credentials(self.repo.git, self.push_url, username, password)
+        return add_transient_credentials(
+            self.repo.git, self.push_url, username, password
+        )
 
     def set_url_credentials(
         self, username: str, password: str, fetch_only=False

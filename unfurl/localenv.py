@@ -343,7 +343,7 @@ class Project:
                 # and has credentials, update the new url with those credentials
                 candidate_parts = urlsplit(repo.url)
                 password = candidate_parts.password
-                if password:
+                if candidate_parts.username and password:
                     if (
                         candidate_parts.hostname == repourl_parts.hostname
                         and candidate_parts.port == repourl_parts.port
