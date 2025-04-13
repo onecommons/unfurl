@@ -688,7 +688,8 @@ class Plan:
                 t.name: t
                 for t in templates
                 if "virtual" not in t.directives
-                and interface_requirements_ok(self.root, t)
+                # only include conditional templates if all their requirements are met
+                and ("conditional" not in t.directives or not t.toscaEntityTemplate.missing_requirements)
                 and (not filter or t.name == filter)
             },
             seen,
@@ -767,8 +768,8 @@ class Plan:
                 abstract = template.abstract
                 if abstract == "select":
                     continue
-                include = self.include_not_found(template)
-                if include or abstract == "substitute":
+                include = abstract == "substitute" or self.include_not_found(template)
+                if include:
                     resource = self.create_resource(template)
                     visited.add(id(resource))
                     if abstract != "substitute":

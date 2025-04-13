@@ -20,7 +20,7 @@ Extensions
 * groups can have other groups as members
 * an operation's ``operation_host`` field can also be set to a node template's name.
 * added ``OPERATION_HOST`` as a reserved function keyword.
-* add "discover", "default", "dependent", "virtual", and "protected" directives
+* add "check", "conditional", "discover", "default", "dependent", "virtual", and "protected" directives
 * add "default_for" keyword to relationship templates
 * add "defaults" section to interface definitions
 * add "requirements" keyword to interface definitions

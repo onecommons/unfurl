@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import io
+import pytest
 from unfurl.localenv import LocalEnv
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
@@ -171,7 +172,9 @@ class DependencyTest(unittest.TestCase):
         """
         self.maxDiff = None
         manifest = YamlManifest(manifestErrorContent)
-        assert "attr" in list(manifest.tosca.topology.get_node_template("nodeC").attributeDefs)
+        assert "attr" in list(
+            manifest.tosca.topology.get_node_template("nodeC").attributeDefs
+        )
         runner = Runner(manifest)
         job = runner.run(JobOptions(startTime=1))  # deploy
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
@@ -419,3 +422,59 @@ def test_static_dependencies():
             },
         ],
     }
+
+
+unconditional_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      my_host_type:
+        derived_from: tosca:Root
+        requirements:
+          - test:
+              node: tosca:Root
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                implementation: exit 1
+
+    topology_template:
+      node_templates:
+        missing:
+          type: my_host_type
+"""
+conditional_manifest = (
+    unconditional_manifest
+    + """
+          directives:
+          - conditional
+"""
+)
+
+
+@pytest.mark.parametrize(
+    "spec, success", [("unconditional_manifest", False), ("conditional_manifest", True)]
+)
+def test_conditional_directive(spec, success):
+    manifest = YamlManifest(globals()[spec])
+    runner = Runner(manifest)
+    try:
+        job = runner.run(JobOptions(startTime=1, planOnly=True))
+    except Exception:
+        assert not success, "validation error expected"
+    else:
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
+        assert summary["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 0,
+            "ok": 0,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 0,
+        }

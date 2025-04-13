@@ -494,10 +494,13 @@ class NodeTemplateDirective(str, Enum):
     "Create a nested topology"
 
     default = "default"
-    "Only use this template if one with the same name isn't already defined in the root topology."
+    "Ignore this template if one with the same name is defined in the root topology."
 
     dependent = "dependent"
-    "Exclude from plan generation if not referenced by other templates."
+    "Exclude from plan if not referenced by other templates."
+
+    conditional = "conditional"
+    "Silently exclude from plan if one of its requirements is not met."
 
     virtual = "virtual"
     "Don't instantiate"
