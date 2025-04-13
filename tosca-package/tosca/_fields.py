@@ -22,6 +22,8 @@ from ._tosca import (
     ToscaFieldType,
     _Tosca_Field,
     MISSING,
+    REQUIRED,
+    CONSTRAINED,
     EvalData,
     Node,
     Relationship,
@@ -367,7 +369,21 @@ def Requirement(
     relationship: Union[str, Type["Relationship"], None] = None,
     capability: Union[str, Type["CapabilityEntity"], None] = None,
     node: Union[str, Type["Node"], None] = None,
-    node_filter: Optional[Dict[str, Any]] = None,
+    node_filter: None = None,
+) -> Any: ...
+
+
+@overload
+def Requirement(
+    *,
+    default: Any = CONSTRAINED,
+    name: str = "",
+    metadata: Optional[Dict[str, JsonType]] = None,
+    options: Optional["Options"] = None,
+    relationship: Union[str, Type["Relationship"], None] = None,
+    capability: Union[str, Type["CapabilityEntity"], None] = None,
+    node: Union[str, Type["Node"], None] = None,
+    node_filter: Dict[str, Any],
 ) -> Any: ...
 
 
@@ -395,6 +411,11 @@ def Requirement(
     field.capability = capability
     field.node = node
     field.node_filter = node_filter
+    if node_filter and (
+        field.default == REQUIRED
+        or (field.default == MISSING and field.default_factory == MISSING)
+    ):
+        field.default = CONSTRAINED
     return field
 
 

@@ -1122,7 +1122,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             if default is CONSTRAINED:
                 if not self.node_filter:
                     raise ValueError(
-                        f'"{self.name}" on "{self.owner}" was marked as CONSTRAINED but no constraint was set in "_class_init()".'
+                        f'"{self.name}" on "{self.owner}" was marked as CONSTRAINED but no node filter or constraint was set in "_class_init()".'
                     )
             elif default and default not in [MISSING, REQUIRED]:
                 converter.set_requirement_value(req_def, self, default, self.name)
@@ -1735,6 +1735,10 @@ def _make_dataclass(cls):
                     default = getattr(cls, name, REQUIRED)
                     if not isinstance(default, dataclasses.Field):
                         base_field = cls.__dataclass_fields__.get(name)
+                        if default == CONSTRAINED and name not in cls.__dict__:
+                            # the base class set this, set to None here to avoid conversion errors
+                            # if this class doesn't set a constraint
+                            default = None
                         if isinstance(base_field, _Tosca_Field):
                             field = _Tosca_Field(
                                 base_field._tosca_field_type,

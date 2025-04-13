@@ -598,6 +598,76 @@ def test_custom_interface():
     assert yaml_dict == tosca_yaml
 
 
+def test_set_operations():
+    python_src = """
+import unfurl
+import tosca
+cmd = unfurl.artifacts.ShellExecutable(file="cmd.sh")
+task = tosca.set_operations(configure=cmd)
+    """
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    task:
+      type: tosca.nodes.Root
+      interfaces:
+        Standard:
+          operations:
+            configure:
+              implementation:
+                primary:
+                  type: unfurl.artifacts.ShellExecutable
+                  file: cmd.sh
+      metadata:
+        module: service_template
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    # yaml.dump(yaml_dict, sys.stdout)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml
+
+
+def test_node_filter():
+    python_src = """
+import unfurl
+import tosca
+class Base(tosca.nodes.Root):
+    req: tosca.nodes.Root = tosca.Requirement(node_filter={"match": "MyNode"})
+
+class Derived(Base):
+    req: tosca.nodes.Compute
+
+test = Derived()
+    """
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    test:
+      type: Derived
+      metadata:
+        module: service_template
+node_types:
+  Base:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - req:
+        node: tosca.nodes.Root
+        node_filter:
+          match: MyNode
+  Derived:
+    derived_from: Base
+    requirements:
+    - req:
+        node: tosca.nodes.Compute
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    # yaml.dump(yaml_dict, sys.stdout)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml
+
+
 def test_generator_operation():
     import unfurl.configurators.shell
     from unfurl.configurator import TaskView
