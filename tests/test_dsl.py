@@ -1524,6 +1524,7 @@ topology_template:
   relationship_templates: {}
 """
 
+
 def test_dsl_definitions():
     python_src, parsed_yaml = _to_python(dsl_definitions_yaml)
     # print(python_src)
@@ -1533,6 +1534,7 @@ def test_dsl_definitions():
     test_yaml.pop("topology_template")
     # yaml.dump(test_yaml, sys.stdout)
     assert parsed_yaml == test_yaml
+
 
 if __name__ == "__main__":
     _generate_builtin(

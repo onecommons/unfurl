@@ -369,7 +369,8 @@ class PythonToYaml:
                     ).update(dict(node_type=obj.tosca_type_name()))
             elif isinstance(obj, ToscaType):
                 # XXX this will render any templates that were imported into this namespace from another module
-                # embedded templates that are unnamed (e.g. relationship templates) are included inline where they are referenced
+                # fix by checking if registered? but we still need to copy since we don't know it was modified locally.. so just remove "default" directive from imported template
+                # skip embedded templates that are unnamed (e.g. relationship templates), they are included inline where they are referenced
                 if (
                     isinstance(obj, (Node, Group, Policy))
                     or obj._name
@@ -616,7 +617,7 @@ class PythonToYaml:
                             ] = None
                     interfaces["defaults"] = self._operation2yaml(obj, cls, operation)
                 else:
-                    name = getattr(operation, "operation_name", methodname)
+                    name = getattr(operation, "operation_name", methodname) or methodname
                     interface = interface_ops.get(name)
                     if interface is not None:
                         op_def = self._operation2yaml(obj, cls, operation)

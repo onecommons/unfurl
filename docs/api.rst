@@ -8,7 +8,7 @@ Python API
 API for writing service templates
 ---------------------------------
 
-See `here <https://github.com/onecommons/unfurl/blob/main/tosca-package/README.md>`_ for an overview of the TOSCA Python DSL.
+See `here <dsl>` for an overview of the TOSCA Python DSL.
 
 TOSCA Field Specifiers
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -82,6 +82,10 @@ Other
 .. autoclass:: TopologyInputs
 
 .. autoclass:: TopologyOutputs
+
+.. autoclass:: StandardOperationsKeywords
+
+.. autofunction:: set_operations
 
 .. autofunction:: set_evaluation_mode
 

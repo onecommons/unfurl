@@ -417,8 +417,12 @@ def operation(
 def operation(func: F) -> F: ...
 
 
+@overload
+def operation(func: "ArtifactEntity") -> Callable: ...
+
+
 def operation(
-    func: Optional[F] = None,
+    func: Union[F, "ArtifactEntity", None] = None,
     *,
     name="",
     apply_to: Optional[Sequence[str]] = None,
@@ -462,6 +466,13 @@ def operation(
             "Invoke this method to perform my_operation"
 
     This will avoid static type-check errors when subclasses declare a method implementing the operation.
+
+    You can also use it to create an operation from an Artifact without having to define a method.
+
+    .. code-block:: python
+
+        # set the "configure" operation on "my_node" with the given artifact as its implementation.
+        my_node = MyNode().set_operation(operation(ShellExecutable("configure", cmd="./script.sh {{ SELF.prop }}")))
     """
 
     def decorator_operation(func_: F) -> F:
@@ -478,7 +489,16 @@ def operation(
         func.metadata = metadata
         return func_
 
-    if func:  # when used as decorator without "()", i.e. @operation
+    if isinstance(func, ArtifactEntity):
+        if not name:
+            name = func._name
+
+        def wrapper(*args, **kwargs):
+            return func
+
+        wrapper.__name__ = name
+        return decorator_operation(wrapper)  # type:ignore[arg-type]
+    elif func:  # when used as decorator without "()", i.e. @operation
         return decorator_operation(func)
     # when used as @operation() or op = operation():
     return decorator_operation
@@ -2414,7 +2434,7 @@ class ToscaType(_ToscaType):
         self,
         op: _OperationFunc,  # Callable[Concatenate[Self, ...], Any],
         name: Optional[Union[str, _OperationFunc]] = None,
-    ) -> None:
+    ) -> Self:
         """
         Assign the given :std:ref:`TOSCA operation<operation>` to this TOSCA object.
         TOSCA allows operations to be defined directly on templates.
@@ -2423,6 +2443,8 @@ class ToscaType(_ToscaType):
           op: A function implements the operation. It should looks like a method, i.e. accepts ``Self`` as the first argument.
               Using the `tosca.operation` function decorator is recommended but not required.
           name: The TOSCA operation name. If omitted, ``op``'s :py:func:`operation_name<tosca.operation>` or the op's function name is used.
+
+        Returns Self to allow chaining.
         """
         # for type safety, ``name`` can be a ref to a method e.g my_node_type.configure
         if callable(name):
@@ -2432,6 +2454,7 @@ class ToscaType(_ToscaType):
         # we invoke methods through a proxy during yaml generation and at runtime so we don't need to worry
         # that this function will not receive self because are assigning it directly to the object here.
         setattr(self, name, op)
+        return self
 
     def __set_name__(self, owner, name):
         # called when a template is declared as a default value or inside a Namespace (owner will be class)

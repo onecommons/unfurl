@@ -4,7 +4,19 @@ import os.path
 import sys
 import datetime
 import re
-from typing import TYPE_CHECKING, Any, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Optional,
+    Tuple,
+    TypedDict,
+    TypeVar,
+    Union,
+    Callable,
+    overload,
+)
+from typing_extensions import Unpack, NotRequired
+from enum import Enum
 
 try:
     import toscaparser
@@ -26,6 +38,69 @@ from .builtin_types import datatypes
 from .builtin_types import artifacts
 from .builtin_types import policies
 from .builtin_types import groups
+
+# mypy: enable-incomplete-feature=Unpack
+
+
+class StandardOperationsKeywords(TypedDict):
+    """The names of tosca and unfurl's built-in operations.
+      `set_operations` uses this to provide type hint for its keyword arguments, ignore this when setting custom operations.
+    """
+    # tosca.interfaces.node.lifecycle.Standard
+    create: NotRequired[Union[Callable, ArtifactEntity]]
+    configure: NotRequired[Union[Callable, ArtifactEntity]]
+    start: NotRequired[Union[Callable, ArtifactEntity]]
+    stop: NotRequired[Union[Callable, ArtifactEntity]]
+    delete: NotRequired[Union[Callable, ArtifactEntity]]
+    # tosca.interfaces.relationship.Configure:
+    pre_configure_source: NotRequired[Union[Callable, ArtifactEntity]]
+    pre_configure_target: NotRequired[Union[Callable, ArtifactEntity]]
+    post_configure_source: NotRequired[Union[Callable, ArtifactEntity]]
+    post_configure_target: NotRequired[Union[Callable, ArtifactEntity]]
+    add_target: NotRequired[Union[Callable, ArtifactEntity]]
+    remove_target: NotRequired[Union[Callable, ArtifactEntity]]
+    add_source: NotRequired[Union[Callable, ArtifactEntity]]
+    remove_source: NotRequired[Union[Callable, ArtifactEntity]]
+    target_changed: NotRequired[Union[Callable, ArtifactEntity]]
+    # unfurl.interfaces.Install
+    check: NotRequired[Union[Callable, ArtifactEntity]]
+    discover: NotRequired[Union[Callable, ArtifactEntity]]
+    connect: NotRequired[Union[Callable, ArtifactEntity]]
+    restart: NotRequired[Union[Callable, ArtifactEntity]]
+    revert: NotRequired[Union[Callable, ArtifactEntity]]
+
+_PT = TypeVar("_PT", bound="ToscaType")
+
+
+@overload
+def set_operations(
+    obj: None = None, **kw: Unpack[StandardOperationsKeywords]
+) -> nodes.Root: ...
+
+
+@overload
+def set_operations(obj: _PT, **kwargs: Unpack[StandardOperationsKeywords]) -> _PT: ...
+
+
+def set_operations(obj=None, **kwargs: Unpack[StandardOperationsKeywords]):
+    """
+    Helper method to set operations on a TOSCA template using its keyword arguments' as the operation names.
+
+    Args:
+      obj (Optional[nodes.Root]): An optional object to configure. If not provided, a new ``tosca.nodes.Root`` object is created.
+      **kwargs (Unpack[StandardOperationsKeywords]): A mapping of operation names to a callable or
+        `ArtifactEntity` instance. If an `ArtifactEntity` is provided, it is converted into an operation via :py:func:`tosca.operation`.
+
+    Returns:
+      ToscaType: The given or created template with the specified operations set.
+    """
+    if obj is None:
+        obj = nodes.Root()
+    for k, v in kwargs.items():
+        if isinstance(v, ArtifactEntity):
+            v = operation(v, name=k)
+        obj.set_operation(cast(Callable, v), k)
+    return obj
 
 
 class WritePolicy(Enum):
@@ -216,6 +291,7 @@ __all__ = [
     "select_node",
     "ServiceTemplate",
     "Size",
+    "StandardOperationsKeywords",
     "substitute_node",
     "T",
     "TB",
@@ -268,6 +344,7 @@ __all__ = [
     "less_or_equal",
     "less_than",
     "m",
+    "set_operations",
     "max_length",
     "mb",
     "mbps",
