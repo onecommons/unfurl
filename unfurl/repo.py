@@ -598,11 +598,7 @@ class RepoView:
             ("url", normalize_git_url(self.url, 1)),
             ("commit", self.get_current_commit()),
         ])
-        initial = (
-            self.repo
-            and self.repo.resolve_rev_spec("INITIAL")
-            or self.get_initial_revision()
-        )
+        initial = self.get_initial_revision()
         if initial:
             record["initial"] = initial
         record["discovered_revision"] = ""  # default: no search occurred
@@ -900,6 +896,9 @@ class GitRepo(Repo):
         return success
 
     def get_initial_revision(self):
+        initial = self.resolve_rev_spec("INITIAL")
+        if initial:
+            return initial
         if not self.repo.head.is_valid():
             return ""  # an uninitialized repo
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
