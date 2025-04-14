@@ -1558,6 +1558,7 @@ class LocalEnv:
         revision: Optional[str] = None,
         basepath: Optional[str] = None,
         checkout_args: dict = {},
+        locked: bool = False,
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
         repoview_or_url = self._find_git_repo(repoURL, revision)
         if isinstance(repoview_or_url, RepoView):
@@ -1567,7 +1568,8 @@ class LocalEnv:
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
             if (
-                not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
+                not locked
+                and not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
                 and not repo.is_dirty()
                 and not (repoview_or_url.package and repoview_or_url.package.locked)
             ):

@@ -635,8 +635,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
             # XXX coalesce repoviews
+            locked = repo_view.package and repo_view.package.locked or False
             repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(
-                repo_view.as_git_url(), base
+                repo_view.as_git_url(), base, locked
             )
             if repo:
                 repo_view.repo = repo
@@ -767,7 +768,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             package = extract_package(repo_view)
             if not package:
                 return
-            locked = self.config.get("lock")
+            locked = self.config.get("lock")  # top-level section of ensemble
             if locked:
                 lock_dict = Lock.find_package(locked, self.manifest, package)
             else:

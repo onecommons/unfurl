@@ -723,7 +723,7 @@ class Manifest(AttributeManager):
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
 
-    def find_repo_from_git_url(self, url, base):
+    def find_repo_from_git_url(self, url, base, locked=False):
         revision: Optional[str]
         repoURL, filePath, revision = split_git_url(url)
         if not repoURL:
@@ -741,7 +741,7 @@ class Manifest(AttributeManager):
                 )
                 return None, None, None, None
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
-            repoURL, revision, base
+            repoURL, revision, base, locked=locked
         )
         return repo, filePath, revision, bare
 
@@ -750,10 +750,11 @@ class Manifest(AttributeManager):
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
-            if repository.repository.tpl != toscaRepository.tpl:
+            if repository.repository.tpl != toscaRepository.tpl or repository.path != file_name:
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
+            return repository
         repository = RepoView(toscaRepository, None, file_name)
         self.repositories[toscaRepository.name] = repository
         return repository
