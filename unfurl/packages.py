@@ -115,11 +115,16 @@ class PackageSpec:
         minimum_version: Optional[str] = None,
     ) -> None:
         # url can be package id, a url prefix, or an url with a revision or branch
+        # minimum_version if set overrides revision in url_ish
         self.package_spec = package_spec
         if url_ish:
             self.package_id, self.url, revision = get_package_id_from_url(url_ish)
             # if url_ish was a full url, preserve the original
             if self.url and "*" not in url_ish:
+                if revision == "HEAD":
+                    url_ish = url_ish.replace("#HEAD", "#")
+                    if url_ish.endswith("#"):
+                        url_ish = url_ish[:-1]
                 self.url = url_ish
         else:
             self.url = None
@@ -173,10 +178,6 @@ class PackageSpec:
         # print("match", candidate, self.package_spec, candidate.startswith(self.package_spec.rstrip("*")))
         if self.package_spec.endswith("*"):
             return candidate.startswith(self.package_spec.rstrip("*"))
-        elif "#" in self.package_spec:
-            package_id, revision = self.package_spec.split("#")
-            # match exact match with package and revision
-            return candidate == package_id and revision == package.revision
         else:
             return candidate == self.package_spec
 
@@ -222,7 +223,10 @@ class PackageSpec:
                 )
         if self.url:
             package.url = self.url
-        if self.revision:
+        if self.revision == "HEAD":
+            package.locked = True
+            package.revision = None
+        elif self.revision:
             package.revision = self.revision
             if package.url and "#" not in package.url:
                 package.url += "#" + self.revision
@@ -379,6 +383,11 @@ class Package:
         self, package_id: str, url: Optional[str], minimum_version: Optional[str]
     ):
         self.package_id = package_id
+        if minimum_version == "HEAD":
+            minimum_version = None
+            self.locked = True  # use current state of package
+        else:
+            self.locked = False
         self.revision = minimum_version
         if url is None:
             # set self.url now because set_url_from_package_id() calls version_tag_prefix()
@@ -390,7 +399,6 @@ class Package:
         # flags:
         self.discovered = False  # the current revision was discovered
         self.missing = False  # if set, failed to find a version tag
-        self.locked = False  # current revision set from lock
         self.original_id = package_id
 
     @property
@@ -558,14 +566,15 @@ def resolve_package(
             raise UnfurlError(
                 f'Could not find a repository that matched package "{package.package_id}"'
             )
-        if not package.revision and get_remote_tags:
-            # no version specified, use the latest version tagged in the repository
-            package.set_version_from_repo(get_remote_tags)
-        if not changed and not package.revision:
-            # don't treat repository as a package
-            repoview.package = False
-            packages[package.package_id] = False
-            return None
+        if not package.locked and not package.revision:
+            if get_remote_tags:
+                # no version specified, use the latest version tagged in the repository
+                package.set_version_from_repo(get_remote_tags)
+            if not changed and not package.revision:
+                # don't treat repository as a package
+                repoview.package = False
+                packages[package.package_id] = False
+                return None
         packages[package.package_id] = package
     else:
         existing = packages[package.package_id]

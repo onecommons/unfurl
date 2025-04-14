@@ -19,6 +19,8 @@ from unfurl.yamlmanifest import YamlManifest
 
 
 def _build_package_specs(env_package_spec):
+    if isinstance(env_package_spec, PackageSpec):
+        return [env_package_spec]
     package_specs = []
     for key, value in taketwo(env_package_spec.split()):
         package_specs.append(PackageSpec(key, value, None))
@@ -62,7 +64,9 @@ def test_package_rules():
     assert (
         package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
     )
-    assert " ".join(env_package_spec.split()) == " ".join([p.as_env_value() for p in package_specs])
+    assert " ".join(env_package_spec.split()) == " ".join([
+        p.as_env_value() for p in package_specs
+    ])
 
     package, package_specs = _apply_package_rules(
         "https://app.dev.unfurl.cloud/onecommons/unfurl-types.git", env_package_spec
@@ -74,9 +78,7 @@ def test_package_rules():
     package, package_specs = _apply_package_rules(
         "https://staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
     )
-    assert (
-        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
-    )
+    assert package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
 
     package, package_specs = _apply_package_rules(
         "https://app.dev.unfurl.cloud/user/dashboard", env_package_spec
@@ -110,10 +112,10 @@ def test_package_rules():
     package, package_specs = _apply_package_rules(
         "https://staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
     )
-    assert (
-        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
-    )
-    assert " ".join(env_package_spec.split()) == " ".join([p.as_env_value() for p in package_specs])
+    assert package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#main"
+    assert " ".join(env_package_spec.split()) == " ".join([
+        p.as_env_value() for p in package_specs
+    ])
 
     package, package_specs = _apply_package_rules(
         "staging.unfurl.cloud/onecommons/unfurl-types", env_package_spec
@@ -121,6 +123,26 @@ def test_package_rules():
     assert (
         package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main"
     )
+
+    for head_package_spec in [
+        PackageSpec(
+            "unfurl.cloud/onecommons/std", "https://gitlab.com/onecommons/std", "HEAD"
+        ),
+        "unfurl.cloud/onecommons/std https://gitlab.com/onecommons/std#HEAD",
+    ]:
+        package, package_specs = _apply_package_rules(
+            "unfurl.cloud/onecommons/std", head_package_spec
+        )
+        assert package.url == "https://gitlab.com/onecommons/std"
+        assert not package.revision
+        assert package.locked
+
+    package, package_specs = _apply_package_rules(
+        "unfurl.cloud/onecommons/std", "unfurl.cloud/onecommons/std #HEAD"
+    )
+    assert package.url == "https://unfurl.cloud/onecommons/std.git"
+    assert not package.revision
+    assert package.locked
 
 
 def test_find_canonical():
@@ -210,7 +232,7 @@ def test_remote_tags():
             origin = clonedtypes.remote(["get-url", "origin"])
             # should be on unfurl.cloud:
             assert origin == types_url, origin
-            assert clonedtypes.describe() == "v"+latest_version_tag
+            assert clonedtypes.describe() == "v" + latest_version_tag
 
             # add a rule to set the version to the "main" branch
             os.environ["UNFURL_PACKAGE_RULES"] = (
