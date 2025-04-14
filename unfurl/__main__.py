@@ -1384,44 +1384,6 @@ def commit(
     click.echo(f"committed to {committed} repositories")
 
 
-@project_cli.command(
-    short_help="Show the git status for paths relevant to this ensemble."
-)
-@click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
-@click.option(
-    "--dirty",
-    default=False,
-    is_flag=True,
-    help="Only show repositories with uncommitted changes",
-)
-@click.option(
-    "--use-environment",
-    default=None,
-    help="Use this environment.",
-    metavar="NAME",
-)
-def git_status(ctx, project_or_ensemble_path, dirty, **options):
-    "Show the git status for paths relevant to the given project or ensemble."
-    options.update(ctx.obj)
-    localEnv = LocalEnv(
-        project_or_ensemble_path,
-        options.get("home"),
-        can_be_empty=True,
-        override_context=options.get("use_environment") or "",
-    )
-    if localEnv.manifestPath:
-        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
-    else:
-        assert localEnv.project
-        committer = localEnv.project.project_repoview
-    statuses = committer.get_repo_status(dirty)
-    if not statuses:
-        click.echo("No status to display.")
-    else:
-        click.echo(statuses)
-
-
 def _yaml_to_python(
     project_or_ensemble_path: str,
     file: Optional[str],
@@ -1487,9 +1449,13 @@ def _yaml_to_python(
 @click.option(
     "--format",
     default="deployment",
-    type=click.Choice(
-        ["python", "blueprint", "environments", "deployment", "deployments"]
-    ),
+    type=click.Choice([
+        "python",
+        "blueprint",
+        "environments",
+        "deployment",
+        "deployments",
+    ]),
     help="Default: deployment",
 )
 @click.option(
@@ -1527,7 +1493,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     if path.endswith(".py"):
         from tosca import python2yaml, loader
 
-        safe_mode  = loader.get_safe_mode(False)
+        safe_mode = loader.get_safe_mode(False)
         python2yaml.python_to_yaml(path, file, overwrite, safe_mode=safe_mode)
         return
 
@@ -1600,6 +1566,42 @@ def status(ctx, ensemble, **options):
         assert manifest.rootResource
         result = manifest.rootResource.query(query, trace=trace)
         _print_query(query, result)
+
+
+@info_cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@click.pass_context
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.option(
+    "--dirty",
+    default=False,
+    is_flag=True,
+    help="Only show repositories with uncommitted changes",
+)
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Use this environment.",
+    metavar="NAME",
+)
+def git_status(ctx, project_or_ensemble_path, dirty, **options):
+    "Show the git status for paths relevant to the given project or ensemble."
+    options.update(ctx.obj)
+    localEnv = LocalEnv(
+        project_or_ensemble_path,
+        options.get("home"),
+        can_be_empty=True,
+        override_context=options.get("use_environment") or "",
+    )
+    if localEnv.manifestPath:
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
+    else:
+        assert localEnv.project
+        committer = localEnv.project.project_repoview
+    statuses = committer.get_repo_status(dirty)
+    if not statuses:
+        click.echo("No status to display.")
+    else:
+        click.echo(statuses)
 
 
 @info_cli.command()
