@@ -38,21 +38,3 @@ kind: Project
 # This sets the default environment to use for new ensembles created in this project.
 default_environment: [%default_context%]
 {% endif %}
-
-{%- if manifestPath %}
-# these are the ensembles managed by this project
-# (note that they can be located in a different project)
-ensembles:
-  - file: [%manifestPath%]
-    default: true
-    {%- if external | default("") %}
-    # the ensemble is located in a different project
-    project: [%external%]
-    {% endif -%}
-    {% if context | default("") %}
-    environment: [%context%]
-    {% else %}
-    # uncomment to associate this ensemble with an environment
-    # environment: your_environment
-    {% endif %}
-{% endif %}

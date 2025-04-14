@@ -19,6 +19,7 @@ from unfurl.testing import run_cmd
 from unfurl.yamlmanifest import YamlManifest
 from .utils import print_config
 
+
 def createUnrelatedRepo(gitDir):
     os.makedirs(gitDir)
     repo = Repo.init(gitDir)
@@ -124,7 +125,7 @@ class GitRepoTest(unittest.TestCase):
             repoDir = "./arepo"
             repo = createUnrelatedRepo(repoDir)
             os.chdir(repoDir)
-            # override home so to avoid interferring with other tests
+            # override home so to avoid interfering with other tests
             result = runner.invoke(
                 cli,
                 [
@@ -215,7 +216,9 @@ class GitRepoTest(unittest.TestCase):
         self.maxDiff = None
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["--home", "", "init", "--use-environment", "test"])
+            result = runner.invoke(
+                cli, ["--home", "", "init", "--use-environment", "test"]
+            )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -228,7 +231,7 @@ class GitRepoTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
-            output = u"""\
+            output = """\
 *** Running 'git ls-files' in '.'
 .gitattributes
 .gitignore
@@ -260,7 +263,9 @@ unfurl.yaml
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
-            result = runner.invoke(cli, ["--home", "", "clone", "ensemble", "cloned-ensemble"])
+            result = runner.invoke(
+                cli, ["--home", "", "clone", "ensemble", "cloned-ensemble"]
+            )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -291,9 +296,9 @@ unfurl.yaml
                 traceback.format_exception(*result.exc_info)
             )
             assert os.path.isdir("./unfurl_home"), "home project not created"
-            assert os.path.isfile(
-                "./unfurl_home/unfurl.yaml"
-            ), "home unfurl.yaml not created"
+            assert os.path.isfile("./unfurl_home/unfurl.yaml"), (
+                "home unfurl.yaml not created"
+            )
 
             with open("ensemble/ensemble.yaml", "w") as f:
                 f.write(awsTestManifest)
@@ -445,7 +450,9 @@ unfurl.yaml
         runner = CliRunner()
         with runner.isolated_filesystem():
             # override home so to avoid interferring with other tests
-            result = runner.invoke(cli, ["--home", "./unfurl_home", "home", "--init"])
+            result = runner.invoke(
+                cli, ["--no-runtime", "--home", "./unfurl_home", "home", "--init"]
+            )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -469,14 +476,12 @@ unfurl.yaml
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            # test that invoking an ensemble will cause the project it is in to registered in the home project
             # we use this ensemble because it is in a repository with a non-local origin set:
             project = os.path.join(
                 os.path.dirname(__file__), "examples/import/testimport-ensemble.yaml"
             )
-            # set starttime to suppress job logging to file
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "plan", "--starttime=1", project]
+                cli, ["--home", "./unfurl_home", "home", "--register", project]
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -546,7 +551,14 @@ spec:
                 f.write(externalProjectManifest)
 
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "plan",  "--starttime=1", "externalproject.yaml"]
+                cli,
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "plan",
+                    "--starttime=1",
+                    "externalproject.yaml",
+                ],
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -596,9 +608,12 @@ spec:
             repo.set_url_credentials("a", "pw", True)
             lines = repo.run_cmd(["remote", "-v"])[1].split("\n")
             assert "(fetch)" in lines[0] and "a:pw" in lines[0], lines[0]  # fetch url
-            assert "(push)" in lines[1] and "a:pw@" not in lines[1], lines[1]  # push url
-            assert repo.push_url == repo.repo.git.remote("get-url", "--push", repo.remote.name)
-
+            assert "(push)" in lines[1] and "a:pw@" not in lines[1], lines[
+                1
+            ]  # push url
+            assert repo.push_url == repo.repo.git.remote(
+                "get-url", "--push", repo.remote.name
+            )
 
     # XXX renable on CI -- this test has gotten really flaky on github actions for some reason
     @unittest.skipIf(os.getenv("CI"), reason="skipping due to flaky CI")
@@ -701,21 +716,50 @@ def test_reified_repo(caplog):
         # .repository works on reified instances:
         repository = manifest.repositories.get("git-repo")
         assert isinstance(repository, RepoView), repository
-        assert manifest.rootResource.query("::git-repo::.repository::revision") == "8454bc"
+        assert (
+            manifest.rootResource.query("::git-repo::.repository::revision") == "8454bc"
+        )
         # test that credentials for repository are rewrite urls and evaluate env vars
         # and make sure the environment can override the built-in "spec" repository
-        assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
-        assert 'skipping inline repository definition for "include-early-repo", it was previously defined' in caplog.text
+        assert (
+            manifest.repositories.get("spec").url
+            == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
+        )
+        assert (
+            'skipping inline repository definition for "include-early-repo", it was previously defined'
+            in caplog.text
+        )
+
 
 def test_clone_ensemble_repo():
     runner = CliRunner()
     with runner.isolated_filesystem():
+        run_cmd(runner, ["--home", "local_home", "--no-runtime", "home", "--init"])
+        run_cmd(
+            runner,
+            ["--home", "local_home", "init", "--use-environment", "inner", "src"],
+        )
         # use a home project so git-local: url resolve across projects
-        run_cmd(runner, ["--home", "local_home", "home", "--init"])
-        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "inner", "src"])
-        ensemble_repo_files = set(['unfurl.yaml', '.gitignore', '.gitattributes', '.git', 'ensemble.yaml', '.secrets', '.unfurl-local-template.yaml'])
-        assert set(os.listdir("src/ensemble")) == (ensemble_repo_files | set(['local', 'secrets']))
-        run_cmd(runner, ["--home", "local_home", "init", "--use-environment", "outer", "dst"])
+        # we need this because we are doing a remote clone of an ensemble repo with a git-local spec url
+        run_cmd(
+            runner, ["--home", "local_home", "home", "--register", "src"]
+        )
+        ensemble_repo_files = set([
+            "unfurl.yaml",
+            ".gitignore",
+            ".gitattributes",
+            ".git",
+            "ensemble.yaml",
+            ".secrets",
+            ".unfurl-local-template.yaml",
+        ])
+        assert set(os.listdir("src/ensemble")) == (
+            ensemble_repo_files | set(["local", "secrets"])
+        )
+        run_cmd(
+            runner,
+            ["--home", "local_home", "init", "--use-environment", "outer", "dst"],
+        )
         # use URL with fragment instead of file path to induce remote cloning semantics
         run_cmd(runner, ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"])
         assert "ensemble1" in os.listdir("dst")

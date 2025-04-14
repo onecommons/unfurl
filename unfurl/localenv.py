@@ -112,7 +112,9 @@ class Project:
             self.parentProject: Optional[Project] = None
 
     def _set_parent_project(
-        self, parentProject: Optional["Project"], save: bool = True
+        self,
+        parentProject: Optional["Project"],
+        save: bool,
     ) -> None:
         assert parentProject is not self
         assert not parentProject or parentProject.projectRoot != self.projectRoot, (
@@ -120,11 +122,12 @@ class Project:
             self.projectRoot,
         )
         self.parentProject = parentProject
-        if parentProject and save:
-            saved = parentProject.register_project(self)  # saves config
+        if parentProject:
+            saved = parentProject.register_project(self, save)
             if saved:
                 logger.verbose(
-                    "registered project with parent project at %s", parentProject.projectRoot
+                    "Registered project with parent project at %s",
+                    parentProject.projectRoot,
                 )
         self._set_contexts()
         # depends on _set_contexts():
@@ -594,10 +597,13 @@ class Project:
         return self.localConfig.config.expanded.get("default_environment")
 
     def get_default_project_path(self, context_name: str) -> Optional[str]:
+        "If there is a default project set for the given environment, return its path."
         # when creating a new ensemble, use this shared project for the given environment
         default_project = self.get_context(context_name).get("defaultProject")
         if not default_project:
             return None
+        if default_project == "SELF":
+            return self.projectRoot
 
         # search for the default_project
         project: Optional[Project] = self
@@ -621,7 +627,7 @@ class Project:
         if path is not None:
             externalProject = localEnv.find_project(path)
             if externalProject:
-                externalProject._set_parent_project(self)  # inherit from self
+                externalProject._set_parent_project(self, True)  # inherit from self
                 return externalProject
             localEnv.logger.warning(
                 'Could not find the project "%s" which manages "%s"',
@@ -637,7 +643,9 @@ class Project:
         project: Optional["Project"] = None,
         managedBy: Optional["Project"] = None,
         context: Optional[str] = None,
-    ) -> None:
+        local: bool = False,
+        default: bool = False,
+    ) -> bool:
         relPath = (project if project else self).get_relative_path(manifestPath)
         props = dict(file=relPath)
         props["alias"] = os.path.basename(os.path.dirname(manifestPath))
@@ -647,34 +655,48 @@ class Project:
             props["project"] = project.name
         if context:
             props["environment"] = context
+        if default:
+            props["default"] = True  # type: ignore
+
+        # update in-memory list
         location = self.find_ensemble_by_path(manifestPath)
         if location:
             location.update(props)
         else:
             self.localConfig.ensembles.append(props)
-        saved = False
+            location = props
+        # update the config files
+        key, config = self.localConfig.find_config(local)
+        ensembles: List[dict] = config.setdefault("ensembles", [])
+        try:
+            index = ensembles.index(location)
+            ensembles[index].update(props)
+        except ValueError:
+            ensembles.append(props)
+        saved = self.localConfig.save_config(key, False)
+
         dest_project = managedBy or project
-        if dest_project:
+        if dest_project and dest_project.projectRoot != self.projectRoot:
             assert not (managedBy and project)
-            saved = self.register_project(dest_project, changed=True)
-        elif self.localConfig.config.config:
-            self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
-            if not self.localConfig.config.readonly:
-                self.localConfig.config.save()
-                saved = True
+            saved = self.register_project(dest_project, save=True)
         if saved:
-            logger.verbose("registered ensemble: %s", manifestPath)
+            logger.verbose(
+                "Registered %sensemble: %s",
+                ("default " if default else ""),
+                manifestPath,
+            )
+        return saved
 
     def register_project(
         self,
         project: "Project",
-        for_context: Optional[str] = None,
-        changed: bool = False,
-        save_project: bool = True,
+        save: bool = False,
     ) -> bool:
-        saved = self.localConfig.register_project(
-            project, for_context, changed, save_project
-        )
+        """
+        Register a project with this project.
+        Return True if this project's config file was updated and saved to disk.
+        """
+        saved = self.localConfig.register_project(project, save)
         self.workingDirs[project.project_repoview.working_dir] = (
             project.project_repoview
         )
@@ -878,16 +900,95 @@ class LocalConfig:
     def register_project(
         self,
         project: Project,
-        for_context: Optional[str] = None,
-        changed: bool = False,
-        save_project: bool = True,
+        save: bool,
     ) -> bool:
         """
-        Register an external project with current project.
-        If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
-        Otherwise, add it to the "projects" section of the current project's config.
+        Register an external project with current project by updating the project's configuration files.
+        If the external project's git repository is local (ie. missing a git remote with an remote url) then save it in the local config ("local/unfurl.yaml") if it exists .
+        Otherwise, add it to the main config ("unfurl.yaml").
+
+        Args:
+            project (Project): The project to register.
+            save (bool): Whether to save the config file.
+
+        Return True if this project's config file was updated and saved to disk.
+
         """
         # update, if necessary, localRepositories and projects
+        key, local = self.find_config(True)
+
+        repo = project.project_repoview
+        localRepositories = local.setdefault("localRepositories", {})
+        lock = repo.lock()
+        name = self._get_project_name(project)
+        lock["project"] = name
+        changed = False
+        if localRepositories.get(repo.working_dir) != lock:
+            localRepositories[repo.working_dir] = lock
+            changed = True
+
+        if repo.is_local_only():
+            projectConfig = local
+        else:
+            projectConfig = self.config.config
+
+        projects_changed = False
+        externalProject = dict(
+            url=normalize_git_url(repo.url, 1),
+            initial=repo.get_initial_revision(),
+        )
+        file = os.path.relpath(project.projectRoot, repo.working_dir)
+        if file and file != ".":
+            externalProject["file"] = file
+
+        self.projects[name] = externalProject
+        project_tpl = projectConfig.setdefault("projects", {})
+        if project_tpl.get(name) != externalProject:
+            if name in project_tpl:
+                save = True  # force save if existing project needs updating
+            project_tpl[name] = externalProject
+            projects_changed = True
+
+        # update that environments that the given project as its default project"
+        environments_default_for = (
+            project.localConfig.environments_with_self_as_default()
+        )
+        if environments_default_for:
+            for env_name in environments_default_for:
+                environment = projectConfig.setdefault("environments", {}).setdefault(
+                    env_name, {}
+                )
+                if environment.get("defaultProject") != name:
+                    environment["defaultProject"] = name
+                    projects_changed = True
+                    save = True  # force save
+
+        if not save:
+            return False
+        if projectConfig is self.config.config:
+            local_changed = changed
+            main_changed = projects_changed
+        else:
+            local_changed = changed or projects_changed
+            main_changed = False
+        if main_changed or local_changed:
+            return self.save_config(key if local_changed else None, main_changed)
+        return False
+
+    def save_config(self, key: Optional[str], main: bool) -> bool:
+        if self.config.readonly:
+            return False
+        if key:
+            self.config.save_include(key)
+        if not key or main:
+            self.config.save()
+        return True
+
+    def find_config(self, find_local: bool) -> Tuple[Optional[str], Dict[str, Any]]:
+        if not find_local:
+            local = self.config.config
+            assert isinstance(local, dict)
+            return None, self.config.config
         key, local = self.config.search_includes(key="localRepositories")
         assert self.config.config
         if not key and "localRepositories" not in self.config.config:
@@ -897,51 +998,18 @@ class LocalConfig:
         if not key:
             local = self.config.config
         assert isinstance(local, dict)
+        return key, local
 
-        repo = project.project_repoview
-        localRepositories = local.setdefault("localRepositories", {})
-        lock = repo.lock()
-        name = self._get_project_name(project)
-        lock["project"] = name
-        if localRepositories.get(repo.working_dir) != lock:
-            localRepositories[repo.working_dir] = lock
-            changed = True
-
-        externalProject = dict(
-            url=normalize_git_url(repo.url, 1),
-            initial=repo.get_initial_revision(),
-        )
-        file = os.path.relpath(project.projectRoot, repo.working_dir)
-        if file and file != ".":
-            externalProject["file"] = file
-
-        if save_project:
-            self.projects[name] = externalProject
-            if repo.is_local_only():
-                projectConfig = local
-            else:
-                projectConfig = self.config.config
-            project_tpl = projectConfig.setdefault("projects", {})
-            if project_tpl.get(name) != externalProject:
-                project_tpl[name] = externalProject
-                changed = True
-
-            if for_context:
-                # set the project to be the default project for the given context
-                context = projectConfig.setdefault("environments", {}).setdefault(
-                    for_context, {}
-                )
-                if context.get("defaultProject") != name:
-                    context["defaultProject"] = name
-                    changed = True
-
-        if changed:
-            if key and not self.config.readonly:
-                self.config.save_include(key)
-            self.config.config["ensembles"] = self.ensembles
-            if not self.config.readonly:
-                self.config.save()
-        return changed and not self.config.readonly
+    def environments_with_self_as_default(self) -> List[str]:
+        """
+        Returns a list with the names of environments with "defaultProject" set to "SELF".
+        """
+        contexts = self.config.expanded.get("environments") or {}
+        return [
+            name
+            for name, context in contexts.items()
+            if context and context.get("defaultProject") == "SELF"
+        ]
 
 
 def _maplist(template, environment_scope=None):
@@ -1055,7 +1123,9 @@ class LocalEnv:
                 raise UnfurlError(
                     f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
                 )
+        self._set_environment(override_context)
 
+    def _set_environment(self, override_context: Optional[str]) -> None:
         if override_context and override_context != "defaults":
             assert override_context == self.manifest_context_name, (
                 self.manifest_context_name
