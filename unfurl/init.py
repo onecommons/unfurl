@@ -704,12 +704,12 @@ def _find_templates(sourceProject: Project, sourcePath: str):
     return None
 
 
-def find_project(source: str, home_path: Optional[str]):
+def find_project(source: str, home_path: Optional[str], register: bool = False):
     src_dir = get_base_dir(source)
     sourceRoot = Project.find_path(src_dir)
     if sourceRoot:
         if home_path:
-            return Project(sourceRoot, Project(home_path))
+            return Project(sourceRoot, Project(home_path), register=register)
         return Project(sourceRoot)
     return None
 

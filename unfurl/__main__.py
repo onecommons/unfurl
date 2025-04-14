@@ -26,7 +26,13 @@ from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
-from . import DefaultNames, __version__, semver_prerelease, get_home_config_path, is_version_unreleased
+from . import (
+    DefaultNames,
+    __version__,
+    semver_prerelease,
+    get_home_config_path,
+    is_version_unreleased,
+)
 from . import init as initmod
 from . import logs, version_tuple
 from .job import start_job, Job
@@ -1000,7 +1006,9 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         os.path.abspath(projectdir), ensemble_name, **options
     )
     if options.get("design"):
-        builder = initmod.EnsembleBuilder(os.path.dirname(projectPath), ensemble_name or "", options)
+        builder = initmod.EnsembleBuilder(
+            os.path.dirname(projectPath), ensemble_name or "", options
+        )
         builder.set_projects()
         builder.configure(False)
         builder.load_ensemble_template()
@@ -1046,34 +1054,53 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     multiple=True,
     help="Name/value pair to pass to skeleton (multiple times ok).",
 )
-def home(ctx, init=False, render=False, replace=False, **options):
+@click.option(
+    "--register",
+    type=click.Path(exists=True),
+    metavar="PROJECT PATH",
+    help="Register project with the home project.",
+)
+def home(ctx, init=False, render=False, replace=False, register=None, **options):
     """If no options are set, display the location of current unfurl home.
     To create a new home project use --init
-    (use the global --home option to set the location and the global --no-runtime option to skip creating a runtime).
+    with the global --home option to set the location (and the global --no-runtime option to skip creating a runtime).
     """
     options.update(ctx.obj)
-    if not render and not init:
+    if render or init:
+        homePath = initmod.create_home(render=render, replace=replace, **options)
+        action = "rendered" if render else "created"
+        if homePath:
+            click.echo(f"unfurl home {action} at {homePath}")
+        else:
+            currentHome = get_home_config_path(options.get("home"))
+            if currentHome:
+                click.echo(f"Can't {action} home, it already exists at {currentHome}")
+            else:
+                click.echo("Error: home path is empty")
+            return
+        home_dir: Optional[str] = os.path.dirname(homePath)
+    else:
         # just display the current home location
         home_dir = get_home_config_path(options.get("home"))
         if home_dir is None:
             logging.info("Unfurl home directory is not set.")
+            return
         elif home_dir and not os.path.exists(home_dir):
             logging.info("Unfurl home set to %s, but it does not exist.", home_dir)
+            click.echo(home_dir)
+            return
         else:
             logging.info("Found unfurl home at %s", home_dir)
         click.echo(home_dir)
-        return
 
-    homePath = initmod.create_home(render=render, replace=replace, **options)
-    action = "rendered" if render else "created"
-    if homePath:
-        click.echo(f"unfurl home {action} at {homePath}")
-    else:
-        currentHome = get_home_config_path(options.get("home"))
-        if currentHome:
-            click.echo(f"Can't {action} home, it already exists at {currentHome}")
+    if register is not None:
+        registered = initmod.find_project(register, home_dir, True)
+        if registered:
+            click.echo(
+                "Registered project {registered.projectRoot} with the home project."
+            )
         else:
-            click.echo("Error: home path is empty")
+            click.echo('Unable to register project: could not find "{register}".')
 
 
 @utility_cli.command(short_help="Print or manage the project's runtime")

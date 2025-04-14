@@ -90,6 +90,7 @@ class Project:
         homeProject: Optional["Project"] = None,
         overrides: Optional[dict] = None,
         readonly: Optional[bool] = False,
+        register: bool = False,
     ):
         assert isinstance(path, str), path
         if os.path.isdir(path):
@@ -103,10 +104,10 @@ class Project:
         else:
             self.localConfig = LocalConfig(readonly=bool(readonly))
         self._set_repos()
-        # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
+        # XXX this might save the local config to disk -- constructing a Project object shouldn't do that
         # especially since the localenv call this might not have found the ensemble yet
         if homeProject is not self:
-            self._set_parent_project(homeProject)
+            self._set_parent_project(homeProject, register)
         else:
             self.parentProject: Optional[Project] = None
 
