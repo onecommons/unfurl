@@ -189,7 +189,15 @@ class Project:
             if os.path.isdir(path):
                 repo = Repo.find_containing_repo(path)
                 if repo:  # make sure it's a git repo
-                    # XXX validate that repo matches url and metadata in tpl
+                    url = normalize_git_url_hard(tpl["url"])
+                    repo_url = normalize_git_url_hard(repo.url)
+                    if repo_url != url:
+                        logger.warning(
+                            'Git origin in "%s" is "%s", which does not match the url "%s" found in its "localRepositories" config setting.',
+                            path,
+                            repo_url,
+                            url,
+                        )
                     self.workingDirs[path] = RepoView(
                         dict(url=repo.url, name=tpl.get("name", "")),
                         repo,
