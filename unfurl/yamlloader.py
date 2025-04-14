@@ -340,7 +340,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return state
 
     def get_safe_mode(self) -> bool:
-        return tosca.loader.get_safe_mode((self.manifest and self.manifest.safe_mode) or self.safe_mode)
+        return tosca.loader.get_safe_mode(
+            (self.manifest and self.manifest.safe_mode) or self.safe_mode
+        )
 
     def load_imports(
         self,
@@ -567,28 +569,36 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     confine_user_paths = True
 
-    def _has_path_escaped(self, path, repository_name=None, base=None):
+    def _has_path_escaped_relative(self, path, repository_name="") -> bool:
         if not self.confine_user_paths:
             return False
-        if repository_name:
-            if os.path.normpath(path).startswith("..") or os.path.isabs(path):
-                msg = f'Path not allowed outside of repository {repository_name}: "{path}"'
-                ExceptionCollector.appendException(ImportError(msg))
-                return True
-            else:
-                return False
+        if os.path.normpath(path).startswith("..") or os.path.isabs(path):
+            msg = f'Path not allowed outside of repository {repository_name}: "{path}"'
+            ExceptionCollector.appendException(ImportError(msg))
+            return True
+        else:
+            return False
 
-        if base:
-            # relative to file
-            absbase = os.path.abspath(base)
-            if not absbase[-1] != "/":
-                absbase += "/"
-            if not os.path.abspath(path).startswith(absbase):
-                msg = f'Path not allowed outside of repository or document root "{absbase}": "{path}"'
-                ExceptionCollector.appendException(ImportError(msg))
-                return True
-            else:
-                return False
+    def _has_path_escaped_base(self, path: str, base) -> bool:
+        if not self.confine_user_paths:
+            return False
+        if not base:
+            return self._has_path_escaped_project(path)
+
+        # relative to file
+        absbase = os.path.abspath(base)
+        if not absbase[-1] != "/":
+            absbase += "/"
+        if not os.path.abspath(path).startswith(absbase):
+            msg = f'Path not allowed outside of repository or document root "{absbase}": "{path}"'
+            ExceptionCollector.appendException(ImportError(msg))
+            return True
+        else:
+            return False
+
+    def _has_path_escaped_project(self, path) -> bool:
+        if not self.confine_user_paths:
+            return False
 
         # user supplied path can't be outside of the project or the home project
         if self.manifest.localEnv and self.manifest.localEnv.project:
@@ -715,37 +725,21 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     ) -> Tuple[Optional[str], Optional[ImportResolver_Context]]:
         # resolve to an url or absolute path along with context
         if repository_name:
-            if self._has_path_escaped(file_name, repository_name):
+            if self._has_path_escaped_relative(file_name, repository_name):
                 # file_name can't be ".." or absolute path
                 return None, None
             repo_view = self.manifest.repositories.get(repository_name)
             if not repo_view:
                 repository = self.get_repository(
-                    repository_name, importsLoader.repositories[repository_name]
+                    repository_name,
+                    cast(dict, importsLoader.repositories[repository_name]),
                 )
                 repo_view = self.manifest.add_repository(repository, "")
         else:
             # if file_name is relative, base will be set (to the importsLoader's path)
-            if toscaparser.imports.is_url(base):
-                url = base
-            else:
-                # url is a local path
-                assert base or os.path.isabs(file_name), (
-                    f"{file_name} isn't absolute and base isn't set"
-                )
-                url = os.path.join(base, file_name)
-                repository_root = None  # default to checking if its in the project
-                if importsLoader.repository_root:
-                    if toscaparser.imports.is_url(importsLoader.repository_root):
-                        # at least make sure we didn't break out of the base
-                        repository_root = self._find_repository_root(base)
-                    else:
-                        repository_root = importsLoader.repository_root
-                if self._has_path_escaped(url, base=repository_root):
-                    return None, None
-                return url, (True, None, base, file_name)
-
-            repo_view = self._find_repoview(url)
+            if not toscaparser.imports.is_url(base):
+                return self._resolve_file_path(importsLoader, base, file_name)
+            repo_view = self._find_repoview(base)
             assert repo_view
 
         assert repo_view
@@ -753,15 +747,36 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         path = toscaparser.imports.normalize_path(repo_view.url)
         is_file = not toscaparser.imports.is_url(path)
         if is_file:
-            # repository is a local path
-            # so use the resolved base
             if not os.path.isabs(path):
                 path = os.path.join(base, path)
             path = os.path.join(path, file_name)
-            if self._has_path_escaped(path):
-                return None, None
+            # repositories can be outside of the project when not in safe mode
+            if not repository_name or self.safe_mode:
+                if self._has_path_escaped_project(path):
+                    return None, None
         repo_view.add_file_ref(file_name)
         return path, (is_file, repo_view, base, file_name)
+
+    def _resolve_file_path(
+        self,
+        importsLoader: toscaparser.imports.ImportsLoader,
+        base: str,
+        file_name: str,
+    ) -> Tuple[Optional[str], Optional[ImportResolver_Context]]:
+        assert base or os.path.isabs(file_name), (
+            f"{file_name} isn't absolute and base isn't set"
+        )
+        url = os.path.join(base, file_name)
+        repository_root = None  # default to checking if its in the project
+        if importsLoader.repository_root:
+            if toscaparser.imports.is_url(importsLoader.repository_root):
+                # at least make sure we didn't break out of the base
+                repository_root = self._find_repository_root(base)
+            else:
+                repository_root = importsLoader.repository_root
+        if self._has_path_escaped_base(url, repository_root):
+            return None, None
+        return url, (True, None, base, file_name)
 
     def _resolve_repoview(self, repo_view):
         if repo_view.package is None:
@@ -1085,7 +1100,9 @@ class YamlConfig:
                 err_msg = "Unable to parse yaml config"
 
             if isinstance(config, str):
-                self.config: dict = load_yaml(self.yaml, config, self.path, self.readonly)
+                self.config: dict = load_yaml(
+                    self.yaml, config, self.path, self.readonly
+                )
             elif isinstance(config, dict):
                 self.config = CommentedMap(config.items())
             else:
