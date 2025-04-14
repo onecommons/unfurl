@@ -2033,6 +2033,8 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
         assert isinstance(deleted, bool)
         if typename == "DeploymentEnvironment":
             environments = localConfig.config.config.setdefault("environments", {})
+            if environments is None:
+                environments = localConfig.config.config["environments"] = {}
             name = patch_inner["name"]
             if deleted:
                 if name in environments:

@@ -49,6 +49,13 @@ environments:
         # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
         # setting "primary_provider" to the name of the inherited connection, for example:
         # primary_provider: azure
+{%- if defaultProject | default("") == default_context | default("") %}
+    defaultProject: SELF
+{% endif %}
+{%- if defaultProject | default("") and defaultProject | default("") != default_context | default("") %}
+  [%defaultProject%]:
+    defaultProject: SELF
+{% endif %}
 
 # LINKS
 # [0] https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_certificate

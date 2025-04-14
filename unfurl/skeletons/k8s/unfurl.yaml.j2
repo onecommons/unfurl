@@ -61,7 +61,7 @@ environments:
         #   "ca_cert": Path to a client certificate file for TLS
         #   "key_file": Path to a client key file for TLS
 
-        {% if namespace is string %}
+        {% if namespace is defined and namespace is string %}
             namespace: [% namespace %]
         {% else %}
         #   namespace:
@@ -77,3 +77,10 @@ environments:
         # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
         # setting "primary_provider" to the name of the inherited connection, for example:
         # primary_provider: k8s
+{%- if defaultProject | default("") == default_context | default("") %}
+    defaultProject: SELF
+{% endif %}
+{%- if defaultProject | default("") and defaultProject | default("") != default_context | default("") %}
+  [%defaultProject%]:
+    defaultProject: SELF
+{% endif %}

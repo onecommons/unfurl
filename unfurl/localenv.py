@@ -818,7 +818,7 @@ class LocalConfig:
         return os.path.join(self.config.get_base_dir(), path)
 
     @staticmethod
-    def _get_default_manifest_tpl(ensembles):
+    def _get_default_manifest_tpl(ensembles: List[Dict[str, Any]]):
         if len(ensembles) == 1:
             return ensembles[0]
         else:
@@ -986,11 +986,10 @@ class LocalConfig:
 
     def find_config(self, find_local: bool) -> Tuple[Optional[str], Dict[str, Any]]:
         if not find_local:
-            local = self.config.config
+            local: Optional[Dict[str, Any]] = self.config.config
             assert isinstance(local, dict)
             return None, self.config.config
         key, local = self.config.search_includes(key="localRepositories")
-        assert self.config.config
         if not key and "localRepositories" not in self.config.config:
             # localRepositories doesn't exist, see if we are including a file inside "local"
             pathPrefix = os.path.join(self.config.get_base_dir(), "local")

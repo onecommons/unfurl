@@ -16,13 +16,15 @@ environments:
   # So it is convenient to define global configuration here.
 
   defaults:
+    {% if manifestPath | default("") %}
     # this exposes this project's ensemble as "localhost" to all the projects
     # that inherit this context
     external:
       localhost:
         manifest:
-          file: [% manifestPath | default("ensemble/ensemble.yaml", true) %]
+          file: [% manifestPath %]
         instance: localhost
+    {% endif %}
 
   home:
     # Below we define a few connections for the most common cloud providers.

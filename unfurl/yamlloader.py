@@ -1084,11 +1084,11 @@ class YamlConfig:
                 err_msg = "Unable to parse yaml config"
 
             if isinstance(config, str):
-                self.config = load_yaml(self.yaml, config, self.path, self.readonly)
+                self.config: dict = load_yaml(self.yaml, config, self.path, self.readonly)
             elif isinstance(config, dict):
                 self.config = CommentedMap(config.items())
             else:
-                self.config = config
+                self.config = cast(dict, config)
             if not isinstance(self.config, dict):
                 raise UnfurlBadDocumentError(
                     f'{err_msg}: invalid YAML document with contents: "{self.config}"'
@@ -1359,7 +1359,7 @@ class YamlConfig:
             newBaseDir = os.path.dirname(path)
         if isinstance(template, dict):
             template.base_dir = newBaseDir  # type: ignore
-        _cache_anchors(self.config._anchorCache, template)
+        _cache_anchors(self.config._anchorCache, template)  # type: ignore
         self.baseDirs.append(newBaseDir)
 
         self._cachedDocIncludes[key] = (path, template, directive)

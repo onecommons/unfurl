@@ -1,6 +1,7 @@
 import unittest
 import os
 import traceback
+import pytest
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
@@ -769,5 +770,21 @@ def test_clone_ensemble_repo():
         assert local_env.project.projectRoot.endswith("dst")
         local_env2 = LocalEnv("dst")
         assert local_env2.manifest_context_name == "outer"
-        # print_config("local_home")
+        # print_config("dst/ensemble1")
         run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])
+
+
+skeletons_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "unfurl", "skeletons")
+skeletons = [
+    p.name
+    for p in os.scandir(skeletons_dir)
+    if p.is_dir()
+]
+
+
+@pytest.mark.parametrize("skeleton", skeletons)
+def test_skeletons(skeleton):
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        run_cmd(runner, ["init", "--skeleton", skeleton, "--use-environment", "test", skeleton, "myensemble"])
+        run_cmd(runner, ["validate", skeleton])

@@ -3,6 +3,7 @@ apiVersion: [% api_version %]
 kind: Project
 
 # The presence of this YAML file indicates that this directory contains an Unfurl project.
+# Syntax can be found here: https://docs.unfurl.run/jsonschema.html#unfurl-yaml
 
 {%- if include | default("") %}
 # These "+?include" directives merge these files so secret and local-only settings can be managed separately.
@@ -21,14 +22,17 @@ kind: Project
 # of an ensemble created with a matching "--use-environment" argument
 # See https://docs.unfurl.run/environments.html
 
-# environments:
+environments:
 #   defaults:
       # There can multiple environment with different names but they will merge with the defaults specified here.
       # variables:
       # connections:
       # (etc.)
 {%- if default_context | default("") %}
-#   [%default_context%]:
+   [%default_context%]:
+      {%- if defaultProject | default("") %}
+      defaultProject: SELF
+      {% endif %}
       # variables:
       # connections:
       # (etc.)
