@@ -18,6 +18,7 @@ jobs:
     env:
       TOX_SKIP_ENV: .+(docker|lock)
       UNFURL_LOGGING: info
+      UNFURL_TEST_CLOUDMAP_URL: ${{ secrets.UNFURL_TEST_CLOUDMAP_URL }}
     steps:
       - uses: actions/checkout@v4
         with:

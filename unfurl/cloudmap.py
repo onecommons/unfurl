@@ -603,7 +603,7 @@ class CloudMapDB:
     def _load(self, path: str, contents=None):
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
-        default_db = dict(apiVersion=API_VERSION, kind="CloudMap")
+        default_db = dict(apiVersion=API_VERSION, kind="CloudMap", repositories={})
         self.config = YamlConfig(
             contents or default_db,
             path,

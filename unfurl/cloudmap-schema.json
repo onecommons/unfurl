@@ -53,7 +53,7 @@
             "type": "string"
           },
           "private": {
-            "type": "string"
+            "type": "boolean"
           },
           "default_branch": {
             "type": "string"
