@@ -19,6 +19,7 @@ jobs:
       TOX_SKIP_ENV: .+(docker|lock)
       UNFURL_LOGGING: info
       UNFURL_TEST_CLOUDMAP_URL: ${{ secrets.UNFURL_TEST_CLOUDMAP_URL }}
+      UNFURL_TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,6 +64,8 @@ jobs:
           kubectl get node
           k3d kubeconfig merge --all -d
           kubectl config view
+      - name: Install valkey
+        run: sudo apt install -y valkey
       - name: Install Tox and any other packages
         run: pip install tox==3.28.0
       - name: Run mypy and Tox
