@@ -658,6 +658,10 @@ def _dependency_check(
 ) -> Tuple[List[Operational], str]:
     missing = []
     for dep in instance.get_operational_dependencies():
+        if isinstance(dep, RelationshipInstance):
+            if not dep.target:
+                continue
+            dep = dep.target
         if dep.required:
             if dep.local_status == Status.error:
                 missing.append(dep)

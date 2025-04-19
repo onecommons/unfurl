@@ -182,14 +182,14 @@ def test_quickstart(namespace):
                 print_result=True,
             )
             summary["job"].pop("id")
-            assert summary["job"].pop("ok") >= 14
-            assert summary["job"].pop("changed") >= 14
+            assert summary["job"].pop("ok") >= 8
+            assert summary["job"].pop("changed") >= 8
             blocked = summary["job"].pop("blocked", None)
-            assert blocked is None or blocked == 1  # dns blocked on ingress
+            assert blocked is None or blocked == 2  # dns blocked on ingress
             assert {
                 "status": "error",
-                "total": 16,
-                "error": 1,  # ingress or unfurl_dns
+                "total": 10,
+                "error": 0,
                 "unknown": 0,
                 "skipped": 0,
             } == summary["job"]
@@ -199,14 +199,14 @@ def test_quickstart(namespace):
                 print_result=True,
             )
             summary["job"].pop("id")
-            assert summary["job"].pop("total") >= 6
-            assert summary["job"].pop("error") <= 3
+            assert summary["job"].pop("total") >= 4
+            assert summary["job"].pop("error") <= 1
+            assert summary["job"].pop("ok") >= 3
+            assert summary["job"].pop("changed") >= 4
             assert {
                 "status": "error",
-                "ok": 5,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 6,
             } == summary["job"]
 
 

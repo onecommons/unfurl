@@ -171,9 +171,7 @@ class Plan:
             assert nested_root, f"{nested_root_name} should already have been created"
             name = template.substitution.substitution_node.name
             inner = nested_root.find_instance(name)
-            assert inner, (
-                f"{name} in {nested_root_name} should have already been created before {instance.name}"
-            )
+            assert inner, f"{name} in {nested_root_name} should have already been created before {instance.name}"
             assert inner is not instance
             instance.imported = (
                 ":" + template.substitution.substitution_node.nested_name
@@ -689,7 +687,10 @@ class Plan:
                 for t in templates
                 if "virtual" not in t.directives
                 # only include conditional templates if all their requirements are met
-                and ("conditional" not in t.directives or not t.toscaEntityTemplate.missing_requirements)
+                and (
+                    "conditional" not in t.directives
+                    or not t.toscaEntityTemplate.missing_requirements
+                )
                 and (not filter or t.name == filter)
             },
             seen,
@@ -835,7 +836,10 @@ class DeployPlan(Plan):
             if "check" in instance.template.directives:
                 # always triggers "check" operation if set
                 instance.local_status = Status.unknown
-            if jobOptions.change_detection != "skip" and instance.last_config_change:
+                reason = Reason.check
+            elif instance.status == Status.pending and self.jobOptions.check:
+                reason = Reason.check
+            elif jobOptions.change_detection != "skip" and instance.last_config_change:
                 # customized is only set if created first!
                 # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
                 # discover would have to calculate digest for configure!
@@ -866,9 +870,9 @@ class DeployPlan(Plan):
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
         else:
-            assert jobOptions.repair == "error", (
-                f"repair: {jobOptions.repair} status: {instance.status}"
-            )
+            assert (
+                jobOptions.repair == "error"
+            ), f"repair: {jobOptions.repair} status: {instance.status}"
             return Reason.repair  # repair this
 
     def is_instance_read_only(self, instance):
@@ -895,7 +899,9 @@ class DeployPlan(Plan):
 
         if instance.shadow:
             installOp = "connect"
-        elif instance.status == Status.unknown:
+        elif instance.status == Status.unknown or (
+            instance.status == Status.pending and self.jobOptions.check
+        ):
             installOp = "check"
         elif "discover" in instance.template.directives and not instance.operational:
             installOp = "discover"

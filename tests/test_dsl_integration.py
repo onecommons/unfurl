@@ -430,10 +430,11 @@ def test_find_connection():
         assert cluster_connection._default_for is cluster
 
     topology, runner = create_runner(Topology)
-    job = runner.run(JobOptions(skip_save=True))
+    runner.job = None
+    job = runner.run(JobOptions(skip_save=True, check=True))
     assert job
-    assert len(job.workDone) == 1, len(job.workDone)
-    task = list(job.workDone.values())[0]
+    assert len(job.workDone) == 2, len(job.workDone)
+    task = list(job.workDone.values())[1]
     assert runner.manifest.rootResource.template.relationship_templates
     assert (
         task.outputs
