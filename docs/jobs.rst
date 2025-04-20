@@ -39,6 +39,18 @@ After the job finishes, a summary is printed showing the results of each operati
 
    Example deploy job output
 
+The job summary table has the following columns:
+
+  :Task: Whether the task succeeded, failed, skipped (because it wasn't needed), or blocked (because a dependent didn't run or succeed).
+  :Resource: The resource that was the target of the task.
+  :Operation: The TOSCA :ref:`operations<operation>` the task was executing.
+  :Reason: `Reason` the plan include this task.
+  :Status: The `status <Operational status and state>` of the resource after the task ran (note: could be in error even if the task succeeded).
+  :State: The resource `state <Node state>` after the task ran.
+  :Changed: Whether the task modified the resource.
+
+You can also output this table as json using the :cli:`--output<cmdoption-unfurl-deploy-output>` option.
+
 Generated Files
 ===============
 
@@ -98,11 +110,11 @@ After ensemble is created, running a job will compared with the current state of
 
 The deploy workflow follows these rules:
 
-* Any existing instance that not at the expecting status or state. (this is controlled by the --repair option). (reason: repair)
-* Previously created resources already in their desired state are evaluated to see if their configuration changed (controlled by the --change-detection option) (reason: reconfigure).
-* New templates will create new resources (reason "new") (disabled by the --skip-new flag)
-* If the --check flag is set, the ``"check" operation`` will be run before trying to create the instance.
-* Existing resources no longer referenced by the model are not removed unless the --prune flag is used. When --prune is used, deletion follows the rules of the `Undeploy (teardown)` workflow described below.
+* Any existing instance that not at the expecting status or state. (this is controlled by the :cli:`--repair<cmdoption-unfurl-deploy-repair>` option). (reason: repair)
+* Previously created resources already in their desired state are evaluated to see if their configuration changed (controlled by the :cli:`--change-detection<cmdoption-unfurl-deploy-change-detection>` option) (reason: reconfigure).
+* New templates will create new resources (reason "new") (disabled by the :cli:`--skip-new<cmdoption-unfurl-deploy-skip-new>` flag)
+* If the :cli:`--check<cmdoption-unfurl-deploy-check>` flag is set, the ``"check" operation`` will be run before trying to create the instance.
+* Existing resources no longer referenced by the model are not removed unless the :cli:`--prune<cmdoption-unfurl-deploy-prune>` flag is used. When :cli:`--prune<cmdoption-unfurl-deploy-prune>` is used, deletion follows the rules of the `Undeploy (teardown)` workflow described below.
 
 Applying configuration changes.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -288,7 +300,7 @@ can be found in the `status` section of the instance, for example:
     effective: ok #  `status` with dependencies' statuses considered
     state: started # Node state
   lastConfigChange: A0AP4P9C0001 # change id of the last ConfigChange that was applied
-  priority: "optional"  # default Priority is "required"
+  priority: optional  # or "required" (the default), "critical", "ignore"
   created: A0AP4P9C0001 # change id that created this or name of instance that manages this resource
   protected: true # (optional) prevents deletion
   customized: true # (optional) prevents reconfiguring from spec
