@@ -624,9 +624,9 @@ class YamlManifest(ReadOnlyManifest):
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
+        root.imports = self.imports
         if not self.safe_mode:
             self._set_root_environ()
-        root.imports = self.imports
         return root
 
     def _load_resource_templates(self, templates, node_templates, virtual):

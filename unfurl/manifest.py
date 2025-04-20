@@ -444,21 +444,28 @@ class Manifest(AttributeManager):
     #     )
 
     def _create_requirement(self, key, val, root) -> Optional[RelationshipInstance]:
-        # parent will be the capability, should have already been created
-        capabilityId = val.get("capability")
-        if not capabilityId:
+        capability_id = val.get("capability")
+        if not capability_id:
             nodeId = val.get("node")
             if not nodeId:
                 logger.warning(
                     f"skipping requirement {key}: no node or capability specified"
                 )
-                return None
-        capability = capabilityId and root.query(capabilityId)
-        if not capability or not isinstance(capability, CapabilityInstance):
-            return self.load_error(f"can not find capability {capabilityId}")  # type: ignore
-        if capability._relationships is None:
-            capability._relationships = []
-        return self._create_entity_instance(RelationshipInstance, key, val, capability)
+            return None
+        else:
+            if capability_id == "::root":
+                capability = root  # its a default connection
+            else:
+                # parent will be the capability, should have already been created
+                capability = root.query(capability_id)
+                if not capability or not isinstance(capability, CapabilityInstance):
+                    self.load_error(f"can not find capability {capability_id}")
+                    return None
+                if capability._relationships is None:
+                    capability._relationships = []
+            return self._create_entity_instance(
+                RelationshipInstance, key, val, capability
+            )
 
     def _create_substituted_topology(
         self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
@@ -529,9 +536,12 @@ class Manifest(AttributeManager):
                 if not requirement:
                     continue
                 requirement._source = resource
-                assert requirement in resource.requirements, (
-                    f"{requirement} not in {resource.requirements} for {rname}"
-                )
+                if requirement.parent is root:
+                    resource._requirements.append(requirement)
+                else:
+                    assert requirement in resource.requirements, (
+                        f"{requirement} not in {resource.requirements} for {rname}"
+                    )
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
@@ -732,7 +742,8 @@ class Manifest(AttributeManager):
             repo = Repo.find_containing_repo(base)
             if repo and (
                 repo.find_remote(url=url)
-                or toscaparser.imports.normalize_path(url) == repo.working_dir
+                or toscaparser.imports.normalize_path(url.partition("#")[0]).rstrip("/")
+                == repo.working_dir.rstrip("/")
             ):
                 return repo, filePath, revision, None
             else:
@@ -750,7 +761,10 @@ class Manifest(AttributeManager):
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
-            if repository.repository.tpl != toscaRepository.tpl or repository.path != file_name:
+            if (
+                repository.repository.tpl != toscaRepository.tpl
+                or repository.path != file_name
+            ):
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
