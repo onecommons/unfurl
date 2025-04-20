@@ -726,6 +726,48 @@ def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
                         yield propdef, val
 
 
+class ToscaTypeId:
+    """
+    Represents a TOSCA type name with equality matching any subtype of the type.
+    Exists so that, for example, ``::*::[.type=tosca.nodes.Compute]`` matches all node templates
+    that are subtypes of ``tosca.nodes.Compute``.
+    """
+
+    def __init__(
+        self, type_str: Optional[str], entity_type: Optional[EntityType] = None
+    ):
+        """
+        :param type_str: Only used by eval expression engine, otherwise should be None
+        :param entity_type: An EntityType instance representing the type.
+        """
+        # need to handle str, see eval_test(): "compare = type(value)(key)"
+        if type_str is not None:
+            self.type_name: Optional[str] = type_str
+            assert not entity_type
+            self.entity_type = None
+        else:
+            self.type_name = None
+            self.entity_type = entity_type
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, ToscaTypeId):
+            entity_type = self.entity_type or other.entity_type
+            assert entity_type
+            type_str = self.type_name or other.type_name
+            assert type_str
+            return entity_type.is_derived_from(type_str)
+        elif isinstance(other, str):
+            if self.entity_type:
+                return self.entity_type.is_derived_from(other)
+            else:
+                return self.type_name == other
+        else:
+            return False
+
+    def __str__(self) -> str:
+        return self.entity_type.type if self.entity_type else self.type_name or ""  # type: ignore
+
+
 # represents a node, capability or relationship
 class EntitySpec(ResourceRef):
     # XXX need to define __eq__ for spec changes
@@ -816,6 +858,14 @@ class EntitySpec(ResourceRef):
                 return result[0]
         return self
 
+    def _get_prop(self, name):
+        if name == ".type":
+            return ToscaTypeId(
+                None, self.toscaEntityTemplate.type_definition
+            )  # handles subtyping
+        else:
+            return super()._get_prop(name)
+
     def _resolve(self, key):
         """Expose attributes to eval expressions"""
         if key in ["name", "type", "uri", "groups", "policies"]:
@@ -843,12 +893,12 @@ class EntitySpec(ResourceRef):
     def policies(self):
         return []
 
-    def is_compatible_target(self, targetStr) -> bool:
+    def is_compatible_target(self, targetStr: str) -> bool:
         if self.name == targetStr:
             return True
         return self.toscaEntityTemplate.is_derived_from(targetStr)
 
-    def is_compatible_type(self, typeStr) -> bool:
+    def is_compatible_type(self, typeStr: str) -> bool:
         return self.toscaEntityTemplate.is_derived_from(typeStr)
 
     @property
@@ -1400,6 +1450,7 @@ class RelationshipSpec(EntitySpec):
     """
     Links a RequirementSpec to a CapabilitySpec.
     """
+
     ANY = RelationshipTemplate.ANY
 
     def __init__(
@@ -1472,6 +1523,7 @@ class RelationshipSpec(EntitySpec):
     def get_uri(self):
         suffix = "~r~" + self.name
         return self.source.name + suffix if self.source else suffix
+
 
 class RequirementSpec:
     """
@@ -1650,6 +1702,12 @@ class TopologySpec(EntitySpec):
     def is_compatible_type(self, typeStr):
         return False
 
+    def _get_prop(self, name):
+        if name == ".type":
+            return self.type
+        else:
+            return super()._get_prop(name)
+
     def add_discovered(self):
         if not self.substitute_of:
             return
@@ -1677,7 +1735,9 @@ class TopologySpec(EntitySpec):
             return self.get_node_template(substitution_mappings._node_template.name)
         return None
 
-    def get_inner_node_replaced_by_outer_node(self, outer_node_name: str) -> Optional[NodeSpec]:
+    def get_inner_node_replaced_by_outer_node(
+        self, outer_node_name: str
+    ) -> Optional[NodeSpec]:
         substitution_mappings = self.topology_template.substitution_mappings
         if substitution_mappings:
             inner_name = substitution_mappings._outer_nodes.get(outer_node_name)

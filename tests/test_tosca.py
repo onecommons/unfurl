@@ -237,7 +237,7 @@ class ToscaSyntaxTest(unittest.TestCase):
             ),
         )
         assert "testSensitive" == job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}).name
-        # assert job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True)[0]
+        assert job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True)[0]
         assert job.rootResource.query(
             {"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True
         )[0].name == "testSensitive"
@@ -249,6 +249,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         )
         assert not Ref({"get_nodes_of_type": "testy.nodes.Nonexistent"}).resolve(RefContext(job.rootResource.template))
         assert "server_ip: <<REDACTED>>" in job.out.getvalue(), job.out.getvalue()
+        assert not job.rootResource.query("::*::[.type=testy.nodes.Nonexistent]")
+        assert len(job.rootResource.query("::*::[.type=testy.nodes.aNodeType]", wantList=True)) == 1
+        assert len(job.rootResource.query("::*::[.type=tosca.nodes.Root]", wantList=True)) == 2
 
     def test_ansibleVault(self):
         manifest = YamlManifest(manifestDoc, vault=make_vault_lib("a_password"))

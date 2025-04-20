@@ -398,7 +398,6 @@ class _ChildResources(Mapping):
     def __len__(self):
         return len(tuple(self.resource.get_self_and_descendants()))
 
-
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[Literal[False], str]] = None
@@ -446,6 +445,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
                 return self.repository.tpl
             else:
                 return None
+        elif name == ".type":
+            return self.template._get_prop(name)
         else:
             return super()._get_prop(name)
 
