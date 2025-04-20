@@ -613,7 +613,7 @@ def expand_list(doc, path, includes, value, cls=dict, mergeStrategyKey=mergeStra
             yield item
 
 
-def diff_dicts(old, new, cls=dict, skipkeys=()):
+def diff_dicts(old, new, cls=dict, skipkeys=(), mergeStrategyKey=mergeStrategyKey):
     """
     given old, new return diff where merge_dicts(old, diff) == new
     """
@@ -627,18 +627,18 @@ def diff_dicts(old, new, cls=dict, skipkeys=()):
             if oldval != newval:
                 if isinstance(oldval, Mapping):
                     if isinstance(newval, Mapping):
-                        _diff = diff_dicts(oldval, newval, cls, skipkeys)
+                        _diff = diff_dicts(oldval, newval, cls, skipkeys, mergeStrategyKey)
                         if not skipkeys or _diff:
                             diff[key] = _diff
                     elif newval is None:
                         # dicts merge with None so add a nullout directive to preserve the None
-                        diff[key] = cls((("+%", "nullout"),))
+                        diff[key] = cls(((mergeStrategyKey, "nullout"),))
                     else:  # new non-dict val replaces old dict
                         diff[key] = newval
                 else:
                     diff[key] = newval
         else:  # not in new, so add a whiteout directive to delete this key
-            diff[key] = cls((("+%", "whiteout"),))
+            diff[key] = cls(((mergeStrategyKey, "whiteout"),))
 
     for key in new:
         if key in skipkeys:
@@ -753,7 +753,7 @@ def add_template(changedDoc, path, mergeKey, template, cls):
     current[last] = template
 
 
-def restore_includes(includes, originalDoc, changedDoc, cls=dict):
+def restore_includes(includes, originalDoc, changedDoc, cls=dict, mergeStrategyKey=mergeStrategyKey):
     """
     Modifies changedDoc with to use the includes found in originalDoc
     """
@@ -816,5 +816,5 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
                 add_template(changedDoc, key, includeKey, template, cls)
 
         if isinstance(ref, Mapping):
-            diff = diff_dicts(mergedIncludes, ref, cls)
+            diff = diff_dicts(mergedIncludes, ref, cls, mergeStrategyKey=mergeStrategyKey)
             replace_path(changedDoc, key, diff, cls)
