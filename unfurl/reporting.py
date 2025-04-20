@@ -331,17 +331,13 @@ class JobReporter:
                             else:
                                 msg = "render deferred due to errors"
                             if verbose:
-                                output.append(
-                                    " " * indent + f"   {msg}:"
-                                )
+                                output.append(" " * indent + f"   {msg}:")
                                 output.append(
                                     " " * indent
                                     + f"   {[d.name for d in request.get_unfulfilled_refs()]}"
                                 )
                             else:
-                                output.append(
-                                    " " * indent + f"   ({msg})"
-                                )
+                                output.append(" " * indent + f"   ({msg})")
                         elif request.task._errors or request.render_errors:
                             output.append(" " * indent + "   (errors while rendering)")
 
@@ -404,11 +400,13 @@ class JobReporter:
             operation = task.configSpec.operation
             reason = task.reason or ""
             resource = task.target.nested_name
-            if task.status is None:
+            if task.target_status is None:
                 status = ""
             else:
-                status = f"[{task.status.color}]{task.status.name.upper()}[/]"
-            state = task.target_state and task.target_state.name or ""
+                status = (
+                    f"[{task.target_status.color}]{task.target_status.name.upper()}[/]"
+                )
+            state = (task.target_state and task.target_state.name) or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:
                 output = task.result.result
@@ -422,7 +420,9 @@ class JobReporter:
                             for i, (k, v) in sorted(
                                 enumerate(output.items()),
                                 key=lambda x: (
-                                    len(x[1][1]) if isinstance(x[1][1], (str, list, dict)) else x[0]
+                                    len(x[1][1])
+                                    if isinstance(x[1][1], (str, list, dict))
+                                    else x[0]
                                 ),
                             )
                         }

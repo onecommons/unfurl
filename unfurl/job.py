@@ -248,7 +248,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.outputs: Optional[dict] = None
         # for summary:
         self.modified_target: bool = False
-        self.target_status: Status = target.status
+        self.target_status: Optional[Status] = target.status
         self.target_state: Optional[NodeState] = target.state
         self.blocked: bool = False
 
@@ -379,7 +379,7 @@ class ConfigTask(TaskView, ConfigChange):
             return True
         return False
 
-    def _finished_workflow(self, successStatus, workflow):
+    def _finished_workflow(self, successStatus: Optional[Status], workflow: str):
         # non-readonly workflow finished successfully
         instance = self.target
         self.modified_target = True

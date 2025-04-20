@@ -435,7 +435,7 @@ class TaskRequest(PlanRequest):
         workflow = self.group and self.group.workflow
         if not workflow:  # not in a group or not in a mutable workflow
             return
-        explicit_status = task.result and task.result.status
+        explicit_status: Optional[Status] = task.result and task.result.status
         if explicit_status is None:
             # even though we didn't modify the target this is the last op and the task succeeded
             # so assume the target is that the workflow's final state
@@ -864,7 +864,7 @@ def _render_request(
             task.target.name,
             task.name,
             task._artifact and task._artifact.type,
-            task.configurator,
+            task.configurator.__class__.__name__,
         )
         task._rendering = True
         task.configurator  # make sure it runs before task.inputs
@@ -1157,7 +1157,7 @@ def _maybe_mock(iDef, template):
     return iDef
 
 
-def get_success_status(workflow):
+def get_success_status(workflow) -> Optional[Status]:
     if workflow == "deploy":
         return Status.ok
     elif workflow == "stop":
