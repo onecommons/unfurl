@@ -259,10 +259,15 @@ class RefContext:
             copy.vars.update(vars)
         if wantList is not None:
             copy.wantList = wantList
-        copy.base_dir = self.base_dir
+        base_dir = getattr(self.kw, "base_dir", None)
+        if base_dir is not None:
+            copy.base_dir = base_dir
+        else:
+            copy.base_dir = self.base_dir
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
+
         if tosca_type:
             copy.tosca_type = tosca_type
         else:
@@ -339,7 +344,7 @@ class RefContext:
 
         def _eval_func(*args, **kw):
             self.currentFunc = key
-            self.kw = kw
+            self.kw = kw  # XXX set base_dir to preserve
             assert func
             return func(args, self)
 
