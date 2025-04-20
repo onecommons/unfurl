@@ -1277,7 +1277,7 @@ class LocalEnv:
             if vault:
                 self.logger.info(
                     "Vault password found, configuring vault ids: %s",
-                    [s[0] for s in vault.secrets],
+                    [s[0] for s in vault.secrets if s[0] != "+%"],
                 )
         else:
             vault = None
@@ -1572,7 +1572,7 @@ class LocalEnv:
         if isinstance(repoview_or_url, RepoView):
             repo = repoview_or_url.repo
             assert repo
-            logger.debug(
+            logger.verbose(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
             if (

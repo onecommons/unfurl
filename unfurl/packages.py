@@ -59,6 +59,7 @@ The first rule sets the revision of matching packages to the branch "main", the 
 import os.path
 import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
+from git import GitCommandError
 from typing_extensions import Literal
 from urllib.parse import urlparse
 
@@ -448,11 +449,10 @@ class Package:
     def set_version_from_repo(self, get_remote_tags) -> bool:
         try:
             revision = self.find_latest_semver_from_repo(get_remote_tags)
-        except Exception:
+        except GitCommandError as e:
             logger.warning(
-                "failed to look up version tags on remote git at %s",
-                self.safe_url,
-                exc_info=True,
+                "failed to look up version tags on remote git at %s: %s",
+                self.safe_url, e.stderr,
             )
             return False
         # remember the result of the search even if we don't set the revision
