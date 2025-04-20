@@ -295,8 +295,8 @@ class EvalTest(unittest.TestCase):
         serialized = serialize_value(src)
         self.assertEqual(serialized, {"a": ["b", {"ref": "::test"}]})
         self.assertEqual(src, map_value(serialized, resource))
-        serialized = serialize_value(dict(foo=sensitive_str("sensitive")), redact=True)
-        self.assertEqual(json.dumps(serialized), '{"foo": "<<REDACTED>>"}')
+        serialized = serialize_value(dict(foo=sensitive_str("sensitive"),yes='yes'), redact=True)
+        self.assertEqual(json.dumps(serialized), '{"foo": "<<REDACTED>>", "yes": "yes"}')
 
     def test_map_value(self):
         resource = self._getTestResource()

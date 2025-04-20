@@ -250,7 +250,7 @@ class RunTest(unittest.TestCase):
       ansible_port: 22
       ansible_connection: local
       ansible_user: ubuntu
-      ansible_pipelining: yes
+      ansible_pipelining: false
       ansible_private_key_file: ~/.ssh/example-key.pem
       ansible_python_interpreter: %s
   vars: {}

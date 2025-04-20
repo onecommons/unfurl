@@ -5,7 +5,7 @@
   tasks:
     - name: set_one_fact
       set_fact:
-        one_fact: test
+        one_fact: "yes"
 
     - name: save command results
       command: echo "hello"

@@ -37,7 +37,7 @@ environments:
           canonical_url: https://unfurl.cloud
 """
 
-SAVE_TMP = os.getenv("UNFURL_TEST_SAVE_TMP")
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 @pytest.fixture(scope="module")
 def runner():

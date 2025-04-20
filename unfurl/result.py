@@ -22,6 +22,8 @@ from typing import (
 )
 import hashlib
 import re
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText
+from ruamel.yaml.scalarstring import ScalarString, DoubleQuotedScalarString
 from tosca.yaml2python import has_function
 from toscaparser.common.exception import ValidationError
 from toscaparser.elements.portspectype import PortSpec
@@ -87,6 +89,13 @@ def get_digest(tpl, **kw):
     return m.hexdigest()
 
 
+yaml11_hell = re.compile(
+    """^(?:y|Y|yes|Yes|YES|n|N|no|No|NO
+        |on|On|ON|off|Off|OFF)$""",
+    re.X,
+)
+
+
 def serialize_value(value, **kw):
     getter = getattr(value, "as_ref", None)
     if getter:
@@ -100,8 +109,15 @@ def serialize_value(value, **kw):
     if isinstance(value, (MutableSequence, tuple)):
         l_ctor = sensitive_list if isSensitive else list
         return l_ctor(serialize_value(item, **kw) for item in value)
-    else:
-        return value
+    if not isSensitive and isinstance(value, str):
+        if yaml11_hell.match(value):
+            # rumuael yaml assumes yaml 1.2 but ansible assumes 1.1 when it reads playbooks
+            # so quote string in case this is intended as yaml that is going to be read by ansible
+            return DoubleQuotedScalarString(value)
+        if not isinstance(value, (ScalarString, AnsibleUnsafeText)):
+            # handle unknown string subtypes so they serialize to yaml
+            return str(value)
+    return value
 
 
 class ResourceRef(ABC):

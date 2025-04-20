@@ -126,7 +126,7 @@ def namespace(request):
         os.system(f"kubectl delete namespace {namespace} --wait=false")
 
 
-SAVE_TMP = None  # "tmp"
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 
 @pytest.mark.parametrize("namespace", ["doctest-py", "doctest-yaml"], indirect=True)
