@@ -840,6 +840,7 @@ def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"
     start = AnyRef("$start")
     # use SafeRefContext to avoid side effects
     ctx = ctx_cls(start, vars={n: AnyRef(n) for n in var_list})
+    ctx._strict = False
     try:
         ExceptionCollector.pause()
         result = Ref(expr).resolve(ctx)

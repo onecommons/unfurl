@@ -521,6 +521,8 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     )
     if hasattr(ctx.currentResource, "attributes"):
         vars["SELF"] = ctx.currentResource.attributes  # type: ignore
+    else:
+        vars["SELF"] = ctx.currentResource
     if os.getenv("UNFURL_TEST_DEBUG_EX"):
         log.debug("template vars for %s: %s", value[:300], list(ctx.vars))
     vars.update(ctx.vars)
@@ -558,11 +560,12 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             if ctx.strict:
                 log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
                 raise UnfurlError(value)
-            else:
+            elif ctx.task:
                 log.warning(value[2:100] + "... see debug log for full report")
-                log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
-                if ctx.task:
-                    UnfurlTaskError(ctx.task, msg)
+                log.debug("%s\nTemplate source:\n%s", value, oldvalue, stack_info=True)
+                UnfurlTaskError(ctx.task, msg)
+            else:
+                ctx.trace(value)
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
