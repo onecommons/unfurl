@@ -463,9 +463,10 @@ def get_req_terms(
                 terms.append(CriteriaTerm.NodeType(node_type.global_name))
     node_filter = req_dict.get("node_filter")
     if node_filter:
-        match = node_filter.get("match")
-        if match:
-            add_match(node_template, terms, match, node_namespace)
+        matches = node_filter.get("match")
+        if matches:
+            for match in matches:
+                add_match(node_template, terms, match, node_namespace)
         if not filter2term(terms, node_filter, None):
             return None, False  # has an unsupported constraint, bail
         for cap_filters in node_filter.get("capabilities", []):
