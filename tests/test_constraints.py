@@ -31,7 +31,6 @@ def test_constraints(caplog):
             "type": "App",
             "metadata": {"module": "service_template.constraints"},
             "requirements": [
-                {"container": "container_service"},
                 {"proxy": "myapp_proxy"},
                 {"container":
                  {"node" : "container_service"}},
@@ -314,27 +313,22 @@ def test_computed_properties():
             "computed": "https://foo.com",
             "url": "https://foo.com",
             "ports": {
-                "protocol": "tcp",
                 "target": 8080,
-                "target_range": None,
                 "source": 80,
-                "source_range": None,
             },
             "a_list": [1],
             "data_list": [
                 {
                     "ports": {
-                        "protocol": "tcp",
                         "target": 8080,
-                        "target_range": None,
                         "source": 80,
-                        "source_range": None,
                     },
                     "additional": 1,
                 }
             ],
             "extra": "extra",
         }
+        # pprint.pprint(job.get_outputs())
         assert job.get_outputs() == expected
         assert job.json_summary()["job"] == {
             "id": "A01110000000",

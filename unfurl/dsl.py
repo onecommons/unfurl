@@ -881,6 +881,13 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
             return self._cache[name]
         field = self._cls.__dataclass_fields__.get(name)
         if isinstance(field, _Tosca_Field):
+            if name not in self._values:
+                default = field._get_default_value()
+                if default is tosca.MISSING:
+                    raise AttributeError(name)
+                if isinstance(default, tosca.ToscaObject):  # e.g. a dataentity
+                    default = default.to_yaml(tosca.yaml_cls)
+                self._values[name] = default
             proxy = _proxy_prop(field.get_type_info(), self._values[name])
             self._cache[name] = proxy
             return proxy

@@ -764,14 +764,6 @@ def test_class_init() -> None:
             },
             "my_template": {
                 "type": "Example",
-                "artifacts": {
-                    "shellScript": {
-                        "type": "tosca.artifacts.Root",
-                        "file": "example.sh",
-                        "intent": {"eval": ".owner::prop1"},
-                    }
-                },
-                "requirements": [{"host": "my_compute"}],
                 "metadata": {"module": "tests.test_dsl"},
             },
         }
@@ -876,7 +868,6 @@ topology_template:
       properties:
         data:
           prop1: test
-          map: {}
 """
 
 
@@ -899,8 +890,7 @@ def test_datatype():
         converter = PythonToYaml(locals())
         yaml_dict = converter.module2yaml()
         tosca_yaml = load_yaml(yaml, test_datatype_yaml)
-        # yaml.dump(yaml_dict, sys.stdout)
-        assert tosca_yaml == yaml_dict
+        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout)
 
 
 test_envvars_yaml = """
@@ -911,8 +901,7 @@ node_types:
     properties:
       data:
         type: MyDataType
-        default:
-            name: default_name
+        default: {}
 data_types:
   MyDataType:
     derived_from: unfurl.datatypes.EnvironmentVariables
@@ -932,9 +921,6 @@ topology_template:
       type: Example
       metadata:
         module: tests.test_dsl
-      properties:
-        data:
-          name: default_name
 """
 
 
@@ -975,8 +961,7 @@ def test_envvar_type():
         converter = PythonToYaml(locals())
         yaml_dict = converter.module2yaml()
         tosca_yaml = load_yaml(yaml, test_envvars_yaml)
-        # yaml.dump(yaml_dict, sys.stdout)
-        assert tosca_yaml == yaml_dict
+        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout)
 
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
@@ -1073,6 +1058,13 @@ node_types:
         default: {}
         entry_schema:
           type: MyStringType
+topology_template:
+  node_templates:
+    a_template:
+      type: MyNode
+      metadata: {'module': 'service_template'}
+      properties:
+        prop1: foo
 """
 
 test_simple_datatype_python = """
@@ -1090,6 +1082,7 @@ class MyNode(tosca.nodes.Root):
     prop1: MyStringType
     map: Dict[str, "MyStringType"] = Property(factory=lambda: ({}))
 
+a_template = MyNode(prop1=MyStringType("foo"))
 
 __all__ = ["MyStringType", "MyNode"]
 """
@@ -1098,12 +1091,9 @@ __all__ = ["MyStringType", "MyNode"]
 def test_simple_datatype():
     python_src, parsed_yaml = _to_python(test_simple_datatype_yaml)
     # print(python_src)
-    parsed_yaml.pop("topology_template")
     parsed_yaml2 = _to_yaml(python_src, True)
-    parsed_yaml2.pop("topology_template")
     assert parsed_yaml == parsed_yaml
     tosca_tpl2 = _to_yaml(test_simple_datatype_python, True)
-    tosca_tpl2.pop("topology_template")
     # pprint(tosca_tpl2)
     assert parsed_yaml == tosca_tpl2
 
