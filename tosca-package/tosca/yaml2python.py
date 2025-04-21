@@ -32,6 +32,7 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
+    Union,
     cast,
 )
 
@@ -214,7 +215,7 @@ def section2typename(section: str) -> str:
         return string.capwords(name)
 
 
-Scope = Dict[str, Tuple[str, Optional[Type[_tosca.ToscaType]]]]
+Scope = Dict[str, Tuple[str, Union[None, Type[_tosca.ToscaType], Type[_tosca.ValueType]]]]
 
 
 class Imports:
@@ -263,7 +264,7 @@ class Imports:
                 continue
             elif issubclass(ref, _tosca.Namespace):
                 self._add_imports(qname, ref.get_defs())
-            elif issubclass(ref, _tosca.ToscaType):
+            elif issubclass(ref, (_tosca.ToscaType, _tosca.ValueType)):
                 tosca_name = ref.tosca_type_name()
                 current = self._imports.get(tosca_name)
                 if not current or current[1] is not ref:
@@ -321,7 +322,7 @@ class Imports:
 
     def get_type_ref(
         self, tosca_type_name: str
-    ) -> Tuple[str, Optional[Type[_tosca.ToscaType]]]:
+    ) -> Tuple[str, Union[None, Type[_tosca.ToscaType], Type[_tosca.ValueType]]]:
         qname, ref = self._imports.get(tosca_type_name, ("", None))
         if ref:
             ref._globals = self._globals
@@ -769,8 +770,8 @@ class Convert:
             else:
                 # its a tosca datatype
                 typename, cls = self.imports.get_type_ref(datatype)
-                if typename:
-                    assert cls and issubclass(cls, _tosca._BaseDataType)
+                if typename and cls:
+                    assert cls and issubclass(cls, _tosca._BaseDataType), (cls, datatype, typename)
                     dt = cls.get_tosca_datatype()
                 else:
                     # hasn't been imported yet, must be declared in this file
@@ -786,7 +787,8 @@ class Convert:
                         "expected a dict value for %s, got: %s", datatype, value
                     )
                     return str(value), False
-                return self.convert_datatype_value(typename, cls, dt, value), True
+                assert cls is None or issubclass(cls, _tosca._BaseDataType)  # not a ValueType
+                return self.convert_datatype_value(typename, cls, dt, value), True  # type: ignore
 
     def _constraint_args(self, c) -> str:
         if c.constraint_key == "in_range":
@@ -1535,7 +1537,7 @@ class Convert:
         values: Dict[str, Any],
         indent="",
     ) -> str:
-        typename, cls = self.imports.get_type_ref(capability_type.type)
+        typename, cls = cast(Tuple[str, Type[_tosca.CapabilityEntity]], self.imports.get_type_ref(capability_type.type))
         src = f"{indent}{typename}("
         prop_defs = capability_type.get_properties_def()
         init_list, skipped = self._get_prop_init_list(values, prop_defs, cls, indent)
@@ -1611,6 +1613,7 @@ class Convert:
         skipped: Dict[str, str] = {}
         assert entity_template.type
         cls_name, cls = self.imports.get_type_ref(entity_template.type)
+        assert cls is None or issubclass(cls, _tosca.ToscaType)
         if not cls_name:
             logger.error(
                 f"could not convert template {entity_template.name}: {entity_template.type} wasn't imported"
@@ -1679,7 +1682,8 @@ class Convert:
         func_indent = "   "
         add_src = self.add_assignments(artifact, name, skipped, func_indent, indent)
         if add_src:
-            cls_name, cls = self.imports.get_type_ref(artifact.type)
+            assert artifact.type
+            cls_name, cls = self.imports.get_type_ref(artifact.type)  # type: ignore
             func_name = f"_make_{name}"
             func_src = f"def {func_name}() -> {cls_name}:\n{func_indent}{name} = {src}\n{add_src}\n{func_indent}return {name}\n"
             self._pending_defs.append(func_src)
