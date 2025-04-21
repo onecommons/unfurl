@@ -1491,10 +1491,15 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     options.update(ctx.obj)
 
     if path.endswith(".py"):
+        from .dsl import get_allowed_modules
         from tosca import python2yaml, loader
 
         safe_mode = loader.get_safe_mode(False)
-        python2yaml.python_to_yaml(path, file, overwrite, safe_mode=safe_mode)
+        if safe_mode:
+            modules = get_allowed_modules()
+        else:
+            modules = None
+        python2yaml.python_to_yaml(path, file, overwrite, safe_mode, modules)
         return
 
     try:

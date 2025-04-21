@@ -10,6 +10,7 @@ from pprint import pprint
 import unfurl  # must be before tosca imports
 from tosca import OpenDataEntity
 from unfurl.merge import diff_dicts
+from unfurl.dsl import get_allowed_modules
 import sys
 from click.testing import CliRunner
 from unfurl.__main__ import cli
@@ -64,7 +65,13 @@ def _to_yaml(python_src: str, safe_mode) -> dict:
     current = globals._annotate_namespaces
     try:
         globals._annotate_namespaces = False
-        tosca_tpl = python_src_to_yaml_obj(python_src, namespace, safe_mode=safe_mode)
+        if safe_mode:
+            modules = get_allowed_modules()
+        else:
+            modules = None
+        tosca_tpl = python_src_to_yaml_obj(
+            python_src, namespace, safe_mode=safe_mode, modules=modules
+        )
     finally:
         globals._annotate_namespaces = current
     # yaml.dump(tosca_tpl, sys.stdout)
@@ -1418,6 +1425,7 @@ tosca.Namepace.location = 'pown'""",
     ]
     # deny unsafe builtins
     for src in denied:
+        # print("should deny:\n", src)
         with pytest.raises(AttributeError):
             assert _to_yaml(src, True)
 
@@ -1433,6 +1441,10 @@ tosca.nodes.Root = 1""",
         """import tosca
 tosca.nodes.Root._type_name = 'pown'""",
         """from unfurl.support import to_label; to_label('d')""",
+        "import urllib.parse; import urllib; urllib.request",
+        "import random; getattr(random, '_os')",
+        "import os.path; os.path.exists('foo/bar')",  # not a safe function
+        "import unfurl; unfurl._ImmutableModule__set_sub_module('foo', 'bar')",
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
@@ -1444,18 +1456,22 @@ tosca.nodes.Root._type_name = 'pown'""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
         """import math; math.floor(1.0)""",
         """from unfurl.configurators.templates.dns import unfurl_relationships_DNSRecords""",
-        """from unfurl import artifacts""",
         """import unfurl; unfurl.artifacts""",
+        """from unfurl import artifacts""",
         """from unfurl.tosca_plugins import k8s; k8s.kube_artifacts""",
-        "import unfurl.tosca_plugins.expr",
-        "import unfurl.tosca_plugins; from unfurl.tosca_plugins import expr",
+        "import unfurl.tosca_plugins.expr; unfurl.tosca_plugins.expr.abspath",
+        "import unfurl.tosca_plugins; from unfurl.tosca_plugins import expr; expr.abspath",
+        "import os.path; os.path.dirname('foo/bar')",
+        "from os.path import dirname; dirname('foo/bar')",
+        "from os import path; path.dirname('foo/bar')",
+        """import unfurl.configurators.templates.dns; unfurl.configurators.templates.dns.unfurl_relationships_DNSRecords""",
         """import tosca
 node = tosca.nodes.Root()
 node._name = "test"
         """,
     ]
     for src in allowed:
-        # print("allowed?", src)
+        # print("\nallowed?\n", src)
         assert _to_yaml(src, True)
 
 

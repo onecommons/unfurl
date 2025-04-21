@@ -1029,6 +1029,7 @@ def python_to_yaml(
     dest_path: Optional[str] = None,
     overwrite="auto",
     safe_mode: bool = False,
+    modules=None,
 ) -> Optional[dict]:
     write_policy = WritePolicy[overwrite]
     if dest_path and not write_policy.can_overwrite(src_path, dest_path):
@@ -1054,6 +1055,7 @@ def python_to_yaml(
             full_name=module_name,
             write_policy=write_policy,
             safe_mode=safe_mode,
+            modules=modules,
         )
     finally:
         try:

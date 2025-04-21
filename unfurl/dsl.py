@@ -113,6 +113,20 @@ def maybe_reconvert(
     )
 
 
+def get_allowed_modules():
+    # import packages that can be referenced in safe mode
+    import unfurl.tosca_plugins
+    import unfurl.configurators
+    import unfurl.configurators.templates
+
+    packages = (
+        "unfurl.tosca_plugins",
+        "unfurl.configurators",
+        "unfurl.configurators.templates",
+    )
+    return tosca.loader.get_allowed_modules(packages)
+
+
 def convert_to_yaml(
     import_resolver: "ImportResolver",
     contents: str,
@@ -153,7 +167,7 @@ def convert_to_yaml(
     module_name = package + "." + Path(path).stem
     tosca.loader.install(import_resolver, base_dir)
     if import_resolver.manifest.modules is None:
-        import_resolver.manifest.modules = tosca.loader.get_allowed_modules()
+        import_resolver.manifest.modules = get_allowed_modules()
     yaml_src = python_src_to_yaml_obj(
         contents,
         namespace,
