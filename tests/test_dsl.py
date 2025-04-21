@@ -640,7 +640,7 @@ def test_node_filter():
 import unfurl
 import tosca
 class Base(tosca.nodes.Root):
-    req: tosca.nodes.Root = tosca.Requirement(node_filter={"match": "MyNode"})
+    req: tosca.nodes.Root = tosca.Requirement(node_filter={"match": [dict(get_nodes_of_type="MyNode")]})
 
 class Derived(Base):
     req: tosca.nodes.Compute
@@ -662,7 +662,8 @@ node_types:
     - req:
         node: tosca.nodes.Root
         node_filter:
-          match: MyNode
+          match: 
+          - get_nodes_of_type: MyNode
   Derived:
     derived_from: Base
     requirements:
@@ -672,7 +673,9 @@ node_types:
     yaml_dict = _to_yaml(python_src, False)
     # yaml.dump(yaml_dict, sys.stdout)
     tosca_yaml = load_yaml(yaml, yaml_src)
-    assert yaml_dict == tosca_yaml
+    assert yaml_dict == tosca_yaml, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
 
 
 def test_generator_operation():

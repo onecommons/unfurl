@@ -29,6 +29,7 @@ from ._tosca import (
     Relationship,
     CapabilityEntity,
 )
+from toscaparser.nodetemplate import NodeTemplate
 
 
 class Options:
@@ -411,11 +412,13 @@ def Requirement(
     field.capability = capability
     field.node = node
     field.node_filter = node_filter
-    if node_filter and (
-        field.default == REQUIRED
-        or (field.default == MISSING and field.default_factory == MISSING)
-    ):
-        field.default = CONSTRAINED
+    if node_filter:
+        NodeTemplate.validate_nodefilter(node_filter, f"requirement {name}")
+    if node_filter or node or capability or relationship:
+        if field.default == REQUIRED or (
+            field.default == MISSING and field.default_factory == MISSING
+        ):
+            field.default = CONSTRAINED
     return field
 
 

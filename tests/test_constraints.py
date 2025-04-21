@@ -33,6 +33,8 @@ def test_constraints(caplog):
             "requirements": [
                 {"container": "container_service"},
                 {"proxy": "myapp_proxy"},
+                {"container":
+                 {"node" : "container_service"}},
             ],
         },
         "container_service": {

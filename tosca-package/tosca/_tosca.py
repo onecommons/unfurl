@@ -831,19 +831,20 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         self.mapping = mapping
 
     def set_constraint(self, val):
-        # this called via _class_init
-        if isinstance(val, EvalData) and not global_state._in_process_class:
-            if self.tosca_field_type in [
-                ToscaFieldType.capability,
-                ToscaFieldType.artifact,
-            ]:
-                raise AttributeError(
-                    "can not set {val} on {self}: {self._tosca_field_type} attributes can't be references"
-                )
-            if self.tosca_field_type == ToscaFieldType.requirement:
-                # if requirement and value is a Ref, set a node filter
-                self.add_node_filter(val)
-                return
+        if not global_state._in_process_class:
+            # called via _class_init
+            if isinstance(val, EvalData):  # or has_function(val):
+                if self.tosca_field_type in [
+                    ToscaFieldType.capability,
+                    ToscaFieldType.artifact,
+                ]:
+                    raise AttributeError(
+                        "can not set {val} on {self}: {self._tosca_field_type} attributes can't be references"
+                    )
+                if self.tosca_field_type == ToscaFieldType.requirement:
+                    # if requirement and value is a Ref, set a node filter
+                    self.add_node_filter(val)
+                    return
         # val is a concrete value or self is a property or attribute
         # either way, set the default
         self._set_default(val)
@@ -1127,7 +1128,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 ).get_type_info_checked()
             elif issubclass(_type, CapabilityEntity):
                 req_def["capability"] = _type.tosca_type_name()
-            elif issubclass(_type, Node):
+            elif "node" not in req_def and issubclass(_type, Node):
                 req_def["node"] = _type.tosca_type_name()
         if "node" not in req_def and target_typeinfo:
             req_def["node"] = target_typeinfo.types[0].tosca_type_name()
@@ -1139,12 +1140,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 default = self.default_factory()
             else:
                 default = self.default  # type: ignore
-            if default is CONSTRAINED:
-                if not self.node_filter:
-                    raise ValueError(
-                        f'"{self.name}" on "{self.owner}" was marked as CONSTRAINED but no node filter or constraint was set in "_class_init()".'
-                    )
-            elif default and default not in [MISSING, REQUIRED]:
+            if default and default not in [MISSING, REQUIRED, CONSTRAINED, DEFAULT]:
+                # CONSTRAINED and DEFAULT needs to be handled per template
                 converter.set_requirement_value(req_def, self, default, self.name)
         if super_field:
             default_occurrences = super_field._get_occurrences()
@@ -2595,7 +2592,7 @@ class ToscaType(_ToscaType):
                 if isinstance(value, _Tosca_Field):
                     parent = None if field is value else field
                     body.setdefault("requirements", []).append(value.to_yaml(converter))
-                elif value and value is not CONSTRAINED:
+                elif value:
                     # XXX handle case where value is a type not an instance
                     if not isinstance(value, (list, tuple)):
                         value = [value]
@@ -2611,6 +2608,12 @@ class ToscaType(_ToscaType):
                             body.setdefault("requirements", []).append({
                                 field.tosca_name: shorthand or req
                             })
+                elif field.default is CONSTRAINED and not field.node_filter:
+                    # having a requirement with a node type declared on the template directs the solver to match by type
+                    # and here the template hasn't set a value and the field (class) default is CONSTRAINED
+                    # without any node filter constraints, so we set the type constraint by rendering the requirement now.
+                    body.setdefault("requirements", []).append(field.to_yaml(converter))
+
             elif field.section in ["capabilities", "artifacts"]:
                 if isinstance(value, _Tosca_Field):
                     body.setdefault(field.section, {}).update(value.to_yaml(converter))
