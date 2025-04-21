@@ -158,8 +158,9 @@ class ToscaObject:
 
     @classmethod
     def tosca_type_name(cls) -> str:
-        _tosca_name = cls.__dict__.get("_type_name")
-        return _tosca_name if _tosca_name else cls.__name__
+        # "_type_name" if set on the class or the Python class name
+        _tosca_type_name = cls.__dict__.get("_type_name")
+        return _tosca_type_name if _tosca_type_name else cls.__name__
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         return None
@@ -398,7 +399,7 @@ class OperationFunc(Protocol):
 
 @overload
 def operation(
-    func: None = None,
+    func: Union["ArtifactEntity", None] = None,
     *,
     name="",
     apply_to: Optional[Sequence[str]] = None,
@@ -415,10 +416,6 @@ def operation(
 
 @overload
 def operation(func: F) -> F: ...
-
-
-@overload
-def operation(func: "ArtifactEntity") -> Callable: ...
 
 
 def operation(
@@ -872,6 +869,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             )
         elif self.default_factory is not MISSING:
             # default exists but not created until object initialization
+            # so we have to set this property later
             self.deferred_property_assignments[name] = val
         else:
             # XXX validate name is valid property and that val is compatible type
@@ -1298,7 +1296,7 @@ _EvalDataExpr = Union[str, None, Dict[str, Any], List[Any]]
 
 class _GetName:
     # use this to lazily evaluate a template's name because might not be set correctly until yaml generation time.
-    def __init__(self, obj: Union["ToscaType", Type["ToscaType"]]):
+    def __init__(self, obj: "ToscaType"):
         self.obj = obj
 
     def __str__(self) -> str:
@@ -1554,7 +1552,7 @@ class FieldProjection(EvalData):
             raise AttributeError(
                 f'Can\'t project "{name}" from "{self}": Could not resolve {self.type}'
             )
-        if not issubclass(ti.types[0], ToscaType):
+        if not ti.types[0] or not issubclass(ti.types[0], ToscaType):
             # we're a regular value, can't project field (raise AttributeError with a note)
             return super().__getattr__(name)
         cls = ti.types[0]
@@ -1817,9 +1815,9 @@ def _make_dataclass(cls):
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
-        assert cls.__module__ in sys.modules, (
-            cls.__module__
-        )  # _process_class checks this
+        assert (
+            cls.__module__ in sys.modules
+        ), cls.__module__  # _process_class checks this
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
         # note: _process_class replaces each field with its default value (or deletes the attribute)
         # replace those with _FieldDescriptors to allow class level attribute access to be customized
@@ -1884,14 +1882,16 @@ class _DataclassType(type):
             x.register_type(dct.get("_type_name", name))  # type: ignore
         return x
 
-    def __instancecheck__(cls, inst):
+    def __instancecheck__(cls, inst) -> bool:
         """Implement isinstance(inst, cls)."""
         if isinstance(inst, InstanceProxy):
             return issubclass(inst._cls, cls)
         return type.__instancecheck__(cls, inst)
 
-    def __subclasscheck__(cls, sub):
+    def __subclasscheck__(cls, sub: type) -> bool:
         """Implement issubclass(sub, cls)."""
+        if sub is None:
+            return False
         try:
             if issubclass(sub, InstanceProxy):
                 sub = sub._cls
@@ -2453,8 +2453,8 @@ class ToscaType(_ToscaType):
         setattr(self, name, op)
         return self
 
-    def __set_name__(self, owner, name):
-        # called when a template is declared as a default value or inside a Namespace (owner will be class)
+    def __set_name__(self, owner: type, name: str) -> None:
+        # called when a template is created (but not when assigned) as a default value in ToscaType class or Namespace
         if not self._name:
             if issubclass(owner, Namespace):
                 owner.set_name(self, name)
@@ -2592,7 +2592,7 @@ class ToscaType(_ToscaType):
                 if isinstance(value, _Tosca_Field):
                     parent = None if field is value else field
                     body.setdefault("requirements", []).append(value.to_yaml(converter))
-                elif value:
+                elif value and value is not CONSTRAINED:
                     # XXX handle case where value is a type not an instance
                     if not isinstance(value, (list, tuple)):
                         value = [value]
@@ -2833,11 +2833,8 @@ def _get_field_from_prop_ref(requirement_name) -> Tuple[Optional[_Tosca_Field], 
 def _get_expr_prefix(
     cls_or_obj: Union[None, ToscaType, Type[ToscaType]],
 ) -> List[Union[str, _GetName]]:
-    if cls_or_obj:
-        if cls_or_obj._name:
-            return ["", _GetName(cls_or_obj)]
-        elif isinstance(cls_or_obj, ToscaType):
-            return ["", _GetName(cls_or_obj)]
+    if cls_or_obj and isinstance(cls_or_obj, ToscaType):
+        return ["", _GetName(cls_or_obj)]
     # XXX elif isinstance(cls_or_obj, type):  return f"*[.type={cls_or_obj._tosca_typename}]::"
     return []
 
