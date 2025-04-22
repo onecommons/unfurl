@@ -20,6 +20,7 @@ from typing_extensions import Self
 import logging
 from pathlib import Path
 from toscaparser import topology_template
+
 from ._tosca import (
     ToscaFieldType,
     ToscaObject,
@@ -52,7 +53,7 @@ from .loader import (
     get_module_path,
     get_allowed_modules,
 )
-from . import WritePolicy
+from . import WritePolicy, Repository
 
 logger = logging.getLogger("tosca")
 
@@ -210,10 +211,10 @@ class PythonToYaml:
         section[name] = obj  # placeholder to prevent circular references
         section[name] = obj.to_template_yaml(self)
         if referenced and not obj._name and isinstance(obj, Node):
-           # add "dependent" directive to anonymous, inline templates
-           directives = section[name].setdefault("directives", [])
-           if "dependent" not in directives:
-              directives.append("dependent")
+            # add "dependent" directive to anonymous, inline templates
+            directives = section[name].setdefault("directives", [])
+            if "dependent" not in directives:
+                directives.append("dependent")
         module_name = self.current_module
         if module_name:
             section[name].setdefault("metadata", {})["module"] = module_name
@@ -331,7 +332,7 @@ class PythonToYaml:
                 continue
             if (
                 not isinstance(obj, InstanceProxy)
-                and isinstance(obj, (Node, Group, Policy))
+                and isinstance(obj, (Node, Group, Policy, Repository))
                 and not obj._name
             ):
                 obj._name = name
@@ -394,24 +395,26 @@ class PythonToYaml:
                         ).update(dict(node=obj._name or name))
             else:
                 section = getattr(obj, "_template_section", "")
-                to_yaml = getattr(obj, "to_yaml", None)
                 if section:
-                    if module_name and module_name != current_module:
+                    if (
+                        section != "repositories"
+                        and module_name
+                        and module_name != current_module
+                    ):
                         self._import_module(module_path, module_name)
                         continue
-                    if isinstance(obj, type) and issubclass(
-                        obj, (ValueType, Interface)
-                    ):
-                        obj._globals = self.globals  # type: ignore
-                        _docstrings = self.docstrings.get(name)
-                        if isinstance(_docstrings, dict):
-                            obj._docstrings = _docstrings  # type: ignore
-                        as_yaml = obj._cls_to_yaml(self)
-                        self.sections.setdefault(section, self.yaml_cls()).update(
-                            as_yaml
-                        )
+                    if isinstance(obj, type):
+                        if issubclass(obj, (ValueType, Interface)):
+                            obj._globals = self.globals  # type: ignore
+                            _docstrings = self.docstrings.get(name)
+                            if isinstance(_docstrings, dict):
+                                obj._docstrings = _docstrings  # type: ignore
+                            as_yaml = obj._cls_to_yaml(self)
+                            self.sections.setdefault(section, self.yaml_cls()).update(
+                                as_yaml
+                            )
                     else:
-                        assert to_yaml
+                        to_yaml = getattr(obj, "to_yaml")
                         parent = self.sections
                         if section in topology_template.SECTIONS:
                             parent = topology_sections
@@ -617,7 +620,9 @@ class PythonToYaml:
                             ] = None
                     interfaces["defaults"] = self._operation2yaml(obj, cls, operation)
                 else:
-                    name = getattr(operation, "operation_name", methodname) or methodname
+                    name = (
+                        getattr(operation, "operation_name", methodname) or methodname
+                    )
                     interface = interface_ops.get(name)
                     if interface is not None:
                         op_def = self._operation2yaml(obj, cls, operation)

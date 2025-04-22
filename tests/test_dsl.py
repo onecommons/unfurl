@@ -1131,6 +1131,32 @@ node_types:
 """
 
 
+test_repository_python = """
+import tosca
+from unfurl.tosca_plugins import expr
+std = tosca.Repository("https://unfurl.cloud/onecommons/std",
+                          credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN")))
+"""
+
+test_repository_yaml = {
+    "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+    "topology_template": {},
+    "repositories": {
+        "std": {
+            "url": "https://unfurl.cloud/onecommons/std",
+            "credential": {
+                "token": {"get_env": ["MY_TOKEN", None]},
+                "user": "a_user",
+            },
+        }
+    },
+}
+
+def test_repository():
+    parsed_yaml = _to_yaml(test_repository_python, True)
+    # print(parsed_yaml)
+    assert test_repository_yaml == parsed_yaml
+
 def test_groups_and_policies():
     class MyNode(tosca.nodes.Root):
         pass

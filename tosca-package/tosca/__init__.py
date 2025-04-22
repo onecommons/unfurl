@@ -44,8 +44,9 @@ from .builtin_types import groups
 
 class StandardOperationsKeywords(TypedDict):
     """The names of tosca and unfurl's built-in operations.
-      `set_operations` uses this to provide type hint for its keyword arguments, ignore this when setting custom operations.
+    `set_operations` uses this to provide type hint for its keyword arguments, ignore this when setting custom operations.
     """
+
     # tosca.interfaces.node.lifecycle.Standard
     create: NotRequired[Union[Callable, ArtifactEntity]]
     configure: NotRequired[Union[Callable, ArtifactEntity]]
@@ -68,6 +69,7 @@ class StandardOperationsKeywords(TypedDict):
     connect: NotRequired[Union[Callable, ArtifactEntity]]
     restart: NotRequired[Union[Callable, ArtifactEntity]]
     revert: NotRequired[Union[Callable, ArtifactEntity]]
+
 
 _PT = TypeVar("_PT", bound="ToscaType")
 
@@ -101,6 +103,64 @@ def set_operations(obj=None, **kwargs: Unpack[StandardOperationsKeywords]):
             v = operation(v, name=k)
         obj.set_operation(cast(Callable, v), k)
     return obj
+
+
+class Repository(ToscaObject):
+    """
+    Create a TOSCA  `Repository <tosca_repositories>` object. Repositories can represent, for example,
+    a git repository, a container image or artifact registry or a file path to a local directory.
+
+    Repositories that contain the Python modules imported into a service template are typically declared in the YAML
+    so an orchestrator like Unfurl can map them to ``tosca_repositories`` imports. 
+    However you have a Python service template with code that references a repository (e.g. in a :std:ref:`abspath` eval expression)
+    and that service template is imported directly by other projects, you should declare the repository in the same Python file.
+
+    Args:
+      url (str): The url of the repository.
+      name (Optional[str]): The name of the repository. If not set or None, the Python identifier assigned to the object will be used.
+      revision (Optional[str]): The revision of the repository to use (e.g. a semantic version or git tag or branch). Defaults to None.
+      description (Optional[str]): A human-readable description of the repository. Defaults to None.
+      credential (Optional[tosca.datatypes.Credential]): The credential to use when accessing the repository. Defaults to None.
+      metadata (Optional[Dict[str, Any]]): Additional metadata about the repository. Defaults to None.
+
+    Example:
+
+    .. code-block:: python
+
+        std = tosca.Repository("https://unfurl.cloud/onecommons/std", 
+                    credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN")))
+    """
+
+    _template_section = "repositories"
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        name: Optional[str] = None,
+        revision: Optional[str] = None,
+        credential: Optional[datatypes.Credential] = None,
+        description: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        self._tosca_name = name or ""
+        self._name = ""  # set by python converter from its python name
+        self._tpl: Dict[str, Any] = dict(url=url)
+        if revision is not None:
+            self._tpl["revision"] = revision
+        if description is not None:
+            self._tpl["description"] = description
+        if metadata is not None:
+            self._tpl["metadata"] = metadata
+        self.credential = credential
+
+    def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
+        tpl = dict_cls(**self._tpl)
+        if self.credential is not None:
+            tpl["credential"] = self.credential.to_yaml(dict_cls)
+        name = self._tosca_name or self._name
+        assert name
+        return dict_cls({name: tpl})
 
 
 class WritePolicy(Enum):
@@ -286,6 +346,7 @@ __all__ = [
     "CONSTRAINED",
     "Relationship",
     "RelationshipType",
+    "Repository",
     "Requirement",
     "S",
     "select_node",

@@ -75,6 +75,9 @@ Other
 .. autoclass:: NodeTemplateDirective
    :members:
 
+.. autoclass:: Repository
+   :members:
+
 .. autoclass:: ToscaInputs
 
 .. autoclass:: ToscaOutputs
