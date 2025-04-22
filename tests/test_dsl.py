@@ -54,6 +54,7 @@ def _to_python(
             import_resolver=import_resolver,
             python_target_version=python_target_version,
             write_policy=write_policy,
+            convert_repositories=True,
         )
     finally:
         globals._annotate_namespaces = current
@@ -671,7 +672,6 @@ node_types:
         node: tosca.nodes.Compute
 """
     yaml_dict = _to_yaml(python_src, False)
-    # yaml.dump(yaml_dict, sys.stdout)
     tosca_yaml = load_yaml(yaml, yaml_src)
     assert yaml_dict == tosca_yaml, (
         yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
@@ -890,7 +890,7 @@ def test_datatype():
         converter = PythonToYaml(locals())
         yaml_dict = converter.module2yaml()
         tosca_yaml = load_yaml(yaml, test_datatype_yaml)
-        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout)
+        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
 
 
 test_envvars_yaml = """
@@ -961,7 +961,7 @@ def test_envvar_type():
         converter = PythonToYaml(locals())
         yaml_dict = converter.module2yaml()
         tosca_yaml = load_yaml(yaml, test_envvars_yaml)
-        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout)
+        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
 
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
@@ -1130,32 +1130,31 @@ node_types:
     derived_from: tosca.nodes.Root
 """
 
-
 test_repository_python = """
 import tosca
 from unfurl.tosca_plugins import expr
 std = tosca.Repository("https://unfurl.cloud/onecommons/std",
-                          credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN")))
+                          credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN", None)))
 """
 
-test_repository_yaml = {
-    "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
-    "topology_template": {},
-    "repositories": {
-        "std": {
-            "url": "https://unfurl.cloud/onecommons/std",
-            "credential": {
-                "token": {"get_env": ["MY_TOKEN", None]},
-                "user": "a_user",
-            },
-        }
-    },
-}
+test_repository_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+repositories:
+  std:
+    url: https://unfurl.cloud/onecommons/std
+    credential:
+      token:
+        get_env: ["MY_TOKEN", null]
+      user: a_user
+"""
 
 def test_repository():
+    src, src_tpl = _to_python(test_repository_yaml)
     parsed_yaml = _to_yaml(test_repository_python, True)
-    # print(parsed_yaml)
-    assert test_repository_yaml == parsed_yaml
+    assert src_tpl == parsed_yaml
+    tosca_tpl2 = _to_yaml(src, True)
+    assert tosca_tpl2 == parsed_yaml
 
 def test_groups_and_policies():
     class MyNode(tosca.nodes.Root):

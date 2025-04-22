@@ -26,6 +26,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Mapping,  # use mapping to when there are dicts we don't want to accidentally modify
     Optional,
     Sequence,
     Set,
@@ -253,7 +254,7 @@ class Imports:
         self._imports = imports
         self.declared = declared
 
-    def _add_imports(self, basename: str, namespace: Dict[str, Any]):
+    def _add_imports(self, basename: str, namespace: Mapping[str, Any]):
         for name, ref in namespace.items():
             if basename:
                 qname = basename + "." + name
@@ -1927,7 +1928,7 @@ class Convert:
             package = "tosca_repositories." + os.path.basename(os.path.dirname(path))
         return package
 
-    def execute_source(self, src: str, namespace: Dict[str, Any]):
+    def execute_source(self, src: str, namespace: Mapping[str, Any]):
         package = self.get_package_name()
         assert self.template.path
         full_name = package + "." + re.sub(r"\W", "_", Path(self.template.path).stem)
@@ -1945,6 +1946,22 @@ class Convert:
         finally:
             # not in safe_mode, delete from sys.modules if present since source might not be complete
             sys.modules.pop(full_name, None)
+
+    def convert_repository(
+        self, toscaname: str, repositories: Mapping[str, Any]
+    ) -> str:
+        self.imports.from_tosca.add("Repository")
+        name = self.add_declaration(toscaname, None)
+        repo_args = [f"name={self.value2python_repr(toscaname)}"]
+        for key, value in repositories.items():
+            if key == "credential":
+                credential_src = "credential=tosca.datatypes.Credential("
+                for key, value in value.items():
+                    credential_src += f"{key}={self.value2python_repr(value)}, "
+                repo_args.append(credential_src + ")")
+            else:
+                repo_args.append(f"{key}={self.value2python_repr(value)}")
+        return f"{name} = Repository({', '.join(repo_args)})\n"
 
 
 def generate_builtins(import_resolver, format=True) -> str:
@@ -1986,6 +2003,7 @@ def yaml_to_python(
     import_resolver=None,
     python_target_version=None,
     write_policy: WritePolicy = WritePolicy.never,
+    convert_repositories: bool = False,
 ) -> str:
     """
     Converts the given YAML service template to Python source code as a string and saves it to a file if ``python_path`` is provided.
@@ -2007,6 +2025,7 @@ def yaml_to_python(
         python_target_version,
         path=python_path,
         write_policy=write_policy,
+        convert_repositories=convert_repositories,
     )
 
 
@@ -2021,6 +2040,7 @@ def convert_service_template(
     base_dir=None,
     package_name="service_template",
     converted: Optional[Set[str]] = None,
+    convert_repositories: bool = False,
 ) -> str:
     src = ""
     imports = Imports(bool(unfurl) and builtin_prefix != "tosca.")
@@ -2077,6 +2097,15 @@ def convert_service_template(
                     logger.error(f"error importing {module_name}", exc_info=True)
             src += import_src
     imports_src = src
+
+    template_tpl = template.tpl
+    assert template_tpl
+    if convert_repositories:
+        repositories = template_tpl.get("repositories")
+        if repositories:
+            for name, value in repositories.items():
+                src += converter.convert_repository(name, value)
+
     namespace: Dict[str, Any] = {}
     # interface_types needs to go first because they will be base classes for types that implement them
     # data_types and capability_types can be set as defaults so they also need to be defined early
@@ -2116,13 +2145,13 @@ def convert_service_template(
     topology = template.topology_template
     if topology:
         src += converter.convert_topology(topology)
-    deployment_blueprints = template.tpl and template.tpl.get("deployment_blueprints")
+    deployment_blueprints = template_tpl.get("deployment_blueprints")
     if deployment_blueprints:
         imports.from_tosca.add("DeploymentBlueprint")
         for name, tpl in deployment_blueprints.items():
             src += converter.convert_blueprint(name, tpl)
 
-    dsl_definitions = template.tpl and template.tpl.get("dsl_definitions")
+    dsl_definitions = template_tpl.get("dsl_definitions")
     if dsl_definitions:
         src += "\ndsl_definitions=" + value2python_repr(dsl_definitions, True)
 
