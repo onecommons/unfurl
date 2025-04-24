@@ -454,11 +454,10 @@ pub fn solve(
     for node in nodes.values() {
         add_node_to_topology(node, &mut prog, &type_parents, true, false)?;
     }
+
     run_program(&mut prog, timeout)?;
 
-    if cfg!(debug_assertions) {
-        dump_solution(&prog);
-    }
+    dump_solution(&prog);
 
     // return found requirements
     let mut requirements = RequirementMatches::new();
@@ -480,6 +479,20 @@ pub fn solve(
 }
 
 fn dump_solution(prog: &Topology) {
+    if !std::env::var("UNFURL_TEST_DUMP_SOLVER").is_ok_and(|x| !x.is_empty()) {
+        return;
+    }
+
+    println!("nodes: {:#?}", prog.node.iter().collect::<Vec<_>>());
+
+    println!(
+        "requirements: {:#?}",
+        prog.requirement
+            .iter()
+            .map(|x| (&x.0, &x.1, &x.2 .0))
+            .collect::<Vec<_>>()
+    );
+
     println!(
         "property expressions: {:#?}",
         prog.property_expr.iter().collect::<Vec<_>>()
@@ -509,6 +522,11 @@ fn dump_solution(prog: &Topology) {
     println!(
         "query results: {:#?}",
         prog.result.iter().filter(|x| x.3).collect::<Vec<_>>()
+    );
+
+    println!(
+        "requirement matches: {:#?}",
+        prog.requirement_match.iter().collect::<Vec<_>>()
     );
 }
 /// A Python module implemented in Rust.
