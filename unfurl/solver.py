@@ -80,9 +80,9 @@ def include_value(v):
 
 def tosca_to_rust(prop: Property) -> ToscaValue:
     value = prop.value
-    assert value is not None, (
-        f"nulls should be omitted from solver {prop.schema.schema}"
-    )
+    assert (
+        value is not None
+    ), f"nulls should be omitted from solver {prop.schema.schema}"
     schema = prop.schema
     entity = prop.entry_schema_entity or prop.entity
     tosca_type = schema.type
@@ -284,17 +284,15 @@ def convert(
                     type_req_dict.pop("!namespace-" + key, None)
             req_dict = dict(type_req_dict, **req_dict)
         if "occurrences" not in req_dict:
-            required = True
             upper = sys.maxsize
         else:
-            required = bool(req_dict["occurrences"][0])
             max_occurrences = req_dict["occurrences"][1]
             upper = (
                 sys.maxsize if max_occurrences == "UNBOUNDED" else int(max_occurrences)
             )
         # note: ok if multiple requirements with same name on the template, then occurrences should be on type
         entity._reqs[name] = upper
-        match_type = not on_type_only or required
+        match_type = req_dict.get("node_filter") or not on_type_only
         field, found_restrictions = get_req_terms(
             node_template, types, topology_template, name, req_dict, match_type
         )
@@ -517,7 +515,9 @@ def get_req_terms(
         return None, False
 
 
-def solve_topology(topology_template: TopologyTemplate, resolve_select=None) -> Solution:
+def solve_topology(
+    topology_template: TopologyTemplate, resolve_select=None
+) -> Solution:
     if not topology_template.node_templates:
         return {}
     types: Dict[str, List[str]] = {}
@@ -536,6 +536,7 @@ def solve_topology(topology_template: TopologyTemplate, resolve_select=None) -> 
     logger.debug(
         f"Solver found {len(solved)} requirements match{'es' if len(solved) != 1 else ''} for {len(nodes)} Node template{'s' if len(nodes) != 1 else ''}."
     )
+    # print("SOLVED", solved)
     for (source_name, req), targets in solved.items():
         source: NodeTemplate = topology_template.node_templates[source_name]
         target_nodes = [
