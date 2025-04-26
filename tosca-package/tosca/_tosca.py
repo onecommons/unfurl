@@ -179,6 +179,7 @@ class ToscaObject:
 
     @classmethod
     def _resolve_class(cls, _type) -> type:
+        """Resolve a type annotation object to a Python type"""
         origin = get_origin(_type)
         if origin:
             if origin is Union:  # also true if origin is Optional
@@ -203,30 +204,38 @@ class ToscaObject:
 
     @classmethod
     def _lookup_class(cls, qname: str) -> type:
+        """Look up a class by its fully-qualified name in the scope of the current class"""
         names = qname.split(".")
+        # find the root of the qname
         name = names.pop(0)
         if cls._globals:
-            globals = cls._globals
+            _globals = cls._globals
         else:
-            globals = {}
-        # global_state.modules get priority
-        if cls.__module__ in global_state.modules:
-            mod_globals = global_state.modules[cls.__module__].__dict__
-        elif cls.__module__ in sys.modules and cls.__module__ != "builtins":
-            mod_globals = sys.modules[cls.__module__].__dict__
-        else:
-            mod_globals = {}
-        locals = cls._namespace or {}
-        obj = locals.get(name, globals.get(name, mod_globals.get(name)))
+            _globals = {}
+        _locals = cls._namespace or {}
+        obj = _locals.get(name, _globals.get(name))
+        modules = global_state.modules if global_state.safe_mode else sys.modules
+        if obj is None:
+            # handle the cases where we hackily import and alias submodules 
+            # in order to mirror tosca type names
+            _module_name = cls.__module__
+            if _module_name == "tosca.builtin_types":
+                _module_name = "tosca"
+            elif _module_name == "unfurl.tosca_plugins.tosca_ext":
+                _module_name = "unfurl"
+            if _module_name != "builtins" and _module_name in modules:
+                obj = getattr(modules[_module_name], name, None)
         if obj is None:
             if name == cls.__name__:
                 obj = cls
-            elif name in sys.modules:
+            elif name in modules:
                 if not names:
                     raise TypeError(f"{qname} is a module, not a class")
-                obj = sys.modules[name]
+                obj = modules[name]
             else:
-                raise NameError(f"{qname} not found in {cls.__name__}'s scope")
+                raise NameError(
+                    f"{name} of {qname} not found in {cls.__name__}'s scope"
+                )
         while names:
             name = names.pop(0)
             ns = obj
