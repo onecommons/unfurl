@@ -216,7 +216,9 @@ def section2typename(section: str) -> str:
         return string.capwords(name)
 
 
-Scope = Dict[str, Tuple[str, Union[None, Type[_tosca.ToscaType], Type[_tosca.ValueType]]]]
+Scope = Dict[
+    str, Tuple[str, Union[None, Type[_tosca.ToscaType], Type[_tosca.ValueType]]]
+]
 
 
 class Imports:
@@ -224,7 +226,7 @@ class Imports:
         self._imports: Scope = {}
         self.prelude_prelude: str = "import unfurl" if unfurl_prelude else ""
         self._import_statements: Set[str] = set()
-        self.declared: List[str] = []
+        self.declared: List[str] = []  # XXX should have names from prelude_prelude
         self._all: List[str] = []
         self.from_tosca: Set[str] = set()
         self._globals: Dict[str, Any] = {}
@@ -274,13 +276,20 @@ class Imports:
                         self._globals[name] = ref
                 # otherwise skip aliases
 
+    def add_imports(self, basename: str, namespace: Mapping[str, Any]):
+        if basename:
+            self.declared.append(basename)
+        else:  # from X import *
+            self.declared.extend(namespace.keys())
+        self._add_imports(basename, namespace)
+
     def _set_builtin_imports(self):
         # unfurl's builtin types' import specifier matches tosca name
         # so add those as imports here so we don't try convert the full tosca name to python identifiers
         try:
             from . import builtin_types
 
-            self._add_imports("tosca", builtin_types.__dict__)
+            self.add_imports("tosca", builtin_types.__dict__)
         except ImportError:
             pass
 
@@ -290,7 +299,7 @@ class Imports:
         try:
             from unfurl.tosca_plugins import tosca_ext
 
-            self._add_imports("unfurl", tosca_ext.__dict__)
+            self.add_imports("unfurl", tosca_ext.__dict__)
         except ImportError:
             pass
 
@@ -316,6 +325,7 @@ class Imports:
 
     def add_import(self, module: str):
         self._import_statements.add(module)
+        self.declared.append(module)
 
     def get_local_ref(self, tosca_name) -> str:
         qname, ref = self._imports.get(tosca_name, ("", None))
@@ -331,7 +341,7 @@ class Imports:
             # qname in namespace, import it
             if len(parts) > 1 and parts[0] not in ["tosca", "unfurl"]:  # in prelude
                 # just support one level of import for now
-                self._import_statements.add(parts[0])
+                self.add_import(parts[0])
         return qname, ref
 
 
@@ -772,7 +782,11 @@ class Convert:
                 # its a tosca datatype
                 typename, cls = self.imports.get_type_ref(datatype)
                 if typename and cls:
-                    assert cls and issubclass(cls, _tosca._BaseDataType), (cls, datatype, typename)
+                    assert cls and issubclass(cls, _tosca._BaseDataType), (
+                        cls,
+                        datatype,
+                        typename,
+                    )
                     dt = cls.get_tosca_datatype()
                 else:
                     # hasn't been imported yet, must be declared in this file
@@ -788,7 +802,9 @@ class Convert:
                         "expected a dict value for %s, got: %s", datatype, value
                     )
                     return str(value), False
-                assert cls is None or issubclass(cls, _tosca._BaseDataType)  # not a ValueType
+                assert cls is None or issubclass(
+                    cls, _tosca._BaseDataType
+                )  # not a ValueType
                 return self.convert_datatype_value(typename, cls, dt, value), True  # type: ignore
 
     def _constraint_args(self, c) -> str:
@@ -1135,7 +1151,7 @@ class Convert:
             List[OperationDef], EntityTemplate._create_interfaces(nodetype, template)
         ):
             # XXX this will have skipped not_implemented operations but they need to be converted too
-            if op.interfacetype != "Mock": # XXX handle Mock
+            if op.interfacetype != "Mock":  # XXX handle Mock
                 op_id = (op.interfacename, op.name)
                 if op_id in declared_ops and op_id not in default_ops:
                     name, op_src = self.operation2func(
@@ -1538,7 +1554,10 @@ class Convert:
         values: Dict[str, Any],
         indent="",
     ) -> str:
-        typename, cls = cast(Tuple[str, Type[_tosca.CapabilityEntity]], self.imports.get_type_ref(capability_type.type))
+        typename, cls = cast(
+            Tuple[str, Type[_tosca.CapabilityEntity]],
+            self.imports.get_type_ref(capability_type.type),
+        )
         src = f"{indent}{typename}("
         prop_defs = capability_type.get_properties_def()
         init_list, skipped = self._get_prop_init_list(values, prop_defs, cls, indent)
@@ -2086,7 +2105,7 @@ def convert_service_template(
             package = converter.get_package_name()
             try:
                 module = importlib.import_module(module_name, package)
-                imports._add_imports(ns, module.__dict__)
+                imports.add_imports(ns, module.__dict__)
             except:
                 if module_name[0] == ".":
                     logger.error(
