@@ -9,9 +9,10 @@ from unfurl.yamlmanifest import YamlManifest, save_task
 from unfurl.job import Runner, run_job, JobOptions
 from tosca.python2yaml import PythonToYaml, python_src_to_yaml_obj
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
+from unfurl.util import API_VERSION
 
-ensemble = """
-apiVersion: unfurl/v1alpha1
+ensemble = f"""
+apiVersion: {API_VERSION}
 kind: Ensemble
 spec:
   service_template:
@@ -134,7 +135,7 @@ def test_target_and_intent():
 
 
 collection_ensemble = """
-apiVersion: unfurl/v1alpha1
+apiVersion: %s
 kind: Ensemble
 spec:
   service_template:
@@ -164,7 +165,7 @@ spec:
                       done:
                         status: ok
 changes: []
-"""
+""" % API_VERSION
 
 
 def test_collection_artifact():
@@ -218,7 +219,7 @@ def get_manifest_tpl(python_src):
     py_tpl = _to_yaml(python_src)
     print( py_tpl )
     manifest_tpl = dict(
-            apiVersion="unfurl/v1alpha1",
+            apiVersion=API_VERSION,
             kind="Ensemble",
             spec=dict(service_template=py_tpl),
         )

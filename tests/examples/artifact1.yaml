@@ -1,5 +1,5 @@
 kind: Ensemble
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 spec:
   service_template:
     tosca_definitions_version: tosca_simple_unfurl_1_0_0

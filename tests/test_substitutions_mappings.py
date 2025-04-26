@@ -24,7 +24,7 @@ from .utils import init_project, run_job_cmd, run_cmd
 #      omit children that shadow outer template
 
 ensemble = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
@@ -168,7 +168,7 @@ topology_template:
 )
 
 ensemble_template_dsl = """\
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 spec:
   service_template:
     # Declare your TOSCA types and topology here.
@@ -324,7 +324,9 @@ def test_substitution_with_type():
 
 def test_substitution_with_node():
     cli_runner = CliRunner()
-    with cli_runner.isolated_filesystem():
+    tmp_base = os.getenv("UNFURL_TEST_TMPDIR")
+    with cli_runner.isolated_filesystem(tmp_base) as tmp:
+        print(tmp)
         init_project(
             cli_runner,
             args=["init", "--mono", "--skeleton=aws"],
@@ -470,7 +472,7 @@ topology_template:
 """
 
 replaceholder_ensemble = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
@@ -580,7 +582,7 @@ def test_substitution_plan():
 
 
 attribute_access_ensemble = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
