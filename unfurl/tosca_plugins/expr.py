@@ -83,7 +83,7 @@ if TYPE_CHECKING or not safe_mode():
     )
     from ..yamlloader import cleartext_yaml
     from ..projectpaths import FilePath, TempFile, _abspath
-    from tosca.yaml2python import has_function
+    from tosca import has_function
 
     def get_context(obj: ToscaType, kw: Optional[Dict[str, Any]] = None) -> RefContext:
         if isinstance(obj, InstanceProxyBase) and obj._context:
@@ -518,7 +518,7 @@ def template(
     overrides: Optional[Dict[str, str]] = None,
 ) -> Any:
     if path:
-        args: Any = dict(path=path)
+        args: Any = dict(path=str(path))
     else:
         args = contents
     if global_state_mode() == "runtime":

@@ -48,7 +48,7 @@ if safe_mode():
 
         return cast(F, wrapped)
 else:
-    from tosca.yaml2python import has_function
+    from tosca import has_function
     from ..eval import map_value, set_eval_func
 
     def eval_func(func: F) -> F:

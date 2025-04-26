@@ -24,7 +24,7 @@ import hashlib
 import re
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText
 from ruamel.yaml.scalarstring import ScalarString, DoubleQuotedScalarString
-from tosca.yaml2python import has_function
+from tosca import has_function
 from toscaparser.common.exception import ValidationError
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.properties import Property

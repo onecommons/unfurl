@@ -15,7 +15,7 @@ from .tosca_solver import (  # type: ignore
     QueryType,
 )
 from tosca import EvalData
-from tosca.yaml2python import has_function
+from tosca import has_function
 from toscaparser.elements.relationshiptype import RelationshipType
 from toscaparser.elements.scalarunit import get_scalarunit_class, ScalarUnit
 from toscaparser.elements.constraints import Schema, Constraint as ToscaConstraint

@@ -392,6 +392,7 @@ __all__ = [
     "greater_or_equal",
     "greater_than",
     "h",
+    "has_function",
     "hz",
     "in_range",
     "kB",

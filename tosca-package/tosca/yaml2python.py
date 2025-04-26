@@ -38,7 +38,6 @@ from typing import (
 )
 
 from toscaparser.artifacts import Artifact
-from toscaparser import functions
 from toscaparser.imports import is_url, normalize_path
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.elements.relationshiptype import RelationshipType
@@ -57,8 +56,7 @@ from toscaparser.elements.artifacttype import ArtifactTypeDef
 from toscaparser.elements.constraints import constraint_mapping, Schema
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from keyword import iskeyword
-import collections.abc
-from . import WritePolicy, _tosca, ToscaFieldType, loader, __all__, EvalData
+from . import WritePolicy, _tosca, ToscaFieldType, has_function, loader, __all__
 import black
 import black.mode
 import black.report
@@ -125,22 +123,6 @@ def _make_typedef(
         else:
             return test_typedef
     return typedef
-
-
-def has_function(obj: object, seen=None) -> bool:
-    if seen is None:
-        seen = set()
-    if id(obj) in seen:
-        return False
-    else:
-        seen.add(id(obj))
-    if isinstance(obj, EvalData) or functions.is_function(obj):
-        return True
-    elif isinstance(obj, collections.abc.Mapping):
-        return any(has_function(i, seen) for i in obj.values())
-    elif isinstance(obj, (collections.abc.MutableSequence, tuple)):
-        return any(has_function(i, seen) for i in obj)
-    return False
 
 
 def value2python_repr(value, quote=False, imports: Optional["Imports"] = None) -> str:

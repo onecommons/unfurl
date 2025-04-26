@@ -1302,11 +1302,27 @@ class _GetName:
         self.obj = obj
 
     def __str__(self) -> str:
-        if self.obj._type_name in ("inputs", "outputs"):
+        if self.obj._type_name in _TopologyParameter.type_names:
             return f"root::{self.obj._type_name}"
         if isinstance(self.obj, _OwnedToscaType):
-            return self.obj.get_embedded_name() or self.obj._name
-        return self.obj._name
+            return self.obj.get_embedded_name() or self.obj._name or "???"
+        return self.obj._name or "???"
+
+
+def has_function(obj: object, seen=None) -> bool:
+    if seen is None:
+        seen = set()
+    if id(obj) in seen:
+        return False
+    else:
+        seen.add(id(obj))
+    if isinstance(obj, EvalData) or functions.is_function(obj):
+        return True
+    elif isinstance(obj, collections.abc.Mapping):
+        return any(has_function(i, seen) for i in obj.values())
+    elif isinstance(obj, (collections.abc.MutableSequence, tuple)):
+        return any(has_function(i, seen) for i in obj)
+    return False
 
 
 class EvalData:
@@ -1377,7 +1393,7 @@ class EvalData:
                 return new
         return self
 
-    def __getattr__(self, key) -> Self:
+    def __getattr__(self, key) -> Optional["EvalData"]:
         if key.startswith("__"):
             raise AttributeError(key)
         new = self._project(key)
@@ -1386,6 +1402,12 @@ class EvalData:
         return new
 
     def __getitem__(self, key) -> Self:
+        if isinstance(self._expr, (dict, list)) and "eval" not in self._expr:
+            # data with embedded expression, only return a EvalData if the resolved item has an expression
+            val = self._expr[key]
+            if has_function(val):
+                return EvalData(val)  # type: ignore
+            return val
         new = self._project(key)
         if not new:
             raise KeyError(key)
@@ -1538,7 +1560,7 @@ class FieldProjection(EvalData):
         self.field = field
         self.parent = parent
 
-    def __getattr__(self, name):
+    def __getattr__(self, name) -> Optional["EvalData"]:
         if name.startswith("__"):
             raise AttributeError(name)
         if name in ["_name", "tosa_name"]:
@@ -1555,7 +1577,7 @@ class FieldProjection(EvalData):
                 f'Can\'t project "{name}" from "{self}": Could not resolve {self.type}'
             )
         if not ti.types[0] or not issubclass(ti.types[0], ToscaType):
-            # we're a regular value, can't project field (raise AttributeError with a note)
+            # we're a regular value, project as EvalData
             return super().__getattr__(name)
         cls = ti.types[0]
         if global_state._type_proxy:
@@ -1570,13 +1592,6 @@ class FieldProjection(EvalData):
             raise AttributeError(f"{cls} has no field '{name}'")
         return FieldProjection(field, self)
 
-    def __getitem__(self, key) -> "FieldProjection":
-        new = self._project(key)
-        if not new:
-            raise KeyError(key)
-        indexed = FieldProjection(self.field, self.parent)
-        indexed._expr = new._expr
-        return indexed
 
     def get_requirement_filter(self, tosca_name: str):
         """
@@ -1927,10 +1942,10 @@ class _FieldDescriptor:
             projection = FieldProjection(self.field, None)
             # XXX add validation key to eval to assert one result only
             if issubclass(obj_type, ToscaType):
-                if obj_type._type_name == "inputs":
+                if obj_type._type_name == TopologyInputs._type_name:
                     projection._expr = dict(get_input=self.field.tosca_name)
                 else:
-                    if obj_type._type_name == "outputs":
+                    if obj_type._type_name == TopologyOutputs._type_name:
                         selector = "root::outputs"
                     else:
                         selector = f"[.type={obj_type.tosca_type_name()}]"
@@ -2688,6 +2703,11 @@ class _TopologyParameter(ToscaType):
             item = field.to_yaml(converter)
             body.update(item)
         return {cls._type_name: body}
+
+    type_names = (
+        "inputs",
+        "outputs",
+    )
 
 
 class TopologyInputs(_TopologyParameter):
