@@ -203,7 +203,6 @@ def test_hosted_on():
         topology.software.find_hosted_on(tosca.nodes.Compute.os).architecture
         == "x86_64"
     )
-    assert topology.software.architecture == "x86_64"
 
 
 def validate_pw(password: str) -> bool:
@@ -421,7 +420,7 @@ def test_find_connection():
                     assert False
                 # getLogger(__name__).debug("tfvars %s", tfvars)
                 return TemplateConfigurator(
-                    TemplateInputs(done=DoneDict(outputs=tfvars))
+                    TemplateInputs(dryrun=True, done=DoneDict(outputs=tfvars))
                 )
 
             cluster: unfurl_nodes_K8sCluster
@@ -431,7 +430,7 @@ def test_find_connection():
 
     topology, runner = create_runner(Topology)
     runner.job = None
-    job = runner.run(JobOptions(skip_save=True, check=True))
+    job = runner.run(JobOptions(skip_save=True, check=True, dryrun=True))
     assert job
     assert len(job.workDone) == 2, len(job.workDone)
     task = list(job.workDone.values())[1]

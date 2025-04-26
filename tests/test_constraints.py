@@ -112,8 +112,6 @@ def test_constraints(caplog):
             "requirements": [
                 {
                     "hosting": {
-                        "node": "ContainerService",
-                        "!namespace-node": "github.com/onecommons/unfurl.git/tests/examples:constraints-ensemble",
                         "node_filter": {"match": [{"eval": "backend_url"}]},
                     }
                 }

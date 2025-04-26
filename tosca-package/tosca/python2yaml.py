@@ -161,8 +161,8 @@ class PythonToYaml:
                                 if ti.types[0].__name__ not in self.globals:
                                     self._add_type(ti.types[0], types_used)
                 for module_name, classes in types_used.items():
-                    self.globals["__name__"] = module_name
-                    self._namespace2yaml(classes)
+                    if module_name == self.globals["__name__"]:
+                        self._namespace2yaml(classes)
         finally:
             global_state.mode = mode
         self.add_repositories_and_imports()
@@ -233,7 +233,9 @@ class PythonToYaml:
         self, req: dict, field: _Tosca_Field, value, default_node_name: str
     ):
         node = None
-        if isinstance(value, Node):
+        if value is None:
+            req["node"] = None   # explicitly set empty
+        elif isinstance(value, Node):
             node = value
         elif isinstance(value, CapabilityType):
             if value._local_name:
@@ -487,7 +489,7 @@ class PythonToYaml:
         # XXX version
         dict_cls = self.yaml_cls
         body: Dict[str, Any] = dict_cls()
-        super_fields = self.set_bases(cls, body)
+        self.set_bases(cls, body)
         tosca_name = cls.tosca_type_name()
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
@@ -499,7 +501,7 @@ class PythonToYaml:
             assert field.name, field
             if f_cls._docstrings:
                 field.description = f_cls._docstrings.get(field.name)
-            item = field.to_yaml(self, super_fields.get(field.name))
+            item = field.to_yaml(self)
             if item:
                 if field.section == "requirements":
                     body.setdefault("requirements", []).append(item)

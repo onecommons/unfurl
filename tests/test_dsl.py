@@ -2,7 +2,7 @@ import dataclasses
 import inspect
 import os
 import time
-from typing import Optional, Dict, Sequence
+from typing import List, Optional, Dict, Sequence
 import unittest
 from unittest.mock import MagicMock, patch
 import pytest
@@ -508,12 +508,12 @@ def test_example_template():
     assert src_tpl == tosca_tpl2
     tosca_tpl3 = _to_yaml(example_operation_on_template_python, False)
     wordpress_db = tosca_tpl3["topology_template"]["node_templates"]["wordpress_db"]
-    assert wordpress_db["artifacts"] == {
+    assert wordpress_db.get("artifacts") == {
         "db_content": {
             "type": "tosca.artifacts.File",
             "file": "files/wordpress_db_content.txt",
         }
-    }
+    }, yaml.dump(tosca_tpl3, sys.stdout) or "unexpected yaml, see stdout"
     assert wordpress_db["interfaces"] == {
         "Standard": {
             "operations": {
@@ -528,7 +528,7 @@ def test_example_template():
                 }
             },
         }
-    }
+    }, yaml.dump(tosca_tpl3, sys.stdout) or "unexpected yaml, see stdout"
 
 
 custom_interface_python = """
@@ -714,9 +714,17 @@ def test_bad_field():
 
 def test_class_init() -> None:
     class Example(tosca.nodes.Root):
-        shellScript: tosca.artifacts.Root = tosca.CONSTRAINED
-        prop1: Optional[str] = tosca.CONSTRAINED
+        shellScript: tosca.artifacts.Root = (
+            tosca.CONSTRAINED
+        )  # set in _class_init, _post_init raise error if still CONSTRAINED
+        prop1: Optional[str] = (
+            tosca.CONSTRAINED
+        )  # set in _class_init, _post_init raise error if still CONSTRAINED
+        # CONSTRAINED requirements are shared on type; if not set or constrained in _class_init, defaults to type constrain (set on the template's requirement)
         host: tosca.nodes.Compute = tosca.CONSTRAINED
+        host2: tosca.nodes.Compute = (
+            tosca.DEFAULT
+        )  # new template created for each instance
         self_reference: "Example" = tosca.CONSTRAINED
         prop2: Optional[str] = None
         prop3: str = tosca.DEFAULT
@@ -731,6 +739,8 @@ def test_class_init() -> None:
                 cls.host.host = cls.host.host
             assert '"host" is a capability, not a TOSCA property' in str(e_info1)
 
+            # set host requirement but the node_filter set above still applies,
+            # (acting as a validation check on the node)
             cls.host = tosca.nodes.Compute("my_compute")
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
@@ -747,13 +757,28 @@ def test_class_init() -> None:
     my_template = Example("my_template")
     assert my_template._name == "my_template"
     assert my_template.prop1 == {"eval": "::my_template::prop1"}
+
+    my_template2 = Example()
+    with pytest.raises(
+        ValueError,
+        match='"host" is a type constraint, can not be modified by individual templates',
+    ):
+        # template returns field projection if CONSTRAINED and its __setattr__ raises ValueError
+        my_template2.host.public_address = (
+            "1.1.1.1"  # instance modifying a constrained field is error
+        )
+
+    my_template3 = Example()
+    my_template3.host = tosca.nodes.Compute()  # override class constraint
+    # template returns the assigned node, not a field projection, so it's ok to modify
+    my_template3.host.public_address = "1.1.1.1"  # ok
+
     tosca.global_state.mode = (
         "runtime"  # test to make sure converter sets this back to spec
     )
     __name__ = "tests.test_dsl"
     converter = PythonToYaml(locals())
     yaml_dict = converter.module2yaml()
-    # yaml.dump(yaml_dict, sys.stdout)
     assert yaml_dict["topology_template"] == {
         "node_templates": {
             "my_compute": {
@@ -764,10 +789,61 @@ def test_class_init() -> None:
             },
             "my_template": {
                 "type": "Example",
+                "requirements": [{"host2": "my_template_host2"}],
                 "metadata": {"module": "tests.test_dsl"},
             },
+            "my_template_host2": {
+                "type": "tosca.nodes.Compute",
+                "directives": [
+                    "dependent",
+                ],
+                "metadata": {
+                    "module": "tests.test_dsl",
+                },
+            },
+            "my_template2": {
+                "type": "Example",
+                "requirements": [{"host2": "my_template2_host2"}],
+                "metadata": {"module": "tests.test_dsl"},
+            },
+            "my_template2_host2": {
+                "type": "tosca.nodes.Compute",
+                "directives": [
+                    "dependent",
+                ],
+                "metadata": {
+                    "module": "tests.test_dsl",
+                },
+            },
+            "my_template3": {
+                "type": "Example",
+                "requirements": [
+                    {"host": "my_template3_host"},
+                    {"host2": "my_template3_host2"},
+                ],
+                "metadata": {"module": "tests.test_dsl"},
+            },
+            "my_template3_host": {
+                "type": "tosca.nodes.Compute",
+                "attributes": {"public_address": "1.1.1.1"},
+                "directives": [
+                    "dependent",
+                ],
+                "metadata": {
+                    "module": "tests.test_dsl",
+                },
+            },
+            "my_template3_host2": {
+                "type": "tosca.nodes.Compute",
+                "directives": [
+                    "dependent",
+                ],
+                "metadata": {
+                    "module": "tests.test_dsl",
+                },
+            },
         }
-    }
+    }, yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
     assert yaml_dict["node_types"] == {
         "Example": {
             "derived_from": "tosca.nodes.Root",
@@ -813,6 +889,11 @@ def test_class_init() -> None:
                     },
                 },
                 {
+                    "host2": {
+                        "node": "tosca.nodes.Compute",
+                    },
+                },
+                {
                     "self_reference": {
                         "node": "Example",
                         "node_filter": {
@@ -837,7 +918,141 @@ def test_class_init() -> None:
                 }
             },
         }
-    }
+    }, yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+
+
+template_init_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    e0:
+      type: Example
+      artifacts:
+        shellScript:
+          type: tosca.artifacts.Root
+          file: example.sh
+          intent:
+            eval: ::e0::prop1::key::0
+      properties:
+        prop1:
+          not default:
+          - test
+      requirements:
+      - host: e0_host # created in _template_init
+      metadata:
+        module: tests.test_dsl
+    e0_host:
+      type: tosca.nodes.Compute
+      directives:
+      - dependent
+      metadata:
+        module: tests.test_dsl
+    e1:
+      type: Example
+      artifacts:
+        shellScript:
+          type: tosca.artifacts.Root
+          file: example.sh
+          intent:
+            eval: ::e1::prop1::key::0
+      requirements:
+      - host:  # customized requirement with constraint instead of template
+          node: tosca.nodes.Compute
+          metadata:
+            test: just some metadata but not a node
+      metadata:
+        module: tests.test_dsl
+    e2:
+      type: Example
+      artifacts:
+        shellScript:
+          type: tosca.artifacts.Root
+          file: example.sh
+          intent:
+            eval: ::e2::prop1::key::0
+      requirements:
+      - host: mm  # constructor overrode __template_init
+      metadata:
+        module: tests.test_dsl
+    mm:
+      type: tosca.nodes.Compute
+      metadata:
+        module: tests.test_dsl
+    e3:
+      type: Example
+      artifacts:
+        shellScript:
+          type: tosca.artifacts.Root
+          file: example.sh
+          intent:
+            eval: ::e3::prop1::key::0
+      # explicitly declared "host" unset but Example doesn't have a node_filter or value to unset
+      # so nothing is omitted
+      metadata:
+        module: tests.test_dsl
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    artifacts:
+      shellScript:
+        type: tosca.artifacts.Root
+    properties:
+      prop1:
+        type: map
+        entry_schema:
+          type: list
+          entry_schema:
+            type: string
+        default: {}
+    requirements:
+    - host:
+        node: tosca.nodes.Compute
+"""
+
+
+def test_template_init() -> None:
+    class Example(tosca.nodes.Root):
+        shellScript: tosca.artifacts.Root = tosca.REQUIRED  # equivalent to no default, use if _template_init will set (but you lose static type checking)
+        prop1: Dict[str, List[str]] = tosca.DEFAULT
+        host: tosca.nodes.Compute = tosca.CONSTRAINED
+
+        def _template_init(self) -> None:
+            if self.has_default("shellScript"):
+                self.shellScript = tosca.artifacts.Root(
+                    file="example.sh", intent=self.prop1["key"][0]
+                )
+            if self.has_default(self.__class__.host):
+                # XXX ensure that template names are unique per instance
+                self.host = tosca.nodes.Compute()
+
+    e0 = (
+        Example()
+    )  # ok to make without required arguments because _template_init() sets them
+    e0.prop1 = {"not default": ["test"]}
+
+    # no node, but adds a constraint:
+    e1 = Example()
+    # we want to reset this to CONSTRAINED so need to do that after init because has_default() thinks its the default
+    e1.host = tosca.Requirement(
+        default=tosca.CONSTRAINED,
+        metadata={"test": "just some metadata but not a node"},
+    )
+    e1.prop1["key"] = [
+        "test"
+    ]  # XXX changes modifying default value aren't included in yaml
+    assert e1.prop1["key"] == ["test"]
+
+    e2 = Example(host=tosca.nodes.Compute("mm"))
+    # no node and no constraint:
+    e3 = Example(host=tosca.Requirement(default=None))
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    expected = load_yaml(yaml, template_init_yaml)
+    assert yaml_dict == expected, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
 
 
 test_datatype_yaml = """
@@ -890,7 +1105,9 @@ def test_datatype():
         converter = PythonToYaml(locals())
         yaml_dict = converter.module2yaml()
         tosca_yaml = load_yaml(yaml, test_datatype_yaml)
-        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+        assert tosca_yaml == yaml_dict, (
+            yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+        )
 
 
 test_envvars_yaml = """
@@ -961,7 +1178,9 @@ def test_envvar_type():
         converter = PythonToYaml(locals())
         yaml_dict = converter.module2yaml()
         tosca_yaml = load_yaml(yaml, test_envvars_yaml)
-        assert tosca_yaml == yaml_dict, yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+        assert tosca_yaml == yaml_dict, (
+            yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+        )
 
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
 
@@ -1149,12 +1368,14 @@ repositories:
       user: a_user
 """
 
+
 def test_repository():
     src, src_tpl = _to_python(test_repository_yaml)
     parsed_yaml = _to_yaml(test_repository_python, True)
     assert src_tpl == parsed_yaml
     tosca_tpl2 = _to_yaml(src, True)
     assert tosca_tpl2 == parsed_yaml
+
 
 def test_groups_and_policies():
     class MyNode(tosca.nodes.Root):
@@ -1214,7 +1435,7 @@ node_types:
 
 def test_property_inheritance():
     python_src, parsed_yaml = _to_python(test_inheritance_yaml)
-    assert parsed_yaml == _to_yaml(python_src, True)
+    assert parsed_yaml == _to_yaml(python_src, True), python_src
 
 
 test_deploymentblueprint_yaml = """
@@ -1493,6 +1714,7 @@ node._name = "test"
         assert _to_yaml(src, True)
 
 
+@pytest.mark.skipif(not os.getenv("UNFURL_TMPDIR"), reason="UNFURL_TMPDIR not set")
 def test_write_policy():
     test_path = os.path.join(os.getenv("UNFURL_TMPDIR"), "test_generated.txt")
     src = "import unfurl\n"

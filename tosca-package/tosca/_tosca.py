@@ -216,7 +216,7 @@ class ToscaObject:
         obj = _locals.get(name, _globals.get(name))
         modules = global_state.modules if global_state.safe_mode else sys.modules
         if obj is None:
-            # handle the cases where we hackily import and alias submodules 
+            # handle the cases where we hackily import and alias submodules
             # in order to mirror tosca type names
             _module_name = cls.__module__
             if _module_name == "tosca.builtin_types":
@@ -745,7 +745,7 @@ class _REQUIRED_TYPE:
     __slots__ = ()
 
 
-REQUIRED = _REQUIRED_TYPE()
+REQUIRED: Any = _REQUIRED_TYPE()
 
 
 MISSING = dataclasses.MISSING
@@ -780,6 +780,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     node: Union[str, Type["Node"], None] = None
     node_filter: Optional[Dict[str, Any]] = None
     valid_source_types: Optional[List[str]] = None
+    super_field: Optional["_Tosca_Field"] = None
 
     def __init__(
         self,
@@ -834,10 +835,16 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         self.owner_type: Optional[Type["_ToscaType"]] = None
         self.mapping = mapping
 
+    def has_node_filter(self) -> bool:
+        return bool(
+            self.node_filter
+            or (self.super_field and self.super_field.has_node_filter())
+        )
+
     def set_constraint(self, val):
         if not global_state._in_process_class:
             # called via _class_init
-            if isinstance(val, EvalData):  # or has_function(val):
+            if isinstance(val, EvalData) or has_function(val):
                 if self.tosca_field_type in [
                     ToscaFieldType.capability,
                     ToscaFieldType.artifact,
@@ -866,14 +873,14 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
 
         # if self is a capability or artifact, name is a property on the capability or artifact
         # if self is property or attribute, name is a field on the value (which must be a datatype or map)
-        if (
-            not self.has_explicit_default_value() # and self.default_factory is MISSING
-        ) or isinstance(self.default, EvalData):
+        if (not self.has_explicit_default_value()) or isinstance(
+            self.default, EvalData
+        ):
             # there's no value to set the attribute on!
             raise AttributeError(
                 f"can not set value for {name} on {self}: property constraints require a concrete default value, not {type(self.default)}"
             )
-        elif self.default is DEFAULT: # self.default_factory is not MISSING:  # XXXNOW if we stop setting this in _class_init
+        elif self.default is DEFAULT:
             # default exists but not created until object initialization
             # so we have to set this property later
             self.deferred_property_assignments[name] = val
@@ -1057,20 +1064,19 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             factory = self.get_type_info().collection or self.get_type_info().types[0]
         return factory()
 
-
     def to_yaml(
         self,
         converter: Optional["PythonToYaml"],
-        super_field: Optional["_Tosca_Field"] = None,
+        template: Optional["ToscaType"] = None,
     ) -> dict:
         if self.tosca_field_type == ToscaFieldType.property:
             field_def = self._to_property_yaml()
         elif self.tosca_field_type == ToscaFieldType.attribute:
             field_def = self._to_attribute_yaml()
         elif self.tosca_field_type == ToscaFieldType.requirement:
-            field_def = self._to_requirement_yaml(converter, super_field)
+            field_def = self._to_requirement_yaml(converter, template)
         elif self.tosca_field_type == ToscaFieldType.capability:
-            field_def = self._to_capability_yaml(super_field)
+            field_def = self._to_capability_yaml()
         elif self.tosca_field_type == ToscaFieldType.artifact:
             field_def = self._to_artifact_yaml(converter)
         elif self.name == "_target":  # _target handled in _to_requirement_yaml
@@ -1114,10 +1120,11 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 return candidate  # type: ignore # assume it's a tosca type name
         return candidate.tosca_type_name()  # type: ignore
 
-    def _to_requirement_yaml(
-        self, converter: Optional["PythonToYaml"], super_field: Optional["_Tosca_Field"]
-    ) -> Dict[str, Any]:
-        req_def: Dict[str, Any] = yaml_cls()
+    def _add_constraints_yaml(
+        self,
+        req_def: Dict[str, Any],
+        always_include_type_constraints: bool,
+    ) -> None:
         if self.node:
             req_def["node"] = self._resolve_toscaname(self.node)
         if self.capability:
@@ -1125,41 +1132,65 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if self.relationship:
             req_def["relationship"] = self._resolve_toscaname(self.relationship)
         info = self.get_type_info_checked()
-        if not info:
-            return req_def
-        target_typeinfo = None
-        for _type in info.types:
-            if issubclass(_type, Relationship):
-                req_def["relationship"] = _type.tosca_type_name()
-                target_field = _type.__dataclass_fields__.get("_target")
-                target_typeinfo = cast(
-                    _Tosca_Field, target_field
-                ).get_type_info_checked()
-            elif issubclass(_type, CapabilityEntity):
-                req_def["capability"] = _type.tosca_type_name()
-            elif "node" not in req_def and issubclass(_type, Node):
-                req_def["node"] = _type.tosca_type_name()
-        if "node" not in req_def and target_typeinfo:
-            req_def["node"] = target_typeinfo.types[0].tosca_type_name()
+        if info and (
+            always_include_type_constraints
+            or not self.super_field
+            or self.super_field.get_type_info_checked() != info
+        ):
+            target_typeinfo = None
+            for _type in info.types:
+                if issubclass(_type, Relationship):
+                    req_def["relationship"] = _type.tosca_type_name()
+                    target_field = _type.__dataclass_fields__.get("_target")
+                    target_typeinfo = cast(
+                        _Tosca_Field, target_field
+                    ).get_type_info_checked()
+                elif issubclass(_type, CapabilityEntity):
+                    req_def["capability"] = _type.tosca_type_name()
+                elif "node" not in req_def and issubclass(_type, Node):
+                    req_def["node"] = _type.tosca_type_name()
+            if "node" not in req_def and target_typeinfo:
+                req_def["node"] = target_typeinfo.types[0].tosca_type_name()
         if self.node_filter:
             req_def["node_filter"] = to_tosca_value(self.node_filter)
+
+    def _to_requirement_yaml(
+        self,
+        converter: Optional["PythonToYaml"],
+        template: Optional["ToscaType"] = None,
+    ) -> Dict[str, Any]:
+        req_def: Dict[str, Any] = yaml_cls()
+        if template:
+            value = template.__dict__[self.name]  # skip __getattribute__
+        else:
+            value = self.default
+        self._add_constraints_yaml(
+            req_def,
+            bool(template and value is CONSTRAINED and not self.has_node_filter()),
+        )
         if converter:
-            # set node or relationship name if default value is a node or relationship template
-            if self.default not in [MISSING, CONSTRAINED]:
-                # CONSTRAINED and DEFAULT needs to be handled per template
-                default = self._get_default_value()
-                if default and default is not dataclasses.MISSING:
-                    converter.set_requirement_value(req_def, self, default, self.name)
-        if super_field:
-            default_occurrences = super_field._get_occurrences()
+            if value not in [MISSING, CONSTRAINED, REQUIRED, DEFAULT]:
+                # if value is None or () only set if we're overriding an explicit default
+                if value or (
+                    self.super_field
+                    and (
+                        (
+                            self.super_field.has_explicit_default_value()
+                            and self.super_field.default
+                        )
+                        or self.super_field.has_node_filter()
+                    )
+                ):
+                    # XXX handle when value is a sequence
+                    converter.set_requirement_value(req_def, self, value, self.name)
+        if self.super_field:
+            default_occurrences = self.super_field._get_occurrences()
         else:
             default_occurrences = [1, 1]
         self._add_occurrences(req_def, default_occurrences)
         return req_def
 
-    def _to_capability_yaml(
-        self, super_field: Optional["_Tosca_Field"]
-    ) -> Dict[str, Any]:
+    def _to_capability_yaml(self) -> Dict[str, Any]:
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
@@ -1167,8 +1198,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         _type = info.types[0]
         assert issubclass(_type, _ToscaType), (self, _type)
         cap_def: dict = yaml_cls(type=_type.tosca_type_name())
-        if super_field:
-            default_occurrences = super_field._get_occurrences()
+        if self.super_field:
+            default_occurrences = self.super_field._get_occurrences()
         else:
             default_occurrences = [1, 1]
         self._add_occurrences(cap_def, default_occurrences)
@@ -1178,12 +1209,12 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         return cap_def
 
     def _get_default_value(self):
-        if self.default_factory and self.default_factory is not dataclasses.MISSING:
-            return self.default_factory()
-        elif self.default == DEFAULT:
+        if self.default == DEFAULT:
             return self._get_default_from_factory()
         elif self.default not in [MISSING, REQUIRED, CONSTRAINED]:
             return self.default
+        if self.default_factory and self.default_factory is not dataclasses.MISSING:
+            return self.default_factory()
         else:
             return dataclasses.MISSING
 
@@ -1275,13 +1306,14 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     def infer_field(owner_class, name, value):
         if isinstance(value, _Tosca_Field):
             value.name = name
-            if (
-                not value.type
-                and value.default
-                and value.has_explicit_default_value()
-                and not isinstance(value.default, (EvalData, _TemplateRef))
-            ):
-                value.type = type(value.default)
+            if not value.type:
+                # try to deduce type
+                if value.has_explicit_default_value() and not isinstance(
+                    value.default, (EvalData, _TemplateRef)
+                ):
+                    value.type = type(value.default)
+                elif isinstance(value._default_factory, type):  # its a ctor
+                    value.type = value._default_factory
             return value
         field = _Tosca_Field[_T](None, owner=owner_class, default=value)
         field.name = name
@@ -1550,15 +1582,21 @@ class FieldProjection(EvalData):
 
     # created by _DataclassTypeProxy, invoked via _class_init
 
-    def __init__(self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None):
+    def __init__(
+        self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None, obj=None
+    ):
         # currently don't support projections that are requirements
         expr = field.as_ref_expr()
         if parent and isinstance(parent.expr, dict) and "eval" in parent.expr:
             # XXX map to tosca name but we can't do this now because it might be too early to resolve the attribute's type
             expr = parent.expr["eval"] + "::" + expr
-        super().__init__(dict(eval=expr))
+        if obj:
+            super().__init__(None, ["", _GetName(obj), expr])
+        else:
+            super().__init__(dict(eval=expr))
         self.field = field
         self.parent = parent
+        self.obj = obj
 
     def __getattr__(self, name) -> Optional["EvalData"]:
         if name.startswith("__"):
@@ -1567,7 +1605,6 @@ class FieldProjection(EvalData):
             return self._project(".name")
         # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
-        field = object.__getattribute__(self, "field")
         try:
             ti = self.field.get_type_info()
         except NameError:
@@ -1592,6 +1629,36 @@ class FieldProjection(EvalData):
             raise AttributeError(f"{cls} has no field '{name}'")
         return FieldProjection(field, self)
 
+    def __setattr__(self, name, val):
+        if name in [
+            "_expr",
+            "_path",
+            "_foreach",
+            "field",
+            "parent",
+            "tosca_name",
+            "obj",
+        ]:
+            object.__setattr__(self, name, val)
+            return
+
+        if self.obj:
+            raise ValueError(
+                f'"{self.field.name}" is a type constraint, can not be modified by individual templates'
+            )
+
+        if self.parent:
+            if self.parent.field.tosca_field_type == ToscaFieldType.requirement:
+                self.set_requirement_constraint(val, name, None)
+            else:
+                raise ValueError(
+                    f"Can't set {name} on {self}: Only one level of field projection currently supported"
+                )
+        else:
+            self.field.set_property_constraint(name, val)
+
+    def __delattr__(self, name):
+        raise AttributeError(name)
 
     def get_requirement_filter(self, tosca_name: str):
         """
@@ -1622,24 +1689,6 @@ class FieldProjection(EvalData):
     @property
     def tosca_name(self):
         return self.field.tosca_name
-
-    def __setattr__(self, name, val):
-        if name in ["_expr", "_path", "_foreach", "field", "parent", "tosca_name"]:
-            object.__setattr__(self, name, val)
-            return
-
-        if self.parent:
-            if self.parent.field.tosca_field_type == ToscaFieldType.requirement:
-                self.set_requirement_constraint(val, name, None)
-            else:
-                raise ValueError(
-                    f"Can't set {name} on {self}: Only one level of field projection currently supported"
-                )
-        else:
-            self.field.set_property_constraint(name, val)
-
-    def __delattr__(self, name):
-        raise AttributeError(name)
 
     def set_requirement_constraint(self, val, name, capability):
         assert self.field.tosca_field_type == ToscaFieldType.requirement
@@ -1736,6 +1785,14 @@ def is_data_field(obj) -> bool:
     )
 
 
+def _find_base_field(cls: type, name: str) -> Optional[_Tosca_Field]:
+    for base in cls.__bases__:
+        base_field = getattr(base, "__dataclass_fields__", {}).get(name)
+        if isinstance(base_field, _Tosca_Field):
+            return base_field
+    return None
+
+
 def _make_dataclass(cls):
     kw = dict(
         init=True,
@@ -1765,13 +1822,9 @@ def _make_dataclass(cls):
                 if name[0] != "_" or name in ["_target", "_targets", "_members"]:
                     field = None
                     default = getattr(cls, name, REQUIRED)
+                    base_field = _find_base_field(cls, name)
                     if not isinstance(default, dataclasses.Field):
-                        base_field = cls.__dataclass_fields__.get(name)
-                        if default == CONSTRAINED and name not in cls.__dict__:
-                            # the base class set this, set to None here to avoid conversion errors
-                            # if this class doesn't set a constraint
-                            default = None
-                        if isinstance(base_field, _Tosca_Field):
+                        if base_field:
                             field = _Tosca_Field(
                                 base_field._tosca_field_type,
                                 default,
@@ -1793,6 +1846,7 @@ def _make_dataclass(cls):
                     if field:
                         field.name = name
                         field.type = annotation
+                        field.super_field = base_field
                         cls._post_field_init(field)
         else:
             annotations = {}
@@ -1802,12 +1856,10 @@ def _make_dataclass(cls):
         ):  # if class is in a different module than this file
             for name, value in cls.__dict__.items():
                 if name[0] != "_" and name not in annotations and is_data_field(value):
-                    base_field = cls.__dataclass_fields__.get(name)
+                    base_field = _find_base_field(cls, name)
                     if base_field:
                         field = _Tosca_Field(
-                            getattr(
-                                base_field, "_tosca_field_type", ToscaFieldType.property
-                            ),
+                            base_field._tosca_field_type,
                             value,
                             owner=cls,
                         )
@@ -1818,6 +1870,7 @@ def _make_dataclass(cls):
                         field = _Tosca_Field.infer_field(cls, name, value)
                     if field:
                         annotations[name] = field.type
+                        field.super_field = base_field
                         cls._post_field_init(field)
                         setattr(cls, name, field)
 
@@ -1999,7 +2052,9 @@ def field(
 class _ToscaType(ToscaObject, metaclass=_DataclassType):
     # we need this intermediate type because the base class with the @dataclass_transform can't specify fields
     # NB: _name needs to come first for python < 3.10, so we can't set any non-classvars here
-    explicit_tosca_fields = _Tosca_Fields_Getter()  # list of _ToscaFields
+    explicit_tosca_fields = (
+        _Tosca_Fields_Getter()
+    )  # list of _ToscaFields explicitly declared on the class or object (not inherited)
 
     # see RestrictedPython/Guards.py
     _guarded_writes: ClassVar[bool] = True
@@ -2010,6 +2065,10 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     # section_name => Map((module_name, template_name) => instance)
     _all_templates: ClassVar[Dict[str, Dict[Tuple[str, str], "_ToscaType"]]] = {}
     _metadata_key: ClassVar[str] = ""
+    _instance_fields: Dict[str, _Tosca_Field] = dataclasses.field(
+        default_factory=dict, init=False
+    )
+    _initialized: bool = dataclasses.field(default=False, init=False)
 
     @classmethod
     def register_type(cls, type_name):
@@ -2032,42 +2091,51 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
         return field
 
-    if not typing.TYPE_CHECKING:
+    def __setattr__(self, name: str, value: Any) -> None:
+        # XXX enable after working around internal attributes being set
+        # if (
+        #     global_state.mode == "runtime"
+        #     and getattr(self, '_initialized', False)
+        #     and __name != "_instance_fields"
+        # ):
+        #     # in runtime mode, the proxy will set the attribute on the instance, so this shouldn't happen
+        #     raise dataclasses.FrozenInstanceError(
+        #         f"Templates can not be modified at runtime ({__name})."
+        #     )
+        if name[0] != "_":
+            if isinstance(value, _Tosca_Field):
+                value = self._set_instance_field(name, value)
+                value.name = name
+                value.owner = self.__class__
+                if value.default is DEFAULT:
+                    value = value._get_default_from_factory()
+                else:
+                    value = value.default
+            elif self._initialized:
+                field = self.get_instance_field(name)
+                if isinstance(field, _Tosca_Field):
+                    if self._set_value(field, value, name):
+                        return
+                else:
+                    if self._set_value(None, value, name):
+                        return
+        return super().__setattr__(name, value)
 
-        def __getattribute__(self, name: str):
-            # the only times we want the actual value of a tosca field returned
-            # is during yaml generation or directly executing a plan
-            # but when constructing a topology return absolute Refs to fields instead
-            if global_state._in_process_class:
-                expr = _field_as_eval(self, name, False)
-                if expr:
-                    return expr
-            elif global_state._type_proxy:
-                proxied = global_state._type_proxy.handleattr(self, name)
-                if proxied is not MISSING:  # not handled
-                    return proxied
-            val = object.__getattribute__(self, name)
-            if global_state.mode == "parse" or global_state.mode == "spec":
-                # return field expr if val is an expr or if field is a TOSCA attribute
-                expr = _field_as_eval(self, name, not isinstance(val, EvalData))
-                if expr:
-                    return expr
-            if isinstance(val, _ToscaType):
-                val._set_parent(self, name)
-            return val
-
-    # XXX to enable this check, need to work-around internal attributes are being set
-    # def __setattr__(self, __name: str, __value: Any) -> None:
-    #     if (
-    #         global_state.mode == "runtime"
-    #         and getattr(self, '_initialized', False)
-    #         and __name != "_instance_fields"
-    #     ):
-    #         # in runtime mode, the proxy will set the attribute on the instance, so this shouldn't happen
-    #         raise dataclasses.FrozenInstanceError(
-    #             f"Templates can not be modified at runtime ({__name})."
-    #         )
-    #     return super().__setattr__(__name, __value)
+    def _set_instance_field(self, name: str, field: _Tosca_Field):
+        field = self._post_field_init(field)
+        field.name = name
+        field.owner = self.__class__
+        t_field = object.__getattribute__(self, "__dataclass_fields__").get(name)
+        field.super_field = t_field
+        if not field.type:
+            if t_field:  # replacing a class field
+                field.type = t_field.type
+            else:
+                _Tosca_Field.infer_field(
+                    field.owner, name, field
+                )  # tries to deduce type
+        self._instance_fields[name] = field
+        return field
 
     def __delattr__(self, __name: str) -> None:
         if global_state.mode == "runtime" and getattr(self, "_initialized", False):
@@ -2076,6 +2144,107 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 f"Templates can not be modified at runtime."
             )
         return super().__delattr__(__name)
+
+    def _enforce_required_fields(self) -> bool:
+        return global_state._enforce_required_fields
+
+    def has_default(self, name: Any) -> bool:
+        """Return True if the attribute has its default value or hasn't been set at all.
+
+        Args:
+            name (str | FieldProjection): Either the name of the field, or for a more type safety, a reference to the field (e.g. ``MyType.my_prop``).
+        """
+        field, name = _get_field_from_prop_ref(name)
+        if field is None:
+            return True  # not even set apparently
+        val = object.__getattribute__(self, name)
+        # this works because _ToscaField.__init__ sets field.default to DEFAULT if field.default_factory is set
+        return val is field.default
+
+    def _template_init(self) -> None:
+        """Initialize the template.
+
+        You can check if a field wasn't set to its default value by calling ``has_default``.
+        If a field hasn't been initialized yet, (e.g. set to DEFAULT or CONSTRAINED)
+        or if the field is a attribute (their values are set at runtime) field access will resolve to an `EvalData` expression that evaluates to the field.
+
+        .. code-block:: python
+
+            self.has_default("my_prop")
+
+            # or (better, enables static type checking)
+
+            self.has_default(self.__class__.my_prop)
+        """
+
+    def __post_init__(self) -> None:
+        self._template_init()  # user hook to initialize the template
+
+        # internal bookkeeping:
+        self._defaults: Dict[str, Any] = {}
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        if self._instance_fields:
+            fields = dict(fields, **self._instance_fields)
+        for field in fields.values():
+            if field.name[0] == "_":
+                continue
+            val = object.__getattribute__(self, field.name)
+            if not isinstance(field, _Tosca_Field):
+                self._set_value(None, val, field.name)
+                continue
+            if (
+                (val is REQUIRED or val is MISSING)
+                and field._tosca_field_type != ToscaFieldType.attribute
+                and not field.declare_attribute
+            ):
+                if self._enforce_required_fields():
+                    # on Python < 3.10 we set this to workaround the lack of keyword only fields
+                    raise ValueError(
+                        f'Keyword argument was missing: {field.name} on "{self}".'
+                    )
+                else:
+                    setattr(self, field.name, None)
+            else:  # update if it wasn't initialize or set by _template_init()
+                self._set_value(field, val, field.name)
+        self._initialized = True
+
+    def _set_value(self, field: Optional[_Tosca_Field], val: Any, name: str) -> bool:
+        set = False
+        if not field:
+            if val in [DEFAULT, CONSTRAINED]:
+                raise ValueError(
+                    "Undeclared attribute %s can not be set to %s" % (name, val)
+                )
+        elif val is DEFAULT:
+            # we need to implement copy on write for mutable properties, attributes, capabilities and artifacts (via FieldProjection)
+            # for requirements, the object always will have their own template
+            val = field._get_default_from_factory()
+            self._defaults[name] = val
+            super().__setattr__(name, val)
+            set = True
+            # note: if val is CONSTRAINED, __getattribute__ returns a FieldProjection
+
+        if isinstance(val, _ToscaType):
+            val._set_parent(self, name)
+        elif (
+            isinstance(val, FieldProjection)
+            and isinstance(self, _OwnedToscaType)
+            and val.field.owner
+            and issubclass(val.field.owner, Node)
+        ):
+            # if a relative field projection from a node template, assume its the parent
+            val = val.set_start(".owner")
+            super().__setattr__(name, val)
+            set = True
+        return set
+
+    def get_instance_field(self, name) -> Optional[dataclasses.Field]:
+        "Return the given field for this template, including fields from directly assigned to the template."
+        field = self._instance_fields.get(name)
+        if field:
+            return field
+        else:
+            return object.__getattribute__(self, "__dataclass_fields__").get(name)
 
     @classmethod
     def _class_set_config_spec(cls, kw: dict, target) -> dict:
@@ -2089,82 +2258,52 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     _default_key: ClassVar[str] = "default"
 
-    def get_instance_fields(self) -> Dict[str, Tuple[_Tosca_Field, Any]]:
-        """Get a map of the TOSCA fields that were directly assigned on this template (not on its type).
+    def get_instance_field_values(self) -> Dict[str, Tuple[_Tosca_Field, Any]]:
+        """Get a map of the TOSCA field values that were directly assigned on this template (not on its type).
         Returns a dict of the field name to (field, value) tuples where value is the assigned value."""
-        if self._instance_fields is None:  # type: ignore
-            # only do this once and save any generated values
-            self._instance_fields = dict(self._get_instance_fields())
-        return self._instance_fields
+        return dict(self._get_instance_field_values())
 
-    def _get_instance_fields(self) -> Iterator[Tuple[str, Tuple[_Tosca_Field, Any]]]:
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        __dict__ = object.__getattribute__(self, "__dict__")
-        _defaults = object.__getattribute__(self, "_defaults")
-        for name, value in __dict__.items():
-            field = fields.get(name)
-            if isinstance(field, _Tosca_Field):
-                # don't include field if was set to the type's default value
-                if field.default is DEFAULT and value == _defaults.get(name):
-                    continue
-                if field.default == value:
-                    continue
-                t_field = field
-            else:
-                t_field = None
+    def _get_instance_field_values(
+        self,
+    ) -> Iterator[Tuple[str, Tuple[_Tosca_Field, Any]]]:
+        # Get a map of the TOSCA fields that were directly assigned on this template (not on its type).
+        class_fields = object.__getattribute__(self, "__dataclass_fields__")
+        _defaults = object.__getattribute__(self, "_defaults")  # set in __post_init__
+        for name, value in self.__dict__.items():
+            field = self._instance_fields.get(name)
+            if not field:
+                field = class_fields.get(name)
+                if field:
+                    # skip class fields if the template's value hasn't changed
+                    # except for requirements with DEFAULT, we don't want those templates shared
+                    # (but not properties, capabilities, attributes, artifacts because they don't create separate instances in the plan)
+                    if isinstance(field, _Tosca_Field):
+                        # don't include field if was set to the type's default value
+                        if (
+                            field.default is DEFAULT
+                            and field.tosca_field_type != ToscaFieldType.requirement
+                            and value == _defaults.get(name)
+                        ):
+                            continue
+                        if field.default == value:
+                            continue
+            if field and not isinstance(field, _Tosca_Field):
+                continue  # not a tosca field (e.g. special field like artifact's built-in fields)
             if (
                 isinstance(value, FieldProjection)
                 and value.field.owner == self.__class__
-            ):
-                yield name, (t_field or value.field, value)
-            elif isinstance(value, _Tosca_Field):
-                # field assigned directly to the object
-                if value.tosca_field_type in (
-                    ToscaFieldType.requirement,
-                    ToscaFieldType.capability,
-                    ToscaFieldType.artifact,
-                ):
-                    # fields returned by Requirement(), etc. won't have type or owner set and maybe not name
-                    value.name = name
-                    value.owner = self.__class__
-                    if not value.type:
-                        if t_field:
-                            value.type = t_field.type
-                        else:
-                            if field.default is not dataclasses.MISSING:
-                                value.type = type(field.default)
-                            elif isinstance(field.default_factory, type):  # its a ctor
-                                value.type = field.default_factory
-                    yield name, (t_field or value, value)
-                else:
-                    field = value
-                    if field.default is not dataclasses.MISSING:
-                        value = field.default
-                    elif field.default_factory is not dataclasses.MISSING:
-                        value = field.default_factory()
-                    else:
-                        continue
-                    yield name, (field, value)
+            ):  # yield the field projection (which is EvalData)
+                yield name, (field or value.field, value)
             # skip inference for methods and attributes starting with "_"
             elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
-                field.default = MISSING  # this whole field was missing
+                if field:
+                    field.default = value  # this whole field was missing
+                    yield name, (field, value)
+            elif field:
                 yield name, (field, value)
-            elif t_field:
-                yield name, (t_field, value)
-            # otherwise skip the field
-
-
-def _field_as_eval(
-    tt: "ToscaType", name: str, attribute_only: bool
-) -> Optional[EvalData]:
-    fields = object.__getattribute__(tt, "__dataclass_fields__")
-    field = fields.get(name)
-    if field and isinstance(field, _Tosca_Field):
-        if not attribute_only or field.tosca_field_type == ToscaFieldType.attribute:
-            return EvalData(None, ["", _GetName(tt), field.as_ref_expr()])
-    return None
+            # otherwise skip, it's not a tosca field
 
 
 class ToscaInputs(_ToscaType):
@@ -2201,7 +2340,9 @@ class ToscaInputs(_ToscaType):
                     and field.owner_type is ToscaInputs
                 ):
                     val = getattr(arg, field.name, dataclasses.MISSING)
-                    if val != dataclasses.MISSING and val != REQUIRED:  # XXX what about constrained or default?
+                    if (
+                        val != dataclasses.MISSING and val != REQUIRED
+                    ):  # XXX what about constrained or default?
                         if val is not None or field.default is REQUIRED:
                             # only set field with None if the field is required
                             if val != field.default:
@@ -2233,7 +2374,7 @@ class ToscaOutputs(_ToscaType):
 
     def to_yaml(self, dict_cls=dict):
         body = dict_cls()
-        for field, value in self.get_instance_fields().values():
+        for field, value in self.get_instance_field_values().values():
             body[field.tosca_name] = to_tosca_value(value, dict_cls)
         return body
 
@@ -2405,56 +2546,48 @@ class ToscaType(_ToscaType):
 
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
-        # declare this so ToscaInput and ToscaOutput._post_field_init is not called on ToscaType subclasses
+        # declare this again so ToscaInput and ToscaOutput._post_field_init is not called on ToscaType subclasses subtype those classes via multiple inheritance
         return field
 
-    def __post_init__(self):
-        # internal bookkeeping
-        self._instance_fields: Optional[Dict[str, Tuple[_Tosca_Field, Any]]] = None
-        self._defaults: Dict[str, Any] = {}
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        for field in fields.values():
-            val = object.__getattribute__(self, field.name)
-            if isinstance(field, _Tosca_Field):
-                if val is DEFAULT:
-                    # we need to implement copy on write for mutable properties, attributes, capabilities and artifacts (via FieldProjection)
-                    # for requirements, the object always will have their own template 
-                    val = field._get_default_from_factory()
-                    self._defaults[field.name] = val
-                    setattr(self, field.name, val)
-                elif (
-                    val is CONSTRAINED
-                    and field._tosca_field_type == ToscaFieldType.requirement
-                ):
-                    setattr(self, field.name, None)
-                elif (
-                    val is REQUIRED
-                    and field._tosca_field_type != ToscaFieldType.attribute
-                    and not field.declare_attribute
-                ):
-                    if self._enforce_required_fields():
-                        # on Python < 3.10 we set this to workaround the lack of keyword only fields
-                        raise ValueError(
-                            f'Keyword argument was missing: {field.name} on "{self}".'
-                        )
-                elif field.deferred_property_assignments:
-                    for name, value in field.deferred_property_assignments.items():
-                        setattr(val, name, value)
+    if not typing.TYPE_CHECKING:
 
+        def __getattribute__(self, name: str):
+            return object.__getattribute__(self, "_ToscaType__getattr")(name)
+
+    def __getattr(self, name):
+        if global_state._type_proxy:
+            proxied = global_state._type_proxy.handleattr(self, name)
+            if proxied is not MISSING:  # not handled
+                return proxied
+        val = object.__getattribute__(self, name)
+        if not name.startswith("_") and (
+            global_state.mode == "parse" or global_state.mode == "spec"
+        ):
+            # during topology construction return absolute Refs to fields instead of the value
+            # after __post_init all default values have been set, including directly assigned fields
+            # constrained fields have been set to EvalData or None
+            # but we still need to consider them because they can be set later
+            # requirements are special, they can be a relationship, a node, or a node filter??
+            t_field = object.__getattribute__(self, "get_instance_field")(name)
+            if isinstance(t_field, _Tosca_Field):
+                if (
+                    val in [DEFAULT, MISSING, REQUIRED, CONSTRAINED]
+                    or
+                    # not t_field.has_explicit_default_value() or
+                    t_field.tosca_field_type == ToscaFieldType.attribute
+                    or isinstance(val, EvalData)
+                    # or its a mutable value set on the class
+                    or (
+                        val
+                        and t_field.default is val
+                        and t_field.tosca_field_type != ToscaFieldType.property
+                        and t_field not in self._instance_fields
+                    )
+                ):
+                    return FieldProjection(t_field, obj=self)
             if isinstance(val, _ToscaType):
-                val._set_parent(self, field.name)
-            elif (
-                isinstance(val, FieldProjection)
-                and isinstance(self, _OwnedToscaType)
-                and val.field.owner
-                and issubclass(val.field.owner, Node)
-            ):
-                # if a relative field projection from a node template, assume its the parent
-                setattr(self, field.name, val.set_start(".owner"))
-        self._initialized = True
-
-    def _enforce_required_fields(self) -> bool:
-        return global_state._enforce_required_fields
+                val._set_parent(self, name)
+        return val
 
     # XXX version (type and template?)
 
@@ -2607,14 +2740,6 @@ class ToscaType(_ToscaType):
     else:
         get_field = anymethod(_get_field)
 
-    def get_instance_field(self, name) -> Optional[dataclasses.Field]:
-        "Return the given field for this template, including fields from directly assigned to the template."
-        field_and_value = self.get_instance_fields().get(name)
-        if field_and_value:
-            return field_and_value[0]
-        else:
-            return object.__getattribute__(self, "__dataclass_fields__").get(name)
-
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         # TOSCA templates can add requirements, capabilities and operations that are not defined on the type
         # so we need to look for _ToscaFields and operation function in the object's __dict__ and generate yaml for them too
@@ -2622,13 +2747,23 @@ class ToscaType(_ToscaType):
         body = dict_cls(type=self.tosca_type_name())
         if self._metadata:
             body["metadata"] = metadata_to_yaml(self._metadata)
-        for field, value in self.get_instance_fields().values():
+        instance_values = self.get_instance_field_values()
+        for field, value in instance_values.values():
             if field.section == "requirements":
-                if isinstance(value, _Tosca_Field):
-                    parent = None if field is value else field
-                    body.setdefault("requirements", []).append(value.to_yaml(converter))
+                if field.name in self._instance_fields:
+                    # requirement was set directly on the instance
+                    req = field.to_yaml(converter, self)
+                    if req[field.tosca_name]:
+                        body.setdefault("requirements", []).append(req)
+                elif value is CONSTRAINED:
+                    # requirement with node types if class doesn't have a node_filter
+                    if not field.has_node_filter():
+                        req_def: Dict[str, Any] = dict_cls()
+                        field._add_constraints_yaml(req_def, True)
+                        body.setdefault("requirements", []).append({
+                            field.tosca_name: req_def
+                        })
                 elif value:
-                    # XXX handle case where value is a type not an instance
                     if not isinstance(value, (list, tuple)):
                         value = [value]
                     for i, item in enumerate(value):
@@ -2643,34 +2778,42 @@ class ToscaType(_ToscaType):
                             body.setdefault("requirements", []).append({
                                 field.tosca_name: shorthand or req
                             })
-                elif field.default is CONSTRAINED and not field.node_filter:
-                    # having a requirement with a node type declared on the template directs the solver to match by type
-                    # and here the template hasn't set a value and the field (class) default is CONSTRAINED
-                    # without any node filter constraints, so we set the type constraint by rendering the requirement now.
-                    body.setdefault("requirements", []).append(field.to_yaml(converter))
-
+                else:
+                    # explicitly set node to null if class requirement has node or a node filter
+                    if field.has_node_filter() or field.has_explicit_default_value():
+                        body.setdefault("requirements", []).append({
+                            field.tosca_name: None
+                        })
             elif field.section in ["capabilities", "artifacts"]:
-                if isinstance(value, _Tosca_Field):
-                    body.setdefault(field.section, {}).update(value.to_yaml(converter))
-                elif value:
-                        assert isinstance(value, (CapabilityEntity, ArtifactEntity))
-                        tpl = value.to_template_yaml(converter)
-                        body.setdefault(field.section, {})[field.tosca_name] = tpl
+                if value:
+                    assert isinstance(value, (CapabilityEntity, ArtifactEntity))
+                    tpl = value.to_template_yaml(converter)
+                    body.setdefault(field.section, {})[field.tosca_name] = tpl
             elif field.section in ["properties", "attributes"]:
-                if field.default == value:
-                    # XXX datatype values don't compare properly, should have logic like CapabilityEntity above
-                    continue
                 if not isinstance(
                     value, EvalData
                 ) and not field.get_type_info().instance_check(value):
                     raise TypeError(
-                        f"{field.tosca_field_type.name} \"{field.name}\"'s value has wrong type: it's a {type(value)}, not a {field.type}."
+                        f'{field.tosca_field_type.name} "{field.name}" on "{self._name}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}.'
                     )
                 body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
                     value, dict_cls
                 )
             elif field.section:
                 assert False, "unexpected section in {field}"
+
+        for field in self.__dataclass_fields__.values():
+            if (
+                field.default is CONSTRAINED
+                and isinstance(field, _Tosca_Field)
+                and field.section == "requirements"
+                and not field.has_node_filter()
+                and field.name not in instance_values
+            ):
+                # having a requirement with a node type declared on the template directs the solver to match by type
+                # and here the template hasn't set a value and the field (class) default is CONSTRAINED
+                # without any node filter constraints, so we set the type constraint by rendering the requirement now.
+                body.setdefault("requirements", []).append(field.to_yaml(converter))
 
         # this only adds interfaces defined directly on this object
         interfaces = converter._interfaces_yaml(self, self.__class__)
@@ -2849,7 +2992,7 @@ def _get_field_from_prop_ref(requirement_name) -> Tuple[Optional[_Tosca_Field], 
         source_field = requirement_name
     else:
         raise TypeError(
-            f"{property} isn't a TOSCA field -- this method should be called from _class_init()"
+            f'"{property}" is not TOSCA field -- this method should be called in "parse" mode only'
         )
     return source_field, req_name
 
@@ -3052,7 +3195,7 @@ class DataEntity(_BaseDataType, _OwnedToscaType):
 
     def to_yaml(self, dict_cls=dict):
         body = dict_cls()
-        for field, value in self.get_instance_fields().values():
+        for field, value in self.get_instance_field_values().values():
             body[field.tosca_name] = to_tosca_value(value, dict_cls)
         return body
 
