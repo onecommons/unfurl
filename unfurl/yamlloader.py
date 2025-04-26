@@ -251,6 +251,7 @@ def make_yaml(vault=None):
     yaml.representer.add_representer(
         AnsibleUnsafeBytes, SafeRepresenter.represent_binary
     )
+    yaml.representer.add_representer(AnsibleMapping, SafeRepresenter.represent_dict)
     return yaml
 
 

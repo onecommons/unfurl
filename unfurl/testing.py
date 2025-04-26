@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Iterable, Sequence, Tuple, Union
 import shutil
 import traceback
 import time
+import sys
 import os
 import os.path
 from typing import (
@@ -24,6 +25,7 @@ from .job import Runner, JobOptions, Job
 from .manifest import Manifest
 from .yamlmanifest import YamlManifest
 from .support import Status, Priority
+from .yamlloader import yaml
 import tosca
 from tosca.python2yaml import PythonToYaml
 from .dsl import proxy_instance
@@ -291,7 +293,9 @@ def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
 def namespace2manifest(namespace: Type[tosca.Namespace]) -> YamlManifest:
     converter = PythonToYaml(namespace.get_defs())
     doc = converter.module2yaml(True)
-    # pprint.pprint(doc)
+    if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
+        print("CONVERTING", namespace.__name__, "namespace", list(namespace.get_defs()))
+        yaml.dump(doc, sys.stdout)
     config = dict(
         apiVersion=API_VERSION, kind="Ensemble", spec=dict(service_template=doc)
     )

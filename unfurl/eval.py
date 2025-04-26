@@ -917,7 +917,7 @@ def eval_ref(
                     if not ctx.strict:
                         logger.warning(
                             "In safe mode, skipping unsafe eval: " + msg,
-                            stack_info=True,
+                            stack_info=False,
                         )
                         return [Result("Error: in safe mode, skipping unsafe eval")]
                     else:

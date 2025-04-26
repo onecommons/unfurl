@@ -25,6 +25,7 @@ Binding between Unfurl's runtime and the TOSCA Python DSL.
 
 import functools
 import inspect
+import io
 import os
 from pathlib import Path
 import importlib
@@ -135,7 +136,7 @@ def convert_to_yaml(
     base_dir: str,
     yaml_dict=dict,
 ) -> dict:
-    from .yamlloader import yaml_dict_type
+    from .yamlloader import yaml_dict_type, yaml
 
     tosca._tosca.yaml_cls = yaml_dict
     path = os.path.abspath(path)
@@ -182,10 +183,12 @@ def convert_to_yaml(
         import_resolver,
     )
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
+        output = io.StringIO()
+        yaml.dump(yaml_src, output)
         logger.debug(
             "converted %s to:\n%s",
             path,
-            pprint.pformat(yaml_src, compact=True, indent=2, sort_dicts=False),
+            output.getvalue(),
             extra=dict(truncate=0),
         )
     return yaml_src
@@ -272,9 +275,9 @@ class DslMethodConfigurator(Configurator):
                 self._generator = result
                 # render the yielded configurator
                 result = result.send(None)
-                assert isinstance(result, Configurator), (
-                    "Only yielding configurators is currently support"
-                )
+                assert isinstance(
+                    result, Configurator
+                ), "Only yielding configurators is currently support"
             if isinstance(result, Configurator):
                 self.configurator = result
                 # task.inputs get reset after render phase
@@ -309,7 +312,7 @@ class DslMethodConfigurator(Configurator):
                 return self.configurator.render(task)
             else:
                 raise UnfurlError(
-                    f"unsupported configurator type: {type(result)} {result._obj} {result._cls}"
+                    f"unsupported configurator type: {type(result)} {result and result._obj} {result and result._cls}"
                 )
         return super().render(task)
 
