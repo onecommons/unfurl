@@ -30,11 +30,12 @@ deployment_blueprints:
           labels:
             kompose.volume.size:
               get_input: disk_size
+        requirements:
+        - dns: unfurl.nodes.DNSZone
       db:
         type: PostgresDBInstance
         requirements:
         - host: db_host_requirement
-        - dns: unfurl.nodes.DNSZone
         properties:
           database_name: my_db
       db_host_requirement:

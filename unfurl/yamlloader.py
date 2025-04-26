@@ -75,6 +75,7 @@ from .packages import (
     find_canonical,
     get_package_from_url,
     resolve_package,
+    is_semver,
 )
 from . import DEFAULT_CLOUD_SERVER
 
@@ -324,7 +325,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _solve_topology(self, topology_template):
         if solve_topology is not None:
-            return solve_topology(topology_template, self.manifest.resolve_select)
+            constrain_required = not is_semver(
+                self.manifest.apiVersion[len("unfurl/") :]
+            )  # original version needs this
+            return solve_topology(
+                topology_template, self.manifest.resolve_select, constrain_required
+            )
         else:
             for node_template in topology_template.node_templates.values():
                 if "select" in node_template.directives:
@@ -764,9 +770,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         base: str,
         file_name: str,
     ) -> Tuple[Optional[str], Optional[ImportResolver_Context]]:
-        assert base or os.path.isabs(file_name), (
-            f"{file_name} isn't absolute and base isn't set"
-        )
+        assert base or os.path.isabs(
+            file_name
+        ), f"{file_name} isn't absolute and base isn't set"
         url = os.path.join(base, file_name)
         repository_root = None  # default to checking if its in the project
         if importsLoader.repository_root:

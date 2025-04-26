@@ -234,6 +234,7 @@ def convert(
     node_template: NodeTemplate,
     types: Dict[str, List[str]],
     topology_template: TopologyTemplate,
+    constrain_required: bool = False,
 ) -> Node:
     # XXX if node_template is in nested topology and replaced, partially convert the outer node instead
     if not node_template.type_definition:
@@ -284,15 +285,17 @@ def convert(
                     type_req_dict.pop("!namespace-" + key, None)
             req_dict = dict(type_req_dict, **req_dict)
         if "occurrences" not in req_dict:
+            required = True
             upper = sys.maxsize
         else:
+            required = bool(req_dict["occurrences"][0])
             max_occurrences = req_dict["occurrences"][1]
             upper = (
                 sys.maxsize if max_occurrences == "UNBOUNDED" else int(max_occurrences)
             )
         # note: ok if multiple requirements with same name on the template, then occurrences should be on type
         entity._reqs[name] = upper
-        match_type = req_dict.get("node_filter") or not on_type_only
+        match_type = req_dict.get("node_filter") or not on_type_only or (constrain_required and required)
         field, found_restrictions = get_req_terms(
             node_template, types, topology_template, name, req_dict, match_type
         )
@@ -516,7 +519,8 @@ def get_req_terms(
 
 
 def solve_topology(
-    topology_template: TopologyTemplate, resolve_select=None
+    topology_template: TopologyTemplate, resolve_select=None,
+    constrain_required=False
 ) -> Solution:
     if not topology_template.node_templates:
         return {}
@@ -527,7 +531,7 @@ def solve_topology(
             node_template = resolve_select(node_template)
             if not node_template:
                 continue
-        node = convert(node_template, types, topology_template)
+        node = convert(node_template, types, topology_template, constrain_required)
         nodes[node.name] = node
         # print("missing", node_template.missing_requirements)
     # print ('types', types)
