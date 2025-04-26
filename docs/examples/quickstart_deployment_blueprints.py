@@ -4,6 +4,7 @@ from tosca_repositories.std.aws.db import AwsRdsPostgres
 from tosca_repositories.std import k8s
 from tosca_repositories.std.dns_services import Route53DNSZone
 
+
 class production(tosca.DeploymentBlueprint):
     _cloud = unfurl.relationships.ConnectsToAWSAccount
 
@@ -17,12 +18,14 @@ class production(tosca.DeploymentBlueprint):
     )
     db = AwsRdsPostgres()
 
+
 class dev(tosca.DeploymentBlueprint):
-    # unfurl_relationships_ConnectsTo_K8sCluster
     _cloud = "unfurl.relationships.ConnectsTo.K8sCluster"
 
     host = k8s.PublicK8sContainerHost(
-        labels={"kompose.volume.size": Inputs.disk_size}
+        labels={"kompose.volume.size": Inputs.disk_size},
+        # match any unfurl.nodes.DNSZone template:
+        dns=tosca.Requirement(node="unfurl.nodes.DNSZone"),
     )
     db = std.PostgresDBInstance(
         database_name="my_db", host_requirement=k8s.PrivateK8sContainerHost()

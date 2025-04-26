@@ -1106,13 +1106,13 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if occurrences != list(default):
             field_def["occurrences"] = occurrences
 
-    def _resolve_toscaname(self, candidate) -> str:
+    def _resolve_toscaname(self, candidate: Union[str, Type["ToscaType"]]) -> str:
         if isinstance(candidate, str):
             try:
                 candidate = self._resolve_class(candidate)
-            except NameError as e:
-                return candidate
-        return candidate.tosca_type_name()
+            except (NameError, AttributeError):
+                return candidate  # type: ignore # assume it's a tosca type name
+        return candidate.tosca_type_name()  # type: ignore
 
     def _to_requirement_yaml(
         self, converter: Optional["PythonToYaml"], super_field: Optional["_Tosca_Field"]

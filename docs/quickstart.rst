@@ -15,7 +15,7 @@ The first step is to create an Unfurl project to manage your deployments:
 
     unfurl init myproject --empty --var std true --design
 
-This is will create an Unfurl project in directory "myproject".  The :cli:`--empty<cmdoption-unfurl-init-empty>` option skips creating an ensemble (a deployment) for now (we'll add that later in `step 3<Step 3 Instantiate your blueprint>`).
+This will create an Unfurl project in directory "myproject".  The :cli:`--empty<cmdoption-unfurl-init-empty>` option skips creating an ensemble (a deployment) for now (we'll add that later in `step 3<Step 3 Instantiate your blueprint>`).
 The :cli:`--var<cmdoption-unfurl-init-var>` option passes settings to the `project skeleton <project skeletons>` templates that create the project. When the default project skeleton sees ``std``, it adds our |stdlib|_ repository, which includes TOSCA types that provide basic abstractions for resources like compute instances and container images.
 
 The :cli:`--design<cmdoption-unfurl-init-design>` option initialized your project for development, in particular, it will download the ``std`` repository so that if you open ``service_template.py`` in an Python IDE such as VS Code the Python import statements will resolve, enabling your editor's type checking and code navigation.
@@ -26,7 +26,7 @@ If this is the first time you've created a Unfurl project, you'll notice a messa
 Step 2: Describe your application
 ---------------------------------
 
-Now that your project is set up, we'll create an TOSCA `blueprint<Step 2: Create a cloud blueprint>` for deploying our application. In this example, its a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of things we need to do to deploy this web application:
+Now that your project is set up, we'll create a TOSCA `blueprint<Step 2: Create a cloud blueprint>` for deploying our application. In this example, it's a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of the tasks we need to do to deploy this web application:
 
 * Create a service that can run the container image.
 * Deploy a database and connect it to the web app.

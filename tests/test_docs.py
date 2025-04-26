@@ -111,32 +111,14 @@ def test_inputs():
     assert default_op.inputs == {"foo": "derived:default", "bar": "derived:default"}
 
 
-@pytest.fixture
-def namespace(request):
-    namespace = request.param
-    if "k8s" in os.getenv("UNFURL_TEST_SKIP", ""):
-        yield namespace
-    else:
-        os.system(f"kubectl create namespace {namespace}")
-        # skip setting context since k8s configurator always sets a namespace now
-        # old_namespace = subprocess.run("kubectl config view --minify -o jsonpath='{..namespace}'", shell=True, capture_output=True).stdout.strip()
-        # os.system(f"kubectl config set-context --current --namespace {namespace}")
-        yield namespace
-        # os.system(f"kubectl config set-context --current --namespace {old_namespace}")
-        os.system(f"kubectl delete namespace {namespace} --wait=false")
-
-
 SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 
-@pytest.mark.parametrize("namespace", ["doctest-py", "doctest-yaml"], indirect=True)
-# skip if we don't have kompose installed but require CI to have it
-@pytest.mark.skipif(
-    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
-)
-def test_quickstart(namespace):
-    runner = CliRunner()
+@pytest.fixture(scope="module", params=["doctest-py", "doctest-yaml"])
+def quickstart(request):
+    namespace = request.param
     use_yaml = "yaml" in namespace
+    runner = CliRunner()
     with runner.isolated_filesystem(SAVE_TMP) as test_dir:
         if SAVE_TMP:
             print("saving to", test_dir)
@@ -144,6 +126,14 @@ def test_quickstart(namespace):
         run_cmd(runner, init_args)
         os.chdir("myproject")
         base = pathlib.Path(basedir)
+        if use_yaml:
+            ext = "yaml"
+        else:
+            ext = "py"
+        shutil.copy(
+            base / f"quickstart_service_template.{ext}", "service_template." + ext
+        )
+        extra = ""
         if use_yaml:
             ext = "yaml"
         else:
@@ -169,45 +159,83 @@ def test_quickstart(namespace):
         with open("service_template." + ext, "a") as f:  # append
             f.write(deployment_blueprint)
 
-        if "slow" not in os.getenv("UNFURL_TEST_SKIP", ""):
-            run_cmd(
-                runner,
-                "-vvv deploy --approve --dryrun --jobexitcode error production".split(),
-            )
+        yield namespace, runner
 
-            dryrun = "--dryrun" if "k8s" in os.getenv("UNFURL_TEST_SKIP", "") else ""
-            result, job, summary = run_job_cmd(
-                runner,
-                f"-vvv deploy --approve {dryrun} development".split(),
-                print_result=True,
-            )
-            summary["job"].pop("id")
-            assert summary["job"].pop("ok") >= 8
-            assert summary["job"].pop("changed") >= 8
-            blocked = summary["job"].pop("blocked", None)
-            assert blocked is None or blocked == 2  # dns blocked on ingress
-            assert {
-                "status": "error",
-                "total": 10,
-                "error": 0,
-                "unknown": 0,
-                "skipped": 0,
-            } == summary["job"]
-            result, job, summary = run_job_cmd(
-                runner,
-                f"-vvv teardown --approve {dryrun} development".split(),
-                print_result=True,
-            )
-            summary["job"].pop("id")
-            assert summary["job"].pop("total") >= 4
-            assert summary["job"].pop("error") <= 1
-            assert summary["job"].pop("ok") >= 3
-            assert summary["job"].pop("changed") >= 4
-            assert {
-                "status": "error",
-                "unknown": 0,
-                "skipped": 0,
-            } == summary["job"]
+
+@pytest.fixture(scope="module")
+def namespace(quickstart):
+    namespace, runner = quickstart
+    if "k8s" in os.getenv("UNFURL_TEST_SKIP", ""):
+        yield runner
+    else:
+        os.system(f"kubectl create namespace {namespace}")
+        # skip setting context since k8s configurator always sets a namespace now
+        # old_namespace = subprocess.run("kubectl config view --minify -o jsonpath='{..namespace}'", shell=True, capture_output=True).stdout.strip()
+        # os.system(f"kubectl config set-context --current --namespace {namespace}")
+        yield runner
+        # os.system(f"kubectl config set-context --current --namespace {old_namespace}")
+        os.system(f"kubectl delete namespace {namespace} --wait=false")
+
+
+def test_quickstart_setup(quickstart):
+    # test project setup by invoking the fixture even if the full tests are skipped
+    namespace, runner = quickstart
+    assert runner
+
+
+@pytest.mark.skipif(
+    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
+)
+def test_quickstart_prod(quickstart):
+    namespace, runner = quickstart
+    run_cmd(
+        runner,
+        "-vvv deploy --approve --dryrun --jobexitcode error production".split(),
+    )
+
+
+# skip if we don't have kompose installed but require CI to have it
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+@pytest.mark.skipif(
+    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
+)
+def test_quickstart_dev(namespace):
+    runner = namespace
+    dryrun = "--dryrun" if "k8s" in os.getenv("UNFURL_TEST_SKIP", "") else ""
+    result, job, summary = run_job_cmd(
+        runner,
+        f"-vvv deploy --approve {dryrun} development".split(),
+        print_result=True,
+    )
+    summary["job"].pop("id")
+    assert summary["job"].pop("ok") >= 8
+    assert summary["job"].pop("changed") >= 8
+    blocked = summary["job"].pop("blocked", None)
+    assert blocked is None or blocked == 2  # dns blocked on ingress
+    assert {
+        "status": "error",
+        "total": 10,
+        "error": 0,
+        "unknown": 0,
+        "skipped": 0,
+    } == summary["job"]
+    result, job, summary = run_job_cmd(
+        runner,
+        f"-vvv teardown --approve {dryrun} development".split(),
+        print_result=True,
+    )
+    summary["job"].pop("id")
+    assert summary["job"].pop("total") >= 4
+    assert summary["job"].pop("error") <= 1
+    assert summary["job"].pop("ok") >= 3
+    assert summary["job"].pop("changed") >= 4
+    assert {
+        "status": "error",
+        "unknown": 0,
+        "skipped": 0,
+    } == summary["job"]
 
 
 @pytest.mark.skipif(
