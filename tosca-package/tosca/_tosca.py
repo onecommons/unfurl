@@ -841,6 +841,27 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             or (self.super_field and self.super_field.has_node_filter())
         )
 
+    def has_node(self) -> bool:
+        return bool(
+            self.node
+            or isinstance(self.default, Node)
+            or (self.super_field and self.super_field.has_node())
+        )
+
+    def has_capability(self) -> bool:
+        return bool(
+            self.capability
+            or isinstance(self.default, CapabilityEntity)
+            or (self.super_field and self.super_field.has_capability())
+        )
+
+    def has_relationship(self) -> bool:
+        return bool(
+            self.relationship
+            or isinstance(self.default, Relationship)
+            or (self.super_field and self.super_field.has_relationship())
+        )
+
     def set_constraint(self, val):
         if not global_state._in_process_class:
             # called via _class_init
@@ -1140,15 +1161,23 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             target_typeinfo = None
             for _type in info.types:
                 if issubclass(_type, Relationship):
-                    req_def["relationship"] = _type.tosca_type_name()
+                    if (
+                        not self.has_relationship()
+                    ):  # don't override relationship templates
+                        req_def["relationship"] = _type.tosca_type_name()
                     target_field = _type.__dataclass_fields__.get("_target")
                     target_typeinfo = cast(
                         _Tosca_Field, target_field
                     ).get_type_info_checked()
                 elif issubclass(_type, CapabilityEntity):
-                    req_def["capability"] = _type.tosca_type_name()
-                elif "node" not in req_def and issubclass(_type, Node):
-                    req_def["node"] = _type.tosca_type_name()
+                    if not self.has_capability():  # don't override capability names
+                        req_def["capability"] = _type.tosca_type_name()
+                elif issubclass(_type, Node):
+                    # don't override node templates unless always_include_type_constraints is set
+                    if "node" not in req_def and (
+                        always_include_type_constraints or not self.has_node()
+                    ):
+                        req_def["node"] = _type.tosca_type_name()
             if "node" not in req_def and target_typeinfo:
                 req_def["node"] = target_typeinfo.types[0].tosca_type_name()
         if self.node_filter:

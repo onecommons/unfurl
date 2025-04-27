@@ -2,7 +2,7 @@ import dataclasses
 import inspect
 import os
 import time
-from typing import List, Optional, Dict, Sequence
+from typing import List, Optional, Dict, Sequence, Union
 import unittest
 from unittest.mock import MagicMock, patch
 import pytest
@@ -958,6 +958,7 @@ topology_template:
       requirements:
       - host:  # customized requirement with constraint instead of template
           node: tosca.nodes.Compute
+          relationship: tosca.relationships.HostedOn
           metadata:
             test: just some metadata but not a node
       metadata:
@@ -1007,6 +1008,7 @@ node_types:
     requirements:
     - host:
         node: tosca.nodes.Compute
+        relationship: tosca.relationships.HostedOn
 """
 
 
@@ -1014,7 +1016,9 @@ def test_template_init() -> None:
     class Example(tosca.nodes.Root):
         shellScript: tosca.artifacts.Root = tosca.REQUIRED  # equivalent to no default, use if _template_init will set (but you lose static type checking)
         prop1: Dict[str, List[str]] = tosca.DEFAULT
-        host: tosca.nodes.Compute = tosca.CONSTRAINED
+        host: Union[tosca.nodes.Compute, tosca.relationships.HostedOn] = (
+            tosca.CONSTRAINED
+        )
 
         def _template_init(self) -> None:
             if self.has_default("shellScript"):
@@ -1030,7 +1034,7 @@ def test_template_init() -> None:
     )  # ok to make without required arguments because _template_init() sets them
     e0.prop1 = {"not default": ["test"]}
 
-    # no node, but adds a constraint:
+    # adds a constraint to override the default node with type inference:
     e1 = Example()
     # we want to reset this to CONSTRAINED so need to do that after init because has_default() thinks its the default
     e1.host = tosca.Requirement(
