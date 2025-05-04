@@ -1437,18 +1437,25 @@ def _yaml_to_python(
             write_policy=write_policy,
         )
     else:
+        from .yamlloader import ImportResolver, yaml
+        from .manifest import Manifest
+
         if not file:
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
-        from .yamlloader import ImportResolver
-        from .manifest import Manifest
+
+        with open(project_or_ensemble_path) as f:
+            tpl = yaml.load(f)
 
         dummy_manifest = Manifest(None)
         dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
+        repositories = dummy_manifest.repositories_as_tpl()
+        tpl.setdefault("repositories", {}).update(repositories)
         import_resolver = ImportResolver(dummy_manifest)
         yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
+            tpl,
             import_resolver=import_resolver,
             python_target_version=python_target_version,
             write_policy=write_policy,
