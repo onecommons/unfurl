@@ -77,11 +77,11 @@ class HelmTest(unittest.TestCase):
                     {
                         "status": "ok",
                         "target": "stable_repo",
-                        "operation": "create",
+                        "operation": "configure",
                         "template": "stable_repo",
                         "type": "unfurl.nodes.HelmRepository",
                         "targetStatus": "ok",
-                        "targetState": "created",
+                        "targetState": "configured",
                         "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",

@@ -67,7 +67,7 @@ node_types:
         type: tosca.capabilities.Node
     interfaces:
       Standard:
-        create: helm repo add {{ SELF.name }} "{{ SELF.url }}"
+        configure: helm repo add {{ SELF.name }} "{{ SELF.url }}" --force-update
         delete: helm repo remove {{ SELF.name }}
       Install:
         check:
@@ -126,6 +126,14 @@ node_types:
         required: false
       release_name:
         type: string
+        description: name of the helm release
+        constraints:
+          - max_length: 53
+        default:
+          eval:
+            to_kubernetes_label:
+              eval: .name
+            max: 53
       namespace:
         type: string
         # if we are hosted on a namespace then use that

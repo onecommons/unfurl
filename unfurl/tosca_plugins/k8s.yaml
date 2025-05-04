@@ -58,6 +58,11 @@ node_types:
           relationship: tosca.relationships.HostedOn
           occurrences: [0, 1]
     properties:
+      name:
+        type: string
+        default:
+          eval:
+            to_kubernetes_label: .name
       definition:
         type: any
         description: Inline resource definition (string or map)
@@ -69,13 +74,11 @@ node_types:
         metadata:
           user_settable: false
     attributes:
+      name:
+        type: string
       apiResource:
         type: map
         required: false
-      name:
-        type: string
-        default:
-          eval: .name
     interfaces:
       Standard:
         # requirements:
@@ -108,11 +111,6 @@ node_types:
       - host:
           node: unfurl.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
-    properties:
-      name:
-        type: string
-        default:
-          eval: .name
     attributes:
       namespace:
         type: string
@@ -169,7 +167,7 @@ relationship_types:
         description: >
           Path to an existing Kubernetes config file. If not provided, and no other connection
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
-        default: { get_env: [KUBECONFIG,  {get_env: KUBE_CONFIG_PATH}] }
+        default: { get_env: [KUBECONFIG, { get_env: KUBE_CONFIG_PATH }] }
         required: false
         metadata:
           user_settable: false
@@ -221,7 +219,7 @@ relationship_types:
         required: false
         default: { get_env: KUBE_INSECURE }
       token:
-        type: unfurl.datatypes.EnvVar
+        type: string
         title: Authentication Token
         metadata:
           sensitive: true
