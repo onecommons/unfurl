@@ -3388,7 +3388,7 @@ class ArtifactEntity(_OwnedToscaType):
         "contents",
         "dependencies",
     )
-    file: str = field()
+    file: str = field(default="")
     repository: Optional[str] = field(default=None)
     deploy_path: Optional[str] = field(default=None)
     version: Optional[str] = field(default=None)

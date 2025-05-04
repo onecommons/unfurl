@@ -37,6 +37,7 @@ from .support import (
     Reason,
     find_connection,
     set_context_vars,
+    get_Self,
 )
 from .result import (
     ChangeRecord,
@@ -602,7 +603,8 @@ class TaskView:
                 and self.operation_host.attributes
                 or {},
             )
-            set_context_vars(vars, target)
+            set_context_vars(vars, target.root)
+            vars["Self"] = get_Self(ctx)
             if relationship:
                 if relationship.source:
                     vars["SOURCE"] = relationship.source.attributes  # type: ignore

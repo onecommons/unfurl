@@ -456,7 +456,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     def __getitem__(self, key):
         # allow attribute access in jinja2 templates
-        return self.attributes[key]
+        return self.names[key]
 
     def query(self, expr, vars=None, wantList=False, trace=None):
         from .eval import Ref, RefContext

@@ -213,7 +213,7 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
 
 
 def proxy_instance(
-    instance: EntityInstance, cls: Type[_ToscaType], context: RefContext
+    instance: EntityInstance, cls: Optional[Type[ToscaType]], context: RefContext
 ):
     if instance.proxy and instance.proxy._context.vars == context.vars:
         # XXX better comparison of contexts
@@ -222,7 +222,7 @@ def proxy_instance(
         obj = None
         owner = find_template(instance.parent.template)
         if owner:
-            if issubclass(cls, Node):  # class is the owner node
+            if cls and issubclass(cls, Node):  # class is the owner node
                 # this happens when references to the owner's methods are parsed to computed eval expressions in yaml
                 return proxy_instance(instance.parent, owner.__class__, context)
             field_type = ToscaFieldType(
@@ -234,18 +234,27 @@ def proxy_instance(
     else:
         obj = find_template(instance.template)
     if obj:
-        found_cls: Optional[Type[_ToscaType]] = obj.__class__
+        found_cls: Optional[Type[ToscaType]] = obj.__class__
     else:
         # if target is subtype of cls, use the subtype
-        found_cls = cls._all_types.get(instance.template.type, cls)
+        found_cls = cast(Optional[Type[ToscaType]], ToscaType._all_types.get(instance.template.type, cls))
+        if not found_cls:
+            return None
         # the instance was defined in yaml so has no python obj, create one now
         # since we proxy to the instance, we don't need to worry about setting its fields
         try:
             global_state._enforce_required_fields = False
-            obj = found_cls(instance.template.name)  # type:ignore
+            metadata = instance.template.toscaEntityTemplate.entity_tpl.get("metadata")
+            module_name = metadata and metadata.get("module")
+            if cls or module_name:  # don't force creation if cls was None and template wasn't dsl defined
+                obj = found_cls(instance.template.name)  # type:ignore
+            if module_name and obj:
+                obj.register_template(module_name, instance.template.name)
         finally:
             global_state._enforce_required_fields = True
 
+    if not cls and not obj:
+        return None
     proxy = get_proxy_class(found_cls)(instance, obj, context)
     instance.proxy = proxy
     return proxy
@@ -467,8 +476,10 @@ class ProxyList(ProxyCollection, MutableSequence):
         self._values.insert(index, val)
 
 
-def _proxy_prop(type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None):
+def _proxy_prop(type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None) -> Any:
     # converts a value set on an instance to one usable when globalstate.mode == "runtime"
+    if value is None:
+        return value
     prop_type = type_info.types[0]
     if type_info.collection is dict or dict in type_info.types:
         return ProxyMap(value, type_info)
@@ -546,9 +557,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         self._cache = Cache(self._context)
         # when calling into python code context won't have the basedir for the location of the code
         # (since its not imported as yaml). So set it now.
-        path = getattr(sys.modules[self._cls.__module__], "__file__", __file__)
-        assert path
-        self._context.base_dir = os.path.dirname(path)
+        if self._cls.__module__ in sys.modules:
+            path = getattr(sys.modules[self._cls.__module__], "__file__", __file__)
+            if path:
+                self._context.base_dir = os.path.dirname(path)
 
     def __eq__(self, other):
         if self is other:
@@ -622,6 +634,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
 
     def _search(self, prop_ref: T, search_func: Callable) -> T:
         field, prop_name = _get_field_from_prop_ref(prop_ref)
+        if not field:
+            field = self._get_field(prop_name)
         ref = search_func(
             field or prop_name,
             cls_or_obj=cast(Type[tosca.Node], self._obj or self._cls),

@@ -267,6 +267,12 @@ def reload_collections(ctx=None):
 
 reload_collections()
 
+def get_Self(ctx):
+    from .dsl import proxy_instance
+
+    return (
+        proxy_instance(ctx.currentResource, None, ctx)
+    )
 
 class Templar(ansible.template.Templar):
     def template(self, variable, **kw):
@@ -519,12 +525,20 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         __python_executable=sys.executable,
         __now=time.time(),
     )
-    if hasattr(ctx.currentResource, "attributes"):
-        vars["SELF"] = ctx.currentResource.attributes  # type: ignore
+    from .runtime import EntityInstance
+    if isinstance(ctx.currentResource, EntityInstance):
+        vars["SELF"] = ctx.currentResource.attributes
+        if "Self" not in ctx.vars:
+            vars["Self"] = get_Self(ctx)
+        if os.getenv("UNFURL_TEST_DEBUG_EX"):
+            log.debug(
+                "template vars for %s: %s %s ",
+                value[:300],
+                ctx.currentResource.type,
+                list(ctx.vars),
+            )
     else:
         vars["SELF"] = ctx.currentResource
-    if os.getenv("UNFURL_TEST_DEBUG_EX"):
-        log.debug("template vars for %s: %s", value[:300], list(ctx.vars))
     vars.update(ctx.vars)
     vars.ctx = ctx
 
@@ -797,8 +811,7 @@ set_eval_func(
 )
 
 
-def set_context_vars(vars, resource: "EntityInstance"):
-    root = cast("TopologyInstance", resource.root)
+def set_context_vars(vars, root: "TopologyInstance"):
     ROOT: Dict[str, Any] = {}
     vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
     if "inputs" in root._attributes:
@@ -1269,7 +1282,7 @@ set_eval_func(
 )  # type: ignore
 
 
-def get_import(arg: RefContext, ctx):
+def get_import(arg: str, ctx: RefContext):
     """
     Returns the external resource associated with the named import
     """
@@ -1457,7 +1470,7 @@ class SecretResource(ExternalResource):
 
 # shortcuts for local and secret
 def shortcut(arg, ctx):
-    return Ref(dict(ref=dict(external=ctx.currentFunc), select=arg)).resolve(
+    return Ref(dict(eval=dict(external=ctx.currentFunc), select=arg)).resolve(
         ctx, wantList="result"
     )
 
@@ -1729,7 +1742,7 @@ class AttributeManager:
             or self._context_vars["NODES"].resource is not resource.root
         ):
             self._context_vars = {}
-            set_context_vars(self._context_vars, resource)
+            set_context_vars(self._context_vars, resource.root)
         ctor = SafeRefContext if self.safe_mode else RefContext
         ctx = ctor(resource, self._context_vars, task=self.task, strict=self.strict)
         ctx.referenced = self.tracker
