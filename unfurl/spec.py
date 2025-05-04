@@ -278,7 +278,7 @@ class ToscaSpec:
         matches = None
         decorators = self.load_decorators()
         if decorators:
-            logger.debug("applying decorators %s", decorators)
+            logger.debug("found decorators %s", decorators)
             matches = self._overlay(decorators)
             # overlay uses ExceptionCollector
             if ExceptionCollector.exceptionsCaught():
@@ -351,6 +351,7 @@ class ToscaSpec:
             patched = self._patch(toscaDef, path, errorsSoFar)
             if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
+                logger.debug("Applied patches, re-parsing TOSCA template")
                 self._parse_template(path, inputs, toscaDef, resolver, fragment)
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
@@ -848,6 +849,7 @@ class EntitySpec(ResourceRef):
         # Returns the EntitySpec associated with this property.
         # If it's plain property, return self
         # if the property is computed, resolve the expression as a template expression to recursively find the EntitySpec it depends on.
+        # called by _resolve
         prop = self.propertyDefs[key]
         value = prop.value or prop.default
         if value and is_function(value):
@@ -858,7 +860,9 @@ class EntitySpec(ResourceRef):
                 return result[0]
         return self
 
-    def _get_prop(self, name):
+    def _get_prop(self, name: str):
+        # name starts with .
+        # overrides ResourceRef._get_prop
         if name == ".type":
             return ToscaTypeId(
                 None, self.toscaEntityTemplate.type_definition
@@ -868,6 +872,7 @@ class EntitySpec(ResourceRef):
 
     def _resolve(self, key):
         """Expose attributes to eval expressions"""
+        # see ResourceRef
         if key in ["name", "type", "uri", "groups", "policies"]:
             return getattr(self, key)
         if key in self.propertyDefs:
@@ -1445,6 +1450,45 @@ class NodeSpec(EntitySpec):
             matches.update(results)
         return matches
 
+    def _configured_by(self, seen) -> Iterator["NodeSpec"]:
+        for cap in self.capabilities.values():
+            for rel in cap.relationships:
+                if rel.source:
+                    if id(rel.source) in seen:
+                        logger.debug(
+                            f"Circular operational dependency during configured_by in {seen}"
+                        )
+                        continue
+                    seen[id(rel.source)] = rel.source
+
+                    if rel.is_compatible_type(
+                        "unfurl.relationships.Configures"
+                    ):
+                        yield rel.source
+                    yield from rel.source._configured_by(seen)
+
+    @property
+    def configured_by(self) -> List["NodeSpec"]:
+        return list(self._configured_by({}))
+
+    def _hosted_on(self, seen) -> Iterator["NodeSpec"]:
+        for req in self.requirements.values():
+            if req.relationship and req.relationship.target:
+                target = req.relationship.target
+                if id(target) in seen:
+                    logger.debug(
+                        f"Circular operational dependency during hosting_on in {seen}"
+                    )
+                    continue
+                seen[id(target)] = target
+
+                if req.relationship.is_compatible_type("tosca.relationships.HostedOn"):
+                    yield target
+                yield from target._hosted_on(seen)
+
+    @property
+    def hosted_on(self) -> List["NodeSpec"]:
+        return list(self._hosted_on({}))
 
 class RelationshipSpec(EntitySpec):
     """

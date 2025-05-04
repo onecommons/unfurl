@@ -245,6 +245,9 @@ fn add_node_to_topology(
     let name = sym(&node.name);
     for tosca_type in get_types(&node.tosca_type, type_parents) {
         topology.node.push((sym(&name), sym(&tosca_type)));
+        topology
+            .entity
+            .push((EntityRef::Node(sym(&name)), sym(&tosca_type)));
     }
     for f in node.fields.iter() {
         if let FieldValue::Requirement { restrictions, .. } = &f.value {

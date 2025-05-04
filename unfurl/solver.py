@@ -80,9 +80,9 @@ def include_value(v):
 
 def tosca_to_rust(prop: Property) -> ToscaValue:
     value = prop.value
-    assert (
-        value is not None
-    ), f"nulls should be omitted from solver {prop.schema.schema}"
+    assert value is not None, (
+        f"nulls should be omitted from solver {prop.schema.schema}"
+    )
     schema = prop.schema
     entity = prop.entry_schema_entity or prop.entity
     tosca_type = schema.type
@@ -295,7 +295,11 @@ def convert(
             )
         # note: ok if multiple requirements with same name on the template, then occurrences should be on type
         entity._reqs[name] = upper
-        match_type = req_dict.get("node_filter") or not on_type_only or (constrain_required and required)
+        match_type = (
+            req_dict.get("node_filter")
+            or not on_type_only
+            or (constrain_required and required)
+        )
         field, found_restrictions = get_req_terms(
             node_template, types, topology_template, name, req_dict, match_type
         )
@@ -346,8 +350,8 @@ def expr2query(
     start_node: str = node_template.name
     result = analyze_expr(match, ["SOURCE"])
     if result:
-        # logger.trace(f"expr_list: {node_template.name} with {match}:\n {result=}")
         expr_list = result.get_keys()
+        # logger.trace(f"expr_list: {node_template.name} with {match}:\n {expr_list=}")
         query_type = None
         cap = ""
         for key in expr_list:
@@ -367,7 +371,7 @@ def expr2query(
                 if key.startswith("::"):
                     query = []
                     start_node = key[2:]
-                if key.startswith("."):
+                elif key.startswith("."):
                     if key == ".":
                         continue
                     elif key == "..":
@@ -397,6 +401,8 @@ def expr2query(
                         ))
                     elif key == ".capabilities":
                         cap = ".capabilities"  # assume next key is capability name
+                    elif key == ".type":
+                        query_type = QueryType.EntityType
                     else:
                         # matches Sources or Targets
                         query_type = getattr(QueryType, key[1:].title(), None)
@@ -405,7 +411,7 @@ def expr2query(
                 else:  # key is prop
                     query.append((QueryType.PropSource, key, cap))
                     cap = ""
-                # logger.warning(f"{skip} {query=}")
+    # logger.trace(f"{start_node} with {match}:\n {query=}")
     return start_node, query
 
 
@@ -442,6 +448,13 @@ def get_req_terms(
             )
             if rel:
                 rel_type = rel.global_name
+                # special case "host":
+                if name == "host" and rel_type == "tosca.relationships.Root":
+                    rel_type = "tosca.relationships.HostedOn"
+                    rel = cast(
+                        RelationshipType,
+                        topology_template.find_type("tosca.relationships.HostedOn"),
+                    )
                 types[rel.global_name] = [p.global_name for p in rel.ancestors()]
                 if rel.valid_target_types:
                     valid_target_types = []
@@ -462,6 +475,8 @@ def get_req_terms(
             if node_type:
                 # only match by type if the template declared the requirement
                 terms.append(CriteriaTerm.NodeType(node_type.global_name))
+            else:  # add missing node so we don't match
+                terms.append(CriteriaTerm.NodeName(node))
     node_filter = req_dict.get("node_filter")
     if node_filter:
         matches = node_filter.get("match")
@@ -519,8 +534,7 @@ def get_req_terms(
 
 
 def solve_topology(
-    topology_template: TopologyTemplate, resolve_select=None,
-    constrain_required=False
+    topology_template: TopologyTemplate, resolve_select=None, constrain_required=False
 ) -> Solution:
     if not topology_template.node_templates:
         return {}

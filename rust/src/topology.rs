@@ -99,6 +99,7 @@ pub enum QueryType {
     Sources,
     Targets,
     PropSource,
+    EntityType,
 }
 
 /// Constraints used in node filters
@@ -579,33 +580,38 @@ ascent! {
 
     // querying
     // bool indicates whether the query or result is last in the query chain
+    // entityref is a relationship or a property
     relation query(EntityRef, QueryId, QueryType, ReqName, Symbol, bool);
     relation result(EntityRef, QueryId, NodeName, bool);
 
     // rules for generating for each query type:
 
     // include self in result
-    result(r, q_id + 1, s ,last) <--
+    result(r, q_id + 1, s, last) <--
         query(r, q_id, qt, _, sym("SELF"), last) if *qt != QueryType::PropSource,
         result(r, q_id, s, false);
 
-    result(r, q_id + 1, t ,last) <-- transitive_match(s, a, t),
+    result(r, q_id + 1, s, last) <-- node(s, t),
+        query(r, q_id, QueryType::EntityType, t, _, last),
+        result(r, q_id, s, false);
+
+    result(r, q_id + 1, t, last) <-- transitive_match(s, a, t),
         query(r, q_id, QueryType::TransitiveRelation, a, _, last),
+        result(r, q_id, s, false);
+
+    result(r, q_id + 1, t, last) <-- transitive_match(s, a, t),
+        query(r, q_id, QueryType::TransitiveRelationType, rel_type, _, last),
+        relationship(t, ?req, ret_type),  //any req that matches the type
         result(r, q_id, s, false);
 
     result(r, q_id + 1, s, last) <-- required_by(s, a, t),
               query(r, q_id, QueryType::RequiredBy, a, _, last),
               result(r, q_id, t, false);
 
-    result(EntityRef::Relationship(n.clone(), r2.clone()), q_id + 1, s, last) <-- required_by(s, r2, t),
-        query(entity_ref, q_id, QueryType::RequiredByType, a, _, last),
-        relationship(n, r, a) if entity_ref.is_relationship(n, r),
-        result(entity_ref, q_id, t, false);
-
-    result(EntityRef::Relationship(n.clone(), r2.clone()), q_id + 1, t ,last) <-- transitive_match(s, r2, t),
-        query(entity_ref, q_id, QueryType::TransitiveRelationType, a, _, last),
-        relationship(n, r, a) if entity_ref.is_relationship(n, r),
-        result(entity_ref, q_id, s, false);
+    result(r, q_id + 1, s, last) <-- required_by(s, a, t),
+              query(r, q_id, QueryType::RequiredByType, rel_type, _, last),
+              relationship(s, ?req, rel_type), //any req that matches the type
+              result(r, q_id, t, false);
 
     result(r, q_id + 1, source, last) <-- requirement_match(source, a, target, ?cap),
         query(r, q_id, QueryType::Sources, a, _, last),
