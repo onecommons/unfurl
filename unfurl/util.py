@@ -811,7 +811,7 @@ def filter_env(
 
 # copied from tox
 required_envvars = [
-    "TMPDIR",
+    "ASDF_DATA_DIR",
     "CURL_CA_BUNDLE",
     "PATH",
     "LANG",
@@ -823,6 +823,7 @@ required_envvars = [
     "HTTPS_PROXY",
     "NO_PROXY",
     "PYTHONPATH",
+    "TMPDIR",
     "VIRTUAL_ENV",
     "UNFURL_TMPDIR",
     "UNFURL_LOGGING",
@@ -840,6 +841,7 @@ required_envvars = [
     "UNFURL_VALIDATION_MODE",
     "UNFURL_PACKAGE_RULES",
     "UNFURL_LOG_FORMAT",
+    "UNFURL_LOG_TRUNCATE",
     "UNFURL_RAISE_LOGGING_EXCEPTIONS",
     "PY_COLORS",
     "UNFURL_OVERWRITE_POLICY",

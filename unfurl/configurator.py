@@ -464,7 +464,7 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
                 task_id += f" (reason: {task.reason})"
             if task._rendering:
                 msg = f"Rendering task {task_id} (errors expected): {msg}"
-                if level >= Levels.VERBOSE:
+                if level >= Levels.VERBOSE:  # suppress logger severity when rendering
                     level = Levels.VERBOSE
             else:
                 msg = f"Task {task_id}: {msg}"

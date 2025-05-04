@@ -882,7 +882,8 @@ def _render_request(
         # we turned off strictness so templating errors got saved here instead
         req.render_errors = task._errors
         error = task._errors[0]
-        error_info = error.stackInfo  # type: ignore
+        if not error_info:
+            error_info = error.stackInfo  # type: ignore
         task._errors = []
     task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
@@ -1007,28 +1008,27 @@ def do_render_requests(
     return ready, notReady, errors
 
 
-def _filter_config(opts: "JobOptions", config: "ConfigurationSpec", target):
-    if opts.readonly and config.workflow != "discover":
-        return None, "read only"
+def filter_config(opts: "JobOptions", workflow: str, target):
+    if opts.readonly and workflow != "discover":
+        return "read only"
     # if opts.requiredOnly and not config.required:
     #     return None, "required"
     if opts.instance and target.name != opts.instance:
-        return None, f"instance {opts.instance}"
+        return f"instance {opts.instance}"
     if opts.instances and target.name not in opts.instances:
-        return None, f"instances {opts.instances}"
-    return config, None
+        return f"instances {opts.instances}"
+    return ""
 
 
 def filter_task_request(
     jobOptions: "JobOptions", req: TaskRequest
 ) -> Optional[TaskRequest]:
     configSpec = req.configSpec
-    configSpecName = configSpec.name
-    configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)
-    if not configSpec:
+    filterReason = filter_config(jobOptions, configSpec.workflow, req.target)
+    if filterReason:
         logger.debug(
             "skipping configspec '%s' for '%s': doesn't match filter: '%s'",
-            configSpecName,
+            configSpec.name,
             req.target.name,
             filterReason,
         )

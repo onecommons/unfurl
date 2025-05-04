@@ -37,6 +37,7 @@ from .planrequests import (
     SetStateRequest,
     JobRequest,
     create_task_request,
+    filter_config,
     filter_task_request,
     ConfigurationSpec,
     find_parent_resource,
@@ -171,7 +172,9 @@ class Plan:
             assert nested_root, f"{nested_root_name} should already have been created"
             name = template.substitution.substitution_node.name
             inner = nested_root.find_instance(name)
-            assert inner, f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            assert inner, (
+                f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            )
             assert inner is not instance
             instance.imported = (
                 ":" + template.substitution.substitution_node.nested_name
@@ -313,7 +316,6 @@ class Plan:
                 f'unable to find a deploy operation on node "{resource.template.name}"'
             )
             logger.debug(errorMsg)
-        self._startworkflow = False
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
         # add_target: Operation to notify source some property or attribute of the target changed
@@ -539,6 +541,15 @@ class Plan:
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
+        filter_reason = filter_config(self.jobOptions, workflow, resource)
+        if filter_reason:
+            logger.debug(
+                "skipping %s task for '%s': doesn't match filter: '%s'",
+                workflow,
+                resource.name,
+                filter_reason,
+            )
+            return
         # check if this workflow has been delegated to one explicitly declared
         configGenerator = self.execute_workflow(workflow, resource)
         if configGenerator:
@@ -870,9 +881,9 @@ class DeployPlan(Plan):
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
         else:
-            assert (
-                jobOptions.repair == "error"
-            ), f"repair: {jobOptions.repair} status: {instance.status}"
+            assert jobOptions.repair == "error", (
+                f"repair: {jobOptions.repair} status: {instance.status}"
+            )
             return Reason.repair  # repair this
 
     def is_instance_read_only(self, instance):
@@ -936,6 +947,10 @@ class DeployPlan(Plan):
         )
         if req:
             yield req
+        else:
+            logger.verbose(
+                f'No operation for "reconfigure" defined for instance "{instance.nested_name}" (type "{instance.type}")'
+            )
 
     def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
         interface = taskrequest.configSpec.interface
