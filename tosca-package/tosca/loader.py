@@ -410,9 +410,7 @@ def load_private_module(base_dir: str, modules: Dict[str, ModuleType], name: str
                 try:
                     setattr(parent_module, child, module)
                 except AttributeError:
-                    msg = (
-                        f"Cannot set an attribute on {parent!r} for child module {child!r}"
-                    )
+                    msg = f"Cannot set an attribute on {parent!r} for child module {child!r}"
                     logger.warning(msg)
     return module
 
@@ -673,7 +671,11 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
         return super().visit_ClassDef(node)
 
 
-ALLOWED_FUNC_NAMES = ALLOWED_FUNC_NAMES | frozenset(ImmutableModule.__always_safe__)
+ALLOWED_FUNC_NAMES = (
+    ALLOWED_FUNC_NAMES
+    | frozenset(ImmutableModule.__always_safe__)
+    | frozenset(["__class__"])
+)
 
 
 class SafeToscaDslNodeTransformer(ToscaDslNodeTransformer):

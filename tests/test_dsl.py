@@ -1738,6 +1738,8 @@ tosca.nodes.Root._type_name = 'pown'""",
         "import random; getattr(random, '_os')",
         "import os.path; os.path.exists('foo/bar')",  # not a safe function
         "import unfurl; unfurl._ImmutableModule__set_sub_module('foo', 'bar')",
+        "import tosca; del tosca.nodes.Root().__class__._name"
+        "import tosca; tosca.nodes.Root().__class__.trick = 'tricky'",
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
@@ -1761,6 +1763,7 @@ tosca.nodes.Root._type_name = 'pown'""",
         """import tosca
 node = tosca.nodes.Root()
 node._name = "test"
+node.__class__.feature
         """,
     ]
     for src in allowed:
