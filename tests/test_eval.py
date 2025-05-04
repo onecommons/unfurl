@@ -913,3 +913,6 @@ def test_analyze_expr():
 
     result = analyze_expr({"eval": "foo", "trace":0})
     assert result and result.get_keys() == ['$start', ".ancestors", "foo"]
+
+    result = analyze_expr(dict(eval=".hosted_on[.type=unfurl.nodes.K8sNamespace]::foo"))
+    assert result and result.get_keys() == ['$start', ".hosted_on", ".type", "unfurl.nodes.K8sNamespace", "foo"]

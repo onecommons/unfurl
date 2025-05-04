@@ -777,6 +777,11 @@ class AnyRef(ResourceRef):
     "Used by eval.analyze_expr to analyze expressions"
 
     def __init__(self, name: str, parent=None):
+        self.set_parent(parent)
+        self._key = name
+        self.children: List[AnyRef] = []
+
+    def set_parent(self, parent):
         self.parent = parent
         while parent:
             if not parent.parent:
@@ -784,8 +789,6 @@ class AnyRef(ResourceRef):
                 break
             else:
                 parent = parent.parent
-        self._key = name
-        self.children: List[AnyRef] = []
 
     @property
     def key(self):
@@ -833,6 +836,9 @@ class AnyRef(ResourceRef):
         if isinstance(other, AnyRef):
             if self.key == ".name":
                 self._key = other.key
+            elif self.key == ".type":
+                if not other.parent:  # just set once
+                    other.set_parent(self)
             return True
         return False
 
