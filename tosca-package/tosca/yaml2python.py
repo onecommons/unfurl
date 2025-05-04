@@ -374,6 +374,9 @@ class Convert:
     def value2python_repr(self, value, quote=False) -> str:
         return value2python_repr(value, quote, self.imports)
 
+    def is_tosca_type(self, typename: str) -> bool:
+        return typename in EntityType.TOSCA_DEF or typename in self.custom_defs
+
     def convert_topology(self, topology: TopologyTemplate, indent="") -> str:
         src = ""
         if topology.inputs:
@@ -1558,6 +1561,7 @@ class Convert:
         return ""
 
     def template_reference(self, tosca_name: str, type: str, template=None) -> str:
+        # return "" if tosca_name is a type name
         localname = self.imports.get_local_ref(tosca_name)
         if not localname:
             assert self.template.topology_template
@@ -1570,10 +1574,13 @@ class Convert:
                 if template:
                     localname, src = self.node_template2obj(template, indent="")
                 if not template or not localname:
-                    logger.warning(
-                        f'Node template "{tosca_name}" not found in topology, using find_node("{tosca_name}") instead of converting to Python.'
-                    )
-                    return f'tosca.find_node("{tosca_name}")'
+                    if self.is_tosca_type(tosca_name):
+                        return ""
+                    else:
+                        logger.warning(
+                            f'Node template "{tosca_name}" not found in topology, using find_node("{tosca_name}") instead of converting to Python.'
+                        )
+                        return f'tosca.find_node("{tosca_name}")'
             elif type == "relationship":
                 if not template:
                     template = (
@@ -1592,10 +1599,13 @@ class Convert:
                         else:  # no given name, include definition inline
                             return src
                 if not template or not localname:
-                    logger.warning(
-                        f'Relationship template conversion not found in topology, using find_relationship("{tosca_name}") instead of converting to Python.'
-                    )
-                    return f'tosca.find_relationship("{tosca_name}")'
+                    if self.is_tosca_type(tosca_name):
+                        return ""
+                    else:
+                        logger.warning(
+                            f'Relationship template conversion not found in topology, using find_relationship("{tosca_name}") instead of converting to Python.'
+                        )
+                        return f'tosca.find_relationship("{tosca_name}")'
             else:
                 logger.error(f"templates of type {type} not supported")
                 return tosca_name
