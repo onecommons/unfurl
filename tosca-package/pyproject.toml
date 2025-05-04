@@ -9,7 +9,6 @@ description = "A library for representing TOSCA (Topology and Orchestration Spec
 readme = "README.md"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -18,6 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+license = "MIT"
 dependencies = [
   "black>=24.3.0",
   "typing_extensions>=4.7.1",
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
