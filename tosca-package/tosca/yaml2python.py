@@ -1820,19 +1820,21 @@ class Convert:
     def _get_req_assignment(self, req):
         node = None
         req_assignment = None
+        field_args = []
         if isinstance(req, str):
             node = req
             capability = None
             relationship = None
+            node_filter = None
         else:
-            # XXX handle node_filter
-            # XXX check if values that are typenames (treat like node filter)
             node = req.get("node")
             capability = req.get("capability")
             relationship = req.get("relationship")
+            node_filter = req.get("node_filter")
         if node:
-            # XXX make sure template is already declared
             req_assignment = self.template_reference(node, "node")
+            if not req_assignment:
+                field_args.append(f'node="{node}"')
             if capability:
                 # XXX get target template object and look up python attribute name for capability
                 req_assignment += f".{capability}"
@@ -1850,6 +1852,12 @@ class Convert:
                     req_assignment = f"{rel_assignment}[{req_assignment}]"
                 else:
                     req_assignment = rel_assignment
+        if node_filter:
+            field_args.append(f"node_filter={self.value2python_repr(node_filter)}")
+        if field_args:
+            if req_assignment:
+                field_args.insert(0, f"default={req_assignment}")
+            return f"Repository({', '.join(field_args)})"
         return req_assignment
 
     def follow_import(
