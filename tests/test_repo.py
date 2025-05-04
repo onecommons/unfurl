@@ -616,11 +616,13 @@ spec:
                 "get-url", "--push", repo.remote.name
             )
 
-    # XXX renable on CI -- this test has gotten really flaky on github actions for some reason
-    @unittest.skipIf(os.getenv("CI"), reason="skipping due to flaky CI")
+    @unittest.skipIf(
+        "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
+    )
     def test_submodules(self):
         runner = CliRunner()
-        with runner.isolated_filesystem():
+        with runner.isolated_filesystem(os.getenv("UNFURL_TEST_TMPDIR")) as tmp_dir:
+            print("saving to", tmp_dir)
             # override home so to avoid interferring with other tests
             result = runner.invoke(
                 cli, ["--home", "./unfurl_home", "init", "test", "--submodule"]
