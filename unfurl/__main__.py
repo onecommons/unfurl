@@ -26,6 +26,19 @@ from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
+
+def _try_debugger():
+    debug = os.getenv("DEBUGPY")
+    if debug:
+        import debugpy
+
+        port = int(debug)
+        debugpy.listen(port if port > 1 else 5678)
+        debugpy.wait_for_client()
+
+
+_try_debugger()
+
 from . import (
     DefaultNames,
     __version__,
