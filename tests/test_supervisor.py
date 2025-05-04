@@ -41,8 +41,18 @@ class SupervisorTest(unittest.TestCase):
                     summary["job"],
                 )
 
-                time.sleep(0.25)
-                f = urllib.request.urlopen("http://127.0.0.1:8012/")
+                retries = 0
+                f = None
+                while retries < 5:
+                  try:
+                      time.sleep(0.20)
+                      f = urllib.request.urlopen("http://127.0.0.1:8012/", timeout=.20)
+                  except urllib.error.URLError:
+                      retries += 1
+                  else:
+                      break
+
+                assert f, retries
                 expected = b"Directory listing for /"
                 self.assertIn(expected, f.read())
 
