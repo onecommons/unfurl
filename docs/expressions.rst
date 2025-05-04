@@ -366,6 +366,7 @@ get_dir
   :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
   :project: The root directory of the current project.
   :unfurl.home: The location of home project (UNFURL_HOME).
+  :repository.<name>: The location of the repository with the given name.
 
   Otherwise look for a `repository <tosca_repositories>` with the given name and return its path or None if not found.
 

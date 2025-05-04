@@ -58,7 +58,7 @@ When a job runs it creates several directories and files, some of which are comm
 
 During the planning stage, tasks can generate ("render") files that are used during deployment. They are saved in the ``planned`` directory in one of the subdirectories described below. It is the task's `configurator`'s responsibility to creates the files it needs -- for example, the Terraform configurator might generate a terraform module.
 
-During the deployment stage, those files are moved to the ``active`` directory after the task completes successfully. If it fails, they are moved to a directory named ``failed.<taskid>``.
+During the deployment stage, those files are moved to the ``active`` directory after the task completes successfully. If it fails, they are moved to a directory named ``failed/<changeid>``.
 
 When the job completes, ``job.tsv`` is updated and files for that job are added to ``changes`` and ``jobs`` directories.
 

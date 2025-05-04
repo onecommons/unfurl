@@ -11,7 +11,7 @@ An ensemble may contain create the following directories when a job runs:
 
 Each of these directories will contain subdirectories named after each instance in the ensemble; their contents are populated as those instances are deployed.
 
-When a plan is being generated, a directory named "planned" will be created which will have the same directory structure as above. When the job executes the plan those files will be moved to the corresponding directory if the task successfully deployed, otherwise it will be moved to a directory named ``failed.<changeid>``.
+When a plan is being generated, a directory named "planned" will be created which will have the same directory structure as above. When the job executes the plan those files will be moved to the corresponding directory if the task successfully deployed, otherwise it will be moved to a directory named ``failed/<changeid>``.
 
 When a task runs, its configurator has access to these directories that it can use
 to store artifacts in the ensemble's repository or for generating local configuration files.
@@ -300,7 +300,7 @@ class WorkFolder:
         pendingpath = self._pending
         errorpath = ""
         if os.path.exists(pendingpath):
-            error_dir = "failed." + self.task.changeId  # type: ignore
+            error_dir = "failed/" + self.task.changeId  # type: ignore
             errorpath = self._get_job_path(self.task, self.location, error_dir)
             self._rename_dir(pendingpath, errorpath)
         self.pending_state = False
@@ -493,15 +493,13 @@ class FilePath(_ArtifactExternalValue):
 
         manifest: Optional["Manifest"] = options and options.get("manifest")
         if manifest:
-            repo, relPath, revision, bare = manifest.find_path_in_repos(
-                fullpath
-            )
+            repo, relPath, revision, bare = manifest.find_path_in_repos(fullpath)
             if repo and not repo.is_dirty(True, relPath):
                 if relPath:
                     # equivalent to git rev-parse HEAD:path
                     digest = "git:" + repo.repo.rev_parse("HEAD:" + relPath).hexsha
                 else:
-                    digest = "git:" + (revision or "HEAD") # root of repo
+                    digest = "git:" + (revision or "HEAD")  # root of repo
                 return digest
 
         if os.path.isfile(fullpath):
@@ -610,6 +608,7 @@ def _get_base_dir(ctx, name=None):
     :spec.local: Local directory unique to the current instance's TOSCA template (excluded from repository).
     :project: The root directory of the current project.
     :unfurl.home: The location of home project (UNFURL_HOME).
+    :repository.<name>: The location of the repository with the given name
 
     Otherwise look for a repository with the given name and return its path or None if not found.
     """
@@ -668,5 +667,7 @@ def _get_base_dir(ctx, name=None):
                     return specHome
                 elif rest == "local":
                     return os.path.join(specHome, "local")
+            elif start == "repository":
+                return spec.get_repository_path(rest)
             # XXX elif start == 'project' and rest == 'local'
         return spec.get_repository_path(name)
