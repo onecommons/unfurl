@@ -482,7 +482,12 @@ pub fn solve(
 }
 
 fn dump_solution(prog: &Topology) {
-    if !std::env::var("UNFURL_TEST_DUMP_SOLVER").is_ok_and(|x| !x.is_empty()) {
+    let dump_env = std::env::var("UNFURL_TEST_DUMP_SOLVER");
+    if !dump_env.as_ref().is_ok_and(|x| !x.is_empty()) {
+        return;
+    }
+    let dump: u32 = dump_env.unwrap().parse().unwrap();
+    if dump == 0 {
         return;
     }
 
@@ -495,6 +500,21 @@ fn dump_solution(prog: &Topology) {
             .map(|x| (&x.0, &x.1, &x.2 .0))
             .collect::<Vec<_>>()
     );
+
+    println!(
+        "requirement matches: {:#?}",
+        prog.requirement_match
+            .iter()
+            .map(|x| (&x.0, &x.1, &x.2, &x.3))
+            .collect::<Vec<_>>()
+    );
+
+    if dump > 1 {
+        println!(
+            "relationships: {:#?}",
+            prog.relationship.iter().collect::<Vec<_>>()
+        );
+    }
 
     println!(
         "property expressions: {:#?}",
@@ -518,19 +538,40 @@ fn dump_solution(prog: &Topology) {
     );
 
     println!(
-        "queries: {:#?}",
+        "queries (final): {:#?}",
         prog.query.iter().filter(|x| x.5).collect::<Vec<_>>()
     );
+
+    if dump > 1 {
+        println!(
+            "queries (intermediate): {:#?}",
+            prog.query.iter().filter(|x| !x.5).collect::<Vec<_>>()
+        );
+    }
 
     println!(
         "query results: {:#?}",
         prog.result.iter().filter(|x| x.3).collect::<Vec<_>>()
     );
 
+    if dump > 1 {
+        println!(
+            "results (intermediate): {:#?}",
+            prog.result.iter().filter(|x| !x.3).collect::<Vec<_>>()
+        );
+    }
+
     println!(
         "requirement matches: {:#?}",
         prog.requirement_match.iter().collect::<Vec<_>>()
     );
+
+    if dump > 1 {
+        println!(
+            "transitive matches: {:#?}",
+            prog.transitive_match.iter().collect::<Vec<_>>()
+        );
+    }
 }
 /// A Python module implemented in Rust.
 #[cfg(feature = "python")]
