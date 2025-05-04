@@ -262,7 +262,7 @@ def runtime_test(namespace: Type[_N]) -> _N:
 def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     from .job import Runner
 
-    manifest = namespace2manifest(namespace)
+    manifest, doc = namespace2manifest(namespace)
     assert manifest.rootResource
     # a plan is needed to create the instances
     runner = Runner(manifest)
@@ -271,6 +271,7 @@ def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     # make sure we share the change_count
     ctx = manifest.rootResource.attributeManager._get_context(manifest.rootResource)
     clone = namespace()
+    clone._yaml = doc
     node_templates = {
         t._name: (python_name, t)
         for python_name, t in namespace.get_defs().items()
@@ -290,7 +291,7 @@ def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     return clone, runner
 
 
-def namespace2manifest(namespace: Type[tosca.Namespace]) -> YamlManifest:
+def namespace2manifest(namespace: Type[tosca.Namespace]) -> Tuple[YamlManifest, Dict[str, Any]]:
     converter = PythonToYaml(namespace.get_defs())
     doc = converter.module2yaml(True)
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
@@ -300,4 +301,4 @@ def namespace2manifest(namespace: Type[tosca.Namespace]) -> YamlManifest:
         apiVersion=API_VERSION, kind="Ensemble", spec=dict(service_template=doc)
     )
     manifest = YamlManifest(config)
-    return manifest
+    return manifest, doc

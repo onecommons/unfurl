@@ -989,6 +989,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                 # XXX if val is a node, create ref:
                 # val = EvalData({"eval": "::"+ val._name})
                 assert isinstance(val, EvalData), val
+                val = val.as_expr
             if val not in match_filters:
                 match_filters.append(val)
 
@@ -2446,6 +2447,11 @@ def _search(
     else:
         return EvalData(None, expr)
 
+def _find_node(axis: str, tt: Optional[Type[_PT]] = None, cls_or_obj=None,) -> Optional[_PT]:
+    path = _get_expr_prefix(cls_or_obj)
+    if tt:
+        path.append(f"{axis}[.type={tt.tosca_type_name()}]")
+    return EvalData(None, path)  # type: ignore
 
 def find_configured_by(
     field_name: _T,
@@ -2768,6 +2774,8 @@ class ToscaType(_ToscaType):
 
     else:
         get_field = anymethod(_get_field)
+
+    _find_node = anymethod(_find_node, keyword="cls_or_obj")
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         # TOSCA templates can add requirements, capabilities and operations that are not defined on the type

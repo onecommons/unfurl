@@ -678,6 +678,56 @@ node_types:
     )
 
 
+def test_node_filter_on_template():
+    python_src = """
+import unfurl
+import tosca
+class Host(tosca.nodes.Root):
+    pass
+
+class App(tosca.nodes.Root):
+    host: Host
+
+foo = App(host=tosca.CONSTRAINED)
+test = App(host=foo._find_node(".hosted_on", Host))
+"""
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    foo:
+      type: App
+      requirements:
+      - host:
+          node: Host
+      metadata:
+        module: service_template
+    test:
+      type: App
+      requirements:
+      - host:
+          node_filter:
+            match:
+            - eval: ::foo::.hosted_on[.type=Host]
+      metadata:
+        module: service_template
+node_types:
+  Host:
+    derived_from: tosca.nodes.Root
+  App:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - host:
+        node: Host
+"""
+    # make sure that the node_filter is only on the template not the node type
+    yaml_dict = _to_yaml(python_src, False)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
 def test_generator_operation():
     import unfurl.configurators.shell
     from unfurl.configurator import TaskView

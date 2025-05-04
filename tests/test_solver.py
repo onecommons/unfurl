@@ -18,6 +18,8 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.common import exception
 from ruamel.yaml.comments import CommentedMap
 import pytest
+import tosca
+from unfurl.testing import create_runner, runtime_test
 
 if os.getenv("UNFURL_TEST_SKIP_BUILD_RUST"):
     pytest.skip("UNFURL_TEST_SKIP_BUILD_RUST set", allow_module_level=True)
@@ -187,9 +189,6 @@ def test_node_filter():
 # test node_filter match
 # test node_filter match with property source
 
-import tosca
-from unfurl.testing import runtime_test
-
 
 class Thingy(tosca.nodes.Root):
     a_property: int = 1
@@ -215,7 +214,37 @@ class Test(tosca.nodes.Root):
     app: App
 
 
+class Test2(tosca.nodes.Root):
+    host: App
+    another_app: App = tosca.DEFAULT
+
+    def _template_init(self) -> None:
+        # test that we follow host through .hosted_on but only match Host
+        # set app.host to the (first) parent of this template that is type Host
+        self.another_app = App(host=self._find_node(".hosted_on", Host))
+
+
 def test_node_filter_match(caplog: pytest.LogCaptureFixture):
+    class test2(tosca.Namespace):
+        t = Test2(host=App(host=Host(thingy=Thingy())))
+
+    topology = runtime_test(test2)
+    assert (
+        "node_filter"
+        not in topology._yaml["node_types"]["App"]["requirements"][0]["host"]
+    )
+    assert (
+        "node_filter"
+        in topology._yaml["topology_template"]["node_templates"]["test2.t_another_app"][
+            "requirements"
+        ][0]["host"]
+    )
+
+    # XXX rename _host to test2.t_host_host
+    assert "Solver set test2.t_another_app.host to _host" in caplog.text
+
+
+def test_node_filter_computed_properties(caplog: pytest.LogCaptureFixture):
     class test(tosca.Namespace):
         thingy = Thingy(a_property=2)
         app = App(host=Host(thingy=thingy))
@@ -226,6 +255,7 @@ def test_node_filter_match(caplog: pytest.LogCaptureFixture):
     topology = runtime_test(test)
     assert topology.app.shortcut == topology.thingy
     assert "Solver set test.app.shortcut to test.thingy" in caplog.text
+    # node_filter matches because test.app has "computed" == 2 via test.shortcut.a_property == 2
     assert "Solver set test.test2.app to test.app" in caplog.text
     assert topology.app.computed == 2
 
@@ -236,5 +266,8 @@ def test_node_filter_match(caplog: pytest.LogCaptureFixture):
     with pytest.raises(
         UnfurlValidationError,
         match='Could not find target template "App" for requirement "app" in node template "test1"',
+        # match='Node template test1 is missing requirements: app',
     ):
-        topology = runtime_test(test)
+        # topology = runtime_test(test)
+        topology, runner = create_runner(test)
+        # runner.job.rootResource.find_resource("test1").validate()

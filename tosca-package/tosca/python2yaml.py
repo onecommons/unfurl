@@ -255,7 +255,8 @@ class PythonToYaml:
                 node = value._target._node
                 req["capability"] = value._target._local_name
         elif isinstance(value, EvalData):
-            field.add_node_filter(value)
+            node_filter = req["node_filter"] = {}
+            field._set_node_filter_constraint(node_filter, value)
         else:
             raise TypeError(
                 f'Invalid value for requirement: "{value}" ({type(value)}) on {field.name}"'
