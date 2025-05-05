@@ -2455,6 +2455,8 @@ def _search(
     cls_or_obj=None,
 ) -> EvalData:
     field, req_name = _get_field_from_prop_ref(prop_ref)
+    if not field and cls_or_obj:
+        field = _get_field(cls_or_obj, prop_ref)
     if field:
         key = field.as_ref_expr()
     else:
@@ -2468,7 +2470,7 @@ def _search(
     else:
         return EvalData(None, expr)
 
-def _find_node(axis: str, tt: Optional[Type[_PT]] = None, cls_or_obj=None,) -> Optional[_PT]:
+def _find_template(axis: str, tt: Optional[Type[_PT]] = None, cls_or_obj=None,) -> Optional[_PT]:
     path = _get_expr_prefix(cls_or_obj)
     if tt:
         path.append(f"{axis}[.type={tt.tosca_type_name()}]")
@@ -2790,7 +2792,7 @@ class ToscaType(_ToscaType):
     else:
         get_field = anymethod(_get_field)
 
-    _find_node = anymethod(_find_node, keyword="cls_or_obj")
+    _find_template = anymethod(_find_template, keyword="cls_or_obj")
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         # TOSCA templates can add requirements, capabilities and operations that are not defined on the type

@@ -221,7 +221,7 @@ class Test2(tosca.nodes.Root):
     def _template_init(self) -> None:
         # test that we follow host through .hosted_on but only match Host
         # set app.host to the (first) parent of this template that is type Host
-        self.another_app = App(host=self._find_node(".hosted_on", Host))
+        self.another_app = App(host=self._find_template(".hosted_on", Host))
 
 
 def test_node_filter_match(caplog: pytest.LogCaptureFixture):

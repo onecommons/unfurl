@@ -240,6 +240,7 @@ class Cluster(tosca.nodes.Root):
         outputs: dict = tosca.global_state_context().vars["outputs"]
         # check that default_connection was found as a connection for this node:
         assert tosca.global_state_context().vars["connections"]["default_connection"]
+        assert isinstance(self, Cluster), self
         self.default_connection.node_pool_name = outputs["name"]
 
     default_connection: tosca.relationships.ConnectsTo = tosca.Requirement(factory=lambda: tosca.relationships.ConnectsTo(_default_for="SELF"))

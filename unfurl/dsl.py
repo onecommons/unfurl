@@ -520,6 +520,7 @@ def _proxy_eval_result(
 
 
 PT = TypeVar("PT", bound="ToscaType")
+_PT = TypeVar("_PT", bound="ToscaType")
 
 T = TypeVar("T")
 
@@ -607,12 +608,19 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         )
         assert isinstance(ref, EvalData)  # actually it will be a EvalData
         expected = Expected or tosca.nodes.Root
-        return self._execute_resolve_one(ref, requirement, expected)
+        return self._execute_resolve_one(ref, expected)
+
+    def _find_template(self, axis: str, Expected: Optional[Type[_PT]] = None) -> Optional[_PT]:
+        ref = (self._obj or self._cls)._find_template(
+            axis, Expected
+        )
+        assert isinstance(ref, EvalData)  # actually it will be a EvalData
+        expected = Expected or tosca.nodes.Root
+        return self._execute_resolve_one(ref, expected)
 
     def _execute_resolve_one(
         self,
         ref: EvalData,
-        field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo] = None,
     ) -> Any:
         """
@@ -648,12 +656,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             return cast(
                 T,
                 self._execute_resolve_all(
-                    cast(EvalData, ref), prop_name, _type.types[0]
+                    cast(EvalData, ref), _type.types[0]
                 ),
             )
         else:
             return cast(
-                T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type)
+                T, self._execute_resolve_one(cast(EvalData, ref), _type)
             )
 
     def find_configured_by(
@@ -686,13 +694,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             requirement, Expected
         )
         return self._execute_resolve_all(
-            cast(EvalData, ref), requirement, Expected or tosca.nodes.Root
+            cast(EvalData, ref), Expected or tosca.nodes.Root
         )
 
     def _execute_resolve_all(
         self,
         ref: EvalData,
-        field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo],
     ) -> List[Any]:
         result = Ref(cast(Union[str, dict], ref.expr)).resolve(self._context)

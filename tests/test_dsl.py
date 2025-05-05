@@ -689,7 +689,7 @@ class App(tosca.nodes.Root):
     host: Host
 
 foo = App(host=tosca.CONSTRAINED)
-test = App(host=foo._find_node(".hosted_on", Host))
+test = App(host=foo._find_template(".hosted_on", Host))
 """
     yaml_src = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
