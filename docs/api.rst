@@ -10,10 +10,80 @@ API for writing service templates
 
 See `here <dsl>` for an overview of the TOSCA Python DSL.
 
+TOSCA Types
+~~~~~~~~~~~~~~~~~~~~~~
+
+The classes in this section are used to define TOSCA types, such as `Nodes <tosca.Node>`, `Relationships <tosca.Relationship>`, `Capabilities <tosca.Capability>`, `Artifacts <tosca.ArtifactEntity>`, and `Data Types <tosca.DataEntity>`. TOSCA Type objects correspond to a template (such as a node template or relationship template) defined in TOSCA service template.
+
+.. autoclass:: tosca.ToscaType
+
+  .. automethod:: _template_init
+
+  .. classmethod:: _class_init()
+
+    A user-defined class method that is called when the class definition is being initialized, specifically before Python's `dataclass <https://docs.python.org/3/library/dataclasses.html>`_  machinery is invoked. Define this method in a subclass if you want to customize your class definition.
+
+    Inside this method referencing a class fields will return a `FieldProjection` but this is hidden from the static type checker and IDE through `type punning <https://en.wikipedia.org/wiki/Type_punning>`_.
+
+    You can set the default value of fields in your class definition to ``CONSTRAINED`` to indicate they will be configured in your ``_class_init`` method.
+
+    :return type: None
+
+    .. code-block:: python
+
+      class Example(tosca.nodes.Root):
+
+          # set default to CONSTRAINED to indicate a value will be assigned in _class_init
+          host: tosca.nodes.Compute = tosca.CONSTRAINED
+
+          @classmethod
+          def _class_init(cls) -> None:
+              # the proxy node template created here will be shared by all instances of Example unless one sets its own.
+              cls.host = tosca.nodes.Compute()
+
+              # Constrain the memory size of the host compute.
+              # this will apply to all instances even if one sets its own Compute instance.
+              # (The generated YAML for the host requirement on this node type will include a node_filter with an in_range property constraint).
+              in_range(2 * gb, 20 * gb).apply_constraint(cls.host.mem_size)
+
+
+  .. automethod:: __getattribute__
+
+  .. automethod:: find_configured_by
+
+  .. automethod:: find_hosted_on
+
+  .. automethod:: from_owner
+
+  .. automethod:: get_ref
+
+  .. automethod:: has_default
+
+  .. automethod:: set_to_property_source
+
+  .. automethod:: set_operation
+
+.. autoclass:: tosca.Node
+  
+  .. automethod:: find_required_by
+
+  .. automethod:: find_all_required_by
+
+.. autoclass:: tosca.Relationship
+
+.. autoclass:: tosca.CapabilityEntity
+
+.. autoclass:: tosca.DataEntity
+
+.. autoclass:: tosca.ArtifactEntity
+
+.. autoclass:: tosca.Group
+.. autoclass:: tosca.Policy
+
 TOSCA Field Specifiers
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The follow are functions that are used as field specified when declaring attributes on TOSCA type. Use these if you need to specify TOSCA specific information about the field or if the TOSCA field type can't be inferred from the Python's attribute's type. For example:
+The follow are functions that are used as field specified when declaring attributes on `TOSCA types`. Use these if you need to specify TOSCA specific information about the field or if the TOSCA field type can't be inferred from the Python's attribute's type. For example:
 
 .. code-block:: python
 
@@ -23,57 +93,51 @@ The follow are functions that are used as field specified when declaring attribu
 
 Note that these functions all take keyword-only parameters (this is needed for IDE integration).
 
-
 .. automodule:: tosca
   :imported-members: true
   :members: Property, Attribute, Requirement, Capability, Artifact, operation, Computed
 
-TOSCA Types
-~~~~~~~~~~~~~~~~~~~~~~
+Property Constraints
+~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ToscaType
+.. autoclass:: DataConstraint
 
-  .. automethod:: find_configured_by
+.. autoclass:: equal
 
-  .. automethod:: find_hosted_on
+.. autoclass:: greater_than
 
-  .. automethod:: from_owner
+.. autoclass:: less_than
 
-  .. automethod:: set_to_property_source
+.. autoclass:: greater_or_equal
 
-  .. automethod:: set_operation
+.. autoclass:: less_or_equal
 
-.. autoclass:: Node
-  
-  .. automethod:: find_required_by
+.. autoclass:: in_range
 
-  .. automethod:: find_all_required_by
+.. autoclass:: valid_values
 
-.. autoclass:: Relationship
+.. autoclass:: length
 
-.. autoclass:: CapabilityEntity
+.. autoclass:: min_length
 
-.. autoclass:: DataEntity
+.. autoclass:: max_length
 
-.. autoclass:: ArtifactEntity
+.. autoclass:: pattern
 
-.. autoclass:: Interface
+.. autoclass:: schema
 
-.. autoclass:: Group
-
-.. autoclass:: Policy
-
-Other
-~~~~~~~~~~~~~~~~~~~~~~
+Other Module Items
+~~~~~~~~~~~~~~~~~~~~~
 
 .. autofunction:: Eval
 
 .. autoclass:: EvalData
-
-.. autoclass:: DataConstraint
-
-.. autoclass:: NodeTemplateDirective
    :members:
+
+.. autoclass:: FieldProjection
+
+.. autoclass:: Interface
+   :members: _type_name, _type_metadata, _interface_requirements
 
 .. autoclass:: Repository
    :members:
@@ -89,6 +153,10 @@ Other
 .. autoclass:: StandardOperationsKeywords
 
 .. autofunction:: set_operations
+
+.. autoclass:: NodeTemplateDirective
+   :show-inheritance: 
+   :members:
 
 .. autofunction:: set_evaluation_mode
 
@@ -132,6 +200,7 @@ Configurators
 .. automodule:: unfurl.support
   :members: Status, NodeState, Priority, Reason
   :undoc-members:
+  :show-inheritance:
 
 .. automodule:: unfurl.result
   :members: ChangeRecord, ChangeAware

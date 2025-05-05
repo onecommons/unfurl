@@ -411,7 +411,7 @@ With unfurl, the command line equivalent is:
 To enable untrusted Python service templates to be safely parsed in the same contexts as TOSCA YAML files, the `python_to_yaml` function has a `safe_mode` flag that will execute the Python code in a sandboxed environment. The following rules apply to code running in the sandbox:
 
 * The sandbox only a provides a subset of Python's built-ins functions and objects -- ones that do not perform IO or modify global state.
-* Imports are limited to relative imports, TOSCA repositories via the  `tosca_repository` package, or the modules named in the `tosca.python2yaml.ALLOWED_MODULES` list, which defaults to "tosca", "typing", "typing_extensions", "random", "math", "string", "DateTime", and "unfurl".
+* Imports are limited to relative imports, TOSCA repositories via the  `tosca_repositories`, or the modules named in the `tosca.loader.ALLOWED_MODULES` list, which defaults to "base64", "DateTime", "math",  (safe subset of)"os.path", "random", "re", "string", "tosca", "typing",  "typing_extensions", "urllib.parse", and "unfurl".
 * If a module in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.

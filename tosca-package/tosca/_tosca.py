@@ -250,7 +250,7 @@ T = TypeVar("T")
 
 class DataConstraint(ToscaObject, Generic[T]):
     """
-    Base class for :tosca_spec:`TOSCA property constraints <_Toc50125233>`. A subclass exists for each of those constraints.
+    Base class for :tosca_spec:`TOSCA property constraints <_Toc50125233>`. There's a DataConstraint subclass with the same name as each of those constraints.
 
     These can be passed as `Property` and `Attribute` field specifiers or as a Python type annotations.
     """
@@ -511,13 +511,13 @@ def operation(
 
 
 class NodeTemplateDirective(str, Enum):
-    "Node Template :tosca_spec:`directives<_Toc50125217>`."
+    "Enum of Node Template :tosca_spec:`directives<_Toc50125217>`."
 
     select = "select"
-    "Match with instance in external ensemble"
+    "Match the node with an instance in an `external ensemble <External ensembles>`."
 
     substitute = "substitute"
-    "Create a nested topology"
+    "Replace this node with a nested topology using `Substitution Mappings`."
 
     default = "default"
     "Ignore this template if one with the same name is defined in the root topology."
@@ -529,13 +529,13 @@ class NodeTemplateDirective(str, Enum):
     "Silently exclude from plan if one of its requirements is not met."
 
     virtual = "virtual"
-    "Don't instantiate"
+    "Don't instantiate."
 
     check = "check"
-    "Run check operation before deploying"
+    "Run check operation before deploying."
 
     discover = "discover"
-    "Discover (instead of create)"
+    "Discover this template (instead of create)."
 
     protected = "protected"
     "Don't delete."
@@ -1388,7 +1388,7 @@ def has_function(obj: object, seen=None) -> bool:
 
 
 class EvalData:
-    "An internal wrapper around JSON/YAML data that may contain TOSCA functions or eval expressions and will be evaluated at runtime."
+    "An internal wrapper around JSON/YAML data that may contain TOSCA functions or `eval expressions` and will be evaluated at runtime."
 
     def __init__(
         self,
@@ -1608,9 +1608,13 @@ def find_relationship(name: str) -> Any:
 
 
 class FieldProjection(EvalData):
-    "A reference to a tosca field or projection off a tosca field"
+    """An `EvalData` subclass that references a TOSCA field or a projection off a tosca field (i.e. a field reference from a field reference). These are generally invisible to user code but during "parse" mode, `ToscaType` attribute references return these "under the hood" but we use `type punning <https://en.wikipedia.org/wiki/Type_punning>`_ so that a Python static type checker won't know this, allowing user code to operate on them as if they were the concrete values declared on the class. Since field projections are used to generate the YAML that a TOSCA orchestrator consumes, a Python type checker can catch validation errors before a blueprint is deployed.
+    
+    You can explicitly get a `FieldProjection` using `get_ref`"""
 
     # created by _DataclassTypeProxy, invoked via _class_init
+    # and ToscaType.__getattribute__
+    # and by _FieldDescriptor.__get__
 
     def __init__(
         self, field: _Tosca_Field, parent: Optional["FieldProjection"] = None, obj=None
@@ -2196,7 +2200,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         """Return a reference to a field. Raises ``AttributeError`` if the field doesn't exist and ``TypeError`` if the FieldProjection is for a different class than ``self``.
 
         Args:
-            name (str | FieldProjection): Either the name of the field, or, for more type safety, a reference to the field (e.g. ``MyType.my_prop``).
+            ref (str | FieldProjection): Either the name of the field, or, for more type safety, a reference to the field (e.g. ``MyType.my_prop``).
 
         Returns:
             FieldProjection
@@ -2213,19 +2217,30 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         raise AttributeError(str(name))
 
     def _template_init(self) -> None:
-        """Initialize the template.
+        """
+        User-defined callback invoked when the template object is initialized. Define this method in your subclass in lieu of ``__init__`` or ``__post_init__``.
+        Compared to `_class_init`, it is invoked for each template instead of during class definition.
 
-        You can check if a field wasn't set to its default value by calling ``has_default``.
-        If a field hasn't been initialized yet, (e.g. set to DEFAULT or CONSTRAINED)
-        or if the field is a attribute (their values are set at runtime) field access will resolve to an `EvalData` expression that evaluates to the field.
+        You can set the default value of fields in your class definition to ``DEFAULT`` to indicate they will be assigned a value in the ``_template_init`` method. If they are not set in ``_template_init``, they will be set to their default value automatically.
+
+        You can check if a field has its default value by calling `has_default`
+        (e.g. if the field wasn't specified as keyword argument when creating the template).
 
         .. code-block:: python
 
-            self.has_default("my_prop")
+          class Example(tosca.nodes.Root):
+              # DEFAULT will create new object per instance (here a Compute node template).
+              # A runtime error will be raised if the type can't be created with default values.
+              host: tosca.nodes.Compute = tosca.DEFAULT
 
-            # or (better, enables static type checking)
+              def _template_init(self) -> None:
+                  if self.has_default("host"):
+                    # only set if the template didn't specify a host when it was created
+                    self.host = tosca.nodes.Compute(mem_size=4 * GB)
 
-            self.has_default(self.__class__.my_prop)
+                  # or (better, enables static type checking that the field has been declared):
+                  if self.has_default(self.__class__.host):
+                     self.host = tosca.nodes.Compute(mem_size=4 * GB)
         """
 
     def __post_init__(self) -> None:
@@ -2592,7 +2607,37 @@ else:
 
 
 class ToscaType(_ToscaType):
-    "Base class for TOSCA type definitions."
+    """Base class for TOSCA type definitions.
+
+    ToscaTypes are Python `dataclasses <https://docs.python.org/3/library/dataclasses.html>`_ with custom `fields <https://docs.python.org/3/library/dataclasses.html#dataclasses.field>`_ that
+    correspond to TOSCA's field types including `properties <tosca.Property>`, `requirements <tosca.Requirement>`, `capabilities <tosca.Capability>`, and `artifacts <tosca.Artifact>`. You don't need to use Python's dataclass decorators or functions directly.
+
+    Any public field (i.e. not starting with ``_``) will be included in the TOSCA YAML for the template, using the field's type annotation to deduce which TOSCA (e.g. Nodes are treated as requirements, Artifacts are treated as artifacts, etc. defaulting to TOSCA properties). This can be customized using `TOSCA Field Specifiers`.
+
+    .. code-block:: python
+    
+      class Example(tosca.nodes.Root):
+          # Node type, so it's a TOSCA requirement
+          host: tosca.nodes.Compute 
+
+          # an artifact
+          shellScript: tosca.artifacts.ImplementationBash 
+
+          # other types default to TOSCA properties
+          location: str 
+
+          # use the field specifies to customize
+          dns: str = Property(constraints=[max_length(20)], options=sensitive)
+          
+          # ignored, starts with "_"
+          _internal: str 
+
+    When your Python code is first executed, e.g. when it is imported into a TOSCA service template, it executes in `"parse" mode <global_state_mode>`, to prepare the object so it can be translated to TOSCA YAML. 
+
+    In parse mode, user code accessing TOSCA fields may appear to return concrete values but actually (thanks to `type punning <https://en.wikipedia.org/wiki/Type_punning>`_) they are returning `FieldProjection` object that are used to record the relationships needed to generate the TOSCA YAML consumed by the orchestrator.
+
+    When the orchestrator is executing methods defined on ToscaType objects invoked when running TOSCA operations, through `tosca.Computed` properties, and via the `Self <Job Variables>` variable in Jinja2 templates. In that context the `global_state_mode` will be set to "runtime" mode. In runtime mode, the object proxies the instance created from the TOSCA template -- the values of its TOSCA fields will be corresponding the values on the instance.
+    """
 
     # NB: _name needs to come first for python < 3.10
     _name: str = field(default="", kw_only=False)
@@ -2610,6 +2655,16 @@ class ToscaType(_ToscaType):
     if not typing.TYPE_CHECKING:
 
         def __getattribute__(self, name: str):
+            """Customizes attribute access. In parse mode, accessing a attribute that is a TOSCA field will return a `FieldProjection` instead of its value if any of the following are true:
+
+            * the field hasn't been initialized yet (e.g. its value is ``DEFAULT``, ``REQUIRED``, or ``CONSTRAINED``)
+
+            * the field is a TOSCA `Attribute` (as their values are set at runtime)
+            
+            * the value is `EvalData`
+            
+            * the value is a `ToscaType` object set directly on the class the definition.
+            """
             return object.__getattribute__(self, "_ToscaType__getattr")(name)
 
     def __getattr(self, name):
@@ -3350,11 +3405,18 @@ RelationshipType = Relationship  # deprecated
 
 
 class Interface(ToscaObject):
+    """
+      Base class for defining custom TOSCA `Interface Types`. Each public method (without a leading "_") corresponds to a TOSCA `tosca.operation`.  TOSCA types such as `Nodes <Node>` use multiple inheritance to implement interface operations.
+    """
     # "Note: Interface types are not derived from ToscaType"
     _type_name: ClassVar[str] = ""
+    "Set this in the class definition if the TOSCA type name is different from the class name."
     _type_section: ClassVar[str] = "interface_types"
     _template_section: ClassVar[str] = "interface_types"
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
+    "Set this in the class definition to set metadata for the TOSCA interface type."
+    _interface_requirements: ClassVar[Optional[List[str]]] = None
+    "Set this in the class definition to include as the `requirements <Extensions>` key on the TOSCA YAML ``interface`` declarations (an Unfurl extension for specifying the :std:ref:`connections` that its operations need to function)."
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:

@@ -228,11 +228,12 @@ def test_quickstart_dev(namespace):
     )
     summary["job"].pop("id")
     assert summary["job"].pop("total") >= 4
-    assert summary["job"].pop("error") <= 1
+    errors = summary["job"].pop("error")
+    assert errors <= 1
     assert summary["job"].pop("ok") >= 3
     assert summary["job"].pop("changed") >= 4
     assert {
-        "status": "error",
+        "status": "error" if errors else "ok",
         "unknown": 0,
         "skipped": 0,
     } == summary["job"]

@@ -13,7 +13,7 @@ Instances are represented as a dictionary containing its properties and attribut
   :arguments: A dictionary containing inputs and properties passed to task's `artifact`.
   :connections: See :std:ref:`Connections` below.
   :SELF: The current task's target instance.
-  :Self: The `Python DSL` object representing ``SELF`` if one was defined, or null.
+  :Self: The `Python DSL` `object <tosca.ToscaType>` representing ``SELF`` if one was defined, or null.
   :HOST: The host of SELF.
   :ORCHESTRATOR: The instance Unfurl is running on (``localhost``)
   :OPERATION_HOST: Current task's ``operation_host``. If it is not declared, defaults to ``localhost``.
