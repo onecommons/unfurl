@@ -532,11 +532,14 @@ class ConfigTask(TaskView, ConfigChange):
             self.target.key, self.configSpec.operation
         )
         if not changeset:
-            self.logger.debug(
-                'Can\'t check for changes: could not find previous "%s" operation for "%s"',
-                self.target.key,
-                self.configSpec.operation,
-            )
+            # don't log exception if target was discovered, discovered resources without a job request won't have a digest
+            if isinstance(self.target.created, str):
+                self.logger.debug(
+                    'Can\'t check for changes: could not find previous "%s" operation for "%s" with last config change "%s"',
+                    self.target.key,
+                    self.configSpec.operation,
+                    self.target.last_config_change
+                )
             return False
         return self.configurator.check_digest(self, changeset)
 

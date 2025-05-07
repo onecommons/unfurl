@@ -119,7 +119,7 @@ class JobReporter:
             else:
                 node["job_request"] = "local"
             if request.target:
-                node["status"] = str(request.target.status)
+                node["status"] = str(request.target.local_status)
             yield node
 
     @staticmethod
@@ -304,7 +304,7 @@ class JobReporter:
                         filter(
                             None,
                             (
-                                target.status.name if target.status is not None else "",
+                                target.local_status.name if target.local_status is not None else "",
                                 target.state.name if target.state is not None else "",
                                 "managed" if target.created else "",
                             ),

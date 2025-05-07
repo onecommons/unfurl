@@ -264,8 +264,9 @@ class Plan:
     ) -> Iterator[TaskRequest]:
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
+        status = resource.local_status or Status.unknown
         missing = (
-            resource.status in [Status.unknown, Status.absent, Status.pending]
+            status in [Status.unknown, Status.absent, Status.pending]
             and resource.state != NodeState.stopped  # stop sets Status back to pending
         )
         # if the resource doesn't exist or failed while creating:
@@ -274,7 +275,7 @@ class Plan:
         if (
             missing
             or self.jobOptions.force
-            or (resource.status == Status.error and initialState)
+            or (status == Status.error and initialState)
         ):
             req = create_task_request(
                 self.jobOptions,
@@ -296,7 +297,7 @@ class Plan:
             or resource.state is None
             or resource.state < NodeState.configured
             or (self.jobOptions.force and resource.state != NodeState.started)
-            or resource.status == Status.error
+            or status == Status.error
         ):
             yield from self._execute_default_configure(resource, reason, inputs)
 
@@ -823,11 +824,12 @@ class DeployPlan(Plan):
         if jobOptions.force:
             return Reason.force
 
-        if jobOptions.add and not jobOptions.skip_new and instance.status != Status.ok:
+        status = instance.local_status or Status.unknown
+        if jobOptions.add and not jobOptions.skip_new and status != Status.ok:
             if not instance.last_change:  # never instantiated before
                 return Reason.add
 
-            if instance.status in [Status.unknown, Status.pending, Status.absent]:
+            if status in [Status.unknown, Status.pending, Status.absent]:
                 return Reason.missing
 
         # if the specification changed:
@@ -848,7 +850,7 @@ class DeployPlan(Plan):
                 # always triggers "check" operation if set
                 instance.local_status = Status.unknown
                 reason = Reason.check
-            elif instance.status == Status.pending and self.jobOptions.check:
+            elif status == Status.pending and self.jobOptions.check:
                 reason = Reason.check
             elif jobOptions.change_detection != "skip" and instance.last_config_change:
                 # customized is only set if created first!
@@ -863,7 +865,7 @@ class DeployPlan(Plan):
         assert instance
         if jobOptions.repair == "none":
             return None
-        status = instance.status
+        status = instance.local_status or Status.unknown
 
         if status in [Status.unknown, Status.pending]:
             if instance.required:
@@ -882,7 +884,7 @@ class DeployPlan(Plan):
             return None  # skip repairing this
         else:
             assert jobOptions.repair == "error", (
-                f"repair: {jobOptions.repair} status: {instance.status}"
+                f"repair: {jobOptions.repair} status: {status}"
             )
             return Reason.repair  # repair this
 
@@ -908,10 +910,11 @@ class DeployPlan(Plan):
         else:  # this is newly created resource
             reason = Reason.add
 
+        status = instance.local_status or Status.unknown
         if instance.shadow:
             installOp = "connect"
-        elif instance.status == Status.unknown or (
-            instance.status == Status.pending and self.jobOptions.check
+        elif status == Status.unknown or (
+            status == Status.pending and self.jobOptions.check
         ):
             installOp = "check"
         elif "discover" in instance.template.directives and not instance.operational:

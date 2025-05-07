@@ -147,7 +147,7 @@ class Operational(ChangeAware):
 
     @property
     def present(self) -> bool:
-        return self.operational or self.status == Status.error
+        return self.local_status in [Status.ok, Status.degraded, Status.error]
 
     @property
     def missing(self) -> bool:
@@ -263,8 +263,8 @@ class Operational(ChangeAware):
             if status.priority == Priority.ignore:
                 continue
             if id(status) in seen:
-                logger.debug(
-                    f"Circular operational dependency when checking status {status} in {seen}"
+                logger.trace(
+                    f"Circular operational dependency when checking status: {status} already in {seen}"
                 )
                 continue
             seen[id(status)] = status
