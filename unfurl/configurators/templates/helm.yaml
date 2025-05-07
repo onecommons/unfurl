@@ -121,6 +121,10 @@ node_types:
     properties:
       chart:
         type: string
+      version:
+        type: string
+        description: chart version
+        required: false
       chart_values:
         type: map
         required: false
@@ -169,7 +173,7 @@ node_types:
                       {% if inputs.helmcmd == 'upgrade' %}--reuse-values{%endif%}
                       {% if inputs.flags is defined -%}
                         {% for flag, value in inputs.flags.items() %}
-                          --{{flag}} "{{value | quote }}"
+                          --{{flag}} {%if value is not none %}"{{ value | quote }}"{% endif %}
                         {% endfor%}
                       {%endif%}
                 vars:
@@ -221,7 +225,7 @@ node_types:
           configure:
             invoke: Helm.execute
             inputs:
-              helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}}'
+              helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}} {%if SELF.version | default("") %}--version {{SELF.version}}{% endif %}'
           delete:
             implementation:
               primary: helm
@@ -231,12 +235,12 @@ node_types:
                 eval:
                   template: >-
                     helm uninstall {{ "release_name" | eval }}
-                      {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
-                      {% if task.verbose > 0 %}--debug{%endif%}
-                      {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif -%}
+                      {% if task.verbose > 0 %} --debug{%endif -%}
+                      {% if task.timeout %} --timeout {{task.timeout}}{%endif -%}
                       {% if inputs.flags is defined -%}
                         {% for flag, value in inputs.flags.items() %}
-                          --{{flag}} "{{value | quote }}"
+                          --{{flag}} {%if value is not none %}"{{ value | quote }}"{% endif %}
                         {% endfor%}
                       {%endif%}
               # XXX add result template that removes added resources
