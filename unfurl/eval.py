@@ -418,6 +418,7 @@ class Ref:
         self.validation = None
         trace = RefContext.DefaultTraceLevel if trace is None else trace
         self.trace = trace
+        self.base_dir = None
         if isinstance(exp, Mapping):
             keys = list(exp)
             if keys and keys[0] not in _FuncsTop:
@@ -435,6 +436,7 @@ class Ref:
                     self.validation = strict
                 else:
                     self.strict = strict
+                self.base_dir = exp.get("base_dir")
                 exp = exp.get("eval", exp.get("ref", exp))
 
         if vars:
@@ -496,7 +498,7 @@ class Ref:
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
-        base_dir = getattr(self.source, "base_dir", "")
+        base_dir = self.base_dir or getattr(self.source, "base_dir", "")
         if base_dir:
             ctx.base_dir = base_dir
         # $start is set in eval_ref but the user use that to override currentResource
@@ -567,7 +569,7 @@ class Ref:
             if "ref" in value or "eval" in value:
                 return len([
                     x
-                    for x in ["vars", "trace", "foreach", "select", "strict"]
+                    for x in ["vars", "trace", "foreach", "select", "strict", "base_dir"]
                     if x in value
                 ]) + 1 == len(value)
             if len(value) == 1 and first in _FuncsTop:
