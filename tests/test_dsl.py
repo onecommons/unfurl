@@ -1850,12 +1850,22 @@ def test_dsl_definitions():
 
 
 if __name__ == "__main__":
-    _generate_builtin(
-        yaml2python.generate_builtins, "tosca-package/tosca/builtin_types"
-    )
-    _generate_builtin(
-        yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext"
-    )
+    if len(sys.argv) > 1:
+        target = sys.argv[1]
+    else:
+        target = ""
+    if not target or target == "tosca":
+        _generate_builtin(
+            yaml2python.generate_builtins, "tosca-package/tosca/builtin_types"
+        )
+        if target:
+            sys.exit(0)
+    if not target or target == "unfurl":
+        _generate_builtin(
+            yaml2python.generate_builtin_extensions, "unfurl/tosca_plugins/tosca_ext"
+        )
+        if target:
+            sys.exit(0)
     # regenerate template modules:
     yaml2python.Convert.convert_built_in = True
     path = os.path.abspath(os.path.dirname(unfurl.__file__))
@@ -1864,22 +1874,30 @@ if __name__ == "__main__":
       unfurl:
         url: file:{path}
     imports:
-      - repository: unfurl
-        file: configurators/templates/helm.yaml
-      - repository: unfurl
-        file: configurators/templates/dns.yaml
-      - repository: unfurl
-        file: configurators/templates/docker.yaml
-      - repository: unfurl
-        file: configurators/templates/supervisor.yaml
-      - repository: unfurl
-        file: tosca_plugins/artifacts.yaml
-      - repository: unfurl
-        file: tosca_plugins/k8s.yaml
-      - repository: unfurl
-        file: tosca_plugins/googlecloud.yaml
-      - repository: unfurl
-        file: tosca_plugins/localhost.yaml
     """
+    if not target:
+        yaml_src += """
+          - repository: unfurl
+            file: configurators/templates/helm.yaml
+          - repository: unfurl
+            file: configurators/templates/dns.yaml
+          - repository: unfurl
+            file: configurators/templates/docker.yaml
+          - repository: unfurl
+            file: configurators/templates/supervisor.yaml
+          - repository: unfurl
+            file: tosca_plugins/artifacts.yaml
+          - repository: unfurl
+            file: tosca_plugins/k8s.yaml
+          - repository: unfurl
+            file: tosca_plugins/googlecloud.yaml
+          - repository: unfurl
+            file: tosca_plugins/localhost.yaml
+        """
+    else:
+        yaml_src += f"""
+          - repository: unfurl
+            file: {target}
+        """
     manifest = Manifest(path)
     _to_python(yaml_src, 7, tosca.WritePolicy.always, manifest)
