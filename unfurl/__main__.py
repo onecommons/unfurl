@@ -1397,6 +1397,19 @@ def commit(
     click.echo(f"committed to {committed} repositories")
 
 
+def _stub_resolver(doc):
+    from .manifest import Manifest
+    from .yamlloader import ImportResolver
+
+    dummy_manifest = Manifest(None)
+    # create package rules for importing built-in unfurl packages:
+    dummy_manifest._set_builtin_repositories()
+    repositories = dummy_manifest.repositories_as_tpl()
+    doc.setdefault("repositories", {}).update(repositories)
+    import_resolver = ImportResolver(dummy_manifest)
+    return import_resolver
+
+
 def _yaml_to_python(
     project_or_ensemble_path: str,
     file: Optional[str],
@@ -1447,16 +1460,11 @@ def _yaml_to_python(
         with open(project_or_ensemble_path) as f:
             tpl = yaml.load(f)
 
-        dummy_manifest = Manifest(None)
-        dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
-        repositories = dummy_manifest.repositories_as_tpl()
-        tpl.setdefault("repositories", {}).update(repositories)
-        import_resolver = ImportResolver(dummy_manifest)
         yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
             tpl,
-            import_resolver=import_resolver,
+            import_resolver=_stub_resolver(tpl),
             python_target_version=python_target_version,
             write_policy=write_policy,
         )
@@ -1580,7 +1588,8 @@ def status(ctx, ensemble, **options):
         readonly=True,
     )
     logger = logging.getLogger("unfurl")
-    manifest = localEnv.get_manifest()
+    # report validation errors instead of aborting
+    manifest = localEnv.get_manifest(skip_validation=True)
     verbose = ctx.obj["verbose"] > 0
     summary = manifest.status_summary(verbose)
     vstr = " (verbose) " if verbose else ""
@@ -1656,7 +1665,8 @@ def validate(ctx, path, **options):
             path, options.get("home"), overrides=overrides, can_be_empty=True
         )
         if localEnv.manifestPath:
-            localEnv.get_manifest()
+            # report validation errors instead of aborting
+            localEnv.get_manifest(skip_validation=True)
         elif localEnv.project:
             # found project without an ensemble, try to validate the ensemble-template.yaml
             template = os.path.join(
@@ -1669,7 +1679,8 @@ def validate(ctx, path, **options):
             else:
                 overrides["format"] = "blueprint"
                 localEnv = LocalEnv(template, options.get("home"), overrides=overrides)
-                localEnv.get_manifest()
+                # report validation errors instead of aborting
+                localEnv.get_manifest(skip_validation=True)
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
             from tosca.python2yaml import python_src_to_yaml_obj
@@ -1682,9 +1693,15 @@ def validate(ctx, path, **options):
 
             if localEnv and localEnv.project:
                 m = Manifest(path, localEnv=localEnv)
-                m._set_spec(dict(service_template=e.doc))
+                # report validation errors instead of aborting
+                m._set_spec(dict(service_template=e.doc), skip_validation=True)
             else:
-                ToscaSpec(e.doc, path=path)
+                ToscaSpec(
+                    e.doc,
+                    path=path,
+                    skip_validation=True,
+                    resolver=_stub_resolver(e.doc),
+                )
         elif e.doc and e.doc.get("kind") == "CloudMap":
             from .cloudmap import CloudMapDB
 
