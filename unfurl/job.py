@@ -185,6 +185,8 @@ class JobOptions:
 
     def __init__(self, **kw: Any) -> None:
         options = self.defaults.copy()
+        if kw.get("workflow") == "teardown":  # rename
+            kw["workflow"] = "undeploy"
         if kw.get("starttime"):  # rename
             options["startTime"] = kw["starttime"]
         if kw.get("skip_new"):
