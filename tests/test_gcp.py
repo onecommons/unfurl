@@ -191,7 +191,7 @@ gcpTestUpgradeConnectionManifest = """\
                   inputs:
                     done:
                       result:
-                        outputs:
+                        outputs:  # this should be become a quoted_dict so "token" isn't evaluated
                           app_credentials: '{"token":"XXXX"}'
                     resultTemplate:
                       eval:
@@ -202,7 +202,7 @@ gcpTestUpgradeConnectionManifest = """\
                                 GOOGLE_APPLICATION_CREDENTIALS:
                                   eval:
                                     tempfile:
-                                      q: "{{ outputs.app_credentials }}"
+                                      "{{ outputs.app_credentials }}"
                                     suffix: .json
                                 GOOGLE_OAUTH_ACCESS_TOKEN: null
                               update_os_environ: true

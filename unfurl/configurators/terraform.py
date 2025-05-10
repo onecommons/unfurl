@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING, List, Union, Dict, Any, cast
 from typing_extensions import Literal
 
 from ..configurator import TaskView
-from ..util import save_to_file, UnfurlTaskError, wrap_var, which
+from ..util import save_to_file, UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
-from ..result import Result
+from ..result import Result, wrap_var
 from ..projectpaths import WorkFolder, get_path, FilePath, Folders
 import json
 import os
@@ -445,6 +445,7 @@ class TerraformConfigurator(ShellConfigurator):
             providerSchema = {}
 
         echo_args = get_echo_args(task.verbose)
+        task.logger.trace("Running: %s %s", cmd, env)
         result = self.run_process(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, **echo_args
         )

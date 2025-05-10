@@ -20,7 +20,7 @@ from unfurl.eval import (
 )
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
 from unfurl.tosca_plugins.functions import to_dns_label
-from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_list
+from unfurl.util import sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
@@ -117,7 +117,7 @@ class EvalTest(unittest.TestCase):
             ["x::a[!b]::c", [3, 4]],
             ["x::a::l", [["l1"], ["l2"], ["l3"], ["l4"]]],
             [{"ref": "a[=$yes]", "vars": {"yes": "test"}}, ["test"]],
-            [{"ref": "a[=$no]", "vars": {"no": None}}, []],
+            [{"eval": "a[=$no]", "vars": {"no": None}}, []],
             ["[a]", [resource]],
             ["[=blah]", []],
             ["[blah]", []],
@@ -132,7 +132,7 @@ class EvalTest(unittest.TestCase):
             ["::*", [resource]],
             ["::*::.template::type", ["tosca.nodes.Root"]],
             ["$missing::a", []],
-            # [{"q": "{{ foo }}"}, ["{{ foo }}"]]
+            [{"q": "{{ 'a' }}"}, ["{{ 'a' }}"]],
             # XXX test nested ['.[k[d=3]=4]']
         ]:
             ref = Ref(exp)
@@ -144,13 +144,13 @@ class EvalTest(unittest.TestCase):
                 self.assertEqual(
                     set(result),
                     expected,
-                    "expr was: " + ref.source,
+                    "expr was: " + str(ref.source),
                 )
             else:
                 self.assertEqual(
                     result,
                     expected,
-                    "expr was: " + ref.source,
+                    "expr was: " + str(ref.source),
                 )
 
     def test_last_resource(self):
@@ -373,7 +373,9 @@ class EvalTest(unittest.TestCase):
         assert val == {"key": {"a": "b"}}
         # actually {'key': Results({'a': Result('b', None, ())})}
 
-        assert type(apply_template(" {{ {} }} ", RefContext(resource, vars))) == dict
+        assert isinstance(
+            apply_template(" {{ {} }} ", RefContext(resource, vars)), dict
+        )
         assert (
             apply_template('{{ {} }}{{"\n "}}', RefContext(resource, vars)) == "{}\n "
         )
@@ -414,6 +416,13 @@ class EvalTest(unittest.TestCase):
             assert val == "''"
         else:
             assert val == ""
+
+        # "q" should stop interpolation
+        val = apply_template(
+            "{{ a }}",
+            RefContext(resource, dict(a={"q": "unevaluated: {{ 'a' }}"}), trace=0),
+        )
+        assert val == "unevaluated: {{ 'a' }}"
 
     def test_templateFunc(self):
         query = {
@@ -587,7 +596,7 @@ a_dict:
             {"q": dict(q={"eval": ".name"}), "q2": "{{ '{' + '{' + 'SELF}}' }}"},
             root,
         )
-        # XXX fix: assert root.attributes["q"] == {"eval": ".name"}
+        assert root.attributes["q"] == {"eval": ".name"}
         assert root.attributes["q2"] == "{{SELF}}"
 
     def test_lookup(self):

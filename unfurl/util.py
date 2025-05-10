@@ -43,7 +43,7 @@ from ansible.module_utils._text import (
     to_bytes,
     to_native,
 )  # BSD licensed  # noqa: F401
-from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var  # noqa: F401
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 import warnings
 import codecs
 import io
@@ -655,14 +655,17 @@ def unique_name(name: str, existing: Sequence) -> str:
 
 # python < 3.9 doesn't  support Path.is_relative_to
 def is_relative_to(p, *other) -> bool:
-    """Return True if the path is relative to another path or False. """
+    """Return True if the path is relative to another path or False."""
     try:
         Path(p).relative_to(*other)
         return True
     except ValueError:
         return False
 
-def should_include_path(include_paths: List[str], exclude_paths: List[str], target_path: str) -> bool:
+
+def should_include_path(
+    include_paths: List[str], exclude_paths: List[str], target_path: str
+) -> bool:
     """
     Determine if a given path should be included or excluded based on exclusion and inclusion lists.
     If no match is found, the path is included by default (use "/" in exclude_paths to exclude by default).
@@ -677,7 +680,11 @@ def should_include_path(include_paths: List[str], exclude_paths: List[str], targ
         bool: True if the path should be included, False if it should be excluded.
     """
     # Merge paths and sort by length (longest to shortest)
-    all_paths = sorted(exclude_paths + include_paths, key=lambda p: len(os.path.abspath(p)), reverse=True)
+    all_paths = sorted(
+        exclude_paths + include_paths,
+        key=lambda p: len(os.path.abspath(p)),
+        reverse=True,
+    )
 
     # Check the target path against the sorted list
     target_path = os.path.abspath(target_path)
@@ -692,6 +699,7 @@ def should_include_path(include_paths: List[str], exclude_paths: List[str], targ
 
     # Default to include if no match is found
     return True
+
 
 def substitute_env(
     contents: str, env: Optional[Mapping] = None, preserve_missing: bool = False

@@ -21,12 +21,12 @@ inputs:
 # see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
-import json
 from ..eval import map_value
-from ..logs import truncate
+from ..logs import truncate, DEFAULT_TRUNCATE_LENGTH
 from ..configurator import Status, TaskView
 from ..util import which, clean_output
 from . import TemplateConfigurator, TemplateInputs
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText
 import os
 import sys
 import shlex
@@ -47,8 +47,8 @@ import subprocess
 if TYPE_CHECKING:
     from ..job import ConfigTask
 
-# logging to file doesn't logging.truncate, so manually truncate potentially huge output
-FILELOG_TRUNCATE_LENGTH = 10000
+# logging to file doesn't call logging.truncate(), so manually truncate potentially huge output
+FILELOG_TRUNCATE_LENGTH = max(DEFAULT_TRUNCATE_LENGTH, 10000)
 
 
 class ShellInputs(TemplateInputs):
@@ -99,7 +99,9 @@ class _PrintOnAppendList(list):
                 raise
 
 
-def _run(*args, stdout_filter=None, stderr_filter=None, input=None, timeout=None, **kwargs):
+def _run(
+    *args, stdout_filter=None, stderr_filter=None, input=None, timeout=None, **kwargs
+):
     with subprocess.Popen(*args, **kwargs) as process:
         try:
             stdout = None
@@ -157,7 +159,7 @@ class ShellConfigurator(TemplateConfigurator):
     def run_process(
         self,
         cmd,
-        shell: Union[None, str, bool]=False,
+        shell: Union[None, str, bool] = False,
         timeout=None,
         env=None,
         cwd=None,
@@ -165,7 +167,7 @@ class ShellConfigurator(TemplateConfigurator):
         echo=True,
         stdout_filter=None,
         stderr_filter=None,
-        input=None
+        input=None,
     ):
         """
         Returns an object with the following attributes:
@@ -237,8 +239,8 @@ class ShellConfigurator(TemplateConfigurator):
 
     def _handle_result(self, task, result, cwd, successCodes=(0,)):
         # strips terminal escapes
-        result.stdout = clean_output(result.stdout or "")
-        result.stderr = clean_output(result.stderr or "")
+        result.stdout = AnsibleUnsafeText(clean_output(result.stdout or ""))
+        result.stderr = AnsibleUnsafeText(clean_output(result.stderr or ""))
         error = result.error or result.returncode not in successCodes or result.timeout
         if error:
             task.logger.warning('shell task run failure: "%s" in %s', result.cmd, cwd)
@@ -265,12 +267,12 @@ class ShellConfigurator(TemplateConfigurator):
         try:
             return None, map_value(tpl, task.inputs.context.copy(vars=result))
         except Exception as e:
-            task.logger.warning(
-                "error processing outputsTemplate: %s", e
-            )
+            task.logger.warning("error processing outputsTemplate: %s", e)
             return e, None
 
-    def _process_result(self, task, result, cwd) -> Tuple[bool, Optional[Status], Optional[Dict[str, Any]]]:
+    def _process_result(
+        self, task, result, cwd
+    ) -> Tuple[bool, Optional[Status], Optional[Dict[str, Any]]]:
         success = self._handle_result(task, result, cwd)
         resultDict = result.__dict__.copy()
         resultDict["success"] = success
@@ -342,7 +344,13 @@ class ShellConfigurator(TemplateConfigurator):
             input=input,
         )
         success, status, outputs = self._process_result(task, result, cwd)
-        yield self.done(task, success=success, status=status, result=result.__dict__, outputs=outputs)
+        yield self.done(
+            task,
+            success=success,
+            status=status,
+            result=result.__dict__,
+            outputs=outputs,
+        )
 
     def resolve_dry_run(self, cmd, task):
         is_string = isinstance(cmd, str)

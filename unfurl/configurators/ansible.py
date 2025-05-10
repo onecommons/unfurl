@@ -371,7 +371,7 @@ class AnsibleConfigurator(TemplateConfigurator):
     def get_result_keys(self, task, results):
         return task.inputs.get("resultKeys", [])
 
-    def process_result(self, task: TaskView, result: ConfiguratorResult):
+    def process_result(self, task: TaskView, result: ConfiguratorResult) -> ConfiguratorResult:
         errors, status = self.process_result_template(
             task, dict(cast(dict, result.result), success=result.success, outputs=result.outputs)
         )

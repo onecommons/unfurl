@@ -6,9 +6,9 @@ from typing_extensions import TypedDict
 from tosca import ToscaInputs
 from ..eval import Ref, map_value
 from ..configurator import Configurator, TaskView
-from ..result import Results, ResultsMap
+from ..result import Results, wrap_var
 from ..util import UnfurlTaskError, register_short_names
-from ..support import Status
+from ..support import Status, DEBUG_EX
 from ..planrequests import (
     set_default_command,
     ConfigurationSpecKeywords,
@@ -73,7 +73,7 @@ class TemplateConfigurator(Configurator):
         errors: Sequence[Exception] = []
         current_status = task.target.local_status
         if resultTemplate:  # evaluate it now with the result
-            if os.getenv("UNFURL_TEST_DEBUG_EX"):
+            if DEBUG_EX:
                 task.logger.error(
                     "evaluated result template (%s) with %s %s",
                     type(resultTemplate),
@@ -83,7 +83,7 @@ class TemplateConfigurator(Configurator):
             if isinstance(resultTemplate, Results):
                 resultTemplate = resultTemplate._attributes
             try:
-                if os.getenv("UNFURL_TEST_DEBUG_EX"):
+                if DEBUG_EX:
                     task.logger.error(
                         "result %s template is %s", type(resultTemplate), resultTemplate
                     )
@@ -151,9 +151,15 @@ class TemplateConfigurator(Configurator):
             raise UnfurlTaskError(task, 'input "done" must be a dict')
         if "result" not in done:
             if not isinstance(runResult, Mapping):
-                done["result"] = {"run": runResult, "outputs": done.get("outputs")}
+                done["result"] = {
+                    "run": runResult,
+                    "outputs": wrap_var(done.get("outputs")),
+                }
             else:
                 done["result"] = runResult
+        elif done["result"] and "outputs" in done["result"]:
+            done["result"]["outputs"] = wrap_var(done["result"]["outputs"])
+
         errors, new_status = self.process_result_template(
             task, done.get("result") or {}
         )

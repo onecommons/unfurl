@@ -22,7 +22,8 @@ from typing import (
 )
 import hashlib
 import re
-from ansible.utils.unsafe_proxy import AnsibleUnsafeText
+from ansible.utils import unsafe_proxy
+from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 from ruamel.yaml.scalarstring import ScalarString, DoubleQuotedScalarString
 from tosca import has_function
 from toscaparser.common.exception import ValidationError
@@ -1067,3 +1068,30 @@ class ResultsList(Results, MutableSequence):
 
     def is_compatible(self, other):
         return isinstance(other, MutableSequence)
+
+
+class quoted_dict(dict):
+    """Transparent wrapper class so we don't try to evaluate this as an expression."""
+
+
+def _wrap_dict(v):
+    if isinstance(v, Results):
+        # wrap_var() fails with Results types, this is equivalent:
+        v.applyTemplates = False
+        return v
+    return quoted_dict((wrap_var(k), wrap_var(item)) for k, item in v.items())
+
+
+unsafe_proxy._wrap_dict = _wrap_dict
+
+
+def _wrap_sequence(v):
+    if isinstance(v, Results):
+        # wrap_var() fails with Results types, this is equivalent:
+        v.applyTemplates = False
+        return v
+    v_type = type(v)
+    return v_type(wrap_var(item) for item in v)
+
+
+unsafe_proxy._wrap_sequence = _wrap_sequence

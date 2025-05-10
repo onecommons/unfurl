@@ -38,6 +38,9 @@ from .result import (
     ExternalValue,
     ResourceRef,
     ResultsMap,
+    wrap_var,
+    quoted_dict,
+    AnsibleUnsafeText
 )
 
 import logging
@@ -94,6 +97,9 @@ def _map_value(
     flatten=False,
 ) -> Any:
     from .support import is_template, apply_template
+
+    if isinstance(value, quoted_dict):
+        return value
 
     if Ref.is_ref(value):
         # wantList=False := resolve_one
@@ -562,7 +568,7 @@ class Ref:
         Return true if the given value looks like a Ref.
         """
         if isinstance(value, Mapping):
-            if not value:
+            if not value or isinstance(value, quoted_dict):
                 return False
             first = next(iter(value))
 
@@ -628,8 +634,7 @@ def and_func(arg, ctx):
 
 
 def quote_func(arg, ctx):
-    return arg
-
+    return wrap_var(arg)
 
 def func_defined_func(arg, ctx):
     return map_value(arg, ctx) in ctx._Funcs

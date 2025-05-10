@@ -56,6 +56,7 @@ from .result import (
     ExternalValue,
     serialize_value,
     is_sensitive_schema,
+    wrap_var
 )
 from .util import (
     ChainMap,
@@ -77,8 +78,7 @@ from .projectpaths import FilePath, get_path
 
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
-from ansible.utils import unsafe_proxy
-from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
@@ -355,6 +355,7 @@ def is_template(val, ctx=None):
         return False
     return isinstance(val, str) and not not _clean_regex.search(val)
 
+DEBUG_EX = os.getenv("UNFURL_TEST_DEBUG_EX")
 
 class _VarTrackerDict(dict):
     ctx: Optional[RefContext] = None
@@ -363,7 +364,8 @@ class _VarTrackerDict(dict):
         try:
             val = super().__getitem__(key)
         except KeyError:
-            logger.debug('Missing variable "%s" in template', key)
+            if DEBUG_EX:
+                logger.debug('Missing variable "%s" in template', key)
             raise
 
         try:
@@ -371,29 +373,6 @@ class _VarTrackerDict(dict):
             return self.ctx.resolve_reference(key)
         except KeyError:
             return val
-
-
-def _wrap_dict(v):
-    if isinstance(v, Results):
-        # wrap_var() fails with Results types, this is equivalent:
-        v.applyTemplates = False
-        return v
-    return dict((wrap_var(k), wrap_var(item)) for k, item in v.items())
-
-
-unsafe_proxy._wrap_dict = _wrap_dict
-
-
-def _wrap_sequence(v):
-    if isinstance(v, Results):
-        # wrap_var() fails with Results types, this is equivalent:
-        v.applyTemplates = False
-        return v
-    v_type = type(v)
-    return v_type(wrap_var(item) for item in v)
-
-
-unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
 def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined):
@@ -530,7 +509,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         vars["SELF"] = ctx.currentResource.attributes
         if "Self" not in ctx.vars:
             vars["Self"] = get_Self(ctx)
-        if os.getenv("UNFURL_TEST_DEBUG_EX"):
+        if DEBUG_EX:
             log.debug(
                 "template vars for %s: %s %s ",
                 value[:300],
@@ -559,7 +538,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             if isinstance(ctx, SafeRefContext):
                 value = _sandboxed_template(value, ctx, vars, _UnfurlUndefined)
             else:
-                value = templar.template(value, fail_on_undefined=fail_on_undefined)
+                value = templar.template(value, fail_on_undefined=fail_on_undefined, escape_backslashes=False)
         except Exception as e:
             msg = str(e)
             # XXX have _UnfurlUndefined throw an exception with the missing obj and key
