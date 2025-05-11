@@ -5,6 +5,7 @@ import datetime
 import os.path
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import (
     Dict,
@@ -72,7 +73,7 @@ from .yamlloader import (
     yaml_dict_type,
     SimpleCacheResolver,
 )
-from .logs import getLogger
+from .logs import getLogger, get_console_log_level
 from . import DEFAULT_CLOUD_SERVER, __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
@@ -157,6 +158,7 @@ class Manifest(AttributeManager):
         self.imports.manifest = self
         self.modules: Optional[Dict] = None
         self.apiVersion = API_VERSION
+        self._load_errors = False
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
@@ -308,11 +310,8 @@ class Manifest(AttributeManager):
         pass
 
     def load_error(self, msg: str) -> None:
-        if self.validate:
-            raise UnfurlError(msg)
-        else:
-            logger.error(msg)
-        return None
+        self._load_error = True
+        logger.error(msg, stack_info=get_console_log_level() < logging.INFO)
 
     def load_template(
         self, name: str, parent: Optional[EntityInstance], lastChange=None

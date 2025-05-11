@@ -30,8 +30,8 @@ except ImportError:
     from functools import lru_cache as cache
 
 from . import DefaultNames
-from .util import UnfurlError, get_base_dir, substitute_env, to_yaml_text, filter_env
-from .merge import patch_dict, intersect_dict
+from .util import UnfurlError, UnfurlValidationError, get_base_dir, substitute_env, to_yaml_text, filter_env
+from .merge import patch_dict
 from .yamlloader import YamlConfig, load_yaml, make_yaml
 from .result import serialize_value
 from .support import ResourceChanges, Defaults, Status
@@ -498,6 +498,10 @@ class YamlManifest(ReadOnlyManifest):
                     instance_tpl["readyState"] = "ok"
                 create_instance_from_spec(self, rootResource, name, instance_tpl)
 
+        if self._load_errors and not skip_validation:
+            raise UnfurlValidationError(
+              "Error loading ensemble, see logs for errors",
+            )
         self._configure_root(rootResource)
         self._set_repository_links()
         self._ready(rootResource)
