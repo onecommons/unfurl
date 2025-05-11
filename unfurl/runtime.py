@@ -963,7 +963,10 @@ class ArtifactInstance(EntityInstance):
 
     @property
     def base_dir(self) -> str:
-        return self.template.base_dir
+        base_dir = self.template.base_dir
+        if not base_dir or base_dir == ".":
+            return super().base_dir
+        return base_dir
 
     @property
     def owner(self) -> EntityInstance:
