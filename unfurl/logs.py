@@ -22,9 +22,9 @@ HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
 DEFAULT_TRUNCATE_LENGTH = int(os.getenv("UNFURL_LOG_TRUNCATE") or 748)
 
-sensitive_params = ("private_token", "secret")
+sensitive_params = ("token", "secret", "password")  # note: matches private_token etc too
 sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=[^&\s]+")
-
+sensitive_args_regex = rf"""(--\S{{0,50}}({'|'.join(sensitive_params)})('|")?(=|\s+))\S+"""
 
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
     if not s:
@@ -205,6 +205,12 @@ class SensitiveFilter(logging.Filter):
         return re.sub(sensitive_params_regex, r"\1=XXXXX", value)
 
     @staticmethod
+    def sanitize_str(value: str) -> str:
+        "Look for suspicious urls and command args and redact them."
+        value = SensitiveFilter.sanitize_urls(value)
+        return re.sub(sensitive_args_regex, r"\1XXXXX", value)
+
+    @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
         if isinstance(value, collections.abc.Mapping):
             return {
@@ -215,7 +221,7 @@ class SensitiveFilter(logging.Filter):
             return sensitive.redacted_str
         elif isinstance(value, str):
             # make sure urls with credentials don't leak
-            return SensitiveFilter.sanitize_urls(value)
+            return SensitiveFilter.sanitize_str(value)
         else:
             return value
 
