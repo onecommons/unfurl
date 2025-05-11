@@ -30,7 +30,7 @@ from base64 import b64encode
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
-    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2"
+    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@localhost:6379/0
     os.environ["CACHE_TYPE"] = "RedisCache"
     os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
