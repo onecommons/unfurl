@@ -640,16 +640,24 @@ class Manifest(AttributeManager):
         return True
 
     def status_summary(self, verbose=False):
-        def summary(instance, indent, show_virtual=True):
-            instantiated = self.is_instantiated(instance)
-            computed = " computed " if verbose and instance.is_computed() else ""
+        def summary(instance, indent, show_all=True):
+            instantiated = instance.local_status not in [
+                None,
+                Status.unknown,
+                Status.ok,
+                Status.pending,
+            ]
+            computed = instance.is_computed()
+            virtual = "virtual" in instance.template.directives
+            concrete = not virtual and not computed
             status = "" if instance.status is None else instance.status.name
             state = instance.state and instance.state.name or ""
             if instance.created:
                 if isinstance(instance.created, bool):
                     created = "managed"
                 else:
-                    created = f"created by {instance.created}"
+                    prep = "by" if instance.created.startswith("::") else "on"
+                    created = f"created {prep} {instance.created}"
             else:
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
@@ -660,14 +668,17 @@ class Manifest(AttributeManager):
                 if verbose
                 else ""
             )
-            if instantiated or verbose:
-                vlabel = "" if instantiated else " virtual"
+            computed_label = " computed " if computed else ""
+            vlabel = " virtual" if virtual else ""
+            if concrete or verbose:
                 output.append(
-                    f"{' ' * indent}{instance_label}{vlabel}{computed} {status}{local} {state} {created}"
+                    f"{' ' * indent}{instance_label}{vlabel}{computed_label} {status}{local} {state} {created}"
                 )
                 indent += 4
-            elif show_virtual:
-                output.append(f"{' ' * indent}{instance_label} virtual{computed}")
+            elif show_all:  # un-verbose summary of not concrete instances
+                output.append(
+                    f"{' ' * indent}{instance_label} {vlabel}{computed_label}"
+                )
                 indent += 4
             if isinstance(instance, HasInstancesInstance):
                 for rel in instance.requirements:
