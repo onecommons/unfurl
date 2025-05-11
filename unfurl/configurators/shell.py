@@ -294,7 +294,7 @@ class ShellConfigurator(TemplateConfigurator):
     def can_dry_run(self, task):
         return task.inputs.get("dryrun")
 
-    def render(self, task):
+    def render(self, task: TaskView):
         cmd = task.inputs["command"]
         cwd = task.inputs.get("cwd")
         if cwd:
@@ -319,6 +319,12 @@ class ShellConfigurator(TemplateConfigurator):
                     cmd += " " + " ".join(args)
                 else:
                     cmd.extend(args)
+        if isString:
+            script = cmd
+        else:
+            script = " ".join(cmd)
+        # save as script just for troubleshooting
+        task.set_work_folder().write_file(script, "rendered.sh")
         return [cmd, cwd]
 
     def run(self, task: TaskView):

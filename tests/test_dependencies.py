@@ -368,6 +368,8 @@ def test_static_dependencies():
     job = runner.run(JobOptions(startTime=1))  # deploy
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     summary = job.json_summary(add_rendered=True)
+    summary["tasks"][0]["rendered_paths"] = []
+    summary["tasks"][1]["rendered_paths"] = []
     assert summary == {
         "job": {
             "id": "A01110000000",
