@@ -365,6 +365,7 @@ get_dir
   :spec.home: Directory unique to current instance's TOSCA template (committed to the spec repository).
   :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
   :project: The root directory of the current project.
+  :project.secrets: The "secrets" directory for the current project (files written there are vault encrypted when committed to the repository).
   :unfurl.home: The location of home project (UNFURL_HOME).
   :repository.<name>: The location of the repository with the given name.
 

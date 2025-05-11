@@ -607,6 +607,7 @@ def _get_base_dir(ctx, name=None):
     :spec.home: Directory unique to the current instance's TOSCA template (committed to the spec repository).
     :spec.local: Local directory unique to the current instance's TOSCA template (excluded from repository).
     :project: The root directory of the current project.
+    :project.secrets: The "secrets" directory for the current project (files written there are vault encrypted)
     :unfurl.home: The location of home project (UNFURL_HOME).
     :repository.<name>: The location of the repository with the given name
 
@@ -651,6 +652,9 @@ def _get_base_dir(ctx, name=None):
             )
     elif name == "project":
         return spec and spec._get_project_dir() or instance.base_dir
+    elif name == "project.secrets":
+        project_root = spec and spec._get_project_dir() or instance.base_dir
+        return os.path.join(project_root, "secrets")
     elif name == "unfurl.home":
         return spec and spec._get_project_dir(True) or instance.base_dir
     else:
