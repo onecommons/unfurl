@@ -45,7 +45,7 @@ from .util import (
     to_enum,
 )
 from .result import Result, ResultsList, serialize_value
-from .support import Defaults, NodeState, Priority, Status
+from .support import Defaults, NodeState, Priority, Status, DEBUG_EX
 from .runtime import EntityInstance, InstanceKey, HasInstancesInstance, TopologyInstance
 from .logs import getLogger
 import logging
@@ -1234,8 +1234,9 @@ def create_task_request(
             reason or action,
         )
     else:
-        # errorMsg = f'unable to find an implementation for operation "{action}" on node "{resource.template.name}"'
-        # logger.trace(errorMsg)
+        if DEBUG_EX:
+            errorMsg = f'unable to find an implementation for operation "{action}" on node "{resource.template.name}"'
+            logger.trace(errorMsg)
         return None
 
     if not startState and iDef:

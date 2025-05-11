@@ -467,12 +467,13 @@ class Plan:
         ):
             skip = "virtual instance"
             virtual = True
-        elif not resource.created and not self.jobOptions.destroyunmanaged:
-            skip = "instance wasn't created by this ensemble"
-        elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
-            resource.created
-        ):
-            skip = f"creation and deletion is managed by another instance {resource.created}"
+        elif not self.jobOptions.destroyunmanaged:
+            if not resource.created:
+                skip = "instance wasn't created by this ensemble (use --destroyunmanaged to override)"
+            elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
+                resource.created
+            ):
+                skip = f"creation and deletion is managed by another instance {resource.created} (use --destroyunmanaged to override)"
         elif resource.local_status in [Status.absent, Status.pending]:
             skip = "instance doesn't exist"
 
@@ -1217,7 +1218,7 @@ def select_dependents(
         # this resource has a dependent we don't want to delete, so cancel deleting the resource
         if root_include_reason and root_include_reason != "cancelled":
             logger.verbose(
-                "skip instance '%s' for removal: required instances depend on it: %s",
+                "skip instance '%s' for removal: required instances depend on it: %s (use --force to override)",
                 resource.name,
                 [c.nested_name for c in cancelled],
             )
