@@ -145,8 +145,10 @@ class PythonToYaml:
     def module2yaml(self, include_types=False) -> dict:
         # module contents will have been set to self.globals
         mode = global_state.mode
+        safe_mode = global_state.safe_mode
         try:
             global_state.mode = "yaml"
+            global_state.safe_mode = self.safe_mode
             self._namespace2yaml(self.globals)
             if include_types:
                 types_used: dict = {}
@@ -165,6 +167,7 @@ class PythonToYaml:
                         self._namespace2yaml(classes)
         finally:
             global_state.mode = mode
+            global_state.safe_mode = safe_mode
         self.add_repositories_and_imports()
         return self.sections
 
@@ -215,17 +218,14 @@ class PythonToYaml:
             directives = section[name].setdefault("directives", [])
             if "dependent" not in directives:
                 directives.append("dependent")
+            obj._name = name
         module_name = self.current_module
         if module_name:
             section[name].setdefault("metadata", {})["module"] = module_name
             obj.register_template(module_name, name)
             if obj.__class__.__module__ != module_name:
-                if (
-                    obj.__class__.__module__ != "unfurl.tosca_plugins.tosca_ext"
-                    and not obj.__class__.__module__.startswith("tosca.")
-                ):  # skip built-in modules, we don't need to generate import yaml
-                    module_path = self.globals.get("__file__")
-                    self._import_module(module_path, obj.__class__.__module__)
+                module_path = self.globals.get("__file__")
+                self._import_module(module_path, obj.__class__.__module__)
         self.templates.append(obj)
         return name
 
@@ -432,7 +432,7 @@ class PythonToYaml:
             module_name.startswith("tosca.")
             or module_name == "unfurl.tosca_plugins.tosca_ext"
         ):
-            return
+            return  # skip built-in modules, we don't need to generate import yaml
         if not module_path:
             logger.warning(
                 f"can't import {module_name}: current module {current_module} doesn't have a path"

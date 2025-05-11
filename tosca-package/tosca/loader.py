@@ -769,12 +769,10 @@ class PrintCollector:
         sys.stdout.write(" ".join(str(o) for o in objects))
 
 
-def get_safe_mode(current_safe_mode) -> bool:
+def get_safe_mode(current_safe_mode: bool) -> bool:
     if FORCE_SAFE_MODE == "never":
         return False
-    elif FORCE_SAFE_MODE and not current_safe_mode:
-        return True
-    return current_safe_mode
+    return bool(FORCE_SAFE_MODE) or current_safe_mode
 
 
 def restricted_exec(
