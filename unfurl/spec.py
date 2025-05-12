@@ -28,6 +28,7 @@ from toscaparser.topology_template import TopologyTemplate
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.capabilities import Capability
 from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.policy import Policy
 from toscaparser.properties import Property
@@ -592,11 +593,10 @@ class ToscaSpec:
             if nodespec.abstract != "select":
                 nodespec.toscaEntityTemplate.revalidate_properties()
 
-    def apply_node_filters(
-        self, target: NodeTemplate, req_def: dict, source: NodeTemplate
-    ) -> None:
-        target_spec = self.node_from_template(target)
-        for name, value in get_nodefilters(req_def, "properties"):
+    def _apply_node_filter_properties(
+        self, source: NodeTemplate, target: EntityTemplate, property_filters
+    ):
+        for name, value in property_filters:
             if isinstance(value, dict):
                 if "eval" in value:
                     if value["eval"] is None:
@@ -612,18 +612,58 @@ class ToscaSpec:
                     # even if the property was computed or is modified
                     # XXX validate now if possible instead of relying on access time validation
                     prop = target.get_properties().get(name)
+                    if not prop:
+                        prop = target.get_built_in_properties().get(name)
                     if prop:
                         prop.schema.schema = prop.schema.schema.copy()
                         prop.schema.schema.setdefault("constraints", []).append(value)
                         prop.schema.constraints_list = None
                     continue
-            if target_spec:
-                logger.trace(
-                    f"applying node_filter to {target.name} on property {name}: {value}"
-                )
+            yield name, value
+
+    def _match_filter(
+        self,
+        source: NodeTemplate,
+        target_node: Optional["NodeSpec"],
+        target: EntityTemplate,
+        node_filter,
+    ):
+        # target can be a NodeTemplate, Capability or Artifact
+        for name, value in self._apply_node_filter_properties(
+            source, target, get_nodefilters(dict(node_filter=node_filter), "properties")
+        ):
+            logger.trace(
+                f"applying node_filter to {target.name} on property {name}: {value}"
+            )
+            if target_node:
+                if target_node.toscaEntityTemplate is not target:
+                    if isinstance(target, Capability):
+                        target_spec: EntitySpec = target_node.capabilities[target.name]
+                    elif isinstance(target, toscaparser.artifacts.Artifact):
+                        target_spec = target_node.artifacts[target.name]
+                    else:
+                        assert False, (
+                            f"Unexpected node filter target {target.name} of type {type(target)}"
+                        )
+                else:
+                    target_spec = target_node
                 target_spec._update_property(name, value)
             else:
                 target.update_property(name, value)
+        return True
+
+    def apply_node_filters(
+        self, target: NodeTemplate, req_def: dict, source: NodeTemplate
+    ) -> None:
+        target_spec = self.node_from_template(target)
+        if not req_def.get("node_filter"):
+            return
+        target._match_nodefilter(
+            req_def["node_filter"],
+            lambda entity, node_filter: self._match_filter(
+                source, target_spec, entity, node_filter
+            ),
+        )
 
         requires = target.requirements
         for name, value in get_nodefilters(req_def, "requirements"):
@@ -1461,9 +1501,7 @@ class NodeSpec(EntitySpec):
                         continue
                     seen[id(rel.source)] = rel.source
 
-                    if rel.is_compatible_type(
-                        "unfurl.relationships.Configures"
-                    ):
+                    if rel.is_compatible_type("unfurl.relationships.Configures"):
                         yield rel.source
                     yield from rel.source._configured_by(seen)
 
@@ -1489,6 +1527,7 @@ class NodeSpec(EntitySpec):
     @property
     def hosted_on(self) -> List["NodeSpec"]:
         return list(self._hosted_on({}))
+
 
 class RelationshipSpec(EntitySpec):
     """
