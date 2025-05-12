@@ -44,7 +44,7 @@ Extensions
 * add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts (see `Artifact enhancements`)
 * support ``ANON`` keyword in `get_artifact`
 * add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
-
+* add ``artifacts`` keyword to node_filters to match on artifact properties (syntax matches "capabilities" keyword)
 
 Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

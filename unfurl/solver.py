@@ -23,6 +23,7 @@ from toscaparser.activities import value_to_type
 from toscaparser.properties import Property
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.capabilities import Capability
+from toscaparser.artifacts import Artifact
 from toscaparser.topology_template import TopologyTemplate, find_type
 from toscaparser.common import exception
 from .eval import Ref, analyze_expr
@@ -31,6 +32,9 @@ from .logs import getLogger
 logger = getLogger("unfurl")
 
 Solution = Dict[Tuple[str, str], List[Tuple[str, str]]]
+
+# the solver treats artifacts just like capabilities, just use a prefix to disambiguate them
+_ARTIFACT_PREFIX = "a~"
 
 
 # note: make sure Node in rust/lib.rs staying in sync
@@ -168,7 +172,10 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
 
 
 def prop2field(
-    node_template: NodeTemplate, cap: Optional[Capability], prop: Property
+    node_template: NodeTemplate,
+    cap: Union[Capability, Artifact, None],
+    prop: Property,
+    prefix: str = "",
 ) -> Optional[Field]:
     query = None
     if prop.value and has_function(prop.value):
@@ -176,7 +183,10 @@ def prop2field(
             return None
         if cap:
             # adjust query add a capability to start if relative
-            querystart = f"{node_template.name}::.capabilities::[.name={cap.name}]"
+            # hacky: query works for artifacts too because of prefix
+            querystart = (
+                f"{node_template.name}::.capabilities::[.name={prefix}{cap.name}]"
+            )
             expr = EvalData(prop.default).set_start(querystart).as_expr
         else:
             expr = prop.default
@@ -230,6 +240,38 @@ def filter2term(
     return True
 
 
+def add_fields(
+    types: Dict[str, List[str]],
+    cap: Union[Capability, Artifact],
+    node_template: NodeTemplate,
+    entity: Node,
+    prefix: str,
+):
+    types[cap.type_definition.global_name] = [
+        p.global_name for p in cap.type_definition.ancestors()
+    ]
+    cap_fields: List[Field] = list(
+        filter(
+            None,
+            [
+                prop2field(node_template, cap, prop, prefix)
+                for prop in cap.get_properties_objects()
+            ],
+        )
+    )
+    for prop in cap.builtin_properties().values():
+        field = prop2field(node_template, cap, prop, prefix)
+        if field:
+            cap_fields.append(field)
+
+    entity.fields.append(
+        Field(
+            prefix + cap.name,
+            FieldValue.Capability(cap.type_definition.global_name, cap_fields),
+        )
+    )
+
+
 def convert(
     node_template: NodeTemplate,
     types: Dict[str, List[str]],
@@ -247,25 +289,9 @@ def convert(
     for cap in node_template.get_capabilities_objects():
         # if cap.name == "feature":
         #     continue
-        types[cap.type_definition.global_name] = [
-            p.global_name for p in cap.type_definition.ancestors()
-        ]
-        cap_fields: List[Field] = list(
-            filter(
-                None,
-                [
-                    prop2field(node_template, cap, prop)
-                    for prop in cap.get_properties_objects()
-                ],
-            )
-        )
-        entity.fields.append(
-            Field(
-                cap.name,
-                FieldValue.Capability(cap.type_definition.global_name, cap_fields),
-            )
-        )
-
+        prop = add_fields(types, cap, node_template, entity, "")
+    for artifact in node_template.artifacts.values():
+        prop = add_fields(types, artifact, node_template, entity, _ARTIFACT_PREFIX)
     for prop in node_template.get_properties_objects():
         field = prop2field(node_template, None, prop)
         if field:
@@ -363,6 +389,9 @@ def expr2query(
             if cap == ".capabilities":
                 cap = key  # assume this key is capability name
                 continue
+            if cap == ".artifacts":
+                cap = _ARTIFACT_PREFIX + key  # assume this key is artifact name
+                continue
             if query_type is not None:
                 # Sources or Targets consume next key
                 query.append((query_type, key, ""))
@@ -401,6 +430,8 @@ def expr2query(
                         ))
                     elif key == ".capabilities":
                         cap = ".capabilities"  # assume next key is capability name
+                    elif key == ".artifacts":
+                        cap = ".artifacts"  # assume next key is artifact name
                     elif key == ".type":
                         query_type = QueryType.EntityType
                     else:
@@ -485,16 +516,19 @@ def get_req_terms(
                 add_match(node_template, terms, match, node_namespace)
         if not filter2term(terms, node_filter, None):
             return None, False  # has an unsupported constraint, bail
-        for cap_filters in node_filter.get("capabilities", []):
-            cap_name, cap_filter = list(cap_filters.items())[0]
-            cap_type = topology_template.find_type(cap_name)
-            if cap_type:
-                cap_name = cap_type.global_name
-                if cap_name not in types:
-                    types[cap_name] = [p.global_name for p in cap_type.ancestors()]
-                terms.append(CriteriaTerm.CapabilityTypeGroup(cap_name))
-            if not filter2term(terms, cap_filter, cap_name):
-                return None, False  # has an unsupported constraint, bail
+        for key in ["capabilities", "artifacts"]:
+            for cap_filters in node_filter.get(key, []):
+                cap_name, cap_filter = list(cap_filters.items())[0]
+                cap_type = topology_template.find_type(cap_name)
+                if cap_type:
+                    cap_name = cap_type.global_name
+                    if cap_name not in types:
+                        types[cap_name] = [p.global_name for p in cap_type.ancestors()]
+                    terms.append(CriteriaTerm.CapabilityTypeGroup([cap_name]))
+                elif key == "artifacts":
+                    cap_name = _ARTIFACT_PREFIX + cap_name
+                if not filter2term(terms, cap_filter, cap_name):
+                    return None, False  # has an unsupported constraint, bail
         for req_req in node_filter.get("requirements") or []:
             req_req_name = list(req_req)[0]
             req_field, _ = get_req_terms(
@@ -591,7 +625,11 @@ def _set_target(source: NodeTemplate, req_name: str, cap: str, target: str) -> N
         else:
             req_dict["node"] = target
         changed = "node"
-    if cap != "feature" and req_dict.get("capability") != cap:
+    if (
+        cap != "feature"
+        and not cap.startswith(_ARTIFACT_PREFIX)
+        and req_dict.get("capability") != cap
+    ):
         req_dict["capability"] = cap
         changed = "cap"
     if changed == "node":

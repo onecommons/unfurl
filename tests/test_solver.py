@@ -185,11 +185,6 @@ def test_node_filter():
     assert not t2.topology_template.node_templates["test"].relationships
 
 
-# test node_filter on a computed property
-# test node_filter match
-# test node_filter match with property source
-
-
 class Thingy(tosca.nodes.Root):
     a_property: int = 1
 

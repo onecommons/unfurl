@@ -17,7 +17,7 @@ pub type Symbol = String;
 
 type EntityName = Symbol;
 type NodeName = EntityName;
-type AnonEntityId = EntityName;
+// type AnonEntityId = EntityName;
 type CapabilityName = Symbol;
 type PropName = Symbol;
 type ReqName = Symbol;
@@ -445,9 +445,9 @@ impl Field {
 pub enum EntityRef {
     Node(NodeName),
     Capability(NodeName, CapabilityName),
-    Datatype(AnonEntityId),
     Relationship(NodeName, ReqName),
     Property(NodeName, CapabilityName, PropName),
+    // DataEntity(AnonEntityId),
 }
 
 impl EntityRef {
@@ -459,15 +459,16 @@ impl EntityRef {
         matches!(self, Self::Capability(n, cap) if *n == *node_name && *cap == *cap_name)
     }
 
-    pub fn node_name(&self) -> Option<NodeName> {
+    /// Extract the node name
+    pub fn node_name(&self) -> NodeName {
         match self {
-            Self::Node(n) => Some(n.clone()),
-            Self::Capability(n, _) => Some(n.clone()),
-            Self::Relationship(n, _) => Some(n.clone()),
-            Self::Property(n, ..) => Some(n.clone()),
-            _ => None,
+            Self::Node(n) => n.clone(),
+            Self::Capability(n, _) => n.clone(),
+            Self::Relationship(n, _) => n.clone(),
+            Self::Property(n, ..) => n.clone(),
         }
     }
+
     pub fn req_name(&self) -> Option<ReqName> {
         match self {
             Self::Relationship(_, r) => Some(r.clone()),
