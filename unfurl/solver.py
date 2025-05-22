@@ -394,6 +394,10 @@ def expr2query(
                 continue
             if query_type is not None:
                 # Sources or Targets consume next key
+                if query_type == QueryType.EntityType:
+                    typedef = find_type(key, node_template.custom_def)
+                    if typedef:
+                        key = typedef.global_name
                 query.append((query_type, key, ""))
                 query_type = None
             else:

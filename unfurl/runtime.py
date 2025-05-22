@@ -1134,7 +1134,7 @@ class NodeInstance(HasInstancesInstance):
                     )
                     assert relInstance.template.source
                     assert (
-                        self.template is relInstance.template.source
+                        self.template.nested_name == relInstance.template.source.nested_name
                         or self.template.topology.substitute_of
                         is relInstance.template.source
                         or self.template
@@ -1263,7 +1263,7 @@ class NodeInstance(HasInstancesInstance):
                     continue
                 seen[id(rel.target)] = rel.target
 
-                if rel.template.is_compatible_type("tosca.relationships.HostedOn"):
+                if rel.name == "host" or rel.template.is_compatible_type("tosca.relationships.HostedOn"):
                     yield rel.target
                 yield from rel.target._hosted_on(seen)
 

@@ -312,7 +312,7 @@ class ToscaSpec:
         self.nested_discovered: Dict[str, dict] = {}
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
-        self.overridden_default_templates: Set[str] = set()
+        self.default_templates: Set[str] = set()
         self.validation_mode = validation_mode
         if spec:
             inputs = cast(Dict[str, Any], spec.get("inputs") or {})
@@ -423,10 +423,9 @@ class ToscaSpec:
             self.nested_topologies.append(topology_spec)
             for nodeTemplate in list(topology.node_templates.values()):
                 if "default" in nodeTemplate.directives:
-                    if nodeTemplate.name in self.topology.node_templates:
-                        self.overridden_default_templates.add(nodeTemplate.name)
-                    else:
-                        # move default template to root topology
+                    self.default_templates.add(nodeTemplate.name)
+                    if nodeTemplate.name not in self.topology.node_templates:
+                        # move default template that weren't overridden to the root topology
                         topology.node_templates.pop(nodeTemplate.name)
                         nodeTemplate.topology_template = self.topology.topology_template
                         self.topology.topology_template.node_templates[
@@ -593,7 +592,12 @@ class ToscaSpec:
         for nodespec in self.topology.node_templates.values():
             ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
-            if nodespec.abstract != "select":
+            if nodespec.substitution:
+                # since our properties might have changed, apply the property mapping again
+                nodespec.substitution.topology_template.substitution_mappings._substitute(
+                    nodespec.toscaEntityTemplate, []
+                )
+            elif not nodespec.abstract:
                 nodespec.toscaEntityTemplate.revalidate_properties()
 
     def _apply_node_filter_properties(
@@ -1286,7 +1290,7 @@ class NodeSpec(EntitySpec):
                     self.topology.add_default_relationship(relSpec)
                 if name in self._requirements:
                     logger.warning(
-                        f"More than one requirement for {name} on {self.nested_name} not supported."
+                        f"More than one requirement for {name} on {self.nested_name} not supported -- replacing {self._requirements[name].entity_tpl} with {entity_tpl}."
                     )
                 self._requirements[name] = reqSpec
         return self._requirements
@@ -1518,12 +1522,12 @@ class NodeSpec(EntitySpec):
                 target = req.relationship.target
                 if id(target) in seen:
                     logger.debug(
-                        f"Circular operational dependency during hosting_on in {seen}"
+                        f"Circular operational dependency for {target} with hosted_on in {seen}"
                     )
                     continue
                 seen[id(target)] = target
 
-                if req.relationship.is_compatible_type("tosca.relationships.HostedOn"):
+                if req.name == "host" or req.relationship.is_compatible_type("tosca.relationships.HostedOn"):
                     yield target
                 yield from target._hosted_on(seen)
 
@@ -1871,6 +1875,13 @@ class TopologySpec(EntitySpec):
         for template in self.node_templates.values():
             if template.is_compatible_type(typeName):
                 yield template
+        if not self.parent_topology or not self.spec.topology:
+            return
+        # if nested, also check default templates on the root topology
+        for template in self.spec.topology.node_templates.values():
+            if template.name in self.spec.default_templates:
+                if template.is_compatible_type(typeName):
+                    yield template
 
     def get_template(self, name: str) -> Optional[EntitySpec]:
         if name == "~topology" or name == "root":

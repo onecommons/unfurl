@@ -708,7 +708,7 @@ topology_template:
       - host:
           node_filter:
             match:
-            - eval: ::foo::.hosted_on[.type=Host]
+            - eval: ::foo::.hosted_on::[.type=Host]
       metadata:
         module: service_template
 node_types:

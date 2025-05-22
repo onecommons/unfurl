@@ -124,7 +124,7 @@ CONNECTION_OPTIONS = {
 def _get_connection(ctx: RefContext) -> dict:
     # get the cluster that the target resource is hosted on
     ctx = ctx.copy(cast(EntityInstance, ctx.currentResource).owner)
-    cluster = Ref("[.type=unfurl.nodes.K8sCluster]").resolve_one(ctx)
+    cluster = Ref(".hosted_on::[.type=unfurl.nodes.K8sCluster]").resolve_one(ctx)
     relation = "unfurl.relationships.ConnectsTo.K8sCluster"
     if cluster:
         rel_instance = find_connection(ctx, cast(NodeInstance, cluster), relation)
@@ -142,7 +142,7 @@ def _get_connection(ctx: RefContext) -> dict:
         config = {}
     empty_config = not config
     # check if we are in a namespace
-    namespace = Ref("[.type=unfurl.nodes.K8sNamespace]").resolve_one(ctx)
+    namespace = Ref(".hosted_on::[.type=unfurl.nodes.K8sNamespace]").resolve_one(ctx)
     if namespace:
         config["namespace"] = cast(NodeInstance, namespace).attributes["name"]
     if ctx.task:

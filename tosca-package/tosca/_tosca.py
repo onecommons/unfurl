@@ -2487,8 +2487,13 @@ def _search(
 
 def _find_template(axis: str, tt: Optional[Type[_PT]] = None, cls_or_obj=None,) -> Optional[_PT]:
     path = _get_expr_prefix(cls_or_obj)
+    path.append(axis)
     if tt:
-        path.append(f"{axis}[.type={tt.tosca_type_name()}]")
+        if isinstance(tt, str):
+            type_name = tt
+        else:
+            type_name = tt.tosca_type_name()
+        path.append(f"[.type={type_name}]")
     return EvalData(None, path)  # type: ignore
 
 def find_configured_by(

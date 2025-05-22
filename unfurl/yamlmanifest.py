@@ -965,10 +965,14 @@ class YamlManifest(ReadOnlyManifest):
     def _save_entity_if_instantiated(
         self, resource, checkstatus=True
     ) -> Optional[Tuple[str, Dict]]:
-        if not self.is_instantiated(resource, checkstatus):
-            # no reason to serialize entities that haven't been instantiated
+        try:
+            if not self.is_instantiated(resource, checkstatus):
+                # no reason to serialize entities that haven't been instantiated
+                return None
+            return self.save_entity_instance(resource)
+        except Exception:
+            logger.error('Unexpected error saving "%s"', resource.nested_key, exc_info=True)
             return None
-        return self.save_entity_instance(resource)
 
     def save_resource(
         self, resource: NodeInstance, discovered: Dict[str, Any]
@@ -990,7 +994,7 @@ class YamlManifest(ReadOnlyManifest):
             and resource.template.nested_name in self.tosca.discovered
         ):
             discovered[resource.template.nested_name] = self.tosca.discovered[
-                resource.template.name
+                resource.template.nested_name
             ]
 
         if resource._capabilities:

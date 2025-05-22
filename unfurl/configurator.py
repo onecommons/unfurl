@@ -918,7 +918,7 @@ class TaskView:
         self.messages.append(message)
 
     def find_instance(self, name: str) -> Optional[NodeInstance]:
-        root = self._manifest.get_root_resource()
+        root = self.target.root
         if root:
             return cast(Optional[NodeInstance], root.find_instance_or_external(name))
         return None
