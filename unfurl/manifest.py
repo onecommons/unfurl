@@ -771,6 +771,7 @@ class Manifest(AttributeManager):
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
+            # full compatibility check is done in resolve_url
             if (
                 repository.repository.tpl != toscaRepository.tpl
                 or repository.path != file_name
@@ -792,11 +793,11 @@ class Manifest(AttributeManager):
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
         lock = config.get("lock")
-        if lock and "package_rules" in lock:
+        if lock and "package_rules" in lock and not self.package_specs:
             package_specs = [
                 PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])
             ]
-            if package_specs and not self.package_specs:
+            if package_specs:
                 # only use lock section package rules if the environment didn't set some already
                 logger.debug(
                     "applying package rules from lock section: %s", package_specs
@@ -860,6 +861,8 @@ class Manifest(AttributeManager):
         return repositories
 
     def _set_builtin_repositories(self):
+        """Sets "unfurl", "self", "spec", and "project" repositories if not declared.
+        Also adds a package rule for the unfurl package that points to the local installation of unfurl."""
         repositories = self.repositories
         if "github.com/onecommons/unfurl" not in self.packages:
             # add a package rule so the unfurl package uses the local installed location

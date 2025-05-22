@@ -456,10 +456,11 @@ class ToscaSpec:
         else:
             return None
 
-    def get_repository_path(self, repositoryName, file=""):
+    def get_repository_path(self, repositoryName, file="", topology=None):
         assert self.topology
         baseArtifact = ArtifactSpec(
-            dict(repository=repositoryName, file=file), topology=self.topology
+            dict(repository=repositoryName, file=file),
+            topology=topology or self.topology,
         )
         if baseArtifact.repository:
             # may resolve repository url to local path (e.g. checkout a remote git repo)
@@ -582,7 +583,9 @@ class ToscaSpec:
             impl["requirements"] = [{"install": installer}]
         return impl
 
-    def get_repository(self, name: str):
+    def get_repository(
+        self, name: str
+    ) -> Optional[toscaparser.repositories.Repository]:
         return self.template and self.template.repositories.get(name)
 
     def _post_node_filter_validation(self):
@@ -2032,18 +2035,31 @@ class ArtifactSpec(EntitySpec):
             # inline artifact
             name = self.get_name_from_artifact_spec(artifact_tpl)
             artifact_tpl.pop("name", None)  # "name" isn't a valid key
-            custom_defs = spec and spec.template.topology_template.custom_defs or {}
+            custom_defs = (
+                spec
+                and spec.template.topology_template
+                and spec.template.topology_template.custom_defs
+                or {}
+            )
             artifact = toscaparser.artifacts.Artifact(
                 name, artifact_tpl, custom_defs, path
             )
             self._inline = True
         EntitySpec.__init__(self, artifact, topology)
-        self.repository: Optional[toscaparser.repositories.Repository] = (
-            spec
-            and artifact.repository
-            and spec.get_repository(artifact.repository)
-            or None
-        )
+        self.repository: Optional[toscaparser.repositories.Repository] = None
+        if artifact.repository:
+            if spec:
+                self.repository = spec.get_repository(artifact.repository)
+            if isinstance(artifact.custom_def, Namespace):
+                repository_tpl = artifact.custom_def.repositories.get(
+                    artifact.repository
+                )
+                if repository_tpl and (
+                    not self.repository or self.repository.tpl != repository_tpl
+                ):
+                    self.repository = toscaparser.repositories.Repository(
+                        artifact.repository, repository_tpl
+                    )
         # map artifacts fields into properties
         for prop in self.buildin_fields:
             self.defaultAttributes[prop] = getattr(artifact, prop)
@@ -2069,11 +2085,11 @@ class ArtifactSpec(EntitySpec):
         else:
             return super().base_dir
 
-    def get_path(self, resolver=None) -> Optional[str]:
+    def get_path(self, resolver: Optional["ImportResolver"] = None) -> Optional[str]:
         return self.get_path_and_fragment(resolver)[0]
 
     def get_path_and_fragment(
-        self, resolver=None
+        self, resolver: Optional["ImportResolver"] = None
     ) -> Tuple[Optional[str], Optional[str]]:
         if not resolver:
             assert self.spec
@@ -2081,13 +2097,19 @@ class ArtifactSpec(EntitySpec):
 
         assert resolver
         repository = self.toscaEntityTemplate.repository
+        repositories = None
         if repository:
-            if not resolver.get_repository(
+            if (
+                isinstance(self.toscaEntityTemplate.custom_def, Namespace)
+                and repository in self.toscaEntityTemplate.custom_def.repositories
+            ):
+                repositories = self.toscaEntityTemplate.custom_def.repositories
+            elif not resolver.get_repository(
                 repository, None
             ) and self.topology.get_node_template(repository):
                 repository = None  # it's a virtual, reified repository
         path, fragment = resolver.resolve_to_local_path(
-            self.base_dir, self.file, repository
+            self.base_dir, self.file, repository, repositories
         )
         return path, fragment
 
@@ -2102,7 +2124,7 @@ class ArtifactSpec(EntitySpec):
 
     def as_value(self) -> Optional[ExternalValue]:
         if self.is_compatible_type("tosca.artifacts.Deployment.Image.Container.Docker"):
-            artifactDef = self.toscaEntityTemplate
+            artifactDef = cast(toscaparser.artifacts.Artifact, self.toscaEntityTemplate)
             assert (
                 not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
             )

@@ -672,6 +672,6 @@ def _get_base_dir(ctx, name=None):
                 elif rest == "local":
                     return os.path.join(specHome, "local")
             elif start == "repository":
-                return spec.get_repository_path(rest)
+                return spec.get_repository_path(rest, topology=template.topology)
             # XXX elif start == 'project' and rest == 'local'
-        return spec.get_repository_path(name)
+        return spec.get_repository_path(name, topology=template.topology)
