@@ -1008,14 +1008,17 @@ def do_render_requests(
     return ready, notReady, errors
 
 
-def filter_config(opts: "JobOptions", workflow: str, target):
+def filter_config(opts: "JobOptions", workflow: str, target: EntityInstance):
     if opts.readonly and workflow != "discover":
         return "read only"
     # if opts.requiredOnly and not config.required:
     #     return None, "required"
-    if opts.instance and target.name != opts.instance:
+    outer_name = ""
+    if ":" in target.nested_name:
+        outer_name = target.nested_name.partition(":")[0]
+    if opts.instance and target.nested_name != opts.instance:
         return f"instance {opts.instance}"
-    if opts.instances and target.name not in opts.instances:
+    if opts.instances and target.nested_name not in opts.instances and outer_name not in opts.instances:
         return f"instances {opts.instances}"
     return ""
 

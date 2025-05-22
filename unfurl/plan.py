@@ -543,15 +543,6 @@ class Plan:
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
-        filter_reason = filter_config(self.jobOptions, workflow, resource)
-        if filter_reason:
-            logger.debug(
-                "skipping %s task for '%s': doesn't match filter: '%s'",
-                workflow,
-                resource.name,
-                filter_reason,
-            )
-            return
         # check if this workflow has been delegated to one explicitly declared
         configGenerator = self.execute_workflow(workflow, resource)
         if configGenerator:
@@ -895,6 +886,15 @@ class DeployPlan(Plan):
     def _generate_workflow_configurations(
         self, instance: NodeInstance, oldTemplate: Optional[NodeSpec]
     ):
+        filter_reason = filter_config(self.jobOptions, "", instance)
+        if filter_reason:
+            logger.debug(
+                "skipping %s task: doesn't match filter: '%s'",
+                instance.nested_name,
+                filter_reason,
+            )
+            return
+
         if instance.shadow:
             reason: Optional[str] = Reason.connect
         elif oldTemplate:
