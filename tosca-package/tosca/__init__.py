@@ -153,6 +153,9 @@ class Repository(ToscaObject):
         if metadata is not None:
             self._tpl["metadata"] = metadata
         self.credential = credential
+        from .loader import import_resolver
+        if import_resolver:
+            import_resolver.add_repository(self._tosca_name or self._name, self._tpl)
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         tpl = dict_cls(**self._tpl)
