@@ -637,7 +637,7 @@ class RepoView:
         Returns:
             Tuple[str, str]: symlink file name, target path
         """
-        assert name or self.repository.name
+        assert name or self.repository.name, (base_path, self.repository.tpl)
         name = re.sub(r"\W", "_", name or self.repository.name)
         assert name.isidentifier(), name
         if not Path(self.working_dir).is_dir():

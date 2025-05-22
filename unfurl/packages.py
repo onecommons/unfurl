@@ -24,8 +24,8 @@ If multiple repository declarations refer to the same package and they specify v
 
 If no revision was set, the package will retrieve the revision that matches the latest git tag that looks like a semantic version tag (see https://go.dev/ref/mod#vcs-version for the algorithm). If none is found the latest revision from the repository's default branch will be used.
 
-If the keys in a `repositories` section look like package identifiers 
-that block is used as a rule override the location or version of a package 
+If the keys in a `repositories` section look like package identifiers
+that block is used as a rule override the location or version of a package
 or replace the package with another package.
 
 ```
@@ -43,7 +43,7 @@ environments:
       # A trailing * applies the rule to all packages that match
       unfurl.cloud/onecommons/*:
           url: https://staging.unfurl.cloud/onecommons/*
-      
+
       # replace for a particular package, version combination
       unfurl.cloud/onecommons/blueprints/ghost#v1.6.0:
         url: github.com/user1/myforks.git/ghost
@@ -56,6 +56,7 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 
 The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
 """
+
 import os.path
 import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
@@ -69,6 +70,7 @@ from .repo import (
     get_remote_tags,
     sanitize_url,
     is_url_or_git_path,
+    normalize_git_url_hard,
 )
 from .logs import getLogger
 from .util import UnfurlError
@@ -91,6 +93,7 @@ def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
         (include_unreleased or not revision.lstrip("v").startswith("0"))
         and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
     )
+
 
 def is_semver_compatible_with(expected: str, test: str) -> bool:
     """
@@ -183,7 +186,7 @@ class PackageSpec:
             return candidate == self.package_spec
 
     @staticmethod
-    def _replace(match, replace, candidate):
+    def _replace(match: str, replace: str, candidate: str):
         # if `candidate` startswith `match`, replace the matching segment with replace
         match = match.rstrip("*")
         if candidate.startswith(match):
@@ -191,15 +194,16 @@ class PackageSpec:
             return replace.replace("*", candidate[len(match) :])
         return candidate
 
-    def replace(self, replace, package):
-        return self._replace(self.package_spec, replace, package.package_id)
+    def replace(self, replace: str, package_id: str) -> str:
+        # replaces package_id if package_spec.endswith("*")
+        return self._replace(self.package_spec, replace, package_id)
 
     def update(self, package: "Package") -> str:
         # if the package's package_id was replaced return that
         # assume package already matched
         if self.package_spec.endswith("*"):
             if self.url:
-                package.url = self.replace(self.url, package)
+                package.url = self.replace(self.url, package.package_id)
                 if self.revision:
                     package.revision = self.revision
                     # PackageSpec.url used above will always have revision stripped off
@@ -208,7 +212,9 @@ class PackageSpec:
             else:
                 if self.package_id:
                     replaced_id = package.package_id
-                    package.package_id = self.replace(self.package_id, package)
+                    package.package_id = self.replace(
+                        self.package_id, package.package_id
+                    )
                     package.url = ""
                     return replaced_id
                 if self.revision:
@@ -353,6 +359,15 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
     return Package_Url_Info(package_id, url if parts.scheme else None, revision)
 
 
+def normalize_url(url: str) -> str:
+    """Normalize url to a package_id, a git URL, or a file path, depending on the URL."""
+    package_id, _, _ = get_package_id_from_url(url)
+    if package_id:
+        return package_id
+    else:
+        return normalize_git_url_hard(normalize_path(url))
+
+
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
     # XXX assumes .git and https
     package_id, sep, revision = package_id.partition(".git/")
@@ -452,7 +467,8 @@ class Package:
         except GitCommandError as e:
             logger.warning(
                 "failed to look up version tags on remote git at %s: %s",
-                self.safe_url, e.stderr,
+                self.safe_url,
+                e.stderr,
             )
             return False
         # remember the result of the search even if we don't set the revision
@@ -484,7 +500,9 @@ class Package:
             return False
         if self.discovered or not self.revision:
             return True
-        return not self.has_semver(True)  # if set to an explicit version tag, assume it wont change
+        return not self.has_semver(
+            True
+        )  # if set to an explicit version tag, assume it wont change
 
     def add_reference(self, repoview: RepoView) -> bool:
         if repoview not in self.repositories:
