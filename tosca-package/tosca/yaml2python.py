@@ -396,6 +396,9 @@ class Convert:
                 src += f"{input_indent}{name}: {typedecl} {fielddecl}\n"
                 src += add_description(output.schema, input_indent)
 
+        root_node = (
+            topology.substitution_mappings and topology.substitution_mappings.node
+        )
         for node_template in topology.nodetemplates:
             localname = self.imports.get_local_ref(node_template.name)
             if not localname or localname not in self.imports.declared:
@@ -414,10 +417,8 @@ class Convert:
                 src += self.flush_pending_defs(indent)
                 if template_src:
                     src += template_src + "\n"
-        if topology.substitution_mappings and topology.substitution_mappings.node:
-            root_template = self.imports.get_local_ref(
-                topology.substitution_mappings.node
-            )
+        if root_node:
+            root_template = self.imports.get_local_ref(root_node)
             src += f"{indent}__root__ = {root_template}\n"
         return src
 
@@ -726,7 +727,7 @@ class Convert:
             entry_schema = Schema(None, entry_schema)
             if typename == "Dict":
                 items = [
-                    f"{k}: {self._get_prop_value_repr(entry_schema, item)}"
+                    f"{self.value2python_repr(k)}: {self._get_prop_value_repr(entry_schema, item)}"
                     for k, item in value.items()
                 ]
                 return "{" + ", ".join(items) + "}", True
@@ -1477,13 +1478,14 @@ class Convert:
         cls: Optional[Type[_tosca.ToscaType]],
         indent="",
         include_additional=False,
-    ) -> Tuple[str, Dict[str, str]]:
+    ) -> Tuple[str, Dict[str, str], Dict[str, PropertyDef]]:
         src = ""
         skipped: Dict[str, str] = {}
         if not props:
-            return src, skipped
+            return src, skipped, {}
+        prop_defs = prop_defs.copy()
         for key, val in props.items():
-            prop = prop_defs.get(key)
+            prop = prop_defs.pop(key, None)
             if prop:
                 if not isinstance(prop.schema, Schema):
                     schema = Schema(key, prop.schema)
@@ -1505,7 +1507,7 @@ class Convert:
             else:
                 field_name, tosca_name = self._get_name(key)
             src += f"{indent}{field_name}={prop_repr},\n"
-        return src, skipped
+        return src, skipped, prop_defs
 
     def convert_datatype_value(
         self,
@@ -1523,7 +1525,7 @@ class Convert:
             and cls._type_metadata
             and cls._type_metadata.get("additionalProperties")
         )
-        init_list, skipped = self._get_prop_init_list(
+        init_list, skipped, _ = self._get_prop_init_list(
             value, props, cls, indent, include_additional
         )
         if skipped:
@@ -1545,7 +1547,7 @@ class Convert:
         )
         src = f"{indent}{typename}("
         prop_defs = capability_type.get_properties_def()
-        init_list, skipped = self._get_prop_init_list(values, prop_defs, cls, indent)
+        init_list, skipped, _ = self._get_prop_init_list(values, prop_defs, cls, indent)
         if skipped:
             logger.warning(
                 f"Additional properties on capability {typename} skipped: {skipped}"
@@ -1665,16 +1667,25 @@ class Convert:
             if before_patch:
                 entity_tpl = before_patch
             src += f"_metadata={metadata_repr(metadata)},\n"
-        # XXX version
-        if entity_template.directives:
-            src += f"_directives={repr(entity_template.directives)},\n"
+        directives = entity_template.directives.copy()
         assert entity_template.type_definition
         properties = entity_tpl.get("properties")
+        init_list = ""
         if properties:
             prop_defs = entity_template.type_definition.get_properties_def()
-            init_list, skipped = self._get_prop_init_list(
+            init_list, skipped, missing = self._get_prop_init_list(
                 properties, prop_defs, cls, indent
             )
+            required = [
+                pdef.name
+                for pdef in missing.values()
+                if pdef.required and pdef.default is None
+            ]
+            if required and "partial" not in directives:
+                directives.append("partial")
+        if directives and isinstance(entity_template, NodeTemplate):
+            src += f"_directives={repr(directives)},\n"
+        if init_list:
             src += init_list
         node_filter = entity_tpl.get("node_filter")
         if node_filter:
@@ -1732,7 +1743,9 @@ class Convert:
         capabilities = node_template.entity_tpl.get("capabilities")
         if capabilities:
             # only get explicitly declared capability properties
-            capabilitydefs = node_template.type_definition.get_capabilities_def()
+            capabilitydefs = cast(
+                NodeType, node_template.type_definition
+            ).get_capabilities_def()
             for cap_name, capability in capabilities.items():
                 cap_props = capability.get("properties")
                 field = cls.get_field_from_tosca_name(
@@ -2039,7 +2052,10 @@ def yaml_to_python(
     """
     return convert_service_template(
         ToscaTemplate(
-            path=yaml_path, yaml_dict_tpl=tosca_dict, import_resolver=import_resolver, verify=False,
+            path=yaml_path,
+            yaml_dict_tpl=tosca_dict,
+            import_resolver=import_resolver,
+            verify=False,
         ),
         python_target_version,
         path=python_path,

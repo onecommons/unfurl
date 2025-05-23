@@ -3172,7 +3172,7 @@ class Node(ToscaType):
 
     def _enforce_required_fields(self):
         for directive in self._directives:
-            for name in ("select", "substitute"):
+            if directive in ("select", "substitute", "partial"):
                 return False
         return super()._enforce_required_fields()
 
