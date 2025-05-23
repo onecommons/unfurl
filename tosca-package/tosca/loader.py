@@ -25,6 +25,10 @@ from . import Namespace, global_state
 
 logger = logging.getLogger("tosca")
 
+PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
+FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER")
+SKIP_LOADER = os.getenv("DEBUGPY")
+
 # python standard library modules matches those added to utility_builtins
 ALLOWED_MODULES = (
     "unfurl",
@@ -159,6 +163,8 @@ class RepositoryFinder(PathFinder):
                         )
                         return None
                 else:
+                    if SKIP_LOADER:
+                        return None
                     origin_path = os.path.join(repo_path, *names[2:])
                     if os.path.isdir(origin_path) and not os.path.isfile(
                         origin_path + ".py"
@@ -199,6 +205,8 @@ class RepositoryFinder(PathFinder):
             if len(names) == 1:
                 return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
             else:
+                if SKIP_LOADER:
+                    return None
                 origin_path = os.path.join(dir_path, *names[1:])
                 if os.path.isdir(origin_path) and not os.path.isfile(
                     origin_path + ".py"
@@ -602,10 +610,6 @@ def safe_guarded_write(ob):
 # _iter_unpack_sequence_
 # _unpack_sequence_
 
-PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
-FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER")
-
-
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
         super().__init__(errors, warnings, used_names)
@@ -890,11 +894,15 @@ def restricted_exec(
         global_state.safe_mode = safe_mode
         global_state.mode = "parse"
         global_state.modules = modules
+        if SKIP_LOADER:
+            code = python_src
+        else:
+            code = result.code
         if temp_module:
-            exec(result.code, temp_module.__dict__)
+            exec(code, temp_module.__dict__)
             namespace.update(temp_module.__dict__)
         else:
-            exec(result.code, namespace)
+            exec(code, namespace)
     finally:
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
