@@ -82,7 +82,7 @@ if TYPE_CHECKING or not safe_mode():
         RelationshipInstance,
     )
     from ..yamlloader import cleartext_yaml
-    from ..projectpaths import FilePath, TempFile, _abspath
+    from ..projectpaths import File, FilePath, TempFile, _abspath
     from tosca import has_function
 
     def get_context(obj: ToscaType, kw: Optional[Dict[str, Any]] = None) -> RefContext:
@@ -186,9 +186,10 @@ __all__ = [
     "uri",
     "concat",
     "token",
+    "read",
     # XXX get_property
     # XXX get_attribute
-    # XXX File
+    # XXX File.write()
     # XXX kubernetes_current_namespace
     # XXX kubectl,
     # XXX get_artifact
@@ -231,7 +232,7 @@ def super() -> MutableMapping[str, Any]:
     (Python's super() won't work in `"runtime" mode <global_state_mode>` when proxying an instance.)
 
     For example:
-    
+
     .. code-block:: python
 
       class Base(Node):
@@ -314,6 +315,13 @@ def as_bool(val) -> bool:
         return bool(val)
     else:
         return cast(bool, EvalData(dict(eval={"not": {"not": val, "map_value": 1}})))
+
+def read(path: str, encoding: Optional[str]=None) -> Union[str, bytes]:
+    """Equivalent to an `file` eval expression using ``contents`` to read the file."""
+    if global_state_mode() == "runtime":
+        ctx = global_state_context()
+        return File(path, encoding=encoding, loader=ctx.templar and ctx.templar._loader).get_contents()
+    return cast(str, EvalData(dict(eval={"file": path, "encoding": encoding}, select="contents")))
 
 
 TI = TypeVar("TI")
