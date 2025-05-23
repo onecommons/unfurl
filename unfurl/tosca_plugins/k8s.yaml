@@ -111,7 +111,7 @@ node_types:
       - host:
           node: unfurl.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
-    attributes:
+    properties:
       namespace:
         type: string
         default:
@@ -122,6 +122,9 @@ node_types:
               kubernetes_current_namespace:
             else:
               get_property: [HOST, name]
+    attributes:
+      namespace:
+        type: string
 
   unfurl.nodes.K8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
@@ -136,6 +139,10 @@ node_types:
       data:
         type: map
         required: false
+        metadata:
+          sensitive: true
+    attributes:
+      apiResource:
         metadata:
           sensitive: true
 

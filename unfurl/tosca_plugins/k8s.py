@@ -201,7 +201,8 @@ class unfurl_nodes_K8sNamespace(
 
 class unfurl_nodes_K8sResource(unfurl_nodes_K8sRawResource):  # type: ignore[override]  # ('host',)
     _type_name = "unfurl.nodes.K8sResource"
-    namespace: str = Attribute(
+    namespace: str = Property(
+        attribute = True,
         default=Eval(
             {
                 "eval": {
@@ -229,6 +230,8 @@ class unfurl_nodes_K8sSecretResource(unfurl_nodes_K8sResource):  # type: ignore[
     data: Union[Dict[str, Any], None] = Property(
         metadata={"sensitive": True}, default=None
     )
+
+    apiResource: Union[Dict[str, Any], None] = Attribute(metadata={"sensitive": True}, default=None)
 
 
 kube_artifacts: Node = unfurl.nodes.LocalRepository(
