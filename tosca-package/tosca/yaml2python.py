@@ -2034,7 +2034,7 @@ def yaml_to_python(
     tosca_dict: Optional[dict] = None,
     import_resolver=None,
     python_target_version=None,
-    write_policy: WritePolicy = WritePolicy.never,
+    write_policy: WritePolicy = WritePolicy.auto,
     convert_repositories: bool = False,
 ) -> str:
     """

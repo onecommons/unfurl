@@ -1450,8 +1450,7 @@ def _yaml_to_python(
             write_policy=write_policy,
         )
     else:
-        from .yamlloader import ImportResolver, yaml
-        from .manifest import Manifest
+        from .yamlloader import yaml
 
         if not file:
             yaml_path = Path(project_or_ensemble_path)

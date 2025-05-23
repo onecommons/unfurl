@@ -150,7 +150,7 @@ def convert_to_yaml(
         else:
             root_path = base_dir
         package_path = Path(get_base_dir(path)).relative_to(root_path)
-        relpath = str(package_path).strip("/").replace("/", ".")
+        relpath = str(package_path).strip("/").replace("/", ".").strip(".")
         if repo_view.repository.name == "unfurl":
             package = "unfurl."
         else:
@@ -164,7 +164,7 @@ def convert_to_yaml(
     if relpath:
         package += "." + relpath
     safe_mode = import_resolver.get_safe_mode()
-    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
+    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
     module_name = package + "." + Path(path).stem
     tosca.loader.install(import_resolver, base_dir)
     if import_resolver.manifest.modules is None:
