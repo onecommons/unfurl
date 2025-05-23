@@ -2039,7 +2039,7 @@ def yaml_to_python(
     """
     return convert_service_template(
         ToscaTemplate(
-            path=yaml_path, yaml_dict_tpl=tosca_dict, import_resolver=import_resolver
+            path=yaml_path, yaml_dict_tpl=tosca_dict, import_resolver=import_resolver, verify=False,
         ),
         python_target_version,
         path=python_path,

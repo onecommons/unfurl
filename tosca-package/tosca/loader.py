@@ -239,9 +239,12 @@ class ToscaYamlLoader(Loader):
             from .yaml2python import yaml_to_python
 
             python_filepath = str(path.parent / (path.stem + ".py"))
-            src = yaml_to_python(
-                self.filepath, python_filepath, import_resolver=import_resolver
-            )
+            try:
+                src = yaml_to_python(
+                    self.filepath, python_filepath, import_resolver=import_resolver
+                )
+            except Exception:
+                logger.error(f"Error parsing {self.filepath}", exc_info=True)
         else:
             python_filepath = str(path)
             with open(path) as f:

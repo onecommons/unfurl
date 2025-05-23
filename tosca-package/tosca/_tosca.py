@@ -2485,7 +2485,12 @@ def _search(
     else:
         return EvalData(None, expr)
 
-def _find_template(axis: str, tt: Optional[Type[_PT]] = None, cls_or_obj=None,) -> Optional[_PT]:
+
+def _find_template(
+    axis: str,
+    tt: Optional[Type[_PT]] = None,
+    cls_or_obj=None,
+) -> Optional[_PT]:
     path = _get_expr_prefix(cls_or_obj)
     path.append(axis)
     if tt:
@@ -2495,6 +2500,7 @@ def _find_template(axis: str, tt: Optional[Type[_PT]] = None, cls_or_obj=None,) 
             type_name = tt.tosca_type_name()
         path.append(f"[.type={type_name}]")
     return EvalData(None, path)  # type: ignore
+
 
 def find_configured_by(
     field_name: _T,
@@ -2904,15 +2910,19 @@ class ToscaType(_ToscaType):
                     tpl = value.to_template_yaml(converter)
                     body.setdefault(field.section, {})[field.tosca_name] = tpl
             elif field.section in ["properties", "attributes"]:
-                if not isinstance(
-                    value, EvalData
-                ) and not field.get_type_info().instance_check(value):
-                    raise TypeError(
-                        f'{field.tosca_field_type.name} "{field.name}" on "{self._name}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}.'
+                if isinstance(value, EvalData) or field.get_type_info().instance_check(
+                    value
+                ):
+                    body.setdefault(field.section, {})[field.tosca_name] = (
+                        to_tosca_value(value, dict_cls)
                     )
-                body.setdefault(field.section, {})[field.tosca_name] = to_tosca_value(
-                    value, dict_cls
-                )
+                else:
+                    # exclude fields with values of unexpected type (e.g None or REQUIRED)
+                    msg = f'{field.tosca_field_type.name} "{field.name}" on "{self._name}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}.'
+                    if value in [None, DEFAULT, MISSING, REQUIRED, CONSTRAINED]:
+                        logger.debug("Skipping: " + msg)
+                    else:
+                        raise TypeError(msg)
             elif field.section:
                 assert False, "unexpected section in {field}"
 
