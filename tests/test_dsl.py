@@ -1765,6 +1765,9 @@ node = tosca.nodes.Root()
 node._name = "test"
 node.__class__.feature
         """,
+        "for key, value in {'a': 1}.items(): assert key == 'a' and value == 1",
+        "a, b = 1, 2; assert a == 1 and b == 2",
+        "(foo := 1)"
     ]
     for src in allowed:
         # print("\nallowed?\n", src)

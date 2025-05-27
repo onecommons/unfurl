@@ -21,6 +21,8 @@ from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
 from RestrictedPython import safe_builtins
 from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAMES
+from RestrictedPython.Guards import guarded_iter_unpack_sequence, guarded_unpack_sequence
+
 from . import Namespace, global_state
 
 logger = logging.getLogger("tosca")
@@ -612,9 +614,7 @@ def safe_guarded_write(ob):
 
 
 # XXX
-# _inplacevar_
-# _iter_unpack_sequence_
-# _unpack_sequence_
+# _inplacevar_:  'n += 1' becomes 'n = _inplacevar_("+=", n, 1)'
 
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
@@ -855,6 +855,8 @@ def restricted_exec(
         "_write_": safe_guarded_write if safe_mode else default_guarded_write,
         "_print_": PrintCollector,
         "__metaclass__": type,
+        '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
+        "_unpack_sequence_": guarded_unpack_sequence
     })
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = full_name
