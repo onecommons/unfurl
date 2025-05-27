@@ -147,7 +147,7 @@ def _get_connection(ctx: RefContext) -> dict:
         config["namespace"] = cast(NodeInstance, namespace).attributes["name"]
     if ctx.task:
         if empty_config:
-            ctx.task.logger.debug(
+            ctx.task.logger.verbose(
                 "Empty k8s config, falling back to current kube context (if present), searched connection %s, cluster %s, namespace %s for %s",
                 rel_instance,
                 cluster,

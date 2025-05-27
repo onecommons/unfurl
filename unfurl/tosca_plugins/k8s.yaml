@@ -62,7 +62,8 @@ node_types:
         type: string
         default:
           eval:
-            to_kubernetes_label: .name
+            to_kubernetes_label:
+              eval: .name
       definition:
         type: any
         description: Inline resource definition (string or map)

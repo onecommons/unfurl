@@ -128,6 +128,10 @@ node_types:
       chart_values:
         type: map
         required: false
+      record_resources:
+        description: Save kubernetes resources created by the Helm release as managed instances.
+        type: boolean
+        default: true
       release_name:
         type: string
         description: name of the helm release
@@ -170,7 +174,7 @@ node_types:
                       {% endif %}
                       {% if task.verbose > 0 %}--debug{%endif%}
                       {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
-                      {% if inputs.helmcmd == 'upgrade' %}--reuse-values{%endif%}
+                      {% if 'upgrade' in inputs.helmcmd %}--reuse-values{%endif%}
                       {% if inputs.flags is defined -%}
                         {% for flag, value in inputs.flags.items() %}
                           --{{flag}} {%if value is not none %}"{{ value | quote }}"{% endif %}
@@ -185,7 +189,7 @@ node_types:
                     select: path
               # XXX if still deploying readyState should be set to pending instead of ok but delegate the check to this release
               resultTemplate: |
-                {%if returncode == 0 %}
+                {%if returncode == 0 and SELF.record_resources %}
                 {% set json = stdout | from_json %}
                 {%for doc in json.manifest | from_yaml_all %}
                   {%if doc.kind is defined and doc.kind != 'Secret' %}
@@ -225,7 +229,7 @@ node_types:
           configure:
             invoke: Helm.execute
             inputs:
-              helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}} {%if SELF.version | default("") %}--version {{SELF.version}}{% endif %}'
+              helmcmd: 'upgrade --install {%if SELF.version | default("") %}--version {{SELF.version}}{% endif %}'
           delete:
             implementation:
               primary: helm
