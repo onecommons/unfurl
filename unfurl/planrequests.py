@@ -1018,7 +1018,11 @@ def filter_config(opts: "JobOptions", workflow: str, target: EntityInstance):
         outer_name = target.nested_name.partition(":")[0]
     if opts.instance and target.nested_name != opts.instance:
         return f"instance {opts.instance}"
-    if opts.instances and target.nested_name not in opts.instances and outer_name not in opts.instances:
+    if (
+        opts.instances
+        and target.nested_name not in opts.instances
+        and outer_name not in opts.instances
+    ):
         return f"instances {opts.instances}"
     return ""
 
@@ -1029,14 +1033,14 @@ def filter_task_request(
     configSpec = req.configSpec
     filterReason = filter_config(jobOptions, configSpec.workflow, req.target)
     if filterReason:
-        logger.debug(
-            "skipping configspec '%s' for '%s': doesn't match filter: '%s'",
-            configSpec.name,
-            req.target.name,
-            filterReason,
-        )
+        if not filterReason.startswith("instance"):
+            logger.debug(
+                "skipping configspec '%s' for '%s': doesn't match filter: '%s'",
+                configSpec.name,
+                req.target.nested_name,
+                filterReason,
+            )
         return None  # treat as filtered step
-
     return req
 
 

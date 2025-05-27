@@ -888,13 +888,13 @@ class DeployPlan(Plan):
     ):
         filter_reason = filter_config(self.jobOptions, "", instance)
         if filter_reason:
-            logger.debug(
-                "skipping %s task: doesn't match filter: '%s'",
-                instance.nested_name,
-                filter_reason,
-            )
+            if not filter_reason.startswith("instance"):
+                logger.debug(
+                    "skipping %s task: doesn't match filter: '%s'",
+                    instance.nested_name,
+                    filter_reason,
+                )
             return
-
         if instance.shadow:
             reason: Optional[str] = Reason.connect
         elif oldTemplate:
