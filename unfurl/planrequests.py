@@ -1071,29 +1071,31 @@ def find_resources_from_template_name(
 def find_parent_template(source: NodeTemplate) -> Optional[NodeTemplate]:
     for rel, req, reqDef in source.relationships:
         # special case "host" so it can be declared without full set of relationship / capability types
-        if rel.target and rel.is_derived_from("tosca.relationships.HostedOn") or "host" in req:
+        if (
+            rel.target
+            and rel.is_derived_from("tosca.relationships.HostedOn")
+            or "host" in req
+        ):
             return rel.target
     return None
 
 
 def find_parent_resource(
     root: TopologyInstance, source: EntitySpec
-) -> HasInstancesInstance:
+) -> Tuple[Optional[HasInstancesInstance], Optional[NodeTemplate]]:
     source_nodetemplate = cast(NodeTemplate, source.toscaEntityTemplate)
     parentTemplate = find_parent_template(source_nodetemplate)
     source_root = root.get_root_instance(source_nodetemplate)
     if not parentTemplate or parentTemplate is source_nodetemplate:
-        return source_root
+        return source_root, parentTemplate
     root = root.get_root_instance(parentTemplate)
     if root is not source_root:
         # parent must be in the same topology
-        return source_root
+        return source_root, parentTemplate
     for parent in find_resources_from_template_name(root, parentTemplate.name):
         # XXX need to evaluate matches
-        return parent
-    raise UnfurlError(
-        f"could not find parent instance {parentTemplate.name} for child {source.name}"
-    )
+        return parent, parentTemplate
+    return None, parentTemplate
 
 
 def create_instance_from_spec(
@@ -1141,10 +1143,17 @@ def create_instance_from_spec(
             raise UnfurlError(
                 f'Can not find template "{tname}" when trying to create instance "{rname}".'
             )
-        parent = find_parent_resource(cast(TopologyInstance, target.root), nodeSpec)
+        parent, parent_template = find_parent_resource(
+            cast(TopologyInstance, target.root), nodeSpec
+        )
+        if not parent:
+            raise UnfurlError(
+                f"could not find parent instance {parent_template and parent_template.name} for child {nodeSpec.name}"
+            )
     else:
         parent = target.root
     # note: if resourceSpec[parent] is set it overrides the parent keyword
+    assert parent
     return _manifest.create_node_instance(
         rname, cast(dict, resourceSpec), parent=parent
     )

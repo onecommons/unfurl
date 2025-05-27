@@ -155,8 +155,15 @@ class Plan:
             for resource in find_resources_from_template_name(root, template.name):
                 yield cast(NodeInstance, resource)
 
-    def create_resource(self, template: NodeSpec) -> NodeInstance:
-        parent = find_parent_resource(self.root, template)
+    def create_resource(self, template: NodeSpec) -> Optional[NodeInstance]:
+        parent, parent_template = find_parent_resource(self.root, template)
+        if not parent and parent_template:
+            parent_node = self.tosca.node_from_template(parent_template)
+            if parent_node:
+                parent = self.create_resource(parent_node)
+        if not parent:
+            return None
+
         if self.jobOptions.check or "check" in template.directives:
             status = Status.unknown
         else:
@@ -762,6 +769,7 @@ class Plan:
         visited = set()
         for template in templates:
             found = False
+            resource: Optional[NodeInstance]
             for resource in self.find_resources_from_template(template):
                 found = True
                 visited.add(id(resource))
@@ -776,6 +784,10 @@ class Plan:
                 include = abstract == "substitute" or self.include_not_found(template)
                 if include:
                     resource = self.create_resource(template)
+                    if not resource:
+                        raise UnfurlError(
+                            f'could not create instance from template "{template.nested_name}"'
+                        )
                     visited.add(id(resource))
                     if abstract != "substitute":
                         yield from self._generate_workflow_configurations(
@@ -1095,7 +1107,7 @@ class RunNowPlan(Plan):
                     if template:
                         assert isinstance(template, NodeSpec)
                         resource = self.create_resource(template)
-                    else:
+                    if not resource:
                         raise UnfurlError(
                             f"specified instance not found: {instance_name}"
                         )
