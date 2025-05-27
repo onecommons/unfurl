@@ -50,6 +50,16 @@ class TestShellConfigurator:
         assert delta < timedelta(seconds=2), delta - timedelta(seconds=2)
 
 
+def test_input():
+    configurator = ShellConfigurator()
+
+    result = configurator.run_process(cmd="read in; echo $in", shell=True, input="hello world")
+    assert result.stdout.strip() == "hello world"
+
+    result2 = configurator.run_process(cmd="python -c 'import sys; print(sys.stdin.read())'", input="hello world")
+    assert result2.stdout.strip() == "hello world"
+
+
 class TestDryRun:
     @pytest.mark.parametrize(
         "command,dryrun",

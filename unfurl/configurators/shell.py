@@ -195,6 +195,10 @@ class ShellConfigurator(TemplateConfigurator):
             else:
                 use_shell = bool(shell)
                 executable = None
+            if input is not None:
+                kwargs["stdin"] = subprocess.PIPE
+                if isinstance(input, str):
+                    input = input.encode()
             completed = run(
                 # follow recommendation to use string with shell, list without
                 cmdStr if use_shell else cmd,
