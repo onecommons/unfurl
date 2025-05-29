@@ -148,9 +148,16 @@ class ConfigurationSpec:
                 module = importlib.import_module(module_name)
             else:
                 module = sys.modules[module_name]
-            cls_name, sep, func_name = qualname.rpartition(".")
-            cls = getattr(module, cls_name)
-            return DslMethodConfigurator(cls, getattr(cls, func_name), action)
+            parts = qualname.split(".")
+            attr_name = parts.pop(0)
+            cls = getattr(module, attr_name)
+            func = None
+            while parts:
+                func = getattr(cls, parts.pop(0))
+                if parts:
+                    cls = func
+            assert func
+            return DslMethodConfigurator(cls, func, action)
 
         klass = cast(Optional["Configurator"], lookup_class(className))
         if not klass:

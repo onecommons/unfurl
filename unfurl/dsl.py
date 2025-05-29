@@ -379,14 +379,18 @@ def eval_computed(arg, ctx: RefContext):
         kw = {}
     module_name, sep, qualname = arg.partition(":")
     module = importlib.import_module(module_name)
-    cls_name, sep, func_name = qualname.rpartition(".")
-    if cls_name:
-        cls = getattr(module, cls_name)
-        func = getattr(cls, func_name)
+    parts = qualname.split(".")
+    attr_name = parts.pop(0)
+    cls = getattr(module, attr_name)
+    if parts:
+        while parts:
+            func = getattr(cls, parts.pop(0))
+            if parts:
+                cls = func
         proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), cls, ctx)
         return proxy._invoke(func, *args, **kw)
     else:
-        return getattr(module, func_name)(*args, **kw)
+        return cls(*args, **kw)
 
 
 set_eval_func("computed", eval_computed)
