@@ -25,7 +25,7 @@ import re
 from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 from ruamel.yaml.scalarstring import ScalarString, DoubleQuotedScalarString
-from tosca import has_function
+from tosca import has_function, scalar
 from toscaparser.common.exception import ValidationError
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.properties import Property
@@ -500,10 +500,10 @@ class Result(ChangeAware):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 
-def is_sensitive_schema(defs, key):
+def is_sensitive_schema(defs: Dict[str, Property], key: str) -> bool:
     defSchema = (key in defs and defs[key].schema) or {}
-    defMeta = defSchema.get("metadata", {})
-    return defMeta.get("sensitive")
+    defMeta = defSchema.get("metadata", {})  # Schema has __getitem__
+    return bool(defMeta.get("sensitive"))
 
 
 def _validation_error(src, context, prop_def, msg):
@@ -840,6 +840,16 @@ class Results(ABC, metaclass=ProxyableType):
         # remove from deleted if it's there
         self._deleted.pop(key, None)
 
+    @staticmethod
+    def _resolve_from_defs(defs: Dict[str, Property], key: str, val: Any) -> Any:
+        if is_sensitive_schema(defs, key):
+            return wrap_sensitive_value(val)
+        elif isinstance(val, str):
+            defSchema = (key in defs and defs[key].schema) or {}
+            if defSchema and defSchema.get("type", "").startswith("scalar-unit."):
+                return scalar(val)
+        return val
+
     def resolve(self, key, val, validate: Optional[bool] = None) -> Result:
         # lazily evaluate lists and dicts
         self.context.trace("Results._mapValue", key, val)
@@ -857,13 +867,13 @@ class Results(ABC, metaclass=ProxyableType):
 
         if self.validate if validate is None else validate:
             self._validate(key, resolved, val)
-        if self.defs and is_sensitive_schema(self.defs, key):
-            result.resolved = wrap_sensitive_value(resolved)
+        if self.defs:
+            result.resolved = self._resolve_from_defs(self.defs, key, resolved)
 
         assert not isinstance(result.resolved, Result)
         return result
 
-    def get_datatype_defs(self, key) -> Optional[Dict[str, Any]]:
+    def get_datatype_defs(self, key: str) -> Optional[Dict[str, Property]]:
         property = self.defs.get(key)
         if property:
             # if property is not a complex datatype this will return {}
@@ -876,6 +886,17 @@ class Results(ABC, metaclass=ProxyableType):
         property = self.defs.get(key)
         if property:
             transform = self._get_prop_metadata_key(property, "transform")
+            if (
+                not transform
+                and value
+                and property.entry_schema
+                and property.entry_schema.get("type", "").startswith("scalar-unit.")
+            ):
+                # hacky way to handle maps and lists of scalar units
+                transform = {
+                    "eval": "$value",
+                    "foreach": {"eval": {"scalar": {"eval": "$item"}}},
+                }
             if transform:
                 logger.trace(
                     "running transform on %s.%s", self.context.currentResource.name, key

@@ -375,7 +375,7 @@ def test_units(safe_mode):
     calcd = runner.manifest.rootResource.query(
         "::Topology.test::.capabilities::[.name=host]::mem_size", trace=0
     )
-    assert calcd == "14000 MB"
+    assert calcd == 14000.0*MB
     topology.test.mem_size = 2 * MB  # set attribute value so expression resolves
     assert topology.test.mem_size == 2 * MB
     assert topology.test3.host.mem_size == 4 * MB
