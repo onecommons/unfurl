@@ -664,6 +664,8 @@ class TypeInfo(NamedTuple):
             return False
         elif isinstance(value, self.types):
             return True
+        elif self.types == (EvalData,):
+            return True
         return False
 
 
@@ -1032,11 +1034,16 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         assert self.owner, (self, _type)
         return self.owner._resolve_class(_type)
 
+    @staticmethod
+    def find_type_info(owner: Type["_ToscaType"], _type) -> TypeInfo:
+        type_info = pytype_to_tosca_type(_type)
+        types = tuple(owner._resolve_class(t) for t in type_info.types)
+        return type_info._replace(types=types)
+
     def get_type_info(self) -> TypeInfo:
         if not self._type_info:
-            type_info = pytype_to_tosca_type(self.type)
-            types = tuple(self._resolve_class(t) for t in type_info.types)
-            self._type_info = type_info._replace(types=types)
+            assert self.owner
+            self._type_info = self.find_type_info(self.owner, self.type)
         return self._type_info
 
     def get_type_info_checked(self) -> Optional[TypeInfo]:
@@ -1350,6 +1357,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if isinstance(value, FieldProjection):
             field.type = value.field.type
             field._tosca_field_type = value.field._tosca_field_type
+        elif isinstance(value, EvalData):
+            field.type = object
         else:
             field.type = type(value)
         return field
@@ -1856,6 +1865,8 @@ def _make_dataclass(cls):
                 if name[0] != "_" or name in ["_target", "_targets", "_members"]:
                     field = None
                     default = getattr(cls, name, REQUIRED)
+                    if cls._handle_builtin_field(name, default, annotation):
+                        continue
                     base_field = _find_base_field(cls, name)
                     if not isinstance(default, dataclasses.Field):
                         if base_field:
@@ -1890,6 +1901,8 @@ def _make_dataclass(cls):
         ):  # if class is in a different module than this file
             for name, value in cls.__dict__.items():
                 if name[0] != "_" and name not in annotations and is_data_field(value):
+                    if cls._handle_builtin_field(name, value, None):
+                        continue
                     base_field = _find_base_field(cls, name)
                     if base_field:
                         field = _Tosca_Field(
@@ -1916,9 +1929,9 @@ def _make_dataclass(cls):
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
-        assert (
-            cls.__module__ in sys.modules
-        ), cls.__module__  # _process_class checks this
+        assert cls.__module__ in sys.modules, (
+            cls.__module__
+        )  # _process_class checks this
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
         # note: _process_class replaces each field with its default value (or deletes the attribute)
         # replace those with _FieldDescriptors to allow class level attribute access to be customized
@@ -2102,6 +2115,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     _instance_fields: Dict[str, _Tosca_Field] = dataclasses.field(
         default_factory=dict, init=False
     )
+    _builtin_fields: ClassVar[Sequence[str]] = ()
     _initialized: bool = dataclasses.field(default=False, init=False)
 
     @classmethod
@@ -2124,6 +2138,12 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
         return field
+
+    @classmethod
+    def _handle_builtin_field(
+        cls, name: str, default: Any, annotation: Optional[Any]
+    ) -> bool:
+        return False
 
     def __setattr__(self, name: str, value: Any) -> None:
         # XXX enable after working around internal attributes being set
@@ -3509,6 +3529,40 @@ class ArtifactEntity(_OwnedToscaType):
 
     def set_inputs(self, *args: "ToscaInputs", **kw):
         self._inputs = ToscaInputs._get_inputs(*args, **kw)
+
+    @classmethod
+    def _handle_builtin_field(
+        cls, name: str, default: Any, annotation: Optional[Any]
+    ) -> bool:
+        if name in cls._builtin_fields:
+            if cls.__module__ != __name__:  # this is a derived class
+                if isinstance(default, _Tosca_Field):
+                    assert (
+                        default._tosca_field_type is None
+                        or default._tosca_field_type == ToscaFieldType.property
+                    )
+                    if default._default_factory is not dataclasses.MISSING:
+                        _field = field(default_factory=default._default_factory)
+                    else:
+                        _field = field(default=default.default)
+                else:
+                    if isinstance(default, dataclasses.Field):
+                        _field = default
+                    else:
+                        _field = field(default=default)
+                if annotation is not None:
+                    field_type = annotation
+                else:
+                    # use the builtin field's type
+                    field_type = cls.__dataclass_fields__[name].type
+                    assert field_type
+                _field.name = name
+                _field.type = field_type
+                setattr(cls, name, _field)
+                if annotation is None:  # declaration didn't have an annotation
+                    cls.__dict__["__annotations__"][name] = _field.type
+            return True
+        return False
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:

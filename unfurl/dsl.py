@@ -237,7 +237,10 @@ def proxy_instance(
         found_cls: Optional[Type[ToscaType]] = obj.__class__
     else:
         # if target is subtype of cls, use the subtype
-        found_cls = cast(Optional[Type[ToscaType]], ToscaType._all_types.get(instance.template.type, cls))
+        found_cls = cast(
+            Optional[Type[ToscaType]],
+            ToscaType._all_types.get(instance.template.type, cls),
+        )
         if not found_cls:
             return None
         # the instance was defined in yaml so has no python obj, create one now
@@ -246,7 +249,9 @@ def proxy_instance(
             global_state._enforce_required_fields = False
             metadata = instance.template.toscaEntityTemplate.entity_tpl.get("metadata")
             module_name = metadata and metadata.get("module")
-            if cls or module_name:  # don't force creation if cls was None and template wasn't dsl defined
+            if (
+                cls or module_name
+            ):  # don't force creation if cls was None and template wasn't dsl defined
                 obj = found_cls(instance.template.name)  # type:ignore
             if module_name and obj:
                 obj.register_template(module_name, instance.template.name)
@@ -284,9 +289,9 @@ class DslMethodConfigurator(Configurator):
                 self._generator = result
                 # render the yielded configurator
                 result = result.send(None)
-                assert isinstance(
-                    result, Configurator
-                ), "Only yielding configurators is currently support"
+                assert isinstance(result, Configurator), (
+                    "Only yielding configurators is currently support"
+                )
             if isinstance(result, Configurator):
                 self.configurator = result
                 # task.inputs get reset after render phase
@@ -480,7 +485,9 @@ class ProxyList(ProxyCollection, MutableSequence):
         self._values.insert(index, val)
 
 
-def _proxy_prop(type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None) -> Any:
+def _proxy_prop(
+    type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None
+) -> Any:
     # converts a value set on an instance to one usable when globalstate.mode == "runtime"
     if value is None:
         return value
@@ -614,10 +621,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         expected = Expected or tosca.nodes.Root
         return self._execute_resolve_one(ref, expected)
 
-    def _find_template(self, axis: str, Expected: Optional[Type[_PT]] = None) -> Optional[_PT]:
-        ref = (self._obj or self._cls)._find_template(
-            axis, Expected
-        )
+    def _find_template(
+        self, axis: str, Expected: Optional[Type[_PT]] = None
+    ) -> Optional[_PT]:
+        ref = (self._obj or self._cls)._find_template(axis, Expected)
         assert isinstance(ref, EvalData)  # actually it will be a EvalData
         expected = Expected or tosca.nodes.Root
         return self._execute_resolve_one(ref, expected)
@@ -659,14 +666,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         if _type and _type.is_sequence():
             return cast(
                 T,
-                self._execute_resolve_all(
-                    cast(EvalData, ref), _type.types[0]
-                ),
+                self._execute_resolve_all(cast(EvalData, ref), _type.types[0]),
             )
         else:
-            return cast(
-                T, self._execute_resolve_one(cast(EvalData, ref), _type)
-            )
+            return cast(T, self._execute_resolve_one(cast(EvalData, ref), _type))
 
     def find_configured_by(
         self,
@@ -796,6 +799,15 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 # return getattr(self.instance, name.lstrip("_")) or getattr(
                 #     self.instance.template.type_definition, name.lstrip("_")
                 # )
+            elif name in self._cls._builtin_fields:
+                assert field
+                val = _proxy_prop(
+                    _Tosca_Field.find_type_info(self._cls, field.type),
+                    self._instance.attributes[name],
+                    getattr(self._obj, name) if self._obj else None,
+                )
+                self._cache[name] = val
+                return val
             elif hasattr(self._obj or self._cls, name):
                 return super()._getattr(name)
             elif name in self._instance.attributes:  # untyped properties

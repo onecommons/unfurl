@@ -1,4 +1,5 @@
 import os
+import pprint
 import pytest
 import unfurl
 import tosca
@@ -440,3 +441,53 @@ def test_find_connection():
         and task.outputs["cert"] == "cert.crt"
         and task.outputs["api_server"] == "https://127.0.0.1"
     )
+
+
+class Topology(tosca.Namespace):
+    class MyArtifact(tosca.artifacts.Root):
+        def _contents(self) -> str:
+            return f"my name is {self._name}"
+
+        contents = tosca.Computed(factory=_contents)
+
+    class Example(tosca.nodes.Root):
+        artifact: "MyArtifact"
+
+    test = Example(artifact=MyArtifact())
+
+
+def test_artifact():
+    topology, runner = create_runner(Topology)
+    service_template = runner.manifest.manifest.expanded["spec"]["service_template"]
+    assert topology.test.artifact.contents == "my name is artifact"
+    # pprint.pprint(service_template, indent=2)
+    service_template.pop("repositories")
+    assert service_template == {
+        "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+        "topology_template": {
+            "node_templates": {
+                "Topology.test": {
+                    "type": "Example",
+                    "artifacts": {
+                        "artifact": {
+                            "type": "MyArtifact",
+                            "file": "",
+                            "contents": {
+                                "eval": {
+                                    "computed": "tests.test_dsl_integration:Topology.MyArtifact._contents"
+                                }
+                            },
+                        }
+                    },
+                    "metadata": {"module": "tests.test_dsl_integration"},
+                }
+            }
+        },
+        "artifact_types": {"MyArtifact": {"derived_from": "tosca.artifacts.Root"}},
+        "node_types": {
+            "Example": {
+                "derived_from": "tosca.nodes.Root",
+                "artifacts": {"artifact": {"type": "MyArtifact"}},
+            }
+        },
+    }
