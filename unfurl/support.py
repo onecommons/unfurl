@@ -56,7 +56,7 @@ from .result import (
     ExternalValue,
     serialize_value,
     is_sensitive_schema,
-    wrap_var
+    wrap_var,
 )
 from .util import (
     ChainMap,
@@ -267,12 +267,12 @@ def reload_collections(ctx=None):
 
 reload_collections()
 
+
 def get_Self(ctx):
     from .dsl import proxy_instance
 
-    return (
-        proxy_instance(ctx.currentResource, None, ctx)
-    )
+    return proxy_instance(ctx.currentResource, None, ctx)
+
 
 class Templar(ansible.template.Templar):
     def template(self, variable, **kw):
@@ -355,7 +355,9 @@ def is_template(val, ctx=None):
         return False
     return isinstance(val, str) and not not _clean_regex.search(val)
 
+
 DEBUG_EX = os.getenv("UNFURL_TEST_DEBUG_EX")
+
 
 class _VarTrackerDict(dict):
     ctx: Optional[RefContext] = None
@@ -505,6 +507,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         __now=time.time(),
     )
     from .runtime import EntityInstance
+
     if isinstance(ctx.currentResource, EntityInstance):
         vars["SELF"] = ctx.currentResource.attributes
         if "Self" not in ctx.vars:
@@ -538,7 +541,9 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             if isinstance(ctx, SafeRefContext):
                 value = _sandboxed_template(value, ctx, vars, _UnfurlUndefined)
             else:
-                value = templar.template(value, fail_on_undefined=fail_on_undefined, escape_backslashes=False)
+                value = templar.template(
+                    value, fail_on_undefined=fail_on_undefined, escape_backslashes=False
+                )
         except Exception as e:
             msg = str(e)
             # XXX have _UnfurlUndefined throw an exception with the missing obj and key
@@ -805,7 +810,7 @@ def set_context_vars(vars, root: "TopologyInstance"):
         app = root.find_instance(app_template.name)
         if app:
             ROOT["app"] = app.attributes
-        for name, req in app_template.requirements.items():
+        for name, req in app_template.requirements_dict.items():
             if req.relationship and req.relationship.target:
                 target = root.get_root_instance(
                     cast(NodeTemplate, req.relationship.target.toscaEntityTemplate)
@@ -842,7 +847,7 @@ class _EnvMapper(dict):
             if objname == "APP":
                 obj = app
             else:
-                for name, req in app.requirements.items():
+                for name, req in app.requirements_dict.items():
                     if name.upper() == objname:
                         if req.relationship and req.relationship.target:
                             obj = req.relationship.target

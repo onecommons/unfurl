@@ -1001,7 +1001,7 @@ def to_graphql_resource(
 
         # XXX there is a bug where this can't find instances sometimes:
         # so for now just copy match if it exists
-        # for req in instance.template.requirements.values():
+        # for req in instance.template.requirements:
         #     # test because it might not be set if the template is incomplete
         #     if req.relationship and req.relationship.target:
         #         requirements[req.name]["target"] = req.relationship.target.name

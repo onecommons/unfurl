@@ -1107,7 +1107,7 @@ class NodeInstance(HasInstancesInstance):
         if len(self._requirements) != len(self.template.requirements):
             # instantiate missing relationships (they are only added, never deleted)
             instantiated = {id(r.template) for r in self._requirements}
-            for name, template in self.template.requirements.items():
+            for template in self.template.requirements:
                 if not template.relationship:
                     # XXX ValidationError
                     continue
@@ -1117,7 +1117,7 @@ class NodeInstance(HasInstancesInstance):
                         and template.relationship.is_default_connection()
                     ):
                         rel = RelationshipInstance(
-                            name, parent=self.root, template=template.relationship
+                            template.name, parent=self.root, template=template.relationship
                         )
                         rel._source = self
                         self._requirements.append(rel)
@@ -1125,7 +1125,7 @@ class NodeInstance(HasInstancesInstance):
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
                         logger.warning(
-                            f'can not find relation instance for requirement "{name}" on node "{self.name}"'
+                            f'can not find relation instance for requirement "{template.name}" on node "{self.name}"'
                         )
                         continue
                     assert template.relationship is relInstance.template, (

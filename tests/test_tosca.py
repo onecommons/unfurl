@@ -708,7 +708,7 @@ spec:
         manifest2 = YamlManifest(mainManifest)
         nodeSpec = manifest2.tosca.get_template("localhost")
         assert nodeSpec
-        relationshipSpec = nodeSpec.requirements["connect"].relationship
+        relationshipSpec = nodeSpec.get_requirement("connect").relationship
         assert relationshipSpec
         self.assertEqual(relationshipSpec.name, "connect")
         self.assertEqual(

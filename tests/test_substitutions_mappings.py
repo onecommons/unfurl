@@ -205,11 +205,11 @@ def test_substitution_with_type():
         assert inner_template
         inner_nodespec = node1.substitution.get_node_template(inner_template.name)
         assert inner_nodespec.nested_name == "nested1:_substitution_mapping"
-        assert inner_nodespec.requirements["host"].entity_tpl["node"] == "external", (
-            inner_nodespec.requirements["host"].entity_tpl
+        assert inner_nodespec.get_requirement("host").entity_tpl["node"] == "external", (
+            inner_nodespec.get_requirement("host").entity_tpl
         )
-        assert node1.requirements["host"].entity_tpl["node"] == "external", (
-            node1.requirements["host"].entity_tpl
+        assert node1.get_requirement("host").entity_tpl["node"] == "external", (
+            node1.get_requirement("host").entity_tpl
         )
         external = manifest.tosca.get_template("external")
         assert [r.source.name for r in external.relationships] == ["nested1", "nested2"]
@@ -363,8 +363,8 @@ def test_substitution_with_node():
         assert inner_template
         inner_nodespec = node1.substitution.get_node_template(inner_template.name)
         assert inner_nodespec.nested_name == "nested1:nested"
-        assert inner_nodespec.requirements["host"].entity_tpl["node"] == "external"
-        assert node1.requirements["host"].entity_tpl["node"] == "external"
+        assert inner_nodespec.get_requirement("host").entity_tpl["node"] == "external"
+        assert node1.get_requirement("host").entity_tpl["node"] == "external"
         external = manifest.tosca.get_template("external")
         assert [r.source.name for r in external.relationships] == ["nested1", "nested2"]
 
@@ -515,7 +515,7 @@ def test_replace_placeholder():
         inner_nodespec = node1.substitution.get_node_template("inner")
         assert inner_nodespec
         assert (
-            inner_nodespec.requirements["host"].relationship.target.name
+            inner_nodespec.get_requirement("host").relationship.target.name
             == "replacement"
         )
         # verify inner matches with external not placeholder

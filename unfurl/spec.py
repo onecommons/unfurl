@@ -47,6 +47,7 @@ from typing import (
     TYPE_CHECKING,
     Dict,
     Iterator,
+    Iterable,
     List,
     Optional,
     Sequence,
@@ -55,14 +56,13 @@ from typing import (
     Union,
     cast,
     Any,
-    Generator,
 )
 
 from ruamel.yaml.comments import CommentedMap
+from toscaparser import functions
 
 logger = getLogger("unfurl")
 
-from toscaparser import functions
 
 if TYPE_CHECKING:
     from .runtime import EntityInstance, HasInstancesInstance
@@ -942,7 +942,7 @@ class EntitySpec(ResourceRef):
                 yield g
 
     @property
-    def policies(self):
+    def policies(self) -> Iterable["PolicySpec"]:
         return []
 
     def is_compatible_target(self, targetStr: str) -> bool:
@@ -1174,7 +1174,8 @@ class NodeSpec(EntitySpec):
         assert topology
         EntitySpec.__init__(self, template, topology)
         self._capabilities: Optional[Dict[str, "CapabilitySpec"]] = None
-        self._requirements: Optional[Dict[str, "RequirementSpec"]] = None
+        self._requirements_dict: Optional[Dict[str, "RequirementSpec"]] = None
+        self._requirements: Optional[List["RequirementSpec"]] = None
         self._relationships: List["RelationshipSpec"] = []
         self._artifacts: Optional[Dict[str, "ArtifactSpec"]] = None
         self._substitution: Optional["TopologySpec"] = None
@@ -1190,7 +1191,7 @@ class NodeSpec(EntitySpec):
             )
         return self._substitution
 
-    def _resolve(self, key):
+    def _resolve(self, key: str):
         try:
             return super()._resolve(key)
         except KeyError:
@@ -1214,7 +1215,7 @@ class NodeSpec(EntitySpec):
         return self._artifacts
 
     @property
-    def policies(self):
+    def policies(self) -> Iterable["PolicySpec"]:
         if not self.spec:
             return
         for p in self.spec.policies.values():
@@ -1227,15 +1228,22 @@ class NodeSpec(EntitySpec):
                     yield p
 
     @property
-    def targets(self):
-        return {
-            n: r.relationship.target
-            for n, r in self.requirements.items()
-            if r.relationship and r.relationship.target
-        }
+    def targets(self) -> Dict[str, Union[EntitySpec, List[EntitySpec]]]:
+        dep: Dict[str, Union[EntitySpec, List[EntitySpec]]] = {}
+        for req in self.requirements:
+            if req.relationship and req.relationship.target:
+                if req.name in dep:
+                    target = dep[req.name]
+                    if isinstance(target, list):
+                        target.append(req.relationship.target)
+                    else:
+                        dep[req.name] = [target, req.relationship.target]
+                else:
+                    dep[req.name] = req.relationship.target
+        return dep
 
     @property
-    def sources(self):
+    def sources(self) -> Dict[str, Union[EntitySpec, List[EntitySpec]]]:
         dep: Dict[str, Union[EntitySpec, List[EntitySpec]]] = {}
         for cap in self.capabilities.values():
             for rel in cap.relationships:
@@ -1251,9 +1259,9 @@ class NodeSpec(EntitySpec):
         return dep
 
     @property
-    def requirements(self) -> Dict[str, "RequirementSpec"]:
+    def requirements(self) -> List["RequirementSpec"]:
         if self._requirements is None:
-            self._requirements = {}
+            self._requirements = []
             nodeTemplate = cast(NodeTemplate, self.toscaEntityTemplate)
             assert self.topology
             has_substitution = self.toscaEntityTemplate.substitution
@@ -1288,18 +1296,28 @@ class NodeSpec(EntitySpec):
                     relSpec.requirement = reqSpec
                     # add to topology default_requirements:
                     self.topology.add_default_relationship(relSpec)
-                if name in self._requirements:
-                    logger.warning(
-                        f"More than one requirement for {name} on {self.nested_name} not supported -- replacing {self._requirements[name].entity_tpl} with {entity_tpl}."
-                    )
-                self._requirements[name] = reqSpec
+                self._requirements.append(reqSpec)
         return self._requirements
 
+    @property
+    def requirements_dict(self) -> Dict[str, "RequirementSpec"]:
+        if self._requirements_dict is None:
+            self._requirements_dict = {}
+            for reqSpec in self.requirements:
+                name = reqSpec.name
+                if name in self._requirements_dict:
+                    logger.warning(
+                        f"More than one requirement for {name} on {self.nested_name} not supported"
+                        f" -- replacing {self._requirements_dict[name].entity_tpl} with {reqSpec.entity_tpl}."
+                    )
+                self._requirements_dict[name] = reqSpec
+        return self._requirements_dict
+
     def get_requirement(self, name: str) -> Optional["RequirementSpec"]:
-        return self.requirements.get(name)
+        return self.requirements_dict.get(name)
 
     def get_relationship(self, name: str) -> Optional["RelationshipSpec"]:
-        req = self.requirements.get(name)
+        req = self.requirements_dict.get(name)
         if not req:
             return None
         return req.relationship
@@ -1336,7 +1354,7 @@ class NodeSpec(EntitySpec):
         return [i for elem in idefs for i in elem if i.name != "default"]
 
     def get_requirement_interfaces(self) -> List[OperationDef]:
-        idefs = [r.get_interfaces() for r in self.requirements.values()]
+        idefs = [r.get_interfaces() for r in self.requirements]
         return [i for elem in idefs for i in elem if i.name != "default"]
 
     @property
@@ -1517,7 +1535,7 @@ class NodeSpec(EntitySpec):
         return list(self._configured_by({}))
 
     def _hosted_on(self, seen) -> Iterator["NodeSpec"]:
-        for req in self.requirements.values():
+        for req in self.requirements:
             if req.relationship and req.relationship.target:
                 target = req.relationship.target
                 if id(target) in seen:
@@ -1527,7 +1545,9 @@ class NodeSpec(EntitySpec):
                     continue
                 seen[id(target)] = target
 
-                if req.name == "host" or req.relationship.is_compatible_type("tosca.relationships.HostedOn"):
+                if req.name == "host" or req.relationship.is_compatible_type(
+                    "tosca.relationships.HostedOn"
+                ):
                     yield target
                 yield from target._hosted_on(seen)
 
@@ -1868,8 +1888,8 @@ class TopologySpec(EntitySpec):
             return matches
 
     @property
-    def tpl(self):
-        return self.toscaEntityTemplate.tpl
+    def tpl(self) -> Dict[str, Any]:
+        return self.topology_template.tpl
 
     def find_matching_templates(self, typeName) -> Iterator[NodeSpec]:
         for template in self.node_templates.values():
@@ -2169,7 +2189,7 @@ class GroupSpec(EntitySpec):
         return [self.spec.groups[m] for m in self.members if m in self.spec.groups]
 
     @property
-    def policies(self) -> Iterator["PolicySpec"]:
+    def policies(self) -> Iterable["PolicySpec"]:
         if not self.spec:
             return
         for p in self.spec.policies.values():

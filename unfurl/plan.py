@@ -1191,7 +1191,7 @@ def get_ancestor_templates(
     source = stack[-1]
     if not source.toscaEntityTemplate.is_replaced_by_outer():
         if source.abstract != "select":
-            for req in source.requirements.values():
+            for req in source.requirements:
                 target = req.relationship and req.relationship.target
                 if target and target not in stack:
                     for ancestor in get_ancestor_templates(stack + [target], templates):
