@@ -10,6 +10,7 @@ from typing import (
     Tuple,
     cast,
     overload,
+    Iterable,
 )
 import types
 from typing_extensions import (
@@ -28,6 +29,7 @@ from ._tosca import (
     Node,
     Relationship,
     CapabilityEntity,
+    set_evaluation_mode,
 )
 from toscaparser.nodetemplate import NodeTemplate
 
@@ -314,15 +316,20 @@ def Computed(
     Return type:
         The return type of the factory function (should be compatible with the field type).
     """
-    default = EvalData({
-        "eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")
-    })
+    if hasattr(factory, "_is_template_function"):
+        default: Any = MISSING
+    else:
+        default = EvalData({
+            "eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")
+        })
+        factory = MISSING  # type: ignore
     # casting this to the factory function's return type enables the type checker to check that the return type matches the field's type
     return cast(
         RT,
         _Tosca_Field(
             ToscaFieldType.property,
             default=default,
+            default_factory=factory,
             name=name,
             metadata=metadata,
             title=title,
@@ -605,3 +612,111 @@ def Output(
         constraints=constraints,
         options=options,
     )
+
+
+_F = TypeVar("_F", bound=Callable[..., Any], covariant=False)
+
+
+def jinja_template(_func: Optional[_F] = None, *, convert_to: Literal["yaml", "json", None] = None) -> Any:
+    try:
+        from ruamel.yaml.scalarstring import FoldedScalarString
+    except ImportError:
+        FoldedScalarString = str
+
+    def _make_computed(func: _F) -> _F:
+        def wrapped(obj):
+          t = TagWriter()
+          with set_evaluation_mode("parse"):
+             _template = func(obj, t)
+          if convert_to:
+              _template = f"{{% filter from_{convert_to} %}}\n{_template}\n{{% endfilter %}}"
+          if "\n" in _template:
+              _template = FoldedScalarString(_template)
+          expr = dict(eval={"template": _template})
+          if t._vars:
+              expr["vars"] = t._vars
+          return EvalData(expr)
+
+        # set to invoke when generating yaml:
+        setattr(wrapped, "_is_template_function", True)
+        return cast(_F, wrapped)
+
+    if _func is None:  # decorator()
+        return _make_computed
+    else:  # decorator
+        return _make_computed(_func)
+
+
+def _strip_expr(expr) -> str:
+    return str(expr).lstrip("{").rstrip("}")
+
+
+class LoopIndex(EvalData):
+    def __str__(self) -> str:
+        return self._expr
+
+
+class TagWriter:
+    def __init__(self) -> None:
+        self._vars: Dict[str, Any] = {}
+        self._loopcount = 0
+        self._loops: Dict[str, str] = {}
+
+    def _cond(self, op: str, expr: _T) -> _T:
+        if not isinstance(expr, EvalData):
+            assert False
+            # expr = EvalData("{{ " + self.add_var(expr) + " }}")
+        return cast(_T, f"{{% {op} {_strip_expr(expr)} %}}")
+
+    def if_(self, expr: _T) -> _T:
+        return self._cond("if", expr)
+
+    def elif_(self, expr: _T) -> _T:
+        return self._cond("elif", expr)
+
+    def strip(self, expr: str) -> str:
+        return _strip_expr(expr)
+
+    @property
+    def else_(self) -> str:
+        return "{% else %}"
+
+    @property
+    def endif(self) -> str:
+        return "{% endif %}"
+
+    def iterable(self, iterable: Iterable[_T]) -> _T:
+        assert isinstance(iterable, EvalData), type(iterable)
+        collection = _strip_expr(iterable)
+        index = self._name_loop_item(iterable)
+        self._loops[str(index)] = collection
+        return cast(_T, index)
+
+    def for_(
+        self, loop_item: Any
+    ) -> str:  # Any because iterable() returns T not LoopIndex
+        if not isinstance(loop_item, LoopIndex):
+            raise ValueError(
+                f"TagWriter._for() requires a value returned by TagWriter.iterable(), got {loop_item}"
+            )
+        return f"{{% for {_strip_expr(loop_item)} in {self._loops[str(loop_item)]} %}}"
+
+    @property
+    def endfor(self) -> str:
+        return "{% endfor %}"
+
+    def _name_loop_item(self, iterable: Iterable[_T]) -> LoopIndex:
+        self._loopcount += 1
+        curr = "__l" + str(self._loopcount)
+        return LoopIndex("{{ " + curr + " }}")
+
+    def expr(self, expr: _T, filter: str = "") -> _T:
+        if isinstance(expr, EvalData):
+            return cast(_T, expr)
+        else:
+            assert False, "expression must be EvalData"
+            # XXX return EvalData("{{ " + self.add_var(iterable) + filter + " }}")
+
+    def add_vars(self, **kwargs) -> Dict[str, Any]:
+        self._vars.update(kwargs)
+        return self._vars

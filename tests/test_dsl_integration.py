@@ -3,7 +3,7 @@ import pprint
 import pytest
 import unfurl
 import tosca
-from tosca import Size, MB, EvalData, operation
+from tosca import List, Size, MB, EvalData, operation
 from unfurl.eval import Ref
 from unfurl.job import JobOptions
 from unfurl.logs import is_sensitive, getLogger
@@ -287,7 +287,7 @@ import math
 def calc_size(size1: Size, size2: Size) -> Size:
     if size1 is None or size2 is None:
         return None
-    # print("calc_size", size1, size2, max(size1, size2).ceil(GB))
+    # print("calc_size", size1, size2, type(size1)) # max(size1, size2).ceil(GB))
     return GB.as_int(max(size1, size2)) * GB
 
 
@@ -443,24 +443,70 @@ def test_find_connection():
     )
 
 
+@tosca.jinja_template
+def email_template(self, T: tosca.TagWriter) -> str:
+    return f"{self._name}@example.com"
+
+
 class Topology(tosca.Namespace):
     class MyArtifact(tosca.artifacts.Root):
-        def _contents(self) -> str:
-            return f"my name is {self._name}"
+        staging: bool = True
+        email: str
+        volumes: List[Size] = tosca.DEFAULT
+
+        @tosca.jinja_template(convert_to="yaml")
+        def _contents(self, T: tosca.TagWriter) -> str:
+            looped = T.iterable(self.volumes)  # looped should be evaldata!
+            max_size = 100 * GB
+            min_size = 1 * MB
+            T.add_vars(min_size=min_size)
+            return f"""
+                server:
+                  admin: "{self.email}"
+                  host:
+                  {T.if_(self.volumes)}
+                      {T.for_(looped)}
+                          - size: {calc_size(looped, max_size)}
+                          - size: {looped}  # render-time evaluation
+                          - size: {{{{ min_size + 10000 }}}} # run-time evaluation
+                      {T.endfor}
+                  {T.elif_(self.staging)}
+                          - size: 0
+                  {T.else_}
+                          - size: {max_size} 
+                  {T.endif}
+                  """
 
         contents = tosca.Computed(factory=_contents)
 
     class Example(tosca.nodes.Root):
         artifact: "MyArtifact"
 
-    test = Example(artifact=MyArtifact())
+    test = Example(
+        artifact=MyArtifact(
+            email=tosca.Computed(factory=email_template), volumes=[10 * GB, 20 * GB]
+        )
+    )
 
 
 def test_artifact():
     topology, runner = create_runner(Topology)
     service_template = runner.manifest.manifest.expanded["spec"]["service_template"]
-    assert topology.test.artifact.contents == "my name is artifact"
     # pprint.pprint(service_template, indent=2)
+    # pprint.pprint(topology.test.artifact.contents, indent=2)
+    assert topology.test.artifact.contents == {
+        "server": {
+            "admin": "artifact@example.com",
+            "host": [
+                {"size": "100 GB"},
+                {"size": "10 GB"},
+                {"size": "1.01 MB"},
+                {"size": "100 GB"},
+                {"size": "20 GB"},
+                {"size": "1.01 MB"},
+            ],
+        }
+    }
     service_template.pop("repositories")
     assert service_template == {
         "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
@@ -471,11 +517,20 @@ def test_artifact():
                     "artifacts": {
                         "artifact": {
                             "type": "MyArtifact",
+                            "properties": {
+                                "email": {
+                                    "eval": {
+                                        "template": "{{ '.name' | eval }}@example.com"
+                                    }
+                                },
+                                "volumes": ["10 GB", "20 GB"],
+                            },
                             "file": "",
                             "contents": {
                                 "eval": {
-                                    "computed": "tests.test_dsl_integration:Topology.MyArtifact._contents"
-                                }
+                                    "template": "{% filter from_yaml %}\n\n                server:\n                  admin: \"{{ 'email' | eval }}\"\n                  host:\n                  {% if  'volumes' | eval  %}\n                      {% for  __l1  in  'volumes' | eval  %}\n                          - size: {{ {'eval': {'computed': ['tests.test_dsl_integration:calc_size', __l1, {'eval': {'scalar': '100 GB'}}]}} | map_value }}\n                          - size: {{ __l1 }}  # render-time evaluation\n                          - size: {{ min_size + 10000 }} # run-time evaluation\n                      {% endfor %}\n                  {% elif  'staging' | eval  %}\n                          - size: 0\n                  {% else %}\n                          - size: 100 GB \n                  {% endif %}\n                  \n{% endfilter %}"
+                                },
+                                "vars": {"min_size": {"eval": {"scalar": "1 MB"}}},
                             },
                         }
                     },
@@ -483,7 +538,20 @@ def test_artifact():
                 }
             }
         },
-        "artifact_types": {"MyArtifact": {"derived_from": "tosca.artifacts.Root"}},
+        "artifact_types": {
+            "MyArtifact": {
+                "derived_from": "tosca.artifacts.Root",
+                "properties": {
+                    "staging": {"type": "boolean", "default": True},
+                    "email": {"type": "string"},
+                    "volumes": {
+                        "type": "list",
+                        "entry_schema": {"type": "scalar-unit.size"},
+                        "default": [],
+                    },
+                },
+            }
+        },
         "node_types": {
             "Example": {
                 "derived_from": "tosca.nodes.Root",

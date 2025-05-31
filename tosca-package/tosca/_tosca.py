@@ -1087,10 +1087,12 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     def section(self) -> str:
         return self.tosca_field_type.value
 
-    def _get_default_from_factory(self) -> Any:
+    def _get_default_from_factory(self, obj = None) -> Any:
         factory = self._default_factory
         if factory is dataclasses.MISSING:
             factory = self.get_type_info().collection or self.get_type_info().types[0]
+        elif hasattr(factory, "_is_template_function"):
+            return factory(_DataclassTypeProxy(self.owner, obj))  # type: ignore
         return factory()
 
     def to_yaml(
@@ -1251,6 +1253,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         elif self.default not in [MISSING, REQUIRED, CONSTRAINED]:
             return self.default
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
+            if hasattr(self.default_factory, "_is_template_function"):
+                return self.default_factory(_DataclassTypeProxy(self.owner))  # type: ignore
             return self.default_factory()
         else:
             return dataclasses.MISSING
@@ -1554,7 +1558,8 @@ class EvalData:
             if isinstance(expr, str):
                 jinja = f"'{expr}' | eval"
             else:
-                jinja = f"{self.expr} | map_value"
+                # sub is hack for LoopIndex
+                jinja = re.sub(r"'{{ __l(\d+) }}'", r"__l\1", f"{self.expr} | map_value")
             return "{{ " + jinja + " }}"
         elif isinstance(expr, list):
             return "{{ " + str(expr) + "| map_value }}"
@@ -1790,8 +1795,9 @@ class _DataclassTypeProxy:
     # we need this to because __setattr__ and __set__ descriptors don't work on cls attributes
     # (and __set_name__ isn't called after class initialization)
 
-    def __init__(self, cls):
+    def __init__(self, cls, obj = None):
         self.cls = cls
+        self._obj = obj
 
     def __getattr__(self, name):
         # we need to check the base class's __dataclass_fields__ first
@@ -1801,13 +1807,13 @@ class _DataclassTypeProxy:
         val = fields.get(name)
         if not val:
             # but our __dataclass_fields__ isn't updated yet, do a regular getattr
-            val = getattr(self.cls, name)
+            val = getattr(self._obj or self.cls, name)
         if isinstance(val, _Tosca_Field):
             return FieldProjection(val, None)
         return val
 
     def __setattr__(self, name, val):
-        if name == "cls":
+        if name == "cls" or name == "_obj":
             object.__setattr__(self, name, val)
         elif not hasattr(self.cls, name):
             setattr(self.cls, name, val)
@@ -2162,7 +2168,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 value.name = name
                 value.owner = self.__class__
                 if value.default is DEFAULT:
-                    value = value._get_default_from_factory()
+                    value = value._get_default_from_factory(self)
                 else:
                     value = value.default
             elif self._initialized:
@@ -2304,7 +2310,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         elif val is DEFAULT:
             # we need to implement copy on write for mutable properties, attributes, capabilities and artifacts (via FieldProjection)
             # for requirements, the object always will have their own template
-            val = field._get_default_from_factory()
+            val = field._get_default_from_factory(self)
             self._defaults[name] = val
             super().__setattr__(name, val)
             set = True
@@ -3542,7 +3548,11 @@ class ArtifactEntity(_OwnedToscaType):
                         or default._tosca_field_type == ToscaFieldType.property
                     )
                     if default._default_factory is not dataclasses.MISSING:
-                        _field = field(default_factory=default._default_factory)
+                        if hasattr(default._default_factory, "_is_template_function"):
+                            factory = lambda: default._default_factory(_DataclassTypeProxy(cls))  # type: ignore
+                        else:
+                            factory = default._default_factory
+                        _field = field(default_factory=factory)
                     else:
                         _field = field(default=default.default)
                 else:
