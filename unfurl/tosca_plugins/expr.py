@@ -208,13 +208,17 @@ RI = TypeVar("RI", bound=tosca.relationships.ConnectsTo)
 
 
 def find_connection(
-    target: ToscaType,
+    target: Optional[Node],
     rel_type: Type[RI] = tosca.relationships.ConnectsTo,  # type: ignore[assignment]
 ) -> Optional[RI]:
     rel_type_name = rel_type.tosca_type_name()
     if global_state_mode() == "runtime":
         ctx = global_state_context()
-        instance = get_instance(target)
+        assert ctx
+        if target:
+            instance = get_instance(target)
+        else:
+            instance = ctx.currentResource.root
         rel = support.find_connection(ctx, instance, rel_type_name)
         if rel:
             return cast(RI, proxy_instance(rel, tosca.relationships.ConnectsTo, ctx))

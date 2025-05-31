@@ -1491,10 +1491,19 @@ class DelegateAttributes:
 
 def find_connection(
     ctx: RefContext,
-    target: "EntityInstance",
+    target: Optional["EntityInstance"],
     relation: str = "tosca.relationships.ConnectsTo",
 ) -> Optional["RelationshipInstance"]:
+    from .runtime import EntityInstance
+
     connection: Optional["RelationshipInstance"] = None
+    if not isinstance(ctx.currentResource, EntityInstance):
+        raise UnfurlError(f"find_connection expressions can only be using in a runtime context, not with a {ctx.currentResource}")
+    if not target:
+        target = ctx.currentResource.root
+    elif not isinstance(target, EntityInstance):
+        raise UnfurlError(f'find_connection target "{target}" has wrong type')
+
     if ctx.vars.get("OPERATION_HOST"):
         operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
         connection = cast(
@@ -1508,7 +1517,7 @@ def find_connection(
     # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
     if not connection:
         # no connection, see if there's a default relationship template defined for this target
-        endpoints = target.get_default_relationships(relation)
+        endpoints = cast(EntityInstance, target).get_default_relationships(relation)
         if endpoints:
             connection = endpoints[0]
     if connection:
@@ -1525,7 +1534,7 @@ def _find_connection(arg, ctx):
     )
 
 
-set_eval_func("find_connection", _find_connection)
+set_eval_func("find_connection", _find_connection, safe=True)
 
 
 AttributeChange = MutableMapping[str, Any]
