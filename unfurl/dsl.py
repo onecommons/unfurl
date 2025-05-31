@@ -382,18 +382,26 @@ def eval_computed(arg, ctx: RefContext):
         kw = {k: v for k, v in ctx.kw.items() if k != "computed"}
     else:
         kw = {}
-    module_name, sep, qualname = arg.partition(":")
+    parts = arg.split(":")
+    method = ""
+    if len(parts) == 3:
+        module_name, qualname, method = parts
+    else:
+        module_name, qualname = parts
     module = importlib.import_module(module_name)
-    parts = qualname.split(".")
-    attr_name = parts.pop(0)
+    names = qualname.split(".")
+    attr_name = names.pop(0)
     cls = getattr(module, attr_name)
-    if parts:
-        while parts:
-            func = getattr(cls, parts.pop(0))
-            if parts:
+    if names:
+        while names:
+            func = getattr(cls, names.pop(0))
+            if names:
                 cls = func
         proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), cls, ctx)
         return proxy._invoke(func, *args, **kw)
+    elif method == "method":
+        proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), None, ctx)
+        return proxy._invoke(cls, *args, **kw)
     else:
         return cls(*args, **kw)
 
@@ -728,9 +736,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         captype = None
         nodetype = None
         for t in type_info.types:
-            if issubclass(t, tosca.RelationshipType):
+            if issubclass(t, tosca.Relationship):
                 reltype = t
-            elif issubclass(t, tosca.CapabilityType):
+            elif issubclass(t, tosca.CapabilityEntity):
                 captype = t
             elif issubclass(t, tosca.Node):
                 nodetype = t

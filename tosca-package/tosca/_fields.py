@@ -13,6 +13,8 @@ from typing import (
     Iterable,
 )
 import types
+import inspect
+import re
 from typing_extensions import (
     Callable,
     Literal,
@@ -29,7 +31,6 @@ from ._tosca import (
     Node,
     Relationship,
     CapabilityEntity,
-    set_evaluation_mode,
 )
 from toscaparser.nodetemplate import NodeTemplate
 
@@ -617,27 +618,34 @@ def Output(
 _F = TypeVar("_F", bound=Callable[..., Any], covariant=False)
 
 
-def jinja_template(_func: Optional[_F] = None, *, convert_to: Literal["yaml", "json", None] = None) -> Any:
-    try:
-        from ruamel.yaml.scalarstring import FoldedScalarString
-    except ImportError:
-        FoldedScalarString = str
+def _strip_expr(expr) -> str:
+    return str(expr).lstrip("{").rstrip("}")
+
+
+def jinja_template(
+    _func: Optional[_F] = None, *, convert_to: Literal["yaml", "json", None] = None
+) -> Any:
+    from unfurl.eval import Ref
+    from tosca import global_state_mode, global_state_context
 
     def _make_computed(func: _F) -> _F:
         def wrapped(obj):
-          t = TagWriter()
-          with set_evaluation_mode("parse"):
-             _template = func(obj, t)
-          if convert_to:
-              _template = f"{{% filter from_{convert_to} %}}\n{_template}\n{{% endfilter %}}"
-          if "\n" in _template:
-              _template = FoldedScalarString(_template)
-          expr = dict(eval={"template": _template})
-          if t._vars:
-              expr["vars"] = t._vars
-          return EvalData(expr)
+            if global_state_mode() == "runtime":
+                t = TagWriter()
+                _template = func(obj, t)
+                if convert_to:
+                    _template = f"{{% filter from_{convert_to} %}}\n{_template}\n{{% endfilter %}}"
+                expr = dict(eval={"template": _template})
+                if t._vars:
+                    expr["vars"] = t._vars
+                # print(_template)
+                # print(t._vars)
+                return Ref(expr).resolve_one(global_state_context())
+            else:
+                kwargs = {"computed": [f"{func.__module__}:{func.__qualname__}:method"]}
+                return EvalData({"eval": kwargs})
 
-        # set to invoke when generating yaml:
+        # set to invoke wrapped() when generating yaml:
         setattr(wrapped, "_is_template_function", True)
         return cast(_F, wrapped)
 
@@ -647,25 +655,16 @@ def jinja_template(_func: Optional[_F] = None, *, convert_to: Literal["yaml", "j
         return _make_computed(_func)
 
 
-def _strip_expr(expr) -> str:
-    return str(expr).lstrip("{").rstrip("}")
-
-
-class LoopIndex(EvalData):
-    def __str__(self) -> str:
-        return self._expr
-
-
 class TagWriter:
     def __init__(self) -> None:
         self._vars: Dict[str, Any] = {}
-        self._loopcount = 0
-        self._loops: Dict[str, str] = {}
+        self._exprs: Dict[int, str] = {}
+        self._loops: List[List[Any]] = []
+        self.index = -1
 
     def _cond(self, op: str, expr: _T) -> _T:
         if not isinstance(expr, EvalData):
-            assert False
-            # expr = EvalData("{{ " + self.add_var(expr) + " }}")
+            expr = cast(_T, self._name_expr(expr))
         return cast(_T, f"{{% {op} {_strip_expr(expr)} %}}")
 
     def if_(self, expr: _T) -> _T:
@@ -685,37 +684,40 @@ class TagWriter:
     def endif(self) -> str:
         return "{% endif %}"
 
-    def iterable(self, iterable: Iterable[_T]) -> _T:
-        assert isinstance(iterable, EvalData), type(iterable)
-        collection = _strip_expr(iterable)
-        index = self._name_loop_item(iterable)
-        self._loops[str(index)] = collection
-        return cast(_T, index)
-
     def for_(
-        self, loop_item: Any
-    ) -> str:  # Any because iterable() returns T not LoopIndex
-        if not isinstance(loop_item, LoopIndex):
-            raise ValueError(
-                f"TagWriter._for() requires a value returned by TagWriter.iterable(), got {loop_item}"
+        self, iterable: Iterable[_T], partial: Callable[[_T], str]
+    ) -> str:
+        self.arg_name = list(inspect.signature(partial).parameters)[0]
+        collection_name = self._name_expr(iterable)
+        self._loops.append([self.arg_name, collection_name, 0])
+        src = ""
+        items = []
+        try:
+            for index, item in enumerate(iterable):
+                self._loops[-1][-1] = index
+                items.append(item)
+                self.index = index
+                src += partial(item)
+        finally:
+            self._loops.pop()
+        self._vars[collection_name] = items
+        return src
+
+    def expr(self, expr: str) -> str:
+        if self._loops:
+            arg_name, collection_name, index = self._loops[-1]
+            expr = re.sub(
+                rf"(^|\W){arg_name}(\W|$)", rf"\1{collection_name}[{index}]\2", expr
             )
-        return f"{{% for {_strip_expr(loop_item)} in {self._loops[str(loop_item)]} %}}"
+        return "{{ " + expr + " }}"
 
-    @property
-    def endfor(self) -> str:
-        return "{% endfor %}"
-
-    def _name_loop_item(self, iterable: Iterable[_T]) -> LoopIndex:
-        self._loopcount += 1
-        curr = "__l" + str(self._loopcount)
-        return LoopIndex("{{ " + curr + " }}")
-
-    def expr(self, expr: _T, filter: str = "") -> _T:
-        if isinstance(expr, EvalData):
-            return cast(_T, expr)
-        else:
-            assert False, "expression must be EvalData"
-            # XXX return EvalData("{{ " + self.add_var(iterable) + filter + " }}")
+    def _name_expr(self, expr) -> str:
+        if id(expr) in self._exprs:
+            return self._exprs[id(expr)]
+        curr = "__l" + str(len(self._exprs))
+        self._exprs[id(expr)] = curr
+        self._vars[curr] = expr
+        return curr
 
     def add_vars(self, **kwargs) -> Dict[str, Any]:
         self._vars.update(kwargs)

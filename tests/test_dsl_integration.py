@@ -443,7 +443,7 @@ def test_find_connection():
     )
 
 
-@tosca.jinja_template
+@tosca.jinja_template(convert_to="yaml")
 def email_template(self, T: tosca.TagWriter) -> str:
     return f"{self._name}@example.com"
 
@@ -454,27 +454,32 @@ class Topology(tosca.Namespace):
         email: str
         volumes: List[Size] = tosca.DEFAULT
 
-        @tosca.jinja_template(convert_to="yaml")
-        def _contents(self, T: tosca.TagWriter) -> str:
-            looped = T.iterable(self.volumes)  # looped should be evaldata!
+        @tosca.jinja_template
+        def _contents(self, tag: tosca.TagWriter) -> str:
             max_size = 100 * GB
             min_size = 1 * MB
-            T.add_vars(min_size=min_size)
+            tag.add_vars(min_size=min_size)
             return f"""
                 server:
                   admin: "{self.email}"
                   host:
-                  {T.if_(self.volumes)}
-                      {T.for_(looped)}
-                          - size: {calc_size(looped, max_size)}
-                          - size: {looped}  # render-time evaluation
-                          - size: {{{{ min_size + 10000 }}}} # run-time evaluation
-                      {T.endfor}
-                  {T.elif_(self.staging)}
-                          - size: 0
-                  {T.else_}
+                  {tag.if_(self.volumes)}
+                      {
+                tag.for_(
+                    self.volumes,
+                    lambda looped: f'''
+                          - {tag.index} {calc_size(looped, max_size)}
+                          - {tag.expr("looped + 10000")}
+                          - nested: {tag.for_(self.volumes, lambda looped2: f"{looped2}, ")}
+                          - again: {tag.for_(self.volumes, lambda looped: f"{tag.expr('looped')}, ")}
+                              ''',
+                )
+            }
+                  {tag.elif_(self.staging)}
+                          - size: {{{{ min_size }}}}
+                  {tag.else_}
                           - size: {max_size} 
-                  {T.endif}
+                  {tag.endif}
                   """
 
         contents = tosca.Computed(factory=_contents)
@@ -493,20 +498,25 @@ def test_artifact():
     topology, runner = create_runner(Topology)
     service_template = runner.manifest.manifest.expanded["spec"]["service_template"]
     # pprint.pprint(service_template, indent=2)
-    # pprint.pprint(topology.test.artifact.contents, indent=2)
-    assert topology.test.artifact.contents == {
-        "server": {
-            "admin": "artifact@example.com",
-            "host": [
-                {"size": "100 GB"},
-                {"size": "10 GB"},
-                {"size": "1.01 MB"},
-                {"size": "100 GB"},
-                {"size": "20 GB"},
-                {"size": "1.01 MB"},
-            ],
-        }
-    }
+    pprint.pprint(topology.test.artifact.contents, indent=2)
+    assert topology.test.artifact.contents == (
+        "server:\n"
+        '                  admin: "artifact@example.com"\n'
+        "                  host:\n"
+        "                  \n"
+        "                      \n"
+        "                          - 0 100 GB\n"
+        "                          - 10.00001 GB\n"
+        "                          - nested: 10 GB, 20 GB, \n"
+        "                          - again: 10 GB, 20 GB, \n"
+        "                              \n"
+        "                          - 1 100 GB\n"
+        "                          - 20.00001 GB\n"
+        "                          - nested: 10 GB, 20 GB, \n"
+        "                          - again: 10 GB, 20 GB, \n"
+        "                              \n"
+        "                  "
+    )
     service_template.pop("repositories")
     assert service_template == {
         "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
@@ -520,7 +530,9 @@ def test_artifact():
                             "properties": {
                                 "email": {
                                     "eval": {
-                                        "template": "{{ '.name' | eval }}@example.com"
+                                        "computed": [
+                                            "tests.test_dsl_integration:email_template:method"
+                                        ]
                                     }
                                 },
                                 "volumes": ["10 GB", "20 GB"],
@@ -528,9 +540,10 @@ def test_artifact():
                             "file": "",
                             "contents": {
                                 "eval": {
-                                    "template": "{% filter from_yaml %}\n\n                server:\n                  admin: \"{{ 'email' | eval }}\"\n                  host:\n                  {% if  'volumes' | eval  %}\n                      {% for  __l1  in  'volumes' | eval  %}\n                          - size: {{ {'eval': {'computed': ['tests.test_dsl_integration:calc_size', __l1, {'eval': {'scalar': '100 GB'}}]}} | map_value }}\n                          - size: {{ __l1 }}  # render-time evaluation\n                          - size: {{ min_size + 10000 }} # run-time evaluation\n                      {% endfor %}\n                  {% elif  'staging' | eval  %}\n                          - size: 0\n                  {% else %}\n                          - size: 100 GB \n                  {% endif %}\n                  \n{% endfilter %}"
+                                    "computed": [
+                                        "tests.test_dsl_integration:Topology.MyArtifact._contents:method"
+                                    ]
                                 },
-                                "vars": {"min_size": {"eval": {"scalar": "1 MB"}}},
                             },
                         }
                     },

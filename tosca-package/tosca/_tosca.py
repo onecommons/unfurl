@@ -1087,7 +1087,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     def section(self) -> str:
         return self.tosca_field_type.value
 
-    def _get_default_from_factory(self, obj = None) -> Any:
+    def _get_default_from_factory(self, obj=None) -> Any:
         factory = self._default_factory
         if factory is dataclasses.MISSING:
             factory = self.get_type_info().collection or self.get_type_info().types[0]
@@ -1558,8 +1558,7 @@ class EvalData:
             if isinstance(expr, str):
                 jinja = f"'{expr}' | eval"
             else:
-                # sub is hack for LoopIndex
-                jinja = re.sub(r"'{{ __l(\d+) }}'", r"__l\1", f"{self.expr} | map_value")
+                jinja = f"{self.expr} | map_value"
             return "{{ " + jinja + " }}"
         elif isinstance(expr, list):
             return "{{ " + str(expr) + "| map_value }}"
@@ -1795,7 +1794,7 @@ class _DataclassTypeProxy:
     # we need this to because __setattr__ and __set__ descriptors don't work on cls attributes
     # (and __set_name__ isn't called after class initialization)
 
-    def __init__(self, cls, obj = None):
+    def __init__(self, cls, obj=None):
         self.cls = cls
         self._obj = obj
 
@@ -3549,7 +3548,9 @@ class ArtifactEntity(_OwnedToscaType):
                     )
                     if default._default_factory is not dataclasses.MISSING:
                         if hasattr(default._default_factory, "_is_template_function"):
-                            factory = lambda: default._default_factory(_DataclassTypeProxy(cls))  # type: ignore
+                            factory = lambda: default._default_factory( # type: ignore
+                                _DataclassTypeProxy(cls)  
+                            )
                         else:
                             factory = default._default_factory
                         _field = field(default_factory=factory)
