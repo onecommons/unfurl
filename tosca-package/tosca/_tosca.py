@@ -1169,6 +1169,10 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             or self.super_field.get_type_info_checked() != info
         ):
             target_typeinfo = None
+            # don't override node templates unless always_include_type_constraints is set
+            set_node_type = "node" not in req_def and (
+                        always_include_type_constraints or not self.has_node()
+                    )
             for _type in info.types:
                 if issubclass(_type, Relationship):
                     if (
@@ -1183,13 +1187,13 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                     if not self.has_capability():  # don't override capability names
                         req_def["capability"] = _type.tosca_type_name()
                 elif issubclass(_type, Node):
-                    # don't override node templates unless always_include_type_constraints is set
-                    if "node" not in req_def and (
-                        always_include_type_constraints or not self.has_node()
-                    ):
+                    if set_node_type:
                         req_def["node"] = _type.tosca_type_name()
-            if "node" not in req_def and target_typeinfo:
-                req_def["node"] = target_typeinfo.types[0].tosca_type_name()
+            if target_typeinfo and "node" not in req_def and set_node_type:
+                # fallback to the relationship's target's type if it's not just "Node"
+                node_type_name = target_typeinfo.types[0].tosca_type_name()
+                if node_type_name != Node.__name__:
+                    req_def["node"] = node_type_name
         if self.node_filter:
             req_def["node_filter"] = to_tosca_value(self.node_filter)
 
