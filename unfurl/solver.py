@@ -272,6 +272,15 @@ def add_fields(
     )
 
 
+def _req_is_defined(req_dict):
+    if not req_dict:
+        return False
+    if len(req_dict) == 1 and "relationship" in req_dict:
+        # ignore relationship, see section 3.8.2 p140, relationship defines or selects a relationship template, not the node
+        return False
+    return True
+
+
 def convert(
     node_template: NodeTemplate,
     types: Dict[str, List[str]],
@@ -303,7 +312,7 @@ def convert(
     for name, req_dict in node_template.all_requirements:
         type_req_dict: Optional[Dict[str, Any]] = type_requirements.get(name)
         # req_dict will be empty if only defined on the type
-        on_type_only = not bool(req_dict)
+        on_template = _req_is_defined(req_dict)
         if type_req_dict:
             type_req_dict = type_req_dict.copy()
             for key in ("node", "relationship", "capability"):
@@ -323,7 +332,7 @@ def convert(
         entity._reqs[name] = upper
         match_type = (
             req_dict.get("node_filter")
-            or not on_type_only
+            or on_template
             or (constrain_required and required)
         )
         field, found_restrictions = get_req_terms(
@@ -541,7 +550,7 @@ def get_req_terms(
                 topology_template,
                 req_req_name,
                 req_req[req_req_name],
-                True,
+                match_type,  # XXX
             )
             if req_field:
                 restrictions.append(req_field)

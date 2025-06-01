@@ -687,6 +687,8 @@ spec:
         file: tosca_plugins/k8s.yaml
     topology_template:
       node_templates:
+        rando:
+          type: tosca.nodes.Root
         myCluster:
           type: unfurl.nodes.K8sCluster
         defaultCluster:
@@ -697,8 +699,10 @@ spec:
           type: unfurl.nodes.Default
           requirements:
             - connect: # section 3.8.2 p140
+                node: tosca.nodes.Root  # despite this, we won't select "rando" because of the relationship
                 relationship:
-                  # think of this as a connection, "discover" will figure out what's on the other end
+                  # think of this as a connection, we'll figure out what's on the other end
+                  # (via valid_target_types)
                   type: unfurl.relationships.ConnectsTo.K8sCluster
                   properties:
                     context: docker-desktop
@@ -708,7 +712,8 @@ spec:
         manifest2 = YamlManifest(mainManifest)
         nodeSpec = manifest2.tosca.get_template("localhost")
         assert nodeSpec
-        relationshipSpec = nodeSpec.get_requirement("connect").relationship
+        assert len(nodeSpec.requirements) == 1
+        relationshipSpec = nodeSpec.requirements[0].relationship
         assert relationshipSpec
         self.assertEqual(relationshipSpec.name, "connect")
         self.assertEqual(
