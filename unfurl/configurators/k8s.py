@@ -390,7 +390,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         secret = task.target.template.is_compatible_type(
             "unfurl.nodes.K8sSecretResource"
         )
-        if secret and "data" in task.target.attributes:
+        if secret and isinstance(task.target.attributes.get("data"), Mapping):
             return [
                 self.make_secret(
                     task.target.attributes["data"], task.target.attributes["type"]

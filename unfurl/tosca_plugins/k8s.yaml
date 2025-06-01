@@ -140,6 +140,23 @@ node_types:
       data:
         type: map
         required: false
+        description: Data to be base64 encoded into the secret. If not set, "key" and "keyValue" will be used.
+        metadata:
+          sensitive: true
+        default:
+          eval:
+            if: .::key
+            then: "{{ { '.::key' | eval : '.::keyValue' | eval } }}"
+            else: 
+              q: {}
+      key:
+        description: The primary key of the secret. Useful when a SecretRef is needed. If set, set "keyValue" instead of "data".
+        type: string
+        required: false
+      keyValue:
+        description: The value of the key, if "key" is set.
+        type: string
+        required: false
         metadata:
           sensitive: true
     attributes:
