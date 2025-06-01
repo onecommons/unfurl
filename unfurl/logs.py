@@ -177,7 +177,7 @@ class sensitive:
 
 def is_sensitive(obj: object) -> bool:
     test = getattr(obj, "__sensitive__", None)
-    if test and isinstance(test, types.MethodType):
+    if isinstance(test, types.MethodType):
         return test()
     if AnsibleVaultEncryptedUnicode and isinstance(obj, AnsibleVaultEncryptedUnicode):
         return True
