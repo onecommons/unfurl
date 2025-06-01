@@ -538,7 +538,7 @@ class NodeTemplateDirective(str, Enum):
     "Discover this template (instead of create)."
 
     protected = "protected"
-    "Don't delete."
+    "Block instance from deletion."
 
     def __str__(self) -> str:
         return self.value
@@ -662,7 +662,7 @@ class TypeInfo(NamedTuple):
                         return False
                 return True
             return False
-        elif isinstance(value, self.types):
+        elif isinstance(value, self.simple_types):
             return True
         elif self.types == (EvalData,):
             return True
@@ -718,7 +718,7 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
 def to_tosca_value(obj, dict_cls=dict):
     if isinstance(obj, dict):
         return dict_cls((k, to_tosca_value(v, dict_cls)) for k, v in obj.items())
-    elif isinstance(obj, list):
+    elif isinstance(obj, (tuple, list)):
         return [to_tosca_value(v, dict_cls) for v in obj]
     else:
         to_yaml = getattr(obj, "to_yaml", None)
@@ -1473,6 +1473,7 @@ class EvalData:
         return self
 
     def __getattr__(self, key) -> Optional["EvalData"]:
+        key = str(key)
         if key.startswith("__"):
             raise AttributeError(key)
         new = self._project(key)
@@ -1487,12 +1488,12 @@ class EvalData:
             if has_function(val):
                 return EvalData(val)  # type: ignore
             return val
-        new = self._project(key)
+        new = self._project(str(key))
         if not new:
             raise KeyError(key)
         return new
 
-    def _project(self, key):
+    def _project(self, key: str):
         if self._path:
             new = copy.copy(self)
             new._path = copy.copy(new._path)
@@ -1610,7 +1611,7 @@ class _TemplateRef:
 
 class FieldProjection(EvalData):
     """An `EvalData` subclass that references a TOSCA field or a projection off a tosca field (i.e. a field reference from a field reference). These are generally invisible to user code but during "parse" mode, `ToscaType` attribute references return these "under the hood" but we use `type punning <https://en.wikipedia.org/wiki/Type_punning>`_ so that a Python static type checker won't know this, allowing user code to operate on them as if they were the concrete values declared on the class. Since field projections are used to generate the YAML that a TOSCA orchestrator consumes, a Python type checker can catch validation errors before a blueprint is deployed.
-    
+
     You can explicitly get a `FieldProjection` using `get_ref`"""
 
     # created by _DataclassTypeProxy, invoked via _class_init
@@ -2639,24 +2640,24 @@ class ToscaType(_ToscaType):
     Any public field (i.e. not starting with ``_``) will be included in the TOSCA YAML for the template, using the field's type annotation to deduce which TOSCA (e.g. Nodes are treated as requirements, Artifacts are treated as artifacts, etc. defaulting to TOSCA properties). This can be customized using `TOSCA Field Specifiers`.
 
     .. code-block:: python
-    
+
       class Example(tosca.nodes.Root):
           # Node type, so it's a TOSCA requirement
-          host: tosca.nodes.Compute 
+          host: tosca.nodes.Compute
 
           # an artifact
-          shellScript: tosca.artifacts.ImplementationBash 
+          shellScript: tosca.artifacts.ImplementationBash
 
           # other types default to TOSCA properties
-          location: str 
+          location: str
 
           # use the field specifies to customize
           dns: str = Property(constraints=[max_length(20)], options=sensitive)
-          
-          # ignored, starts with "_"
-          _internal: str 
 
-    When your Python code is first executed, e.g. when it is imported into a TOSCA service template, it executes in `"parse" mode <global_state_mode>`, to prepare the object so it can be translated to TOSCA YAML. 
+          # ignored, starts with "_"
+          _internal: str
+
+    When your Python code is first executed, e.g. when it is imported into a TOSCA service template, it executes in `"parse" mode <global_state_mode>`, to prepare the object so it can be translated to TOSCA YAML.
 
     In parse mode, user code accessing TOSCA fields may appear to return concrete values but actually (thanks to `type punning <https://en.wikipedia.org/wiki/Type_punning>`_) they are returning `FieldProjection` object that are used to record the relationships needed to generate the TOSCA YAML consumed by the orchestrator.
 
@@ -2928,15 +2929,13 @@ class ToscaType(_ToscaType):
                     tpl = value.to_template_yaml(converter)
                     body.setdefault(field.section, {})[field.tosca_name] = tpl
             elif field.section in ["properties", "attributes"]:
-                if isinstance(value, EvalData) or field.get_type_info().instance_check(
-                    value
-                ):
+                if has_function(value) or field.get_type_info().instance_check(value):
                     body.setdefault(field.section, {})[field.tosca_name] = (
                         to_tosca_value(value, dict_cls)
                     )
                 else:
                     # exclude fields with values of unexpected type (e.g None or REQUIRED)
-                    msg = f'{field.tosca_field_type.name} "{field.name}" on "{self._name}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}.'
+                    msg = f'{field.tosca_field_type.name} "{field.name}" on "{self._name}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}: {value}'
                     if value in [None, DEFAULT, MISSING, REQUIRED, CONSTRAINED]:
                         logger.debug("Skipping: " + msg)
                     else:
@@ -3439,8 +3438,9 @@ RelationshipType = Relationship  # deprecated
 
 class Interface(ToscaObject):
     """
-      Base class for defining custom TOSCA `Interface Types`. Each public method (without a leading "_") corresponds to a TOSCA `tosca.operation`.  TOSCA types such as `Nodes <Node>` use multiple inheritance to implement interface operations.
+    Base class for defining custom TOSCA `Interface Types`. Each public method (without a leading "_") corresponds to a TOSCA `tosca.operation`.  TOSCA types such as `Nodes <Node>` use multiple inheritance to implement interface operations.
     """
+
     # "Note: Interface types are not derived from ToscaType"
     _type_name: ClassVar[str] = ""
     "Set this in the class definition if the TOSCA type name is different from the class name."
