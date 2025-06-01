@@ -74,7 +74,7 @@ class Operational(ChangeAware):
     """
 
     # XXX3 add repairable, messages?
-    name = ""
+    name: str = ""
 
     # core properties to override
     @property
@@ -832,7 +832,7 @@ class RelationshipInstance(EntityInstance):
     # 3.7.3 Requirements definition p. 99
     # 3.8.2 Requirements assignment p. 115
     parentRelation = "_relationships"
-    templateType = RelationshipSpec
+    templateType = RelationshipSpec  # type: ignore
     if TYPE_CHECKING:
         template = templateType()
     _source: Optional["NodeInstance"] = None
@@ -1010,7 +1010,7 @@ class ArtifactInstance(EntityInstance):
         return self.attributes.get("order") or 0
 
     @property
-    def contents(self) -> str:
+    def contents(self) -> Union[str, bytes]:
         if "contents" in self.attributes:
             logger.trace(
                 'getting inline contents for artifact "%s": %s',
@@ -1037,7 +1037,7 @@ class ArtifactInstance(EntityInstance):
 
 
 class NodeInstance(HasInstancesInstance):
-    templateType = NodeSpec
+    templateType = NodeSpec  # type: ignore
     if TYPE_CHECKING:
         template = templateType()
 

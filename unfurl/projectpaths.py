@@ -365,7 +365,7 @@ class File(_ArtifactExternalValue):
     def get_full_path(self):
         return os.path.abspath(os.path.join(self.base_dir, self.get()))
 
-    def get_contents(self):
+    def get_contents(self) -> Union[str, bytes]:
         path = self.get_full_path()
         with open(path, "rb") as f:
             contents = f.read()

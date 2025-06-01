@@ -576,7 +576,7 @@ class ConfigTask(TaskView, ConfigChange):
         return missing, reason
 
     @property
-    def name(self):
+    def name(self) -> str: # type: ignore[override]
         name = self.configSpec.name
         if self.configSpec.operation and self.configSpec.operation not in name:
             name = name + ":" + self.configSpec.operation

@@ -1715,7 +1715,7 @@ class CapabilitySpec(EntitySpec):
         EntitySpec.__init__(self, capability, parent.topology)
 
     @property
-    def parent(self):
+    def parent(self): # type:ignore[override]
         return self.parentNode
 
     @property

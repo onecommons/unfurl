@@ -258,10 +258,10 @@ class Manifest(AttributeManager):
         if not isinstance(toscaDef, yaml_dict_cls):
             toscaDef = yaml_dict_cls(toscaDef.items())
         if getattr(toscaDef, "base_dir", None) and (
-            not path or toscaDef.base_dir != os.path.dirname(path)
+            not path or toscaDef.base_dir != os.path.dirname(path)  # type: ignore
         ):
             # note: we only recorded the baseDir not the name of the included file
-            path = toscaDef.base_dir
+            path = toscaDef.base_dir  # type: ignore
         return ToscaSpec(
             toscaDef,
             spec,
