@@ -392,6 +392,23 @@ relationship_types:
   unfurl.relationships.ConnectsTo.ComputeMachines:
     derived_from: tosca.relationships.ConnectsTo
 
+  unfurl.relationships.ConnectsTo.ObjectStorage:
+    derived_from: tosca.relationships.ConnectsTo
+    properties:
+      access_key:
+        type: string
+      secret_key:
+        type: string
+        metadata:
+          sensitive: true
+      region:
+        type: string
+        default: us-east-1
+      endpoint_hostname:
+        type: string
+        description: hostname
+        required: false
+
   unfurl.relationships.ConnectsTo.CloudAccount:
     derived_from: unfurl.relationships.ConnectsTo.ComputeMachines
     # valid_target_types: [unfurl.capabilities.Endpoint.CloudAccount]
@@ -460,7 +477,11 @@ relationship_types:
             #   - google-auth
 
   unfurl.relationships.ConnectsTo.AWSAccount:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       endpoints:
         description: custom service endpoints
@@ -503,11 +524,24 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_CONFIG_FILE }
         required: false
-    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
-    # for more environment variables
+      # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
+      # for more environment variables
+      access_key:
+        default: "{{ SELF.AWS_ACCESS_KEY_ID }}"
+        required: false
+      secret_key:
+        default: "{{ SELF.AWS_SECRET_ACCESS_KEY }}"
+        required: false
+      region:
+        default: "{{ SELF.AWS_DEFAULT_REGION }}"
+        required: false
 
   unfurl.relationships.ConnectsTo.DigitalOcean:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       credential:
         metadata:
@@ -526,6 +560,7 @@ relationship_types:
         required: false
         metadata:
           user_settable: true
+          env_vars: [SPACES_ACCESS_KEY_ID]
       SPACES_SECRET_ACCESS_KEY:
         description: "The secret key for Spaces object storage."
         type: unfurl.datatypes.EnvVar
@@ -534,6 +569,7 @@ relationship_types:
         metadata:
           user_settable: true
           sensitive: true
+          env_vars: [SPACES_SECRET_ACCESS_KEY]
       default_region:
         type: string
         title: Default Region
@@ -541,9 +577,21 @@ relationship_types:
         description: "The default region to use, e.g. fra1, nyc3, etc."
         metadata:
           user_settable: true
+      access_key:
+        default: "{{ SELF.SPACES_ACCESS_KEY_ID }}"
+        required: false
+      secret_key:
+        default: "{{ SELF.SPACES_SECRET_ACCESS_KEY }}"
+        required: false
+      endpoint_hostname:
+        default: "{{ SELF.default_region }}.digitaloceanspaces.com"
 
   unfurl.relationships.ConnectsTo.Azure:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       AZURE_CLIENT_ID:
         description: >
@@ -625,6 +673,12 @@ relationship_types:
         required: false
         metadata:
           sensitive: true
+      access_key:
+        default: "{{ SELF.AZURE_STORAGE_ACCOUNT }}"
+        required: false
+      secret_key:
+        default: "{{ SELF.AZURE_STORAGE_KEY }}"
+        required: false
 
   unfurl.relationships.ConnectsTo.Packet:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
