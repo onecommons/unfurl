@@ -819,6 +819,7 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List[PlanRequest]) ->
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
     error = None
     try:
+        task._rendering = True
         task.set_envvars()
         proceed, msg = job.should_run_task(task)
         if not proceed:
@@ -843,6 +844,7 @@ def _prepare_request(job: "Job", req: PlanRequest, errors: List[PlanRequest]) ->
         error = UnfurlTaskError(task, "should_run_task failed", logging.DEBUG)
     finally:
         task.restore_envvars()
+        task._rendering = False
     if error:
         errors.append(req)
         task._reset()  # rollback changes

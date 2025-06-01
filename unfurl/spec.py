@@ -715,23 +715,24 @@ class ToscaSpec:
 
 
 def find_env_vars(props_iter):
-    for propdef, value in props_iter:
+    for propdef, attributes in props_iter:
         datatype = propdef.entity
         if (
             datatype.type == "map"
             and propdef.entry_schema_entity
             and propdef.entry_schema_entity.type == "unfurl.datatypes.EnvVar"
         ):
+            value = attributes[propdef.name]
             if value:
                 for key, item in value.items():
                     yield key, env_var_value(item)
         else:
             if datatype.type == "unfurl.datatypes.EnvVar":
-                yield propdef.name, env_var_value(value)
+                yield propdef.name, env_var_value(attributes[propdef.name])
             metadata = propdef.schema.get("metadata", {})
             if metadata.get("env_vars"):
                 for name in metadata["env_vars"]:
-                    yield name, env_var_value(value)
+                    yield name, env_var_value(attributes[propdef.name])
 
 
 def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
@@ -747,16 +748,15 @@ def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
                 # descend into its properties
                 yield from find_props(value, propdef.entity.properties, flatten)
             else:
-                yield propdef, value
+                yield propdef, attributes
         elif not flatten or not propdef.entry_schema:
-            yield propdef, attributes[propdef.name]
+            yield propdef, attributes
         else:
             # its a list or map
             assert propdef.entry_schema
             properties = propdef.entry_schema_entity.properties
             value = attributes[propdef.name]
             if not value:
-                yield propdef, value
                 continue
             if propdef.type == "map":
                 for key, val in value.items():
