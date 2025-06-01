@@ -42,6 +42,40 @@ from .builtin_types import groups
 
 # mypy: enable-incomplete-feature=Unpack
 
+_PT = TypeVar("_PT", bound="ToscaType")
+
+
+@overload
+def find_node(name: str, node_type: None = None) -> nodes.Root: ...
+
+
+@overload
+def find_node(name: str, node_type: Type[_PT]) -> _PT: ...
+
+
+def find_node(name, node_type=None):
+    "Use this to refer to TOSCA node templates that are not visible to your Python code."
+    if node_type is None:
+        node_type = nodes.Root
+    return node_type(name)
+
+
+@overload
+def find_relationship(
+    name: str, relationship_type: None = None
+) -> relationships.Root: ...
+
+
+@overload
+def find_relationship(name: str, relationship_type: Type[_PT]) -> _PT: ...
+
+
+def find_relationship(name, relationship_type=None):
+    "Use this to refer to TOSCA relationship templates are not visible to your Python code"
+    if relationship_type is None:
+        relationship_type = relationships.Root
+    return relationship_type(name, _metadata=dict(__templateref=True))
+
 
 class StandardOperationsKeywords(TypedDict):
     """The names of tosca and unfurl's built-in operations.
@@ -70,9 +104,6 @@ class StandardOperationsKeywords(TypedDict):
     connect: NotRequired[Union[Callable, ArtifactEntity]]
     restart: NotRequired[Union[Callable, ArtifactEntity]]
     revert: NotRequired[Union[Callable, ArtifactEntity]]
-
-
-_PT = TypeVar("_PT", bound="ToscaType")
 
 
 @overload
@@ -112,7 +143,7 @@ class Repository(ToscaObject):
     a git repository, a container image or artifact registry or a file path to a local directory.
 
     Repositories that contain the Python modules imported into a service template are typically declared in the YAML
-    so an orchestrator like Unfurl can map them to ``tosca_repositories`` imports. 
+    so an orchestrator like Unfurl can map them to ``tosca_repositories`` imports.
     However you have a Python service template with code that references a repository (e.g. in a :std:ref:`abspath` eval expression)
     and that service template is imported directly by other projects, you should declare the repository in the same Python file.
 
@@ -128,7 +159,7 @@ class Repository(ToscaObject):
 
     .. code-block:: python
 
-        std = tosca.Repository("https://unfurl.cloud/onecommons/std", 
+        std = tosca.Repository("https://unfurl.cloud/onecommons/std",
                     credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN")))
     """
 
@@ -155,6 +186,7 @@ class Repository(ToscaObject):
             self._tpl["metadata"] = metadata
         self.credential = credential
         from .loader import import_resolver
+
         if import_resolver:
             import_resolver.add_repository(self._tosca_name or self._name, self._tpl)
 

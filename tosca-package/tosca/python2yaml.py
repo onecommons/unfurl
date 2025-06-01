@@ -199,6 +199,8 @@ class PythonToYaml:
         referenced: bool,
     ) -> str:
         name = obj._name or name
+        if "__templateref" in obj._metadata:
+            return name
         for topology_section in reversed(self.topology_templates):
             assert obj._template_section
             section = topology_section.get(obj._template_section)

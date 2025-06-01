@@ -1350,7 +1350,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             if not value.type:
                 # try to deduce type
                 if value.has_explicit_default_value() and not isinstance(
-                    value.default, (EvalData, _TemplateRef)
+                    value.default, EvalData
                 ):
                     value.type = type(value.default)
                 elif isinstance(value._default_factory, type):  # its a ctor
@@ -1602,22 +1602,6 @@ class _TemplateRef:
     def to_yaml(self, *ignore) -> str:
         # assume this will be used in contexts where the template is referenced by name
         return self.name
-
-
-class NodeTemplateRef(_TemplateRef):
-    "Use this to refer to TOSCA node templates that are not visible to your Python code."
-
-
-class RelationshipTemplateRef(_TemplateRef):
-    "Use this to refer to TOSCA relationship templates are not visible to your Python code"
-
-
-def find_node(name: str) -> Any:
-    return NodeTemplateRef(name)
-
-
-def find_relationship(name: str) -> Any:
-    return RelationshipTemplateRef(name)
 
 
 class FieldProjection(EvalData):
@@ -2688,6 +2672,11 @@ class ToscaType(_ToscaType):
         # declare this again so ToscaInput and ToscaOutput._post_field_init is not called on ToscaType subclasses subtype those classes via multiple inheritance
         return field
 
+    def _enforce_required_fields(self):
+        if "__templateref" in self._metadata:
+            return False
+        return super()._enforce_required_fields()
+
     if not typing.TYPE_CHECKING:
 
         def __getattribute__(self, name: str):
@@ -2696,9 +2685,9 @@ class ToscaType(_ToscaType):
             * the field hasn't been initialized yet (e.g. its value is ``DEFAULT``, ``REQUIRED``, or ``CONSTRAINED``)
 
             * the field is a TOSCA `Attribute` (as their values are set at runtime)
-            
+
             * the value is `EvalData`
-            
+
             * the value is a `ToscaType` object set directly on the class the definition.
             """
             return object.__getattribute__(self, "_ToscaType__getattr")(name)
