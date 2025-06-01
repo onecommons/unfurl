@@ -1037,10 +1037,8 @@ topology_template:
         shellScript:
           type: tosca.artifacts.Root
           file: example.sh
-          intent:
-            eval: ::e3::prop1::key::0
       # explicitly declared "host" unset but Example doesn't have a node_filter or value to unset
-      # so nothing is omitted
+      # so no requirement is generated
       metadata:
         module: tests.test_dsl
 node_types:
@@ -1074,16 +1072,19 @@ def test_template_init() -> None:
 
         def _template_init(self) -> None:
             if self.has_default("shellScript"):
+                if self.host:
+                    intent = self.prop1["key"][0]
+                else:
+                    intent = None # self.host is None on template e3
                 self.shellScript = tosca.artifacts.Root(
-                    file="example.sh", intent=self.prop1["key"][0]
+                    file="example.sh", intent=intent
                 )
             if self.has_default(self.__class__.host):
                 # XXX ensure that template names are unique per instance
                 self.host = tosca.nodes.Compute()
 
-    e0 = (
-        Example()
-    )  # ok to make without required arguments because _template_init() sets them
+    # ok to construct without required arguments because _template_init() sets them
+    e0 = Example()
     e0.prop1 = {"not default": ["test"]}
 
     # adds a constraint to override the default node with type inference:

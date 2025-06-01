@@ -2717,6 +2717,7 @@ class ToscaType(_ToscaType):
                     # or its a mutable value or tosca object set on the class:
                     or (
                         t_field.default is val
+                        and val is not None
                         and t_field.tosca_field_type != ToscaFieldType.property
                         and t_field not in self._instance_fields
                     )
