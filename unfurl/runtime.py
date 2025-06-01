@@ -398,6 +398,7 @@ class _ChildResources(Mapping):
     def __len__(self):
         return len(tuple(self.resource.get_self_and_descendants()))
 
+
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[Literal[False], str]] = None
@@ -1077,8 +1078,8 @@ class NodeInstance(HasInstancesInstance):
             ]
             return def_rels[0] if def_rels else None
         # find the Capability instance that corresponds to this relationship template's capability
-        assert relationship.capability
-        assert relationship.target
+        if not relationship.capability or not relationship.target:
+            return None
         targetNodeInstance = self.root.get_root_instance(
             relationship.target.toscaEntityTemplate
         ).find_resource(relationship.target.name)
@@ -1109,15 +1110,13 @@ class NodeInstance(HasInstancesInstance):
             instantiated = {id(r.template) for r in self._requirements}
             for template in self.template.requirements:
                 if not template.relationship:
-                    # XXX ValidationError
                     continue
                 if id(template.relationship) not in instantiated:
-                    if (
-                        not template.relationship.target
-                        and template.relationship.is_default_connection()
-                    ):
+                    if not template.relationship.target:
                         rel = RelationshipInstance(
-                            template.name, parent=self.root, template=template.relationship
+                            template.name,
+                            parent=self.root,
+                            template=template.relationship,
                         )
                         rel._source = self
                         self._requirements.append(rel)
@@ -1134,7 +1133,8 @@ class NodeInstance(HasInstancesInstance):
                     )
                     assert relInstance.template.source
                     assert (
-                        self.template.nested_name == relInstance.template.source.nested_name
+                        self.template.nested_name
+                        == relInstance.template.source.nested_name
                         or self.template.topology.substitute_of
                         is relInstance.template.source
                         or self.template
@@ -1263,7 +1263,9 @@ class NodeInstance(HasInstancesInstance):
                     continue
                 seen[id(rel.target)] = rel.target
 
-                if rel.name == "host" or rel.template.is_compatible_type("tosca.relationships.HostedOn"):
+                if rel.name == "host" or rel.template.is_compatible_type(
+                    "tosca.relationships.HostedOn"
+                ):
                     yield rel.target
                 yield from rel.target._hosted_on(seen)
 

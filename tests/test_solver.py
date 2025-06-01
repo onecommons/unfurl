@@ -48,6 +48,9 @@ node_types:
         capability: tosca.capabilities.Compute
         node: tosca.nodes.Compute
         occurrences: [1, 1]
+    - connection:
+        relationship: tosca.relationship.ConnectsTo
+        # note: no node or capability
 
 topology_template:
   substitution_mappings:
@@ -89,6 +92,9 @@ topology_template:
             type: linux
             distribution: rhel
             version: "6.5"
+
+    extra:
+      type: tosca.nodes.Root
 """
 
 
@@ -124,7 +130,7 @@ def test_solve():
 
     assert solved == {("app", "host"): [("db_server", "host")]}
     app = tosca.topology_template.node_templates["app"]
-    assert not app.missing_requirements
+    assert app.missing_requirements == {'connection': {'relationship': {'type': 'tosca.relationship.ConnectsTo'}}}
     for rel_template, original_tpl, requires_tpl_dict in app.relationships:
         assert (
             rel_template.target == tosca.topology_template.node_templates["db_server"]

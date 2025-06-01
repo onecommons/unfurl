@@ -1290,12 +1290,13 @@ class NodeSpec(EntitySpec):
                     else:
                         msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
                         ExceptionCollector.appendException(UnfurlValidationError(msg))
-                elif relTpl.is_default_connection():
+                else:
                     relSpec = RelationshipSpec(relTpl, self.topology)
                     reqSpec.relationship = relSpec
                     relSpec.requirement = reqSpec
-                    # add to topology default_requirements:
-                    self.topology.add_default_relationship(relSpec)
+                    if relTpl.is_default_connection():
+                        # add to topology default_requirements:
+                        self.topology.add_default_relationship(relSpec)
                 self._requirements.append(reqSpec)
         return self._requirements
 
@@ -1308,7 +1309,7 @@ class NodeSpec(EntitySpec):
                 if name in self._requirements_dict:
                     logger.warning(
                         f"More than one requirement for {name} on {self.nested_name} not supported"
-                        f" -- replacing {self._requirements_dict[name].entity_tpl} with {reqSpec.entity_tpl}."
+                        f" -- replacing {self._requirements_dict[name].entity_tpl} with {reqSpec.entity_tpl}.",
                     )
                 self._requirements_dict[name] = reqSpec
         return self._requirements_dict
@@ -1584,7 +1585,11 @@ class RelationshipSpec(EntitySpec):
         self.requirement: Optional[RequirementSpec] = None
         self.capability: Optional[CapabilitySpec] = None
         if targetNode:
-            assert targetNode.toscaEntityTemplate is template.target
+            assert targetNode.toscaEntityTemplate is template.target, (
+                self,
+                targetNode.toscaEntityTemplate,
+                template.target,
+            )
             for c in targetNode.capabilities.values():
                 if c.toscaEntityTemplate is template.capability:
                     self.capability = c
