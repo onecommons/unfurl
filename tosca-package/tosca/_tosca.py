@@ -1790,7 +1790,7 @@ class _DataclassTypeProxy:
         # we need to check the base class's __dataclass_fields__ first
         fields = getattr(self.cls, "__dataclass_fields__", {})
         if name in ("_name", "tosca_name"):
-            return EvalData(".name")
+            return EvalData(dict(eval=".name"))
         val = fields.get(name)
         if not val:
             # but our __dataclass_fields__ isn't updated yet, do a regular getattr

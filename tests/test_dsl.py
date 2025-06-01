@@ -913,7 +913,9 @@ def test_class_init() -> None:
                     "type": "string",
                 },
                 "prop3": {
-                    "default": ".name",
+                    "default": {
+                        "eval": ".name",
+                    },
                     "type": "string",
                 },
             },
