@@ -198,7 +198,7 @@ class unfurl_nodes_K8sNamespace(
     )
 
 
-class unfurl_nodes_K8sResource(unfurl_nodes_K8sRawResource):  # type: ignore[override]  # ('host',)
+class unfurl_nodes_K8sResource(unfurl_nodes_K8sRawResource):
     _type_name = "unfurl.nodes.K8sResource"
     namespace: str = Property(
         attribute=True,
@@ -216,7 +216,7 @@ class unfurl_nodes_K8sResource(unfurl_nodes_K8sRawResource):  # type: ignore[ove
     ] = None
 
 
-class unfurl_nodes_K8sSecretResource(unfurl_nodes_K8sResource):  # type: ignore[override]  # ('host',)
+class unfurl_nodes_K8sSecretResource(unfurl_nodes_K8sResource):
     _type_name = "unfurl.nodes.K8sSecretResource"
     definition: Union[object, None] = Property(
         metadata={"user_settable": False}, default=None

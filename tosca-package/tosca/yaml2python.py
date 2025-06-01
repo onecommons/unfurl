@@ -327,6 +327,11 @@ class Imports:
         return qname, ref
 
 
+def inline_comment(comment: str) -> str:
+    # avoid black moving comments to the wrong line
+    return comment + "\n" if comment else ""
+
+
 class Convert:
     convert_built_in = False
 
@@ -642,7 +647,7 @@ class Convert:
 
     def _set_name(
         self, yaml_name: str, fieldtype: str, prop_def=None
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, str]:
         name, toscaname = self._get_name(yaml_name)
         existing = self.local_names.get(name)
         if existing and existing != fieldtype:
@@ -656,20 +661,19 @@ class Convert:
             ptype = prop_defs.get("type")
             if not ptype:
                 return None
-            if (
-                not prop_defs.get("required")
-                or prop_defs.get("default", "MISSING") is None
-            ):
+            if not prop_defs.get("required") and prop_defs.get("default") is None:
                 return ptype + "| None"
             return ptype
 
+        override = ""
         if self.has_overrides is None:  # in base init mode
             self.base_refs[name] = _simple_typedef(prop_def)
         elif name in self.base_refs:
             if not prop_def or _simple_typedef(prop_def) != self.base_refs[name]:
+                override = "  # type: ignore[assignment]"
                 self.has_overrides.append(name)
         self.local_names[name] = fieldtype
-        return name, toscaname
+        return name, toscaname, override
 
     def python_name_from_type(self, tosca_type: str, minimize=False) -> str:
         # we assume the tosca_type has already been imported or is declared in this file
@@ -845,7 +849,9 @@ class Convert:
     def _prop_decl(
         self, prop: Property, fieldtype: str, both: bool
     ) -> Tuple[str, str, str]:
-        name, toscaname = self._set_name(prop.name, "property", prop.schema.schema)
+        name, toscaname, overrides = self._set_name(
+            prop.name, "property", prop.schema.schema
+        )
         fieldparams = []
         if toscaname:
             fieldparams.append(f'name="{toscaname}"')
@@ -882,16 +888,20 @@ class Convert:
             elif fieldparams or fieldtype == "attributes":
                 fieldparams.append(f"default={value_repr}")
             else:
-                fielddecl = f"= {value_repr}"
+                fielddecl = f"= {value_repr}{overrides}"
         else:
-            fielddecl = ""
+            fielddecl = overrides
 
         if fieldtype == "attributes":
             self.imports.add_tosca_from("Attribute")
-            fielddecl = f"= Attribute({', '.join(fieldparams)})"
+            fielddecl = (
+                f"= Attribute({inline_comment(overrides)}{', '.join(fieldparams)})"
+            )
         elif fieldparams:
             self.imports.add_tosca_from("Property")
-            fielddecl = f"= Property({', '.join(fieldparams)})"
+            fielddecl = (
+                f"= Property({inline_comment(overrides)}{', '.join(fieldparams)})"
+            )
         return name, typename, fielddecl  # type: ignore
 
     def _get_baseclass_names(
@@ -1026,7 +1036,9 @@ class Convert:
             for artifact in artifacts.values():
                 artifact_name, artifact_src = self.artifact2obj(artifact)
                 if artifact_src:
-                    field_name, tosca_name = self._set_name(artifact_name, "artifact")
+                    field_name, tosca_name, overrides = self._set_name(
+                        artifact_name, "artifact"
+                    )
                     assert artifact.type
                     cls_name, cls = self.imports.get_type_ref(artifact.type)
                     assert cls_name
@@ -1040,13 +1052,13 @@ class Convert:
                 )
                 if cls_name:
                     name, _ = self._get_name(required_artifact_name)
-                    field_name, tosca_name = self._set_name(name, "artifact")
+                    field_name, tosca_name, overrides = self._set_name(name, "artifact")
                     # XXX what to do if field_name != tosca_name?
                     required = required_artifact_tpl.get("required")
                     if required:
-                        src += f"{indent}{field_name}: {cls_name}\n"
+                        src += f"{indent}{field_name}: {cls_name}{overrides}\n"
                     else:
-                        src += f"{indent}{field_name}: {self._make_union(cls_name, 'None')} = None\n"
+                        src += f"{indent}{field_name}: {self._make_union(cls_name, 'None')} = None{overrides}\n"
 
         if baseclass_name == "Interface":
             # inputs and operations are defined directly on the body of the type
@@ -1070,10 +1082,7 @@ class Convert:
             if value:
                 src += f"{indent}_{key} = {self.value2python_repr(value, True)}\n"
 
-        if self.has_overrides:
-            class_decl += f"  # type: ignore[override]  # {tuple(self.has_overrides)}\n"
-        else:
-            class_decl += "\n"
+        class_decl += "\n"
 
         if src.strip():
             return class_decl + src
@@ -1215,7 +1224,7 @@ class Convert:
     def add_capability(self, name, tpl, indent) -> str:
         # Capability(factory=typename) (if no required properties) or default=None or ()
         fieldparams = []
-        name, toscaname = self._set_name(name, "capability")
+        name, toscaname, overrides = self._set_name(name, "capability")
         if toscaname:
             fieldparams.append(f'name="{toscaname}"')
         cap_type_name = self.python_name_from_type(tpl["type"])
@@ -1245,9 +1254,11 @@ class Convert:
             fieldparams.append(f"metadata={metadata_repr(metadata)}")
         if fieldparams:
             self.imports.add_tosca_from("Capability")
-            fielddecl = f"= Capability({', '.join(fieldparams)})\n"
+            fielddecl = (
+                f"= Capability({inline_comment(overrides)}{', '.join(fieldparams)})\n"
+            )
         else:
-            fielddecl = ""
+            fielddecl = overrides
         src = f"{indent}{name}: {typedecl} {fielddecl}\n"
         src += add_description(tpl, indent)
         return src
@@ -1303,7 +1314,7 @@ class Convert:
     def add_req(self, req_name: str, req: dict, indent: str, typename: str) -> str:
         if isinstance(req, str):
             req = dict(node=req)
-        name, toscaname = self._set_name(req_name, "requirement")
+        name, toscaname, overrides = self._set_name(req_name, "requirement")
         types, match, explicit = self._get_req_types(
             req, f"_inline_relationship_{typename}_{name}"
         )
@@ -1340,11 +1351,13 @@ class Convert:
             if default:
                 fieldparams.insert(0, "default=" + default)
             self.imports.add_tosca_from("Requirement")
-            fielddecl = f"= Requirement({', '.join(fieldparams)})"
+            fielddecl = (
+                f"= Requirement({inline_comment(overrides)}{', '.join(fieldparams)})"
+            )
         elif default:
-            fielddecl = "= " + default
+            fielddecl = "= " + default + overrides
         else:
-            fielddecl = ""
+            fielddecl = overrides
         src = f"{indent}{name}: {typedecl} {fielddecl}\n"
         src += add_description(req, indent)
         return src
@@ -1409,7 +1422,7 @@ class Convert:
                 src = f"{indent}_{op.interfacename.split('.')[-1]}_default_inputs = {self.value2python_repr(op.input_defs or op.inputs)}"
                 return "", src
         configurator_decl, kw = self.get_configurator_decl(op)
-        op_name, toscaname = self._set_name(cast(str, op.name), "operation")
+        op_name, toscaname, _ = self._set_name(cast(str, op.name), "operation")
         if template_name:
             template_name, _ = self._get_name(template_name)
             func_name = f"{template_name}_{op_name}"
@@ -1754,7 +1767,7 @@ class Convert:
                 if field:
                     field_name = field.name
                 else:
-                    field_name, tosca_name = self._set_name(cap_name, "capability")
+                    field_name, tosca_name, _ = self._set_name(cap_name, "capability")
                 src += f"{field_name}={self._get_capability(capabilitydefs[cap_name], cap_props, indent)},\n"
 
         template_reqs = []  # requirements not declared by the type
