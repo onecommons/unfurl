@@ -27,7 +27,7 @@ logger = logging.getLogger("tosca")
 
 PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
 FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER")
-SKIP_LOADER = os.getenv("DEBUGPY")
+SKIP_LOADER = os.getenv("DEBUGPY") or os.getenv("UNFURL_TEST_SKIP_LOADER")
 
 # python standard library modules matches those added to utility_builtins
 ALLOWED_MODULES = (
