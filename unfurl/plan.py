@@ -56,6 +56,7 @@ from .logs import getLogger
 from toscaparser.nodetemplate import NodeTemplate
 
 logger = getLogger("unfurl")
+MAX_MISSING_PARENT_INSTANCES = 20
 
 
 class Plan:
@@ -155,12 +156,22 @@ class Plan:
             for resource in find_resources_from_template_name(root, template.name):
                 yield cast(NodeInstance, resource)
 
-    def create_resource(self, template: NodeSpec) -> Optional[NodeInstance]:
+    def create_resource(self, template: NodeSpec, missing=0) -> Optional[NodeInstance]:
         parent, parent_template = find_parent_resource(self.root, template)
         if not parent and parent_template:
             parent_node = self.tosca.node_from_template(parent_template)
             if parent_node:
-                parent = self.create_resource(parent_node)
+                if missing > MAX_MISSING_PARENT_INSTANCES:
+                    raise UnfurlError(
+                        f"more than {MAX_MISSING_PARENT_INSTANCES} missing ancestors (last was {parent_node.name}) -- is there a cycle?"
+                    )
+                logger.trace(
+                    "creating missing parent %s for %s %s",
+                    parent_node.name,
+                    template.name,
+                    missing,
+                )
+                parent = self.create_resource(parent_node, missing + 1)
         if not parent:
             return None
 
@@ -697,6 +708,7 @@ class Plan:
                 t.name: t
                 for t in templates
                 if "virtual" not in t.directives
+                and interface_requirements_ok(self.root, t)
                 # only include conditional templates if all their requirements are met
                 and (
                     "conditional" not in t.directives
