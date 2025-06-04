@@ -100,6 +100,7 @@ if flask_config["CACHE_TYPE"] == "RedisCache":
     if "CACHE_REDIS_URL" in os.environ:
         flask_config["CACHE_REDIS_URL"] = os.environ["CACHE_REDIS_URL"]
     else:
+        flask_config["CACHE_REDIS_PASSWORD"] = os.environ.get("CACHE_REDIS_PASSWORD")
         flask_config["CACHE_REDIS_HOST"] = os.environ["CACHE_REDIS_HOST"]
         flask_config["CACHE_REDIS_PORT"] = int(
             os.environ.get("CACHE_REDIS_PORT") or 6379
