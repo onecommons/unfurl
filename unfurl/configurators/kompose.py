@@ -30,6 +30,9 @@
               annotations: {} # annotations to add to the metadata section
               ingress_extras: {} # merge into ingress record
               env: {} # merged with container.environment
+              overlays: {} # merged with resources
+Note overlays and extras won't be in the rendered kompose files but applied when createing the kubernetes resources to deploy
+
 """
 
 from typing import cast, Union, Optional, TYPE_CHECKING, Dict, Any
@@ -68,6 +71,7 @@ class KomposeInputs(ShellInputs):
     annotations: Union[None, Dict[str, Any]] = None
     expose: Union[bool, str, None] = None
     ingress_extras: Union[None, Dict[str, Any]] = None
+    overlays: Union[None, Dict[str, Dict[str, Any]]] = None
     env: Union[None, Dict[str, str]] = None
 
 def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
@@ -248,15 +252,17 @@ class KomposeConfigurator(ShellConfigurator):
         ingress_extras = get_ingress_extras(
             task, task.inputs.get_copy("ingress_extras")
         )
+        extras = task.inputs.get_copy("overlays") or {}
         if ingress_extras:
             task.logger.debug("setting ingress_extras to:\n%s", ingress_extras)
+            extras["Ingress"] = ingress_extras
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
-        definitions = self.save_definitions(task, output_dir, ingress_extras)
+        definitions = self.save_definitions(task, output_dir, extras)
         task.target.attributes["definitions"] = definitions
         return definitions
 
-    def save_definitions(self, task, out_path, ingress_extras):
+    def save_definitions(self, task, out_path, extras):
         files = os.listdir(out_path)
         # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
         task.logger.verbose(
@@ -264,7 +270,7 @@ class KomposeConfigurator(ShellConfigurator):
         )
         return {
             Path(filename).stem: _load_resource_file(
-                task, out_path, filename, ingress_extras
+                task, out_path, filename, extras
             )
             for filename in files
         }
@@ -317,14 +323,13 @@ def configure_inputs(kind, timeout):
     return inputs
 
 
-def _load_resource_file(task, out_path, filename, ingress_extras):
+def _load_resource_file(task, out_path, filename, extras: Dict[str, Any]):
     with open(Path(out_path) / filename) as f:
         definition_str = f.read()
     definition = yaml.load(definition_str)
     assert isinstance(definition, dict)
-    if definition["kind"] == "Ingress" and ingress_extras:
-        assert isinstance(ingress_extras, dict)
-        definition = cast(dict, merge_dicts(definition, ingress_extras))
+    if extras and definition["kind"] in extras:
+        definition = cast(dict, merge_dicts(definition, extras[definition["kind"]]))
     annotations = task.inputs.get("annotations")
     if annotations:
         definition.setdefault("metadata", {}).setdefault("annotations", {}).update(
