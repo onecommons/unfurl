@@ -3,6 +3,7 @@ import json
 import logging
 import logging.config
 from enum import IntEnum
+import sys
 import os
 import re
 import tempfile
@@ -22,9 +23,16 @@ HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
 DEFAULT_TRUNCATE_LENGTH = int(os.getenv("UNFURL_LOG_TRUNCATE") or 748)
 
-sensitive_params = ("token", "secret", "password")  # note: matches private_token etc too
+sensitive_params = (
+    "token",
+    "secret",
+    "password",
+)  # note: matches private_token etc too
 sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=[^&\s]+")
-sensitive_args_regex = rf"""(--\S{{0,50}}({'|'.join(sensitive_params)})('|")?(=|\s+))\S+"""
+sensitive_args_regex = (
+    rf"""(--\S{{0,50}}({"|".join(sensitive_params)})('|")?(=|\s+))\S+"""
+)
+
 
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
     if not s:
@@ -189,7 +197,11 @@ def is_sensitive(obj: object) -> bool:
 
 
 class SensitiveFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
+    def filter(self, record: logging.LogRecord) -> logging.LogRecord:
+        if sys.version_info >= (3, 12, 0):
+            # starting in 3.12, we can return a record instead of modifying it in-place,
+            # allowing other handlers to receive the original record
+            record = logging.makeLogRecord(record.__dict__)
         if record.args is not None:
             if isinstance(record.args, tuple):
                 record.args = tuple(self.redact(a) for a in record.args)
@@ -197,7 +209,7 @@ class SensitiveFilter(logging.Filter):
                 record.args = self.redact(record.args)  # type: ignore
         if isinstance(record.msg, str):
             record.msg = self.sanitize_urls(record.msg)
-        return True
+        return record
 
     @staticmethod
     def sanitize_urls(value: str) -> str:
@@ -291,7 +303,6 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
         os.makedirs(dir)
 
     handler = logging.FileHandler(filename)
-    f = SensitiveFilter()
     fmt = (
         os.getenv("UNFURL_LOG_FORMAT")
         or "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
@@ -300,6 +311,5 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
     handler.setFormatter(formatter)
     log_level = min(console_level, Levels.DEBUG)
     handler.setLevel(log_level)
-    handler.addFilter(f)
     logging.getLogger().addHandler(handler)
     return filename

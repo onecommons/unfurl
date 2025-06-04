@@ -32,6 +32,7 @@ from unfurl.util import (
 )
 from unfurl.yamlloader import YamlConfig
 from unfurl.yamlmanifest import YamlManifest
+from unfurl import logs
 
 class SimpleConfigurator(Configurator):
     def run(self, task):
@@ -370,13 +371,13 @@ root:
 
     def test_sensitive_logging(self):
         handler = logging.getLogger().handlers[0]
-        print('d', handler, handler.stream)
+        assert isinstance(handler, logs.ColorHandler)
         old_stream = handler.stream
         try:
             handler.stream = io.StringIO()
 
-            logger = logging.getLogger("unfurl")
-            logger.critical("test1 %s", sensitive_str("sensitive"))
+            logger = logs.getLogger("unfurl")
+            logger.warning("test1 %s", sensitive_str("sensitive"))
 
             logger = logging.getLogger("another")
             logger.critical("test2 %s", sensitive_str("sensitive"))

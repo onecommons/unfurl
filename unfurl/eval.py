@@ -928,7 +928,7 @@ def eval_ref(
                 if isinstance(ctx, SafeRefContext):
                     msg = f"function unsafe or missing in {dict(val)}"
                     if not ctx.strict:
-                        logger.warning(
+                        logger.verbose(
                             "In safe mode, skipping unsafe eval: " + msg,
                             stack_info=False,
                         )
