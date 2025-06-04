@@ -30,9 +30,16 @@ except ImportError:
     from functools import lru_cache as cache
 
 from . import DefaultNames
-from .util import UnfurlError, UnfurlValidationError, get_base_dir, substitute_env, to_yaml_text, filter_env
+from .util import (
+    UnfurlError,
+    UnfurlValidationError,
+    get_base_dir,
+    substitute_env,
+    to_yaml_text,
+    filter_env,
+)
 from .merge import patch_dict
-from .yamlloader import YamlConfig, load_yaml, make_yaml
+from .yamlloader import YamlConfig, load_yaml, make_yaml, cleartext_yaml
 from .result import serialize_value
 from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
@@ -230,8 +237,6 @@ def split_changes(
     committed_changes = []
     for change in changes:
         local_change = change.copy()
-        local_change.pop("dependencies", None)
-        local_change.pop("change", None)
         local_changes.append(local_change)
         if "result" in change and change["result"] != "skipped":
             change.pop("result")
@@ -500,7 +505,7 @@ class YamlManifest(ReadOnlyManifest):
 
         if self._load_errors and not skip_validation:
             raise UnfurlValidationError(
-              "Error loading ensemble, see logs for errors",
+                "Error loading ensemble, see logs for errors",
             )
         self._configure_root(rootResource)
         self._set_repository_links()
@@ -971,7 +976,9 @@ class YamlManifest(ReadOnlyManifest):
                 return None
             return self.save_entity_instance(resource)
         except Exception:
-            logger.error('Unexpected error saving "%s"', resource.nested_key, exc_info=True)
+            logger.error(
+                'Unexpected error saving "%s"', resource.nested_key, exc_info=True
+            )
             return None
 
     def save_resource(
@@ -1171,11 +1178,13 @@ class YamlManifest(ReadOnlyManifest):
 
         if self.changeLogPath:
             if job.dry_run:  # don't commit dry run changes
-                self.save_change_log(job.log_path(ext=".yaml"), jobRecord, changes)
+                self.save_change_log(
+                    job.log_path(ext=".yaml"), jobRecord, changes, cleartext_yaml
+                )
             else:
                 local_changes, committed_changes = split_changes(changes)
                 self.save_change_log(
-                    job.log_path(ext=".yaml"), jobRecord, local_changes
+                    job.log_path(ext=".yaml"), jobRecord, local_changes, cleartext_yaml
                 )
                 jobLogPath = job.log_path("changes", ".yaml")
                 self.save_change_log(jobLogPath, jobRecord, committed_changes)
@@ -1261,19 +1270,17 @@ class YamlManifest(ReadOnlyManifest):
         logger.info("saving changelog to %s", logPath)
         with open(logPath, "a") as f:
             attrs = dict(status=job.status.name)
-            attrs.update(
-                {
-                    k: jobRecord[k]
-                    for k in (
-                        "status",
-                        "startTime",
-                        "specDigest",
-                        "startCommit",
-                        "summary",
-                    )
-                    if k in jobRecord
-                }
-            )
+            attrs.update({
+                k: jobRecord[k]
+                for k in (
+                    "status",
+                    "startTime",
+                    "specDigest",
+                    "startCommit",
+                    "summary",
+                )
+                if k in jobRecord
+            })
             attrs["changelog"] = jobLogRelPath
             f.write(job.log(attrs))
 
@@ -1296,7 +1303,7 @@ class YamlManifest(ReadOnlyManifest):
                 line = ChangeRecordRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
-    def save_change_log(self, fullPath, jobRecord, newChanges) -> None:
+    def save_change_log(self, fullPath, jobRecord, newChanges, yaml=None) -> None:
         try:
             changelog = CommentedMap()
             if self.manifest.path is not None:
@@ -1306,7 +1313,7 @@ class YamlManifest(ReadOnlyManifest):
             changes = itertools.chain([jobRecord], newChanges)
             changelog["changes"] = list(changes)
             output = io.StringIO()
-            self.yaml.dump(changelog, output)
+            (yaml or self.yaml).dump(changelog, output)
             if not os.path.isdir(os.path.dirname(fullPath)):
                 os.makedirs(os.path.dirname(fullPath))
             logger.info("saving job changes to %s", fullPath)
