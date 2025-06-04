@@ -485,6 +485,8 @@ class FilePath(_ArtifactExternalValue):
         self.path = abspath[len(base_dir) + 1 :]
         self.rel_to = rel_to
 
+    MAX_DIGEST_FILE_SIZE = 1024*1024
+
     def __digestable__(self, options):
         fullpath = self.get_full_path()
         stablepath = self.rel_to + ":" + self.path
@@ -502,9 +504,10 @@ class FilePath(_ArtifactExternalValue):
                     digest = "git:" + (revision or "HEAD")  # root of repo
                 return digest
 
-        if os.path.isfile(fullpath):
-            with open(fullpath, "r") as f:
-                return "contents:" + f.read()
+        fstat = os.stat(fullpath)
+        if os.path.isfile(fullpath) and fstat[stat.ST_SIZE] <= self.MAX_DIGEST_FILE_SIZE:
+            with open(fullpath, "rb") as f:
+                return f.read()
         else:
             fstat = os.stat(fullpath)
             return f"stat:{stablepath}:{fstat[stat.ST_SIZE]}:{fstat[stat.ST_MTIME]}"
