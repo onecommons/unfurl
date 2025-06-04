@@ -102,7 +102,7 @@ class PythonToYaml:
         assert path
         dirname, filename = os.path.split(path)
         before, sep, remainder = filename.rpartition(".")
-        glob = before.replace("_", "?") + ".*"
+        glob = before.replace("_", "?") + ".y*l"
         for p in Path(dirname).glob(glob):
             if p.suffix in [".yaml", ".yml"]:
                 return module, p
