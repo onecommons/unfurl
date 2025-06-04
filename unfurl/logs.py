@@ -197,7 +197,7 @@ def is_sensitive(obj: object) -> bool:
 
 
 class SensitiveFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> logging.LogRecord:
+    def filter(self, record: logging.LogRecord):
         if sys.version_info >= (3, 12, 0):
             # starting in 3.12, we can return a record instead of modifying it in-place,
             # allowing other handlers to receive the original record

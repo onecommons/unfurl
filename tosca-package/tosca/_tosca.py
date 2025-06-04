@@ -178,13 +178,13 @@ class ToscaObject:
                     yield c
 
     @classmethod
-    def _resolve_class(cls, _type) -> type:
+    def _resolve_class(cls, _type, is_item=False) -> type:
         """Resolve a type annotation object to a Python type"""
         origin = get_origin(_type)
         if origin:
             if origin is Union:  # also true if origin is Optional
                 _type = [a for a in get_args(_type) if a is not type(None)][0]
-            elif origin in [Annotated, list, collections.abc.Sequence]:
+            elif not is_item and origin in [Annotated, list, collections.abc.Sequence]:
                 _type = get_args(_type)[0]
             else:
                 _type = origin
@@ -478,7 +478,7 @@ def operation(
     .. code-block:: python
 
         # set the "configure" operation on "my_node" with the given artifact as its implementation.
-        my_node = MyNode().set_operation(operation(ShellExecutable("configure", cmd="./script.sh {{ SELF.prop }}")))
+        my_node = MyNode().set_operation(operation(ShellExecutable("configure", command="./script.sh {{ SELF.prop }}")))
     """
 
     def decorator_operation(func_: F) -> F:
@@ -648,16 +648,26 @@ class TypeInfo(NamedTuple):
 
     @property
     def simple_types(self) -> tuple:
-        return tuple(
-            (t.simple_type() if issubclass(t, ValueType) else t) for t in self.types
-        )
+        def get_simple_type(t):
+            origin = get_origin(t)
+            if origin:
+                t = origin
+            if issubclass(t, ValueType):
+                return t.simple_type()
+            return t
+
+        return tuple(get_simple_type(t) for t in self.types)
 
     def instance_check(self, value: Any) -> bool:
         if self.optional and value is None:
             return True
         if self.collection:
             if isinstance(value, Collection_Types):
-                for item in value:
+                if isinstance(value, dict):
+                    iter: typing.Iterable = value.values()
+                else:
+                    iter = value
+                for item in iter:
                     if not isinstance(item, self.simple_types):
                         return False
                 return True
@@ -690,6 +700,9 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
         else:
             _type = Any
         origin = get_origin(_type)
+        if origin is Annotated:
+            metadata = _type.__metadata__[0]
+            _type = get_args(_type)[0]
 
     if isinstance(_type, ForwardRef):
         types: tuple = tuple(
@@ -1037,7 +1050,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     @staticmethod
     def find_type_info(owner: Type["_ToscaType"], _type) -> TypeInfo:
         type_info = pytype_to_tosca_type(_type)
-        types = tuple(owner._resolve_class(t) for t in type_info.types)
+        types = tuple(owner._resolve_class(t, True) for t in type_info.types)
         return type_info._replace(types=types)
 
     def get_type_info(self) -> TypeInfo:
@@ -1171,8 +1184,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             target_typeinfo = None
             # don't override node templates unless always_include_type_constraints is set
             set_node_type = "node" not in req_def and (
-                        always_include_type_constraints or not self.has_node()
-                    )
+                always_include_type_constraints or not self.has_node()
+            )
             for _type in info.types:
                 if issubclass(_type, Relationship):
                     if (
@@ -1415,7 +1428,10 @@ class EvalData:
         if isinstance(expr, EvalData):
             expr = expr.expr
         elif callable(expr):
-            expr = {"eval": dict(computed=f"{expr.__module__}:{expr.__qualname__}")}
+            if hasattr(expr, "_is_template_function"):
+                expr = cast(EvalData, expr(None)).expr
+            else:
+                expr = {"eval": dict(computed=f"{expr.__module__}:{expr.__qualname__}")}
         self._expr: _EvalDataExpr = expr
         self._path = path
         self._foreach = None
@@ -3542,8 +3558,8 @@ class ArtifactEntity(_OwnedToscaType):
                     )
                     if default._default_factory is not dataclasses.MISSING:
                         if hasattr(default._default_factory, "_is_template_function"):
-                            factory = lambda: default._default_factory( # type: ignore
-                                _DataclassTypeProxy(cls)  
+                            factory = lambda: default._default_factory(  # type: ignore
+                                _DataclassTypeProxy(cls)
                             )
                         else:
                             factory = default._default_factory

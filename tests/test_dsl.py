@@ -3,6 +3,7 @@ import inspect
 import os
 import time
 from typing import List, Optional, Dict, Sequence, Union
+import typing
 import unittest
 from unittest.mock import MagicMock, patch
 import pytest
@@ -1075,7 +1076,7 @@ def test_template_init() -> None:
                 if self.host:
                     intent = self.prop1["key"][0]
                 else:
-                    intent = None # self.host is None on template e3
+                    intent = None  # self.host is None on template e3
                 self.shellScript = tosca.artifacts.Root(
                     file="example.sh", intent=intent
                 )
@@ -1770,7 +1771,7 @@ node.__class__.feature
         """,
         "for key, value in {'a': 1}.items(): assert key == 'a' and value == 1",
         "a, b = 1, 2; assert a == 1 and b == 2",
-        "(foo := 1)"
+        "(foo := 1)",
     ]
     for src in allowed:
         # print("\nallowed?\n", src)
@@ -1853,6 +1854,19 @@ def test_dsl_definitions():
     test_yaml.pop("topology_template")
     # yaml.dump(test_yaml, sys.stdout)
     assert parsed_yaml == test_yaml
+
+
+def test_typeinfo():
+    t = tosca.pytype_to_tosca_type(Optional[Dict[str, Dict[str, typing.Any]]])
+    assert t.types == (Dict[str, typing.Any],)
+    assert t.simple_types == (dict,)
+    assert t.instance_check({"D": {"a": {}}})
+    assert not t.instance_check({"D": []})
+
+    t2 = tosca.pytype_to_tosca_type(Dict[str, typing.List[str]])
+    assert t2.simple_types == (list,)
+    assert t2.instance_check({'not default': ['test']})
+    assert not t2.instance_check({'not default': ''})
 
 
 if __name__ == "__main__":
