@@ -1103,6 +1103,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     def _get_default_from_factory(self, obj=None) -> Any:
         factory = self._default_factory
         if factory is dataclasses.MISSING:
+            if self.has_explicit_default_value():
+                return self.default
             factory = self.get_type_info().collection or self.get_type_info().types[0]
         elif hasattr(factory, "_is_template_function"):
             return factory(_DataclassTypeProxy(self.owner, obj))  # type: ignore
@@ -2171,10 +2173,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 value = self._set_instance_field(name, value)
                 value.name = name
                 value.owner = self.__class__
-                if value.default is DEFAULT:
-                    value = value._get_default_from_factory(self)
-                else:
-                    value = value.default
+                value = value.default
             elif self._initialized:
                 field = self.get_instance_field(name)
                 if isinstance(field, _Tosca_Field):
@@ -2188,6 +2187,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     def _set_instance_field(self, name: str, field: _Tosca_Field):
         field = self._post_field_init(field)
         field.name = name
+        assert not field.owner, "do not reuse a field with more than one instance"
         field.owner = self.__class__
         t_field = object.__getattribute__(self, "__dataclass_fields__").get(name)
         field.super_field = t_field
@@ -2195,9 +2195,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             if t_field:  # replacing a class field
                 field.type = t_field.type
             else:
-                _Tosca_Field.infer_field(
-                    field.owner, name, field
-                )  # tries to deduce type
+                # sets the field's type
+                _Tosca_Field.infer_field(field.owner, name, field)
         self._instance_fields[name] = field
         return field
 
@@ -2213,18 +2212,27 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         return global_state._enforce_required_fields
 
     def has_default(self, ref: Any) -> bool:
-        """Return True if the attribute has its default value or hasn't been set at all.
+        """Return True if the attribute has its default value from the class definition or hasn't been set at all.
 
         Args:
             ref (str | FieldProjection): Either the name of the field, or, for more type safety, a reference to the field (e.g. ``MyType.my_prop``).
         """
-        try:
-            field_projection = self.get_ref(ref)
-        except AttributeError:
-            return True  # not even set apparently
-        val = object.__getattribute__(self, field_projection.field.name)
+        field, name = _get_field_from_prop_ref(ref)
+        if field:
+            if field.owner and not isinstance(self, field.owner):
+                raise TypeError("wrong owner")
+        else:
+            field = object.__getattribute__(self, "__dataclass_fields__").get(name)
+            if not field:
+                return True  # not even set apparently
+        val = object.__getattribute__(self, field.name)
         # this works because _ToscaField.__init__ sets field.default to DEFAULT if field.default_factory is set
-        return val is field_projection.field.default
+        has_default = val is field.default or val is DEFAULT or val is CONSTRAINED
+        if has_default:
+            instance_field = self._instance_fields.get(field.name)
+            if instance_field and instance_field._default_factory is not MISSING:
+                return False
+        return has_default
 
     def get_ref(self, ref: Any) -> FieldProjection:
         """Return a reference to a field. Raises ``AttributeError`` if the field doesn't exist and ``TypeError`` if the FieldProjection is for a different class than ``self``.

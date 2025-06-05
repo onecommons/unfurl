@@ -1063,6 +1063,72 @@ node_types:
 """
 
 
+def test_has_default() -> None:
+    shared = tosca.nodes.Compute()
+
+    class HasDefault(tosca.nodes.Root):
+        default: Dict[str, List[str]] = tosca.DEFAULT
+        constrained: Union[tosca.nodes.Compute, tosca.relationships.HostedOn] = (
+            tosca.CONSTRAINED
+        )
+        none: Optional[str] = None
+        requirement: tosca.nodes.Compute = shared
+        field: tosca.artifacts.Root = tosca.Artifact(default=tosca.artifacts.Root())
+        field2: str = tosca.Property(factory=lambda: "default")
+
+        def _template_init(self) -> None:
+            for name in [
+                "default",
+                "constrained",
+                "none",
+                "requirement",
+                "field",
+                "field2",
+            ]:
+                if "not_set" in self._name:
+                    assert self.has_default(name)
+                else:
+                    assert not self.has_default(name)
+
+    HasDefault("not_set")
+    HasDefault(
+        "not_set_with_defaults",
+        default=tosca.DEFAULT,
+        constrained=tosca.CONSTRAINED,
+        none=None,
+        requirement=shared,
+        field=tosca.DEFAULT,
+        field2=tosca.DEFAULT,
+    )  # note: field2="default" won't be has_default()
+    HasDefault(
+        "not_set_with_fields",
+        default=tosca.Property(default=tosca.DEFAULT),
+        constrained=tosca.Requirement(default=tosca.CONSTRAINED),
+        none=tosca.Property(default=None),
+        requirement=tosca.Requirement(default=shared),
+        field=tosca.Artifact(default=tosca.DEFAULT),
+        field2=tosca.Property(default=tosca.DEFAULT),
+    )
+    HasDefault(
+        "set",
+        default={"key": ["value"]},
+        constrained=tosca.relationships.HostedOn(),
+        none="set",
+        requirement=tosca.nodes.Compute("not_shared"),
+        field=tosca.artifacts.Root(),
+        field2="set",
+    )
+    HasDefault(
+        "set_with_field",
+        default=tosca.Property(factory=lambda: {"key": ["value"]}),
+        constrained=tosca.Requirement(default=tosca.nodes.Compute("set")),
+        none=tosca.Property(default="set"),
+        requirement=tosca.Requirement(default=tosca.nodes.Compute("not_shared")),
+        field=tosca.Artifact(default=tosca.artifacts.Root("set")),
+        field2=tosca.Property(default="set"),
+    )
+
+
 def test_template_init() -> None:
     class Example(tosca.nodes.Root):
         shellScript: tosca.artifacts.Root = tosca.REQUIRED  # equivalent to no default, use if _template_init will set (but you lose static type checking)
@@ -1865,8 +1931,8 @@ def test_typeinfo():
 
     t2 = tosca.pytype_to_tosca_type(Dict[str, typing.List[str]])
     assert t2.simple_types == (list,)
-    assert t2.instance_check({'not default': ['test']})
-    assert not t2.instance_check({'not default': ''})
+    assert t2.instance_check({"not default": ["test"]})
+    assert not t2.instance_check({"not default": ""})
 
 
 if __name__ == "__main__":
