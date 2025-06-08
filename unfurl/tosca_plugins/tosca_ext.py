@@ -51,10 +51,8 @@ class datatypes(Namespace):
             "additionalProperties": True,
             "transform": {"eval": {"to_env": {"eval": "$value"}}},
         }
+        _dataclass_args = dict(init=False)
 
-        def __init__(self, _name: str = "", **kw: Any) -> None:
-            super().__init__(_name)
-            self.__dict__.update(kw)
 
 class artifacts(Namespace):
     class Executable(tosca.artifacts.Root, interfaces.Executable):

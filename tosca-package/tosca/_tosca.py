@@ -1944,6 +1944,8 @@ def _make_dataclass(cls):
         assert cls.__module__ in sys.modules, (
             cls.__module__
         )  # _process_class checks this
+        if cls._dataclass_args:
+            kw.update(cls._dataclass_args)
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
         # note: _process_class replaces each field with its default value (or deletes the attribute)
         # replace those with _FieldDescriptors to allow class level attribute access to be customized
@@ -2078,8 +2080,11 @@ def field(
     kw_only=dataclasses.MISSING,
     name="",
     builtin=False,
+    compare=True,
 ) -> Any:
-    kw: Dict[str, Any] = dict(default=default, default_factory=default_factory)
+    kw: Dict[str, Any] = dict(
+        default=default, default_factory=default_factory, compare=compare
+    )
     if sys.version_info.minor > 9:
         kw["kw_only"] = kw_only
         if default is REQUIRED:
@@ -2117,6 +2122,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     # see RestrictedPython/Guards.py
     _guarded_writes: ClassVar[bool] = True
+    _dataclass_args: ClassVar[Optional[Dict[str, bool]]] = None
 
     # subtypes can registry themselves, so we can map TOSCA type names to a class
     _all_types: ClassVar[Dict[str, Type["_ToscaType"]]] = {}
@@ -3375,14 +3381,18 @@ class OpenDataEntity(DataEntity):
     _type_metadata = dict(additionalProperties=True)
 
     def __init__(self, _name="", **kw):
+        extra = {}
         for k in list(kw):
             if k[0] != "_":
-                self.__dict__[k] = kw.pop(k)
+                extra[k] = kw.pop(k)
         super().__init__(_name, **kw)
+        for k, v in extra.items():
+            setattr(self, k, v)
 
     def extend(self, **kw) -> Self:
         "Add undeclared properties to the data type."
-        self.__dict__.update(kw)
+        for k, v in kw.items():
+            setattr(self, k, v)
         return self
 
 
