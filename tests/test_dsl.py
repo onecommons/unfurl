@@ -2,7 +2,7 @@ import dataclasses
 import inspect
 import os
 import time
-from typing import List, Optional, Dict, Sequence, Union
+from typing import Any, List, Optional, Dict, Sequence, Union
 import typing
 import unittest
 from unittest.mock import MagicMock, patch
@@ -13,6 +13,7 @@ from tosca import OpenDataEntity
 from unfurl.merge import diff_dicts
 from unfurl.dsl import get_allowed_modules
 import sys
+import copy
 from click.testing import CliRunner
 from unfurl.__main__ import cli
 
@@ -27,6 +28,7 @@ from toscaparser.elements.entity_type import EntityType, globals
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from unfurl.manifest import Manifest
 from toscaparser.tosca_template import ToscaTemplate
+from unfurl.configurators.templates.docker import unfurl_datatypes_DockerContainer
 import tosca
 
 
@@ -1008,6 +1010,10 @@ topology_template:
           file: example.sh
           intent:
             eval: ::e1::prop1::key::0
+      properties:
+        prop1:
+          key:
+          - test
       requirements:
       - host:  # customized requirement with constraint instead of template
           node: tosca.nodes.Compute
@@ -1161,9 +1167,7 @@ def test_template_init() -> None:
         default=tosca.CONSTRAINED,
         metadata={"test": "just some metadata but not a node"},
     )
-    e1.prop1["key"] = [
-        "test"
-    ]  # XXX changes modifying default value aren't included in yaml
+    e1.prop1["key"] = ["test"]
     assert e1.prop1["key"] == ["test"]
 
     e2 = Example(host=tosca.nodes.Compute("mm"))
@@ -1262,6 +1266,12 @@ topology_template:
       type: Example
       metadata:
         module: tests.test_dsl
+    open_test:
+      type: Example
+      properties:
+        more: 1
+      metadata:
+        module: tests.test_dsl
 """
 
 
@@ -1285,6 +1295,9 @@ def test_envvar_type():
         Example = Namespace.Example
         test = Example()
 
+        open_test = Example()
+        open_test.more = 1
+
         class pcls(tosca.InstanceProxy):
             _cls = Example
 
@@ -1307,8 +1320,33 @@ def test_envvar_type():
         )
 
         generic_envvars = unfurl.datatypes.EnvironmentVariables(DBASE="aaaa", URL=True)
+        assert generic_envvars != unfurl.datatypes.EnvironmentVariables()
+        assert generic_envvars == unfurl.datatypes.EnvironmentVariables(
+            DBASE="aaaa", URL=True
+        )
+        generic_envvars.MORE = 1
+        assert generic_envvars.DBASE == "aaaa"
+        assert generic_envvars.MORE == 1
+        assert generic_envvars == unfurl.datatypes.EnvironmentVariables(
+            DBASE="aaaa", URL=True, MORE=1
+        )
+        assert generic_envvars != unfurl.datatypes.EnvironmentVariables()
+        assert (
+            unfurl.datatypes.EnvironmentVariables()
+            == unfurl.datatypes.EnvironmentVariables()
+        )
 
-        assert generic_envvars.to_yaml() == {"DBASE": "aaaa", "URL": True}
+        cloned = copy.copy(generic_envvars)
+        assert cloned == generic_envvars
+        assert cloned.URL == True
+        assert cloned.DBASE == "aaaa"
+        assert cloned.MORE == 1
+        cloned.another = 1
+        assert "another" in cloned._instance_fields
+        assert "another" not in generic_envvars._instance_fields
+        assert cloned != generic_envvars
+
+        assert generic_envvars.to_yaml() == {"DBASE": "aaaa", "URL": True, "MORE": 1}
         assert OpenDataEntity(a=1, b="b").extend(c="c").to_yaml() == {
             "a": 1,
             "b": "b",

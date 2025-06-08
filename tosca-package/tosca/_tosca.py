@@ -850,6 +850,47 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         self.owner_type: Optional[Type["_ToscaType"]] = None
         self.mapping = mapping
 
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
+
+        if not isinstance(other, _Tosca_Field):
+            return NotImplemented
+
+        return (
+            self.name == other.name
+            and self.owner == other.owner
+            and self.metadata == other.metadata
+            and self.title == other.title
+            and self.status == other.status
+            and self.constraints == other.constraints
+            and self.declare_attribute == other.declare_attribute
+            and self.default == other.default
+            and self._default_factory == other._default_factory
+            and self.mapping == other.mapping
+            and self.relationship == other.relationship
+            and self.capability == other.capability
+            and self.node == other.node
+            and self.node_filter == other.node_filter
+            and self.valid_source_types == other.valid_source_types
+            and self.super_field == other.super_field
+        )
+
+    def __hash__(self) -> int:
+        # Only include immutable and hashable fields
+        return hash((
+            self.name,
+            self.owner,
+            self.title,
+            self.status,
+            self.declare_attribute,
+            self._default_factory,
+            self.relationship,
+            self.capability,
+            self.node,
+            tuple(self.valid_source_types) if self.valid_source_types else None,
+        ))
+
     def has_node_filter(self) -> bool:
         return bool(
             self.node_filter
@@ -2134,7 +2175,9 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         default_factory=dict, init=False
     )
     _builtin_fields: ClassVar[Sequence[str]] = ()
-    _initialized: bool = dataclasses.field(default=False, init=False)
+    _initialized: bool = dataclasses.field(
+        default=False, init=False, repr=False, compare=False
+    )
 
     @classmethod
     def register_type(cls, type_name):
@@ -2182,12 +2225,13 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 value = value.default
             elif self._initialized:
                 field = self.get_instance_field(name)
-                if isinstance(field, _Tosca_Field):
-                    if self._set_value(field, value, name):
-                        return
-                else:
-                    if self._set_value(None, value, name):
-                        return
+                if not field and is_data_field(value):
+                    field = _Tosca_Field.infer_field(self.__class__, name, value)
+                    self._instance_fields[name] = self._post_field_init(field)
+                elif not isinstance(field, _Tosca_Field):
+                    field = None
+                if self._set_value(field, value, name):
+                    return
         return super().__setattr__(name, value)
 
     def _set_instance_field(self, name: str, field: _Tosca_Field):
@@ -2213,6 +2257,13 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 f"Templates can not be modified at runtime."
             )
         return super().__delattr__(__name)
+
+    def __copy__(self) -> Self:
+        result = type(self).__new__(type(self))
+        result.__dict__.update(self.__dict__)
+        # _instance_fields track new attributes alongside __dict__ so we don't want to share that
+        result._instance_fields = dict(self._instance_fields)
+        return result
 
     def _enforce_required_fields(self) -> bool:
         return global_state._enforce_required_fields
@@ -2329,7 +2380,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             # we need to implement copy on write for mutable properties, attributes, capabilities and artifacts (via FieldProjection)
             # for requirements, the object always will have their own template
             val = field._get_default_from_factory(self)
-            self._defaults[name] = val
+            self._defaults[name] = field._get_default_from_factory(self)
             super().__setattr__(name, val)
             set = True
             # note: if val is CONSTRAINED, __getattribute__ returns a FieldProjection
@@ -2408,9 +2459,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
-                if field:
-                    field.default = value  # this whole field was missing
-                    yield name, (field, value)
+                self._instance_fields[name] = self._post_field_init(field)
+                yield name, (field, value)
             elif field:
                 yield name, (field, value)
             # otherwise skip, it's not a tosca field
@@ -3284,8 +3334,8 @@ NodeType = Node
 
 
 class _OwnedToscaType(ToscaType):
-    _local_name: Optional[str] = field(default=None)
-    _node: Optional[Node] = field(default=None)
+    _local_name: Optional[str] = field(default=None, compare=False)
+    _node: Optional[Node] = dataclasses.field(default=None, compare=False, repr=False)
 
     def _set_parent(self, parent: "_ToscaType", name: str):
         # only set once
