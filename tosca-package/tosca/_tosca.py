@@ -779,6 +779,7 @@ class _CONSTRAINED_TYPE:
 
 CONSTRAINED: Any = _CONSTRAINED_TYPE()
 
+PATCH: str = "~patch~"
 
 _T = TypeVar("_T")
 
@@ -2265,8 +2266,12 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         result._instance_fields = dict(self._instance_fields)
         return result
 
+    @property
+    def is_patch(self) -> bool:
+        return False
+
     def _enforce_required_fields(self) -> bool:
-        return global_state._enforce_required_fields
+        return global_state._enforce_required_fields and not self.is_patch
 
     def has_default(self, ref: Any) -> bool:
         """Return True if the attribute has its default value from the class definition or hasn't been set at all.
@@ -2338,10 +2343,25 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                      self.host = tosca.nodes.Compute(mem_size=4 * GB)
         """
 
+    def _remove_patches(self) -> Dict[str, "ToscaType"]:
+        # replace patch objects passed to __init__() with the field's default value
+        # this should only be called at the beginning of _post_init
+        patches = {}
+        for field in object.__getattribute__(self, "__dataclass_fields__").values():
+            if not field.name.startswith("_"):
+                val = object.__getattribute__(self, field.name)
+                if isinstance(val, ToscaType) and val.is_patch:
+                    patches[field.name] = val
+                    object.__setattr__(self, field.name, field.default)
+        return patches
+
     def __post_init__(self) -> None:
-        self._template_init()  # user hook to initialize the template
+        patches = self._remove_patches()
+        if not self.is_patch:
+            self._template_init()  # user hook to initialize the template
 
         # internal bookkeeping:
+        # add missing values, apply patches, and set ownership
         self._defaults: Dict[str, Any] = {}
         fields = object.__getattribute__(self, "__dataclass_fields__")
         if self._instance_fields:
@@ -2353,24 +2373,56 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             if not isinstance(field, _Tosca_Field):
                 self._set_value(None, val, field.name)
                 continue
+            patch = patches.get(field.name)
             if (
                 (val is REQUIRED or val is MISSING)
                 and field._tosca_field_type != ToscaFieldType.attribute
                 and not field.declare_attribute
             ):
-                if self._enforce_required_fields():
+                # a required field wasn't set
+                if self._enforce_required_fields() and not patch:
                     # on Python < 3.10 we set this to workaround the lack of keyword only fields
                     raise ValueError(
                         f'Keyword argument was missing: {field.name} on "{self}".'
                     )
                 else:
-                    setattr(self, field.name, None)
+                    # if patch: XXX make sure partial is complete
+                    #     patch.validate()
+                    # set to None or the partial if there is one:
+                    setattr(self, field.name, patch)
             else:  # update if it wasn't initialize or set by _template_init()
-                self._set_value(field, val, field.name)
+                self._set_value(field, val, field.name, patch)
         self._initialized = True
 
-    def _set_value(self, field: Optional[_Tosca_Field], val: Any, name: str) -> bool:
-        set = False
+    def _merge(self, val: "ToscaType", override: "_ToscaType", shared) -> "_ToscaType":
+        # apply explicitly set attribute on override to val
+        if shared:
+            val = copy.copy(val)
+            if val._name != PATCH:
+                val._name = ""
+        for field, override_val in object.__getattribute__(
+            override, "get_instance_field_values"
+        )().values():
+            # note: this means we can't explicitly set a default value, even if explicitly assigned
+            if isinstance(override_val, _ToscaType) and override_val.is_patch:
+                base = object.__getattribute__(
+                    val, field.name
+                )  # XXX what if missing or wrong type?
+                shared_field = field.default is val if field else False
+                override_val = self._merge(base, override_val, shared or shared_field)
+            setattr(val, field.name, override_val)
+        if self.is_patch:  # preserve as PATCH
+            val._name = PATCH
+        return val
+
+    def _set_value(
+        self,
+        field: Optional[_Tosca_Field],
+        val: Any,
+        name: str,
+        partial: Optional["_ToscaType"] = None,
+    ) -> bool:
+        was_set = False
         if not field:
             if val in [DEFAULT, CONSTRAINED]:
                 raise ValueError(
@@ -2382,10 +2434,16 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             val = field._get_default_from_factory(self)
             self._defaults[name] = field._get_default_from_factory(self)
             super().__setattr__(name, val)
-            set = True
+            was_set = True
             # note: if val is CONSTRAINED, __getattribute__ returns a FieldProjection
-
-        if isinstance(val, _ToscaType):
+        if isinstance(val, ToscaType):
+            if partial:
+                merged = self._merge(
+                    val, partial, field.default is val if field else False
+                )
+                if merged is not val:
+                    super().__setattr__(name, merged)
+                    was_set = True
             val._set_parent(self, name)
         elif (
             isinstance(val, FieldProjection)
@@ -2396,8 +2454,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             # if a relative field projection from a node template, assume its the parent
             val = val.set_start(".owner")
             super().__setattr__(name, val)
-            set = True
-        return set
+            was_set = True
+        return was_set
 
     def get_instance_field(self, name) -> Optional[dataclasses.Field]:
         "Return the given field for this template, including fields from directly assigned to the template."
@@ -2752,6 +2810,10 @@ class ToscaType(_ToscaType):
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
 
+    @property
+    def is_patch(self) -> bool:
+        return self._name == PATCH
+
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
         # declare this again so ToscaInput and ToscaOutput._post_field_init is not called on ToscaType subclasses subtype those classes via multiple inheritance
@@ -2803,7 +2865,7 @@ class ToscaType(_ToscaType):
                     )
                 ):
                     return FieldProjection(t_field, obj=self)
-            if isinstance(val, _ToscaType):
+            if isinstance(val, ToscaType) and not val.is_patch:
                 val._set_parent(self, name)
         return val
 

@@ -1183,6 +1183,128 @@ def test_template_init() -> None:
     )
 
 
+PATCH = tosca.PATCH
+
+test_patching_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    named:
+      type: Service
+      properties:
+        container:
+          environment:
+            VAR1: a
+            VAR2: a
+          command:
+          - a
+          - b
+          - c
+        foo: foo
+      metadata:
+        module: tests.test_dsl
+    app:
+      type: App
+      metadata:
+        module: tests.test_dsl
+    app2:
+      type: App
+      requirements:
+      - service: app2_service
+      metadata:
+        module: tests.test_dsl
+    app2_service:
+      type: Service
+      properties:
+        container:
+          environment:
+            P1: p
+            VAR2:
+            VAR1: a
+          command:
+          - a
+          - b
+          - c
+          extra: extra
+        overlays:
+          overlay: 1
+        foo: foo
+      directives:
+      - dependent
+      metadata:
+        module: tests.test_dsl
+node_types:
+  App:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - service:
+        node: named
+  Service:
+    derived_from: tosca.nodes.Root
+    properties:
+      container:
+        type: unfurl.datatypes.DockerContainer
+        default: {}
+      overlays:
+        type: map
+        default: {}
+      foo:
+        type: string
+        required: false
+"""
+
+
+def test_patching(mocker):
+    class Service(tosca.nodes.Root):
+        container: unfurl_datatypes_DockerContainer = tosca.DEFAULT
+        overlays: Dict[str, Any] = tosca.DEFAULT
+        foo: Optional[str] = None
+
+        def _template_init(self):
+            if self.has_default("container"):  # true even if initialized with PATCH
+                self.container = unfurl_datatypes_DockerContainer(
+                    command=["a", "b", "c"],
+                    environment=unfurl.datatypes.EnvironmentVariables(
+                        VAR1="a", VAR2="a"
+                    ),
+                )
+
+    class App(tosca.nodes.Root):
+        service: Service = Service("named", foo="foo")
+
+    spy_remove_patches = mocker.spy(App, "_remove_patches")
+    spy_merge = mocker.spy(App, "_merge")
+
+    container = unfurl_datatypes_DockerContainer(
+        PATCH,
+        environment=unfurl.datatypes.EnvironmentVariables(PATCH, P1="p", VAR2=None),
+    )
+    container.extend(extra="extra")
+    app = App()  # create an empty app to make sure shared service wasn't modified
+    app2 = App(
+        service=Service(
+            PATCH,
+            overlays={"overlay": 1},
+            container=container,
+        ),
+    )
+    assert len(spy_remove_patches.spy_return) == 1
+    assert spy_remove_patches.spy_return["service"]._name == PATCH
+    assert spy_merge.spy_return.overlays == {"overlay": 1}
+    assert app2.service.container.extra == "extra"
+    assert app2.service.container.command == ["a", "b", "c"]
+    assert app2.service.container.environment.P1 == "p"
+    assert app2.service.container.environment.VAR1 == "a"
+
+    __name__ = "tests.test_dsl"
+    converter = PythonToYaml(locals())
+    yaml_dict = converter.module2yaml()
+    tosca_yaml = load_yaml(yaml, test_patching_yaml)
+    assert tosca_yaml == yaml_dict, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
 test_datatype_yaml = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:

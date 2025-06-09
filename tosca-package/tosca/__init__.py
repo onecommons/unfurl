@@ -365,6 +365,7 @@ __all__ = [
     "Mibps",
     "NS",
     "AttributeOptions",
+    "PATCH",
     "PropertyOptions",
     "Namespace",
     "NodeTemplateDirective",
