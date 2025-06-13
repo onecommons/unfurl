@@ -81,7 +81,7 @@ from .planrequests import (
     find_operation_host,
     create_instance_from_spec,
 )
-from .spec import find_env_vars, EntitySpec
+from .spec import find_env_vars, EntitySpec, RelationshipSpec
 
 import logging
 
@@ -780,12 +780,12 @@ class TaskView:
                 continue
             if parent is self.target.root:
                 break
+            # XXX include explicit relationships on host requirement too
+            for rel in parent.get_default_relationships():
+                if id(rel) not in seen:
+                    seen[id(rel)] = rel
             if self.operation_host:
                 self._get_connection(self.operation_host, parent, seen)
-        # get the rest of the default connections
-        for rel in self.target.root.get_default_relationships():
-            if id(rel) not in seen:
-                seen[id(rel)] = rel
 
         # reverse so nearest relationships replace less specific ones that have matching names
         connections = _ConnectionsMap(  # the list() is for Python 3.7

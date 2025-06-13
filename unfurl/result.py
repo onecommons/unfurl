@@ -161,6 +161,7 @@ class ResourceRef(ABC):
 
     @property
     def ancestors(self):
+        "list of self and ancestors starting from self"
         return list(self.yield_parents())
 
     @property

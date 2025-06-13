@@ -911,7 +911,7 @@ class RelationshipInstance(EntityInstance):
                 env[name] = val
         return env
 
-    def matches_target(self, capability: "CapabilityInstance"):
+    def matches_target(self, capability: "CapabilityInstance") -> bool:
         # does this relationship be apply to the capability we are trying to connect to (target)?
         rel_template = cast(RelationshipTemplate, self.template.toscaEntityTemplate)
         default_for = rel_template.default_for
@@ -946,7 +946,7 @@ class RelationshipInstance(EntityInstance):
             or default_for == capability.name
             or capability.template.toscaEntityTemplate.is_derived_from(default_for)
         ):
-            return rel_template.get_matching_capabilities(nodeTemplate, capability.name)
+            return True
 
         return False
 
@@ -1210,6 +1210,7 @@ class NodeInstance(HasInstancesInstance):
             for capability in self.capabilities:
                 if rel.matches_target(capability):
                     yield rel
+                    break
 
     def get_default_relationships(
         self, relation: Optional[str] = None
