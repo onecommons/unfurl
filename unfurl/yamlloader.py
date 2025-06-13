@@ -1445,14 +1445,7 @@ class YamlConfig:
                 path, template = self.load_yaml(key, baseDir, warnWhenNotFound)
         except Exception:
             msg = f"unable to load document include: {templatePath} (base: {baseDir})"
-            if warnWhenNotFound:
-                logger.warning(msg, exc_info=True)
-                return value, None, baseDir
-            else:
-                raise UnfurlError(
-                    msg,
-                    True,
-                )
+            raise UnfurlError(msg, True)
         if template is None:
             return value, template, baseDir
 
