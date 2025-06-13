@@ -529,21 +529,33 @@ class Package:
         If either package doesn't specify a version, return true.
         Otherwise only return true if the packages revisions match exactly.
         """
+        return not bool(self.compare_versions(package))
+
+    def compare_versions(self, package: "Package") -> Union[bool, str]:
+        """
+        If it returns a string, the package is compatible but with a caveat.
+        """
         if not self.revision or not package.revision:
             # there aren't two revisions to compare so skip compatibility check
-            return True
+            return "missing"
         # if either revision wasn't explicitly specified, skip compatibility check
         if self.discovered or package.discovered:
-            return True
+            return "discovered"
         if not self.has_semver(True):
             # require an exact match for non-semver revisions
             return self.revision == package.revision
         if not package.has_semver(True):
             return False  # the other package doesn't have a semver and doesn't match
         # # if given revision is newer than current packages we need to reload (error for now?)
-        return TOSCAVersionProperty(package.revision).is_semver_compatible_with(
-            TOSCAVersionProperty(self.revision)
-        )
+        package_version = TOSCAVersionProperty(package.revision)
+        version = TOSCAVersionProperty(self.revision)
+        unreleased = int(package_version.major_version) == 0
+        if unreleased and int(version.major_version) == 1:
+            return "unreleased"
+        compat = package_version.is_semver_compatible_with(version)
+        if compat and unreleased and version.minor_version != package_version.minor_version:
+            return "unreleased" # more recent unreleased version, not an exact match
+        return compat
 
 
 PackagesType = Dict[str, Union[Literal[False], Package]]
@@ -600,13 +612,22 @@ def resolve_package(
             return None
         # We don't want different implementations of the same package so use the one we already have.
         # But first check if it compatible with the version requested here.
-        if not existing.is_compatible_with(package):
+        compatible = existing.compare_versions(package)
+        if not compatible:
             # XXX if we need a later version, update the existing package and reload any content from it
             # XXX update existing.repositories and invalidate associated file_refs in the cache
             # XXX switch to raising UnfurlPackageUpdateNeeded after updating repositories and cache
-            raise UnfurlError(
-                f"{package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use."
-            )
+            if package.package_id == "github.com/onecommons/unfurl":
+                msg = f"Unfurl version {package.revision} was specified but the running version is {existing.revision}."
+            else:
+                msg = f"Package {package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use."
+            raise UnfurlError(msg)
+        elif compatible == "unreleased":
+            if package.package_id == "github.com/onecommons/unfurl":
+                msg = f"Unreleased Unfurl version {package.revision} was specified but the running version is {existing.revision}."
+            else:
+                msg = "Package {package.package_id} has an unreleased version {package.revision} but version {existing.revision} is already in use."
+            logger.warning(msg)
         package = existing
 
     package.add_reference(repoview)

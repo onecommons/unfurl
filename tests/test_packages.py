@@ -269,18 +269,16 @@ spec:
       - repository: unfurl
         file: configurators/templates/dns.yaml
 """
+ENSEMBLE_UNFURL_UNRELEASED = _ENSEMBLE_TPL % "v0.9.1"
 ENSEMBLE_UNFURL_PAST = _ENSEMBLE_TPL % "v1.0"
 ENSEMBLE_UNFURL_FUTURE = _ENSEMBLE_TPL % "2.0"
 
-
 def test_unfurl_dependencies():
-    assert YamlManifest(ENSEMBLE_UNFURL_PAST)
+    assert YamlManifest(ENSEMBLE_UNFURL_UNRELEASED) # warns
+    assert YamlManifest(ENSEMBLE_UNFURL_PAST) # ok
     with pytest.raises(UnfurlError) as err:
-        YamlManifest(ENSEMBLE_UNFURL_FUTURE)
-        assert (
-            "github.com/onecommons/unfurl has version 2.0 but incompatible version"
-            in str(err)
-        )
+        YamlManifest(ENSEMBLE_UNFURL_FUTURE)  # fails
+    assert "was specified but the running version is" in str(err)
 
 
 if __name__ == "__main__":
