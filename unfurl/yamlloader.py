@@ -89,7 +89,7 @@ from toscaparser.repositories import Repository
 from toscaparser.elements.interfaces import OperationDef
 
 from ansible.parsing.vault import VaultLib, VaultSecret
-from ansible.parsing.yaml.objects import AnsibleMapping
+from ansible.parsing.yaml.objects import AnsibleMapping, AnsibleUnicode, AnsibleSequence
 from ansible.parsing.yaml.loader import AnsibleLoader, AnsibleConstructor
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from time import perf_counter
@@ -253,6 +253,8 @@ def make_yaml(vault=None):
     yaml.representer.add_representer(
         AnsibleUnsafeBytes, SafeRepresenter.represent_binary
     )
+    yaml.representer.add_representer(AnsibleUnicode, SafeRepresenter.represent_str)
+    yaml.representer.add_representer(AnsibleSequence, SafeRepresenter.represent_list)
     yaml.representer.add_representer(AnsibleMapping, SafeRepresenter.represent_dict)
     return yaml
 
