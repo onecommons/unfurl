@@ -21,7 +21,10 @@ from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
 from RestrictedPython import safe_builtins
 from RestrictedPython.transformer import ALLOWED_FUNC_NAMES, FORBIDDEN_FUNC_NAMES
-from RestrictedPython.Guards import guarded_iter_unpack_sequence, guarded_unpack_sequence
+from RestrictedPython.Guards import (
+    guarded_iter_unpack_sequence,
+    guarded_unpack_sequence,
+)
 
 from . import Namespace, global_state
 
@@ -29,7 +32,9 @@ logger = logging.getLogger("tosca")
 
 PRINT_AST_SRC = os.getenv("UNFURL_TEST_PRINT_AST_SRC")
 FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER")
-SKIP_LOADER = os.getenv("DEBUGPY") or os.getenv("UNFURL_TEST_SKIP_LOADER")
+SKIP_LOADER = os.getenv("UNFURL_TEST_SKIP_LOADER") != "no" and (
+    os.getenv("DEBUGPY") or os.getenv("UNFURL_TEST_SKIP_LOADER")
+)
 
 # python standard library modules matches those added to utility_builtins
 ALLOWED_MODULES = (
@@ -480,7 +485,7 @@ def __safe_import__(
             module = modules[name]
             if parts[0] == "tosca_repositories" or name in ALLOWED_PRIVATE_PACKAGES:
                 for from_name in fromlist:
-                    if not hasattr(module, from_name):
+                    if from_name != "*" and not hasattr(module, from_name):
                         # e.g. from tosca_repositories.repo import module
                         load_private_module(base_dir, modules, name + "." + from_name)
             if name in ALLOWED_MODULES:
@@ -616,6 +621,7 @@ def safe_guarded_write(ob):
 # XXX
 # _inplacevar_:  'n += 1' becomes 'n = _inplacevar_("+=", n, 1)'
 
+
 class ToscaDslNodeTransformer(RestrictingNodeTransformer):
     def __init__(self, errors=None, warnings=None, used_names=None):
         super().__init__(errors, warnings, used_names)
@@ -632,6 +638,8 @@ class ToscaDslNodeTransformer(RestrictingNodeTransformer):
         super().error(node, info)
 
     def check_name(self, node, name, allow_magic_methods=False):
+        if name is None:
+            return
         if not self._name_ok(node, name):
             self.error(node, f'"{name}" is an invalid variable name"')
 
@@ -855,8 +863,8 @@ def restricted_exec(
         "_write_": safe_guarded_write if safe_mode else default_guarded_write,
         "_print_": PrintCollector,
         "__metaclass__": type,
-        '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
-        "_unpack_sequence_": guarded_unpack_sequence
+        "_iter_unpack_sequence_": guarded_iter_unpack_sequence,
+        "_unpack_sequence_": guarded_unpack_sequence,
     })
     namespace["__builtins__"] = tosca_builtins
     namespace["__name__"] = full_name
