@@ -15,6 +15,7 @@ from typing import (
 import types
 import inspect
 import re
+import copy
 from typing_extensions import (
     Callable,
     Literal,
@@ -85,16 +86,18 @@ class Options:
             __value = Options(__value)
         elif not isinstance(__value, Options):
             raise TypeError(f"Options | {type(__value)} not supported.")
-        self.next = __value
-        return self
+        new = copy.copy(self)
+        new.next = __value
+        return new
 
     def __ror__(self, __value: Union["Options", dict]) -> "Options":
         if isinstance(__value, dict):
             __value = Options(__value)
         elif not isinstance(__value, Options):
             raise TypeError(f"Options | {type(__value)} not supported.")
-        self.next = __value
-        return self
+        new = copy.copy(self)
+        new.next = __value
+        return new
 
 
 class PropertyOptions(Options):
@@ -684,9 +687,7 @@ class TagWriter:
     def endif(self) -> str:
         return "{% endif %}"
 
-    def for_(
-        self, iterable: Iterable[_T], partial: Callable[[_T], str]
-    ) -> str:
+    def for_(self, iterable: Iterable[_T], partial: Callable[[_T], str]) -> str:
         self.arg_name = list(inspect.signature(partial).parameters)[0]
         collection_name = self._name_expr(iterable)
         self._loops.append([self.arg_name, collection_name, 0])

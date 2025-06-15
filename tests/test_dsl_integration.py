@@ -95,6 +95,8 @@ def test_options():
         tosca.Property(options=expr.tfoutput)
     field = tosca.Property(options=expr.tfvar | MyOption("foo"))
     assert field.metadata == dict(tfvar=True, my_option="foo")
+    field2 = tosca.Property(options=expr.tfvar)
+    assert field2.metadata == dict(tfvar=True)
 
 
 @pytest.mark.parametrize(
