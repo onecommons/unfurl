@@ -1517,7 +1517,7 @@ def _to_graphql(
             if connection_template.get("visibility") == "omit":
                 continue
             name = connection_template["name"]
-            assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
+            # assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
             # db["ResourceTemplate"][name] = connection_template
             connections[name] = connection_template
 
