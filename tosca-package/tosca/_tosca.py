@@ -233,8 +233,12 @@ class ToscaObject:
                     raise TypeError(f"{qname} is a module, not a class")
                 obj = modules[name]
             else:
+                if name != qname:
+                    unresolved_name = "{name} of {qname}"
+                else:
+                    unresolved_name = name
                 raise NameError(
-                    f"{name} of {qname} not found in {cls.__name__}'s scope"
+                    f"{unresolved_name} not found in {cls.__name__}'s scope"
                 )
         while names:
             name = names.pop(0)
@@ -2385,10 +2389,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                     raise ValueError(
                         f'Keyword argument was missing: {field.name} on "{self}".'
                     )
-                else:
-                    # if patch: XXX make sure partial is complete
-                    #     patch.validate()
-                    # set to None or the partial if there is one:
+                elif patch:
+                    # patch.validate() # XXX patch object should be complete in this case
                     setattr(self, field.name, patch)
             else:  # update if it wasn't initialize or set by _template_init()
                 self._set_value(field, val, field.name, patch)
@@ -3078,7 +3080,7 @@ class ToscaType(_ToscaType):
                     )
                 else:
                     # exclude fields with values of unexpected type (e.g None or REQUIRED)
-                    msg = f'{field.tosca_field_type.name} "{field.name}" on "{self._name}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}: {value}'
+                    msg = f'{field.tosca_field_type.name} "{field.name}" on "{self._name or type(self)}"\'s  value has wrong type: it\'s a {type(value)}, not a {field.type}: {value}'
                     if value in [None, DEFAULT, MISSING, REQUIRED, CONSTRAINED]:
                         logger.debug("Skipping: " + msg)
                     else:
