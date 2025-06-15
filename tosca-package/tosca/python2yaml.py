@@ -176,16 +176,20 @@ class PythonToYaml:
         repositories = {}
         for repo, p in self.imports:
             _import = dict(file=str(p))
-            if repo and repo not in "service_template":
+            if repo and repo != "service_template":
                 _import["repository"] = repo
                 if repo != "unfurl":
                     if not self.import_resolver:
                         repositories[repo] = dict(url=self.repos[repo].as_uri())
-                    elif not self.import_resolver.get_repository(repo, None):
-                        # the repository wasn't found, but don't add it here (this is probably an error)
-                        logger.warning(
-                            f"Added an import in {repo} but could not find {repo} in {list(self.import_resolver.manifest.repositories)}."
-                        )
+                    else:
+                        repository = self.import_resolver.get_repository(repo, None)
+                        if repository:
+                            repositories[repo] = repository.tpl
+                        else:
+                            # the repository wasn't found, but don't add it here (this is probably an error)
+                            logger.warning(
+                                f"Added an import in {repo} but could not find {repo} in {list(self.import_resolver.manifest.repositories)}."
+                            )
             imports.append(_import)
         if repositories:
             self.sections.setdefault("repositories", {}).update(repositories)
@@ -236,7 +240,7 @@ class PythonToYaml:
     ):
         node = None
         if value is None:
-            req["node"] = None   # explicitly set empty
+            req["node"] = None  # explicitly set empty
         elif isinstance(value, Node):
             node = value
         elif isinstance(value, CapabilityType):
@@ -463,6 +467,17 @@ class PythonToYaml:
                 else:
                     import_path = module_dir / yaml_path
                 _key = ("", import_path)
+                if (
+                    module_name.startswith("tosca_repositories.")
+                    and "tosca_repositories" not in yaml_path.parts
+                ):
+                    # module is a repository but it looks like yaml_path points directly to the symlink dest,
+                    # add the repository and prefer the symlink path
+                    ns, repo_path = self._set_repository_for_module(
+                        module_name, yaml_path
+                    )
+                    if repo_path:
+                        _key = (ns, repo_path)
                 if _key not in self.imports:
                     self.imports[_key] = True
                     logger.debug(
