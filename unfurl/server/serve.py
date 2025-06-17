@@ -416,7 +416,8 @@ def _clone_repo(
             git_url, repo_path, branch, shallow_since=shallow_since
         )
     finally:
-        os.unlink(clone_lock_path)
+        if os.path.exists(clone_lock_path):
+            os.unlink(clone_lock_path)
 
 
 _cache_inflight_sleep_duration = 0.2
@@ -538,19 +539,28 @@ class InflightCacheValue(NamedTuple):
     time: float
 
 
+def _get_committed_date(commit: Commit):
+    try:
+        return commit.committed_date
+    except ValueError:
+        commit.repo.git.clear_cache()
+        return commit.committed_date
+
+
 def pull(repo: GitRepo, branch: str, shallow_since=None) -> str:
     action = "pulled"
+    firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
+    # set shallow_since so we don't remove commits we already fetched
+    committed_date = _get_committed_date(firstCommit)
+    if shallow_since:
+        shallow_since = str(min(shallow_since, committed_date))
+    else:
+        shallow_since = str(committed_date)
     try:
-        firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
-        # set shallow_since so we don't remove commits we already fetched
-        if shallow_since:
-            shallow_since = min(shallow_since, firstCommit.committed_date)
-        else:
-            shallow_since = firstCommit.committed_date
         repo.pull(
             revision=branch,
             with_exceptions=True,
-            shallow_since=str(shallow_since),
+            shallow_since=shallow_since,
         )
     except git.exc.GitCommandError as e:  # type: ignore
         if (
@@ -724,7 +734,7 @@ class CacheEntry:
         if commits:
             self.commitinfo = commits[0]
             new_commit = self.commitinfo.hexsha
-            new_commit_date = self.commitinfo.committed_date
+            new_commit_date = _get_committed_date(self.commitinfo)
         else:
             # file doesn't exist
             new_commit = ""  # not found
@@ -743,7 +753,7 @@ class CacheEntry:
                 last_commit, last_commit_date = self._set_commit_info()
             elif self.commitinfo:
                 last_commit = self.commitinfo.hexsha
-                last_commit_date = self.commitinfo.committed_date
+                last_commit_date = _get_committed_date(self.commitinfo)
             else:
                 last_commit = ""
                 last_commit_date = 0
@@ -1044,7 +1054,7 @@ class CacheEntry:
                     logger.debug(f"validation failed for {self.cache_key()}")
                 # otherwise in cache but stale or invalid, fall thru to redo work
                 # XXX? check date to see if its recent enough to serve anyway
-                # if stale.committed_date - time.time() < stale_ok_age:
+                # if _get_committed_date(stale) - time.time() < stale_ok_age:
                 #      return value
                 self.hit = False
             commit_date = cache_value.last_commit_date if cache_value else 0
@@ -2218,9 +2228,7 @@ def _get_commit_msg(body, default_msg):
     return msg
 
 
-def _patch_ensemble(
-    body: dict, create: bool, project_id: str, check_lastcommit=True
-):
+def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=True):
     from .cache import ServerCacheResolver
 
     patch = body.get("patch")
@@ -2441,7 +2449,7 @@ def _commit_and_push(
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
-    if not app.config.get("UNFURL_GUI_MODE"):
+    if app.config.get("UNFURL_GUI_MODE"):
         return None  # don't push
     if password:
         url = add_user_to_url(repo.url, username, password)
