@@ -1844,13 +1844,15 @@ class AttributeManager:
         return savedValue
 
     @staticmethod
-    def _check_attribute(specd, key: str, value: ResultsItem, instance):
+    def _check_attribute(specd, key: str, value: ResultsItem, instance: "EntityInstance"):
         changed = value.has_diff()
+        is_property = key in specd  # declared as a property
+        is_attribute = key in instance.template.attributeDefs # explicitly declared an attribute
         live = (
             changed  # modified by this task
-            # explicitly declared an attribute:
-            or key in instance.template.attributeDefs
-            or key not in specd  # not declared as a property
+            # an attribute that wasn't also set as a property on the template
+            or (is_attribute and not instance.template.is_property_set(key))
+            or not is_property # any attribute not declared as a property
             or key in instance._attributes  # previously modified
         )
         return changed, live, value.get_before_set()

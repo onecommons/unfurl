@@ -907,6 +907,13 @@ class EntitySpec(ResourceRef):
                 return result[0]
         return self
 
+    def is_property_set(self, name: str) -> bool:
+        return (
+            name in self.toscaEntityTemplate._properties_tpl
+            if self.toscaEntityTemplate._properties_tpl
+            else False
+        )
+
     def _get_prop(self, name: str):
         # name starts with .
         # overrides ResourceRef._get_prop
@@ -1482,7 +1489,7 @@ class NodeSpec(EntitySpec):
         self, req_tpl: dict, nodetype: Optional[str]
     ) -> Set["NodeSpec"]:
         "Return a list of nodes that match this requirement's constraints"
-        if isinstance(self.toscaEntityTemplate.custom_def, Namespace):
+        if nodetype and isinstance(self.toscaEntityTemplate.custom_def, Namespace):
             node_type_namespace = self.toscaEntityTemplate.custom_def.find_namespace(
                 req_tpl.get("!namespace-node")
             )
@@ -1720,7 +1727,7 @@ class CapabilitySpec(EntitySpec):
         EntitySpec.__init__(self, capability, parent.topology)
 
     @property
-    def parent(self): # type:ignore[override]
+    def parent(self):  # type:ignore[override]
         return self.parentNode
 
     @property
@@ -1739,6 +1746,10 @@ class CapabilitySpec(EntitySpec):
     @property
     def relationships(self):
         return [r for r in self.parentNode.relationships if r.capability is self]
+
+    def is_property_set(self, name: str) -> bool:
+        properties = cast(Capability, self.toscaEntityTemplate)._properties
+        return name in properties if properties else False
 
 
 class TopologySpec(EntitySpec):
@@ -1895,6 +1906,9 @@ class TopologySpec(EntitySpec):
     @property
     def tpl(self) -> Dict[str, Any]:
         return self.topology_template.tpl
+
+    def is_property_set(self, name: str) -> bool:
+        return False
 
     def find_matching_templates(self, typeName) -> Iterator[NodeSpec]:
         for template in self.node_templates.values():
