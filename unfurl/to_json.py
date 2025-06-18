@@ -1524,7 +1524,7 @@ def _to_graphql(
     db["Overview"] = spec.template.metadata
     env = DeploymentEnvironment(
         connections=connections,
-        primary_provider=connections.get("primary_provider"),
+        primary_provider=connections.get("primary_provider") or connections.get("_default_provider"),
         instances=environment_instances,
         repositories=manifest.context.get("repositories") or {},
     )
