@@ -139,7 +139,7 @@ node_types:
           - max_length: 53
         default:
           eval:
-            to_kubernetes_label:
+            to_dns_label:
               eval: .name
             max: 53
       namespace:

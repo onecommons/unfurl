@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Mapping, Union, cast
 
 from ..projectpaths import get_path
 from ..configurator import Configurator, TaskView, ConfiguratorResult
-from ..support import Status, Priority, to_kubernetes_label, find_connection
+from ..support import Status, Priority, to_dns_label, find_connection
 from ..runtime import (
     EntityInstance,
     NodeInstance,
@@ -410,7 +410,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             definition = task.target.attributes.get_copy("apiResource") or {}
 
         if not definition and secret and task.configSpec.operation == "discover":
-            name = task.target.attributes.get("name") or to_kubernetes_label(
+            name = task.target.attributes.get("name") or to_dns_label(
                 task.target.name
             )
             return [dict(apiVersion="v1", kind="Secret", metadata=dict(name=name))]
@@ -424,7 +424,7 @@ class ResourceConfigurator(AnsibleConfigurator):
     def update_metadata(self, definition: Dict[str, Any], task: TaskView, namespace):
         "Add name and namespace to metadata if missing from metadata."
         md = definition.setdefault("metadata", {})
-        name = task.target.attributes.get("name") or to_kubernetes_label(
+        name = task.target.attributes.get("name") or to_dns_label(
             task.target.name
         )
         if "name" in md and md["name"] != name:

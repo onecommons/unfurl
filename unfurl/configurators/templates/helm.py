@@ -101,7 +101,7 @@ class unfurl_nodes_HelmRelease(unfurl.nodes.Installation, unfurl_interfaces_Helm
     """Save kubernetes resources created by the Helm release as managed instances."""
 
     release_name: typing_extensions.Annotated[str, (max_length(53),)] = Eval(
-        {"eval": {"to_kubernetes_label": {"eval": ".name"}, "max": 53}}
+        {"eval": {"to_dns_label": {"eval": ".name"}, "max": 53}}
     )
     """name of the helm release"""
 

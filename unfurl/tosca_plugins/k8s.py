@@ -162,7 +162,7 @@ class unfurl_nodes_K8sRawResource(tosca.nodes.Root):
     _type_name = "unfurl.nodes.K8sRawResource"
     name: str = Property(
         attribute=True,
-        default=Eval({"eval": {"to_kubernetes_label": {"eval": ".name"}}}),
+        default=Eval({"eval": {"to_dns_label": {"eval": ".name"}}}),
     )
     definition: Union[object, None] = None
     """Inline resource definition (string or map)"""

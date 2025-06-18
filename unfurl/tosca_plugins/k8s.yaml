@@ -62,7 +62,7 @@ node_types:
         type: string
         default:
           eval:
-            to_kubernetes_label:
+            to_dns_label:
               eval: .name
       definition:
         type: any
