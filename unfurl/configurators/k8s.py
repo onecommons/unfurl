@@ -429,7 +429,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         )
         if "name" in md and md["name"] != name:
             name = task.target.attributes["name"] = md["name"]
-        elif task.configSpec.operation != "discover":
+        elif task.configSpec.operation != "discover" or task.target.template.is_property_set("name"):
             md["name"] = name
 
         if (
