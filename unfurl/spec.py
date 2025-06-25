@@ -1081,7 +1081,7 @@ class EntitySpec(ResourceRef):
 
     @property
     def metadata(self) -> Dict[str, Any]:
-        return self.tpl.get("metadata", {})
+        return self.toscaEntityTemplate.metadata
 
     def get_interface_requirements(self) -> List[str]:
         return self.toscaEntityTemplate.get_interface_requirements()
@@ -1751,6 +1751,14 @@ class CapabilitySpec(EntitySpec):
         properties = cast(Capability, self.toscaEntityTemplate)._properties
         return name in properties if properties else False
 
+    @property
+    def tpl(self) -> Dict[str, Any]:
+        return {}  # missing from Capability
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return {}  # missing from Capability
+
 
 class TopologySpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -1902,6 +1910,13 @@ class TopologySpec(EntitySpec):
             if not matches:
                 raise KeyError(key)
             return matches
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        metadata = self.tpl.get("metadata")
+        if metadata is None:
+            return {}
+        return metadata
 
     @property
     def tpl(self) -> Dict[str, Any]:
