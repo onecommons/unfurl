@@ -528,6 +528,7 @@ def template(
     path: str = "",
     contents: str = "",
     overrides: Optional[Dict[str, str]] = None,
+    vars: Optional[Dict[str, Any]] = None,
 ) -> Any:
     if path:
         args: Any = dict(path=str(path))
@@ -535,12 +536,16 @@ def template(
         args = contents
     if global_state_mode() == "runtime":
         ctx = get_context(obj) if obj else global_state_context()
-        if overrides:
-            ctx = ctx.copy()
-            ctx.kw = dict(overrides=overrides)
+        if overrides or vars:
+            ctx = ctx.copy(vars=vars)
+            if overrides:
+                ctx.kw = dict(overrides=overrides)
         return support._template_func(args, ctx)
     else:
-        return EvalData({"eval": {"template": args, "overrides": overrides}})
+        expr = {"eval": {"template": args, "overrides": overrides}}
+        if vars:
+            expr["vars"] = vars
+        return EvalData(expr)
 
 
 def lookup(name: str, *args, **kwargs):

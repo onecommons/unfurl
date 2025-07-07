@@ -377,7 +377,19 @@ def test_expressions():
     assert expr.uri(topology.test_node) == topology.test_node.url
     assert functions.to_label("fo!oo", replace="_") == "fo_oo"
     assert (
-        expr.template(topology.test_node, contents="{%if 1 %}{{SELF.url}}{%endif%}")
+        expr.template(
+            topology.test_node,
+            contents="{%if 1 %}{{ a }}{%endif%}",
+            vars=dict(a="{{ SELF.url }}"),
+        )
+        == "#::test.test_node"
+    )
+    assert (
+        expr.template(
+            topology.test_node,
+            contents="{%if 1 %}{{ a }}{%endif%}",
+            vars=dict(a=topology.test_node.url),
+        )
         == "#::test.test_node"
     )
     assert topology.test_node.default_expr == "foo"
