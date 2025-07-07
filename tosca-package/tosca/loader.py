@@ -16,6 +16,7 @@ from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
 from ast import Str, Constant, Name
 import ast
 import builtins
+import dis
 from toscaparser.imports import ImportResolver
 from RestrictedPython import compile_restricted_exec, CompileResult
 from RestrictedPython import RestrictingNodeTransformer
@@ -931,6 +932,18 @@ def restricted_exec(
             namespace.update(temp_module.__dict__)
         else:
             exec(code, namespace)
+    except Exception as e:
+        if sys.version_info >= (3, 11) and e.__traceback__ and e.__traceback__.tb_next:
+            logger.error(
+                f"Error executing module {full_name}: {e}\n%s",
+                "\n".join([
+                    f"{instr.opname:20} {instr.argrepr}"
+                    for instr in dis.get_instructions(code)
+                    if instr.positions
+                    and instr.positions.lineno == e.__traceback__.tb_next.tb_lineno
+                ]),
+            )
+        raise
     finally:
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
