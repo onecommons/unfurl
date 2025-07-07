@@ -809,14 +809,14 @@ def set_context_vars(vars, root: "TopologyInstance"):
     if app_template:
         app = root.find_instance(app_template.name)
         if app:
-            ROOT["app"] = app.attributes
+            ROOT["app"] = app
         for name, req in app_template.requirements_dict.items():
             if req.relationship and req.relationship.target:
                 target = root.get_root_instance(
                     cast(NodeTemplate, req.relationship.target.toscaEntityTemplate)
                 ).find_instance(req.relationship.target.name)
                 if target:
-                    ROOT[name] = target.attributes
+                    ROOT[name] = target
     return vars
 
 
@@ -1498,7 +1498,9 @@ def find_connection(
 
     connection: Optional["RelationshipInstance"] = None
     if not isinstance(ctx.currentResource, EntityInstance):
-        raise UnfurlError(f"find_connection expressions can only be using in a runtime context, not with a {ctx.currentResource}")
+        raise UnfurlError(
+            f"find_connection expressions can only be using in a runtime context, not with a {ctx.currentResource}"
+        )
     if not target:
         target = ctx.currentResource.root
     elif not isinstance(target, EntityInstance):
@@ -1744,22 +1746,34 @@ class AttributeManager:
     def get_attributes(self, resource: "EntityInstance") -> ResultsMap:
         if resource.nested_key not in self.attributes:
             if resource.shadow:
+                # shadow is the imported instance or the inner node of a substituted node
                 return resource.shadow.attributes
+            mode = os.getenv("UNFURL_VALIDATION_MODE")
+            if mode is not None and "nopropcheck" in mode:
+                self.validate = False
 
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
                 properties = resource.template.properties
-                _attributes = ChainMap(
-                    resource._attributes,
-                    properties,
-                    specAttributes,
-                )
+                maps: List[MutableMapping] = [properties, specAttributes]
+                outer_template = resource.template.topology.substitute_of
+                if outer_template:
+                    # if the node is a substitution
+                    # we need to evaluate the properties defined on the outer node in the context of the outer topology
+                    outer_instance = resource.apex.find_instance(
+                        outer_template.nested_name
+                    )
+                    if outer_instance:
+                        outer_properties = ResultsMap(
+                            outer_template.toscaEntityTemplate._properties_tpl,
+                            self._get_context(outer_instance),
+                            validate=self.validate,
+                        )
+                        maps.insert(0, outer_properties)
+                _attributes = ChainMap(resource._attributes, *maps)
             else:
                 _attributes = ChainMap(resource._attributes)
             ctx = self._get_context(resource)
-            mode = os.getenv("UNFURL_VALIDATION_MODE")
-            if mode is not None and "nopropcheck" in mode:
-                self.validate = False
             attributes = ResultsMap(_attributes, ctx, validate=self.validate)
             self.attributes[resource.nested_key] = (resource, attributes)
             return attributes
@@ -1844,15 +1858,19 @@ class AttributeManager:
         return savedValue
 
     @staticmethod
-    def _check_attribute(specd, key: str, value: ResultsItem, instance: "EntityInstance"):
+    def _check_attribute(
+        specd, key: str, value: ResultsItem, instance: "EntityInstance"
+    ):
         changed = value.has_diff()
         is_property = key in specd  # declared as a property
-        is_attribute = key in instance.template.attributeDefs # explicitly declared an attribute
+        is_attribute = (
+            key in instance.template.attributeDefs
+        )  # explicitly declared an attribute
         live = (
             changed  # modified by this task
             # an attribute that wasn't also set as a property on the template
             or (is_attribute and not instance.template.is_property_set(key))
-            or not is_property # any attribute not declared as a property
+            or not is_property  # any attribute not declared as a property
             or key in instance._attributes  # previously modified
         )
         return changed, live, value.get_before_set()
