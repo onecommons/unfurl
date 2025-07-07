@@ -216,7 +216,17 @@ class RepositoryFinder(PathFinder):
             else:
                 dir_path = service_template_basedir
             if len(names) == 1:
-                return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
+                init_path = os.path.join(dir_path, "__init__.py")
+                if os.path.exists(init_path):
+                    loader = ToscaYamlLoader(fullname, init_path, modules)
+                    return spec_from_file_location(
+                        fullname,
+                        init_path,
+                        loader=loader,
+                        submodule_search_locations=[dir_path],
+                    )
+                else:
+                    return ModuleSpec(fullname, None, origin=dir_path, is_package=True)
             else:
                 if SKIP_LOADER:
                     return None
@@ -276,6 +286,8 @@ class ToscaYamlLoader(Loader):
             else global_state.safe_mode
         )
         module.__dict__["__file__"] = python_filepath
+        if python_filepath.endswith("__init__.py"):
+            path = path.parent
         for i in range(self.full_name.count(".")):
             path = path.parent
         restricted_exec(
