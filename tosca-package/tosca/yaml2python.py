@@ -1711,9 +1711,14 @@ class Convert:
             return "", ""
         src += "file=" + self.value2python_repr(artifact.file) + ", "  # type: ignore
         for field in _tosca.ArtifactEntity._builtin_fields[1:]:
-            val = getattr(artifact, field)
+            if field in skipped:
+                val = skipped.pop(field)
+            else:
+                val = getattr(artifact, field)
+                if val:
+                    val = self.value2python_repr(val)
             if val:
-                src += f"{field}={self.value2python_repr(val)},\n"
+                src += f"{field}={val},\n"
         src += ")"  # close ctor
         func_indent = "   "
         add_src = self.add_assignments(artifact, name, skipped, func_indent, indent)
