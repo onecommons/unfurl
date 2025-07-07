@@ -488,9 +488,7 @@ class Plan:
         elif not self.jobOptions.destroyunmanaged:
             if not resource.created:
                 skip = "instance wasn't created by this ensemble (use --destroyunmanaged to override)"
-            elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
-                resource.created
-            ):
+            elif resource.is_managed():
                 skip = f"creation and deletion is managed by another instance {resource.created} (use --destroyunmanaged to override)"
         elif resource.local_status in [Status.absent, Status.pending]:
             skip = "instance doesn't exist"
@@ -872,7 +870,7 @@ class DeployPlan(Plan):
                 # customized is only set if created first!
                 # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
                 # discover would have to calculate digest for configure!
-                if not instance.customized or jobOptions.change_detection == "always":
+                if (not instance.customized and not instance.is_managed()) or jobOptions.change_detection == "always":
                     return Reason.reconfigure
         return reason
 

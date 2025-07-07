@@ -72,11 +72,11 @@ class RunTest(unittest.TestCase):
                 "job": {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 10,
+                    "total": 5,
                     "ok": 5,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 5,
+                    "skipped": 0,
                     "changed": 5,
                 },
                 "outputs": {},

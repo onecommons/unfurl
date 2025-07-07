@@ -461,7 +461,6 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     def query(self, expr, vars=None, wantList=False, trace=None):
         from .eval import Ref, RefContext
-
         return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
 
     def out_of_sync(self):
@@ -528,6 +527,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     def is_computed(self) -> bool:
         return self.template.aggregate_only()
+
+    def is_managed(self) -> bool:
+        return isinstance(self.created, str) and not ChangeRecord.is_change_id(
+                self.created
+            )
 
     @property
     def key(self) -> InstanceKey:
