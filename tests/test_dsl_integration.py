@@ -210,6 +210,123 @@ def validate_pw(password: str) -> bool:
     return len(password) > 4
 
 
+expressions_yaml = {
+    "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+    "topology_template": {
+        "node_templates": {
+            "test.service": {
+                "type": "Service",
+                "metadata": {"module": "tests.test_dsl_integration"},
+            },
+            "test.test_node": {
+                "type": "Test",
+                "metadata": {"module": "tests.test_dsl_integration"},
+            },
+            "test.myService": {
+                "type": "MyService",
+                "metadata": {"module": "tests.test_dsl_integration"},
+            },
+        },
+        "inputs": {"domain": {"type": "string"}},
+    },
+    "input_values": {"domain": "example.com"},
+    "node_types": {
+        "Service": {
+            "derived_from": "tosca.nodes.Root",
+            "attributes": {"host": {"type": "string"}},
+            "properties": {
+                "url_scheme": {"type": "string", "default": "https"},
+                "url": {
+                    "type": "string",
+                    "default": "{{ SELF.url_scheme }}://{{SELF.host }}",
+                },
+                "not_required": {"type": "string", "required": False},
+            },
+            "requirements": [
+                {
+                    "parent": {
+                        "node": "Service",
+                        "node_filter": {"match": [{"eval": ".sources::connects_to"}]},
+                    }
+                },
+                {
+                    "connects_to": {
+                        "relationship": "unfurl.relationships.Configures",
+                        "node": "Service",
+                        "occurrences": [0, 1],
+                    }
+                },
+            ],
+        },
+        "Test": {
+            "derived_from": "tosca.nodes.Root",
+            "properties": {
+                "url": {"type": "string", "default": {"eval": ".uri"}},
+                "path1": {
+                    "type": "string",
+                    "default": {"eval": {"get_dir": ["src", False]}},
+                },
+                "default_expr": {
+                    "type": "string",
+                    "default": {"eval": {"or": [None, "foo"], "map_value": 1}},
+                },
+                "or_expr": {
+                    "type": "string",
+                    "default": {
+                        "eval": {
+                            "or": [
+                                {"eval": {"or": [None, "foo"], "map_value": 1}},
+                                "ignored",
+                            ],
+                            "map_value": 1,
+                        }
+                    },
+                },
+                "label": {
+                    "type": "string",
+                    "default": {
+                        "eval": {
+                            "allowed": "[a-zA-Z0-9-]",
+                            "start": "[a-zA-Z]",
+                            "replace": "--",
+                            "case": "lower",
+                            "end": "[a-zA-Z0-9]",
+                            "max": 63,
+                            "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                        }
+                    },
+                },
+                "password": {
+                    "type": "string",
+                    "default": "default",
+                    "metadata": {
+                        "sensitive": True,
+                        "validation": {
+                            "eval": {
+                                "validate": "tests.test_dsl_integration:validate_pw"
+                            }
+                        },
+                    },
+                },
+            },
+        },
+        "MyService": {
+            "derived_from": "Service",
+            "properties": {
+                "url_scheme": {
+                    "type": "string",
+                    "default": {
+                        "eval": {
+                            "computed": "tests.test_dsl_integration:MyService.get_scheme"
+                        }
+                    },
+                }
+            },
+        },
+    },
+}
+
+
 def test_expressions():
     tosca.global_state.mode = "parse"
 
@@ -230,10 +347,13 @@ def test_expressions():
         service = Service()
         test_node = Test()
         myService = MyService()
+        inputs = Inputs(domain="example.com")
 
     assert Inputs.domain == tosca.EvalData({"get_input": "domain"})
+    assert test.inputs.domain == "example.com"
 
     topology = runtime_test(test)
+    assert topology._yaml == expressions_yaml
     assert expr.get_instance(topology.test_node).status == Status.ok
     expr.get_instance(topology.test_node).local_status = Status.error
     assert expr.get_instance(topology.test_node).status == Status.error
@@ -246,6 +366,7 @@ def test_expressions():
     assert expr.get_input("MISSING", "default") == "default"
     with pytest.raises(UnfurlError):
         input: str = expr.get_input("MISSING")
+    assert topology.inputs.domain == "example.com"
     assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
     # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
     assert (

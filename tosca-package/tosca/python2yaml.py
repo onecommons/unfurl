@@ -22,6 +22,7 @@ from pathlib import Path
 from toscaparser import topology_template
 
 from ._tosca import (
+    _TopologyParameter,
     ToscaFieldType,
     ToscaObject,
     metadata_to_yaml,
@@ -53,7 +54,7 @@ from .loader import (
     get_module_path,
     get_allowed_modules,
 )
-from . import WritePolicy, Repository
+from . import PATCH, WritePolicy, Repository
 
 logger = logging.getLogger("tosca")
 
@@ -203,6 +204,7 @@ class PythonToYaml:
         referenced: bool,
     ) -> str:
         name = obj._name or name
+        assert name != PATCH
         if "__templateref" in obj._metadata:
             return name
         for topology_section in reversed(self.topology_templates):
@@ -320,6 +322,24 @@ class PythonToYaml:
             }
         }
 
+    def _type2yaml(self, name: str, obj: Type[ToscaType], seen) -> None:
+        section = obj._type_section
+        if id(obj) in seen:
+            if name != "__root__" and section != "topology_template":
+                # name is a alias referenced, treat as subtype in TOSCA
+                as_yaml = self.add_alias(name, obj)
+            else:
+                return
+        else:
+            seen.add(id(obj))
+            obj._globals = self.globals  # type: ignore
+            _docstrings = self.docstrings.get(name)
+            if isinstance(_docstrings, dict):
+                obj._docstrings = _docstrings  # type: ignore
+            as_yaml = obj._cls_to_yaml(self)  # type: ignore
+        if as_yaml:
+            self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
+
     def _namespace2yaml(self, namespace):
         current_module = self.current_module = self.globals.get(
             "__name__", "builtins"
@@ -356,40 +376,37 @@ class PythonToYaml:
                 continue
             module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):
-                if module_name and module_name != current_module:
-                    self._import_module(module_path, module_name)
-                    continue
                 # this is a class not an instance
                 section = obj._type_section  # type: ignore
-                if id(obj) in seen:
-                    if name != "__root__":
-                        # name is a alias referenced, treat as subtype in TOSCA
-                        as_yaml = self.add_alias(name, obj)
-                else:
-                    seen.add(id(obj))
-                    obj._globals = self.globals  # type: ignore
-                    _docstrings = self.docstrings.get(name)
-                    if isinstance(_docstrings, dict):
-                        obj._docstrings = _docstrings  # type: ignore
-                    as_yaml = obj._cls_to_yaml(self)  # type: ignore
-                self.sections.setdefault(section, self.yaml_cls()).update(as_yaml)
+                if (
+                    module_name
+                    and module_name != current_module
+                    and section != "topology_template"
+                ):
+                    self._import_module(module_path, module_name)
+                    continue
+                self._type2yaml(name, obj, seen)
                 if name == "__root__":
                     topology_sections.setdefault(
                         "substitution_mappings", self.yaml_cls()
                     ).update(dict(node_type=obj.tosca_type_name()))
-            elif isinstance(obj, ToscaType):
+            elif isinstance(obj, ToscaType) and not isinstance(obj, _TopologyParameter):
                 # XXX this will render any templates that were imported into this namespace from another module
                 # fix by checking if registered? but we still need to copy since we don't know it was modified locally.. so just remove "default" directive from imported template
                 # skip embedded templates that are unnamed (e.g. relationship templates), they are included inline where they are referenced
                 if (
-                    isinstance(obj, (Node, Group, Policy))
-                    or obj._name
-                    or getattr(
-                        obj, "_default_for", None
-                    )  # include default Relationships
-                ) and not isinstance(obj, InstanceProxy):
+                    (
+                        isinstance(obj, (Node, Group, Policy))
+                        or obj._name
+                        or getattr(
+                            obj, "_default_for", None
+                        )  # include default Relationships
+                    )
+                    and not isinstance(obj, InstanceProxy)
+                    and not obj.is_patch
+                ):
                     if not obj._template_section:
-                        if not isinstance(obj, _OwnedToscaType) or not obj._node:
+                        if not isinstance(obj, _OwnedToscaType):
                             logger.warning(
                                 "Can't add template '%s', to topology_template, %s isn't a standalone TOSCA type",
                                 name,
@@ -406,7 +423,7 @@ class PythonToYaml:
                 section = getattr(obj, "_template_section", "")
                 if section:
                     if (
-                        section != "repositories"
+                        section not in ("repositories", "input_values")
                         and module_name
                         and module_name != current_module
                     ):
@@ -427,9 +444,12 @@ class PythonToYaml:
                         parent = self.sections
                         if section in topology_template.SECTIONS:
                             parent = topology_sections
-                        parent.setdefault(section, self.yaml_cls()).update(
-                            to_yaml(self.yaml_cls)
-                        )
+                        if to_yaml:
+                            parent.setdefault(section, self.yaml_cls()).update(
+                                to_yaml(self.yaml_cls)
+                            )
+                        if obj._type_section == "topology_template":
+                            self._type2yaml(obj.__class__.__name__, obj.__class__, seen)
 
     def _import_module(self, module_path: Optional[str], module_name: str) -> None:
         # note: should only be called for modules with tosca objects we need to convert to yaml

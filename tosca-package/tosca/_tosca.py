@@ -3133,6 +3133,12 @@ class _TopologyParameter(ToscaType):
             body.update(item)
         return {cls._type_name: body}
 
+    def to_yaml(self, dict_cls=dict):
+        body = dict_cls()
+        for field, value in self.get_instance_field_values().values():
+            body[field.tosca_name] = to_tosca_value(value, dict_cls)
+        return body
+
     type_names = (
         "inputs",
         "outputs",
@@ -3140,13 +3146,18 @@ class _TopologyParameter(ToscaType):
 
 
 class TopologyInputs(_TopologyParameter):
-    "Base class for defining topology template inputs."
+    """Base class for defining topology template inputs.
+    When converting to YAML, TopologyInputs subclass definitions will be rendered as the `inputs section <Inputs>` of the topology template.
+    TopologyInputs subclass objects will be rendered as the `input_values section <Topology Inputs>` of the service template.
+    """
 
     _type_name: ClassVar[str] = "inputs"
+    _template_section: ClassVar[str] = "input_values"
 
 
 class TopologyOutputs(_TopologyParameter):
-    "Base class for defining topology template outputs."
+    """Base class for defining topology template outputs.
+    When converting to YAML, TopologyOutputs subclass definitions will be rendered asthe `outputs section <topology_outputs>` of the topology template."""
 
     _type_name: ClassVar[str] = "outputs"
     _default_key: ClassVar[str] = "value"

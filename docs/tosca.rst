@@ -107,7 +107,7 @@ Topology Template
 
 The topology Template defines the components of the service being deployed. It can be thought of as a graph of node templates and other components along with their relationships and dependencies.
 
-Topologies can parameterized with :std:ref:`inputs`, define `outputs<operation_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
+Topologies can parameterized with :std:ref:`inputs`, define `outputs<topology_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
 
 Topologies can be embedded in other topologies via `substitution_mappings`.
 

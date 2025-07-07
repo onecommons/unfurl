@@ -243,6 +243,12 @@ class ToscaSpec:
         if resolver:
             # hack! set this now so the find_matching_node callback is invoked
             resolver.manifest.tosca = self
+        input_values = toscaDef.get("input_values")
+        if input_values:
+            if inputs:
+                inputs = dict(input_values, **inputs)
+            else:
+                inputs = input_values
         self.template = ToscaTemplate(
             path=path,
             parsed_params=inputs,

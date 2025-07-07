@@ -212,13 +212,18 @@ type_reference_yaml = {
             "properties": {"settings": {"type": "map"}},
         },
     },
-    "topology_template": {},
+    "topology_template": {
+        "inputs": {},
+        "outputs": {},
+    },
 }
 
 
 def test_type_references():
     tosca_tpl = _to_yaml(type_reference_python, True)
-    assert tosca_tpl == type_reference_yaml
+    assert tosca_tpl == type_reference_yaml, (
+        yaml.dump(tosca_tpl, sys.stdout) or "unexpected yaml, see stdout"
+    )
 
 
 default_operations_types_yaml = """
@@ -437,6 +442,8 @@ def test_example_helloworld():
     }
     assert src_tpl == tosca_tpl
     tosca_tpl2 = _to_yaml(example_helloworld_python, True)
+    src_tpl["topology_template"]["inputs"] = {}
+    src_tpl["topology_template"]["outputs"] = {}
     assert src_tpl == tosca_tpl2
 
 

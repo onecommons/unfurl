@@ -129,6 +129,15 @@ Inputs can come from any of the following sources, and are merged together:
       service_template:
         ...
 
+* As a TOSCA extension, in the ``inputs_values`` section of the service template. For example:
+
+  .. code-block:: yaml
+
+    spec:
+      service_template:
+        inputs_values:
+          foo: 0
+
 * When creating or cloning an ensemble, the default `project skeleton<project skeletons>` will write inputs into this section using skeleton variables that start with ``input_``, for example, this command will render the yaml in the example above:
 
   .. code-block:: shell

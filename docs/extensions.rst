@@ -45,6 +45,7 @@ Extensions
 * support ``ANON`` keyword in `get_artifact`
 * add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
 * add ``artifacts`` keyword to node_filters to match on artifact properties (syntax matches "capabilities" keyword)
+* add ``input_values`` section to service templates (see `Topology Inputs`).
 
 Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
