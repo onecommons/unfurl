@@ -1468,6 +1468,8 @@ def has_function(obj: object, seen=None) -> bool:
 class EvalData:
     "An internal wrapper around JSON/YAML data that may contain TOSCA functions or `eval expressions` and will be evaluated at runtime."
 
+    _template_section: str = ""
+
     def __init__(
         self,
         expr: Union["EvalData", _EvalDataExpr, Callable],
@@ -1572,6 +1574,8 @@ class EvalData:
                 new._expr["eval"] = expr + "::" + key
             elif isinstance(expr, dict) and "select" not in expr:
                 new._expr["select"] = key
+            else:
+                return None
             return new
         return None
 
@@ -1701,7 +1705,7 @@ class FieldProjection(EvalData):
     def __getattr__(self, name) -> Optional["EvalData"]:
         if name.startswith("__"):
             raise AttributeError(name)
-        if name in ["_name", "tosa_name"]:
+        if name in ["_name", "tosca_name"]:
             return self._project(".name")
         # unfortunately _class_init is called during class construction type
         # so _resolve_class might not work with forward references defined in the same module
@@ -2268,6 +2272,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         result.__dict__.update(self.__dict__)
         # _instance_fields track new attributes alongside __dict__ so we don't want to share that
         result._instance_fields = dict(self._instance_fields)
+        result._defaults = dict(self._defaults)
         return result
 
     @property

@@ -85,7 +85,7 @@ class Options:
         if isinstance(__value, dict):
             __value = Options(__value)
         elif not isinstance(__value, Options):
-            raise TypeError(f"Options | {type(__value)} not supported.")
+            return NotImplemented
         new = copy.copy(self)
         new.next = __value
         return new
@@ -94,7 +94,7 @@ class Options:
         if isinstance(__value, dict):
             __value = Options(__value)
         elif not isinstance(__value, Options):
-            raise TypeError(f"Options | {type(__value)} not supported.")
+            return NotImplemented
         new = copy.copy(self)
         new.next = __value
         return new
