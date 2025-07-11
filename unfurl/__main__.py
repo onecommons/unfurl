@@ -27,17 +27,17 @@ from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
 
+_debugger_started = False
 def _try_debugger():
+    global _debugger_started
     debug = os.getenv("DEBUGPY")
-    if debug:
+    if debug and not _debugger_started:
         import debugpy
 
         port = int(debug)
+        _debugger_started = True
         debugpy.listen(port if port > 1 else 5678)
         debugpy.wait_for_client()
-
-
-_try_debugger()
 
 from . import (
     DefaultNames,
@@ -257,6 +257,7 @@ def _cli(
     **kw,
 ):
     """A command line tool for deploying services and applications."""
+    _try_debugger()
     # ensure that ctx.obj exists and is a dict (in case `_cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
