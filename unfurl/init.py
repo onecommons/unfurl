@@ -517,7 +517,7 @@ def create_project(
         ensembleRepo = _create_ensemble_project(ensembleDir, kw)
 
     logger.info(f"Creating Unfurl project at {projectdir}")
-    if "VAULT_PASSWORD" in skeleton_vars:
+    if "VAULT_PASSWORD" in skeleton_vars or "vaultid" in skeleton_vars:
         use_vault = True
     elif empty:
         use_vault = False
@@ -898,6 +898,7 @@ class EnsembleBuilder:
             skeleton_vars,
             self.options.get("skeleton"),
         )
+        self.logger.info("Creating new ensemble as %s", manifestPath)
         use_environment = self.options.get("use_environment")
         if project and use_environment not in project.contexts:
             use_environment = None
@@ -1081,7 +1082,7 @@ class EnsembleBuilder:
         targetDir = os.path.join(destDir, filePath)
         sourceProjectRoot = Project.find_path(targetDir, destDir)
         clean_url = sanitize_url(self.input_source)
-        self.logger.debug(f'cloned "{clean_url}" to "{destDir}"')
+        self.logger.debug(f'Cloned "{clean_url}" to "{destDir}"')
         if not sourceProjectRoot:
             raise UnfurlError(
                 f'Error: cloned "{clean_url}" to "{destDir}" but couldn\'t find an Unfurl project'
