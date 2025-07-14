@@ -589,6 +589,8 @@ relationship_types:
         required: false
       endpoint_hostname:
         default: "{{ SELF.default_region }}.digitaloceanspaces.com"
+      region:
+        default: "{{ SELF.default_region }}"
 
   unfurl.relationships.ConnectsTo.Azure:
     derived_from:

@@ -82,7 +82,7 @@ class artifacts(Namespace):
         className: str = "unfurl.configurators.shell.ShellConfigurator"
         """Name of the python class that implements the configurator interface"""
 
-        command: Union[object, None] = Eval(
+        command: Union[List[str], str, None] = Eval(
             "{{  '.::contents' | eval or '.path' | eval }}"
         )
         """
@@ -362,6 +362,7 @@ class relationships(Namespace):
             metadata={"sensitive": True},
             default=Eval("{{ SELF.SPACES_SECRET_ACCESS_KEY }}"),
         )
+        region: str = Eval("{{ SELF.default_region }}")
         endpoint_hostname: Union[str, None] = Eval("{{ SELF.default_region }}.digitaloceanspaces.com")  # type: ignore[assignment]
         """hostname"""
 
