@@ -257,7 +257,7 @@ class PackageSpec:
         Returns:
             bool: True if the package was updated
         """
-        old = []
+        old: List[str] = []
         changed = False
         replaced = True
         # if the package_id changes, start over
@@ -281,9 +281,14 @@ class PackageSpec:
                             package.set_url_from_package_id()
                         continue
                     if replaced_id in old:
-                        raise UnfurlError(
-                            f"Circular reference in package rules: {replaced_id}"
+                        # we've already replaced this package_id
+                        logger.trace(
+                            "circular reference in package rules: %s, %s, %s",
+                            replaced_id,
+                            old,
+                            package_specs,
                         )
+                        continue
                     replaced = True
                     old.append(replaced_id)
                     break  # package_id replaced start over

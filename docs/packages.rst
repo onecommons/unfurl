@@ -131,3 +131,6 @@ You can also set these rules with the ``UNFURL_PACKAGE_RULES`` environment varia
 
 The first rule sets the revision of matching packages to the branch "main", and the second replaces one package with another package.
 
+If a ``UNFURL_PACKAGE_RULES`` environment variable is defined, its package rules are appended to the list of package rules in the enviroment's `repositories` section.
+
+The active packages rules of an ensemble are saved in its `lock section <lock>` and are used in subsequent deployments if the ensemble's environment did not define any package rules.
