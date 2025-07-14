@@ -303,7 +303,8 @@ Inputs
 
   :run:  Sets the ``result`` of this task.
   :dryrun: During a ``--dryrun`` job used instead of ``run``.
-  :done:  If set, a map whose values passed as arguments to :py:meth:`unfurl.configurator.TaskView.done`
+  :done:  If set, a map whose values are passed as arguments to :py:meth:`unfurl.configurator.TaskView.done`.
+          Embedded runtime expressions can access the previous value of those arguments as variables.
   :resultTemplate: A Jinja2 template or runtime expression that is processed with results of ``run`` as its variables.
 
 Outputs
@@ -458,9 +459,13 @@ You can convert HCL to JSON and YAML using tools like `hcl2json <https://github.
   hcl2json main.tf | yq -P -oyaml
 
 Expressing terraform modules as YAML or JSON instead of HCL exposes the terraform in a structured way, making it easier to provide extensibility.
-For example a subtype node template or artifact could add or update terraform resources defined on the base type: In the example below, a derived could redefines its base type's "main" property without have to replace the entire definition by using Ansible Jinja2's combine filter :
+For example, a derived node template or artifact could add or update terraform resources defined on the base type: In the example below, a derived type customizes its base type's ``main`` property without have to replace its entire definition.
 
-  main: "{{ combine('.super::main' | eval,  SELF.custom_changes, recursive=True, list_merge='append_rp') }}"
+.. code-block:: shell
+
+  main: "{{ '.super::main' | eval | combine(SELF.custom_changes, recursive=True, list_merge='append_rp') }}"
+
+Here we merge the base class's property using ``.super`` with a property called ``custom_changes`` using Ansible Jinja2's ``combine`` filter which lets you recursively merge maps and lists.
 
 ==================
 Installers

@@ -20,10 +20,12 @@ from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
-register_short_names({
-    name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
-    for name in "Ansible Shell Supervisor Terraform DNS Kompose".split()
-})
+register_short_names(
+    {
+        name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
+        for name in "Ansible Shell Supervisor Terraform DNS Kompose".split()
+    }
+)
 
 
 class CmdConfigurator(Configurator):
@@ -136,10 +138,18 @@ class TemplateConfigurator(Configurator):
         return runResult
 
     def done(self, task: "TaskView", **kw):
-        # this is called by derived classes like ShellConfigurator to allow the user
+        # this is (only) called by derived classes like ShellConfigurator to allow the user
         # to override the default logic for updating the state and status of a task.
-        done: dict = task.inputs.get_copy("done", {})
+        done = task.inputs.get_original("done")
         if done:
+            vars = cast(
+                dict,
+                DoneDict(
+                    success=None, modified=None, status=None, result=None, outputs=None
+                ),
+            )
+            vars.update(kw)
+            done = map_value(done, task.inputs.context.copy(vars=vars))
             task.logger.trace("evaluated done template with %s", done)
             kw.update(done)  # "done" overrides kw
         return task.done(**kw)
@@ -160,6 +170,7 @@ class TemplateConfigurator(Configurator):
         elif done["result"] and "outputs" in done["result"]:
             done["result"]["outputs"] = wrap_var(done["result"]["outputs"])
 
+        # unlike derived configurators, this is called after "done" is evaluated
         errors, new_status = self.process_result_template(
             task, done.get("result") or {}
         )
