@@ -21,6 +21,7 @@ from collections.abc import MutableSequence, Mapping
 import numbers
 import os
 import os.path
+from pathlib import Path
 import itertools
 
 try:
@@ -1221,10 +1222,19 @@ class YamlManifest(ReadOnlyManifest):
             if not repository.read_only and repository.is_dirty():
                 repository.add_all()
 
-    def commit(self, msg: str, add_all: bool = False, ensemble_only=False) -> int:
+    def save_secrets(self) -> List[Path]:
+        saved: List[Path] = []
+        for repository in self.repositories.values():
+            if not repository.read_only:
+                saved.extend(repository.save_secrets())
+        return saved
+
+    def commit(
+        self, msg: str, add_all: bool = False, save_secrets=True, *, ensemble_only=False
+    ) -> int:
         committed = 0
-        save_secrets = not self.localEnv or not self.localEnv.overrides.get(
-            "skip_secret_files"
+        save_secrets = save_secrets and (
+            not self.localEnv or not self.localEnv.overrides.get("skip_secret_files")
         )
         if not ensemble_only:
             for repository in self.repositories.values():

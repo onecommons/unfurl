@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast, Iterator
 from typing_extensions import Literal
 import git
 import git.exc
@@ -356,11 +356,11 @@ class Repo(abc.ABC):
         return GitRepo(repo)
 
 
-def commit_secrets(working_dir, yaml, repo: "GitRepo"):
+def commit_secrets(working_dir, yaml, repo: "GitRepo") -> List[Path]:
     vault = yaml and getattr(yaml.representer, "vault", None)
     if not vault or not vault.secrets:
         return []
-    saved = []
+    saved: List[Path] = []
     for filepath, dotsecrets in find_dirty_secrets(working_dir, repo):
         with open(filepath, "r") as vf:
             vaultContents = vf.read()
@@ -372,7 +372,7 @@ def commit_secrets(working_dir, yaml, repo: "GitRepo"):
     return saved
 
 
-def find_dirty_secrets(working_dir: str, repo: "GitRepo"):
+def find_dirty_secrets(working_dir: str, repo: "GitRepo") -> Iterator[Tuple[Path, Path]]:
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
             continue
@@ -485,7 +485,7 @@ class RepoView:
             return self.repo.url
         return ""
 
-    def is_dirty(self):
+    def is_dirty(self) -> bool:
         if self.read_only or not self.repo:
             return False
         for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
@@ -525,6 +525,8 @@ class RepoView:
                     target = secretsdir / filename
                     try:
                         contents = _loader.load_from_file(str(filepath))
+                        if contents is None:
+                            raise Exception("decrypting returned None")
                     except Exception as err:
                         logger.warning("could not decrypt %s: %s", filepath, err)
                         failed = True
@@ -539,7 +541,7 @@ class RepoView:
                     logger.verbose("decrypted secret file to %s", target)
         self._loaded_secrets = not failed
 
-    def save_secrets(self):
+    def save_secrets(self) -> List[Path]:
         return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
 
     def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:

@@ -2370,7 +2370,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
     else:
         commit_msg = _get_commit_msg(body, "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
-        committed = manifest.commit(commit_msg, True, True)
+        committed = manifest.commit(commit_msg, True, ensemble_only=True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
             if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):

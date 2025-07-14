@@ -1297,12 +1297,13 @@ def git(ctx, gitargs, dir="."):
 
 
 class Committer(Protocol):
-    def commit(self, msg: str, add_all: bool = False) -> int: ...
+    def commit(self, msg: str, add_all: bool = False, save_secrets: bool=True) -> int: ...
 
     def add_all(self) -> None: ...
 
     def get_repo_status(self, dirty=False) -> str: ...
 
+    def save_secrets(self) -> List[Path]: ...
 
 def get_commit_message(committer, default_message):
     statuses = committer.get_repo_status(True)
@@ -1347,6 +1348,12 @@ def get_commit_message(committer, default_message):
     help="Use this environment.",
     metavar="NAME",
 )
+@click.option(
+    "--save-secrets-only",
+    default=False,
+    is_flag=True,
+    help='Encrypt secret files to ".secrets" directories instead of committing.',
+)
 def commit(
     ctx,
     project_or_ensemble_path,
@@ -1354,6 +1361,7 @@ def commit(
     skip_add,
     no_edit,
     all_repositories,
+    save_secrets_only,
     **options,
 ):
     """Commit any changes to the given project or ensemble."""
@@ -1383,6 +1391,11 @@ def commit(
             assert localEnv.project
             committer = localEnv.project.project_repoview
 
+    # stage changes before invoking the commit editor
+    saved = committer.save_secrets() # saves but doesn't stage
+    if save_secrets_only:
+        click.echo(f"Updated {len(saved)} secret files.")
+        return
     if not skip_add:
         committer.add_all()
 
@@ -1394,8 +1407,8 @@ def commit(
             if not message:
                 return  # aborted
 
-    committed = committer.commit(message, False)
-    click.echo(f"committed to {committed} repositories")
+    committed = committer.commit(message, False, False)
+    click.echo(f"Committed to {committed} repositories.")
 
 
 def _stub_resolver(doc):
