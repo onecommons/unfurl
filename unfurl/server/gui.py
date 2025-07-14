@@ -326,7 +326,8 @@ def create_routes(localenv: LocalEnv):
     def get_repo(project_path: str, branch=None):
         return _get_repo(project_path, localenv, branch)
 
-    def notfound_response(projectPath):
+    @app.route("/.well-known/<path:path>")
+    def notfound_response(path):
         # 404 page is not currently a template, but could become one
         return send_from_directory(public_files_dir, "404.html")
 
