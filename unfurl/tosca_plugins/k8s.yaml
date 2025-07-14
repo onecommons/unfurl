@@ -44,6 +44,13 @@ node_types:
         metadata:
           # mark this is as immutable to make sure the connection is pointing at the same cluster in subsequent runs
           immutable: true
+    requirements:
+      - default_connection:
+          # relationship_template needs to set default_for
+          metadata:
+            default_for: SELF
+          relationship: unfurl.relationships.ConnectsTo.K8sCluster
+          occurrences: [0, 1]
     interfaces:
       Install:
         operations:

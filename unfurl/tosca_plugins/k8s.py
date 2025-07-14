@@ -11,6 +11,7 @@ from tosca import (
     Node,
     Property,
     Relationship,
+    Requirement,
     pattern,
     tosca_timestamp,
 )
@@ -70,18 +71,20 @@ class unfurl_relationships_ConnectsTo_K8sCluster(tosca.relationships.ConnectsTo)
     PEM-encoded root certificates bundle for TLS authentication
     """
 
-    cluster_ca_certificate_file: Union[str, None] = Eval({
-        "eval": {
-            "if": ".::cluster_ca_certificate",
-            "then": {
-                "eval": {
-                    "tempfile": {"eval": ".::cluster_ca_certificate"},
-                    "suffix": ".crt",
-                }
-            },
-            "else": None,
+    cluster_ca_certificate_file: Union[str, None] = Eval(
+        {
+            "eval": {
+                "if": ".::cluster_ca_certificate",
+                "then": {
+                    "eval": {
+                        "tempfile": {"eval": ".::cluster_ca_certificate"},
+                        "suffix": ".crt",
+                    }
+                },
+                "else": None,
+            }
         }
-    })
+    )
     insecure: Union[bool, None] = Property(
         metadata={"user_settable": True, "env_vars": ["KUBE_INSECURE"]},
         default=Eval({"get_env": "KUBE_INSECURE"}),
@@ -154,6 +157,10 @@ class unfurl_nodes_K8sCluster(unfurl_nodes__K8sResourceHost):
         factory=unfurl_capabilities_Endpoint_K8sCluster
     )
 
+    default_connection: Union["unfurl_relationships_ConnectsTo_K8sCluster", None] = (
+        Requirement(default=None, metadata={"default_for": "SELF"})
+    )
+
     def check(self, **kw: Any) -> Any:
         return unfurl.configurators.k8s.ClusterConfigurator()
 
@@ -164,8 +171,7 @@ class unfurl_nodes_K8sCluster(unfurl_nodes__K8sResourceHost):
 class unfurl_nodes_K8sRawResource(tosca.nodes.Root):
     _type_name = "unfurl.nodes.K8sRawResource"
     name: str = Property(
-        attribute=True,
-        default=Eval({"eval": {"to_dns_label": {"eval": ".name"}}}),
+        attribute=True, default=Eval({"eval": {"to_dns_label": {"eval": ".name"}}})
     )
     definition: Union[object, None] = None
     """Inline resource definition (string or map)"""
@@ -196,7 +202,7 @@ class unfurl_nodes_K8sNamespace(
     unfurl_nodes__K8sResourceHost, unfurl_nodes_K8sRawResource
 ):
     _type_name = "unfurl.nodes.K8sNamespace"
-    name: typing_extensions.Annotated[str, (pattern("^[\\w-]+$"),)] = Property(
+    name: typing_extensions.Annotated[str, (pattern("^[\\w-]+$"),)] = Property(  # type: ignore[assignment]
         metadata={"immutable": True}, default="default"
     )
 
@@ -205,18 +211,18 @@ class unfurl_nodes_K8sResource(unfurl_nodes_K8sRawResource):
     _type_name = "unfurl.nodes.K8sResource"
     namespace: str = Property(
         attribute=True,
-        default=Eval({
-            "eval": {
-                "if": {"is_function_defined": "kubernetes_current_namespace"},
-                "then": {"kubernetes_current_namespace": None},
-                "else": {"get_property": ["HOST", "name"]},
+        default=Eval(
+            {
+                "eval": {
+                    "if": {"is_function_defined": "kubernetes_current_namespace"},
+                    "then": {"kubernetes_current_namespace": None},
+                    "else": {"get_property": ["HOST", "name"]},
+                }
             }
-        }),
+        ),
     )
 
-    host: Union[
-        Union["tosca.relationships.HostedOn", "unfurl_nodes_K8sNamespace"], None
-    ] = None
+    host: Union[Union["tosca.relationships.HostedOn", "unfurl_nodes_K8sNamespace"], None] = None  # type: ignore[assignment]
 
 
 class unfurl_nodes_K8sSecretResource(unfurl_nodes_K8sResource):
@@ -229,13 +235,15 @@ class unfurl_nodes_K8sSecretResource(unfurl_nodes_K8sResource):
     type: str = "Opaque"
     data: Union[Dict[str, Any], None] = Property(
         metadata={"sensitive": True},
-        default=Eval({
-            "eval": {
-                "if": ".::key",
-                "then": "{{ { '.::key' | eval : '.::keyValue' | eval } }}",
-                "else": {"q": {}},
+        default=Eval(
+            {
+                "eval": {
+                    "if": ".::key",
+                    "then": "{{ { '.::key' | eval : '.::keyValue' | eval } }}",
+                    "else": {"q": {}},
+                }
             }
-        }),
+        ),
     )
     """Data to be base64 encoded into the secret. If not set, "key" and "keyValue" will be used."""
 
@@ -259,8 +267,8 @@ setattr(
     "kubectl",
     artifact_AsdfTool(
         "kubectl",
-        version="1.25.3",
         file="kubectl",
+        version="1.25.3",
     ),
 )
 
@@ -275,3 +283,4 @@ __all__ = [
     "unfurl_nodes_K8sResource",
     "unfurl_nodes_K8sSecretResource",
 ]
+
