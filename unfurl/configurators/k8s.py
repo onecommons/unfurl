@@ -142,9 +142,9 @@ def _get_connection(ctx: RefContext) -> dict:
         config = {}
     empty_config = not config
     # check if we are in a namespace
-    namespace = Ref(".hosted_on::[.type=unfurl.nodes.K8sNamespace]").resolve_one(ctx)
+    namespace = Ref(".hosted_on::[.type=unfurl.nodes.K8sNamespace]").resolve(ctx)
     if namespace:
-        config["namespace"] = cast(NodeInstance, namespace).attributes["name"]
+        config["namespace"] = cast(NodeInstance, namespace[0]).attributes["name"]
     if ctx.task:
         if empty_config:
             ctx.task.logger.verbose(
@@ -497,7 +497,10 @@ class ResourceConfigurator(AnsibleConfigurator):
                     extra_configuration.setdefault("label_selectors", []).extend(
                         selectors
                     )
-            return self._make_check(connectionConfig, definition, extra_configuration)
+            playbook = self._make_check(connectionConfig, definition, extra_configuration)
+            if extra_playbook:
+                playbook[0].update(extra_playbook)
+            return playbook
 
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
