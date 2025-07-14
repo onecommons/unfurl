@@ -362,6 +362,12 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
         ).rstrip("/")
         cast(dict, app.config.get("UNFURL_LOCAL_PROJECTS"))[project_id] = local_dir
         return local_dir
+    return _get_managed_project_repo_dir(project_id, branch, args)
+
+
+def _get_managed_project_repo_dir(
+    project_id: str, branch: str, args: Optional[dict]
+) -> str:
     base = "public"
     if args:
         if (
@@ -1539,10 +1545,11 @@ def clear_project():
 
 
 def _clear_project(project_id):
-    if not local_developer_mode():
+    if not local_developer_mode() and project_id:
         found = False
+        # only delete repos we cloned
         for visibility in ["public", "private"]:
-            project_dir = _get_project_repo_dir(
+            project_dir = _get_managed_project_repo_dir(
                 project_id, "", dict(visibility=visibility)
             )
             if os.path.isdir(project_dir):
