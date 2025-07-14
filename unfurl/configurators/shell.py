@@ -48,7 +48,20 @@ if TYPE_CHECKING:
     from ..job import ConfigTask
 
 # logging to file doesn't call logging.truncate(), so manually truncate potentially huge output
-FILELOG_TRUNCATE_LENGTH = max(DEFAULT_TRUNCATE_LENGTH, 10000)
+FILELOG_TRUNCATE_LENGTH = DEFAULT_TRUNCATE_LENGTH
+
+def _log_output(task, result, attr: str):
+    data = getattr(result, attr)
+    if len(data) > FILELOG_TRUNCATE_LENGTH:
+        log_path = task.job.log_path(ext=f"-{task.target.name}-{attr}.log")
+        dir = os.path.dirname(log_path)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        with open(log_path, 'a') as f:
+            f.write(data)
+        return f"{attr} {data[: FILELOG_TRUNCATE_LENGTH // 2]}... full output logged to {log_path}"
+    else:
+        return data
 
 
 class ShellInputs(TemplateInputs):
@@ -241,7 +254,7 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err  # type: ignore
             return err
 
-    def _handle_result(self, task, result, cwd, successCodes=(0,)):
+    def _handle_result(self, task: TaskView, result, cwd, successCodes=(0,)):
         # strips terminal escapes
         result.stdout = AnsibleUnsafeText(clean_output(result.stdout or ""))
         result.stderr = AnsibleUnsafeText(clean_output(result.stderr or ""))
@@ -254,13 +267,13 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.info(
                     "shell task return code: %s, stderr: %s",
                     result.returncode,
-                    truncate(result.stderr, FILELOG_TRUNCATE_LENGTH),
+                    _log_output(task, result, "stderr"),
                 )
         else:
             task.logger.info("shell task run success: %s", result.cmd)
             task.logger.debug(
                 "shell task output: %s",
-                truncate(result.stdout, FILELOG_TRUNCATE_LENGTH),
+                _log_output(task, result, "stdout"),
             )
         return not error
 
@@ -275,7 +288,7 @@ class ShellConfigurator(TemplateConfigurator):
             return e, None
 
     def _process_result(
-        self, task, result, cwd
+        self, task: TaskView, result, cwd: str
     ) -> Tuple[bool, Optional[Status], Optional[Dict[str, Any]]]:
         success = self._handle_result(task, result, cwd)
         resultDict = result.__dict__.copy()
@@ -329,6 +342,8 @@ class ShellConfigurator(TemplateConfigurator):
             script = " ".join(cmd)
         # save as script just for troubleshooting
         task.set_work_folder().write_file(script, "rendered.sh")
+        # try this now to catch errors early:
+        _, _ = self._cmd(cmd, task.inputs.get("keeplines", False))
         return [cmd, cwd]
 
     def run(self, task: TaskView):
