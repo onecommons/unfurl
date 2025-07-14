@@ -62,9 +62,6 @@ node_types:
         default: {eval: ".name"}
       url:
         type: string
-    capabilities:
-      feature:
-        type: tosca.capabilities.Node
     interfaces:
       Standard:
         configure: helm repo add {{ SELF.name }} "{{ SELF.url }}" --force-update
@@ -117,7 +114,7 @@ node_types:
           # valid_target_types: [ unfurl.nodes.K8sNamespace, unfurl.nodes.K8sCluster]
       - repository:
           node: unfurl.nodes.HelmRepository
-          capability: tosca.capabilities.Node
+          occurrences: [0, 1]
     properties:
       chart:
         type: string
@@ -161,6 +158,7 @@ node_types:
               release_name: { get_property: ["SELF", "release_name"] }
               dryrun: "--dry-run"
               chart_values: { get_property: ["SELF", "chart_values"] }
+              echo: false # avoid dumping massive and/or binary manifest to console
               command:
                 eval:
                   template: >-
@@ -255,10 +253,20 @@ node_types:
             invoke: Helm.execute
             inputs:
               done:
-                success: true # helm status returns an error if the release doesn't exist
+                # helm status returns an error if the release doesn't exist
+                success: '{%if result.returncode == 0 or "release: not found" in result.stderr %}True{%else%}False{%endif%}'
                 modified: false
               resultTemplate: |
-                - readyState: {%if returncode == 0 %}ok{%else%}absent{%endif%}
+                  {%if returncode == 0 %}
+                  {% set json = stdout | from_json %}
+                  - readyState: {%if json.info.status == 'deleted' or json.info.status == 'deleting' %}absent
+                                {%- elif json.info.status=='superseded' %}degraded
+                                {%- elif json.info.status=='deployed' %}ok
+                                {%- elif json.info.status=='failed' %}error
+                                {%- else %}ok{%- endif%}
+                  {% elif "release: not found" in stderr %}
+                  - readyState: absent
+                  {% endif %}
               helmcmd: status
               dryrun: "--dry-run"
               # don't pass these as cmd arguments
