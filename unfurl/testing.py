@@ -41,6 +41,7 @@ try:
         stdout, stderr, return_code = api.run([path, *args])
         if stdout:
             print(stdout)
+            print(stderr)
             for msg in expected:
                 assert msg in stdout, f"not found in stdout: {msg}"
         # if errors, return_code == 1

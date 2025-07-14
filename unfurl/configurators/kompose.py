@@ -254,8 +254,9 @@ class KomposeConfigurator(ShellConfigurator):
         )
         extras = task.inputs.get_copy("overlays") or {}
         if ingress_extras:
-            task.logger.debug("setting ingress_extras to:\n%s", ingress_extras)
             extras["Ingress"] = ingress_extras
+        if extras:
+            task.logger.debug("setting extras to:\n%s", extras)
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
         definitions = self.save_definitions(task, output_dir, extras)

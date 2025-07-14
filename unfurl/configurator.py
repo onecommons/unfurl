@@ -1191,9 +1191,21 @@ class TaskView:
             # XXX track all status attributes (esp. state and created) and remove this hack
             operational = Manifest.load_status(resourceSpec)
             if operational.local_status is not None:
+                self.logger.debug(
+                    "setting local status on %s from %s to %s",
+                    existingResource.name,
+                    existingResource.local_status,
+                    operational.local_status,
+                )
                 existingResource.local_status = operational.local_status
                 updated = True
             if operational.state is not None:
+                self.logger.debug(
+                    "setting node state on %s from %s to %s",
+                    existingResource.name,
+                    existingResource.state,
+                    operational.state,
+                )
                 existingResource.state = operational.state
                 updated = True
 
@@ -1344,7 +1356,7 @@ class TaskView:
             try:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
-                    discovered = "" if existingResource is self.target else " dynamic "
+                    discovered = " " if existingResource is self.target else " dynamic "
                     if updated:
                         self.logger.info(
                             f'updating{discovered}instance "{existingResource.name}"',
