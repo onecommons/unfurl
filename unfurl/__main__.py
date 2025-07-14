@@ -395,7 +395,7 @@ commonOutputOptions = option_group(
 allJobOptions = option_group(
     commonOutputOptions,
     click.option(
-        "--instance", multiple=True, help="Instance name to target (multiple times ok)."
+        "-i", "--instance", multiple=True, help="Instance name to target (multiple times ok)."
     ),
     click.option("--starttime", help="Set the start time of the job."),
     click.option(
@@ -1111,10 +1111,10 @@ def home(ctx, init=False, render=False, replace=False, register=None, **options)
         registered = initmod.find_project(register, home_dir, True)
         if registered:
             click.echo(
-                "Registered project {registered.projectRoot} with the home project."
+                f"Registered project {registered.projectRoot} with the home project."
             )
         else:
-            click.echo('Unable to register project: could not find "{register}".')
+            click.echo(f'Unable to register project: could not find "{register}".')
 
 
 @utility_cli.command(short_help="Print or manage the project's runtime")
