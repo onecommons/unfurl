@@ -223,9 +223,16 @@ class relationships(Namespace):
 
     class ConnectsToComputeMachines(tosca.relationships.ConnectsTo):
         _type_name = "unfurl.relationships.ConnectsTo.ComputeMachines"
+        _type_metadata = {
+            "exclude-from-configuration": True
+        }
+
 
     class ConnectsToObjectStorage(tosca.relationships.ConnectsTo):
         _type_name = "unfurl.relationships.ConnectsTo.ObjectStorage"
+        _type_metadata = {
+            "exclude-from-configuration": True
+        }
         access_key: str
         secret_key: str = Property(metadata={"sensitive": True})
         region: str = "us-east-1"

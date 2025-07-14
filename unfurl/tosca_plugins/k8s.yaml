@@ -178,6 +178,8 @@ relationship_types:
   unfurl.relationships.ConnectsTo.K8sCluster:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [unfurl.capabilities.Endpoint.K8sCluster]
+    metadata:
+      exclude-from-configuration: true
     properties:
       name:
         title: Cluster name

@@ -391,9 +391,13 @@ relationship_types:
 
   unfurl.relationships.ConnectsTo.ComputeMachines:
     derived_from: tosca.relationships.ConnectsTo
+    metadata:
+      exclude-from-configuration: true
 
   unfurl.relationships.ConnectsTo.ObjectStorage:
     derived_from: tosca.relationships.ConnectsTo
+    metadata:
+      exclude-from-configuration: true
     properties:
       access_key:
         type: string
