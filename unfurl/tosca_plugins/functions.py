@@ -34,6 +34,7 @@ from tosca import (
     safe_mode,
     global_state_mode,
     global_state_context,
+    has_function
 )
 import tosca
 
@@ -48,14 +49,14 @@ if safe_mode():
 
         return cast(F, wrapped)
 else:
-    from tosca import has_function
     from ..eval import map_value, set_eval_func
+    from tosca import global_state
 
     def eval_func(func: F) -> F:
         def wrapped(*args, **kwargs):
             if global_state_mode() == "runtime":
                 ctx = global_state_context()
-                assert ctx
+                assert ctx, func
                 return func(*map_value(args, ctx), **map_value(kwargs, ctx))
             elif (
                 not safe_mode() and not has_function(args) and not has_function(kwargs)
@@ -194,7 +195,7 @@ def to_label(
         digestlen (int, optional): If a label is truncated, the length of the digest to include in the label. 0 to disable.
                                 Default: 3 or 2 if max < 32
     """
-    if global_state_mode() == "runtime" or not isinstance(arg, EvalData):
+    if global_state_mode() == "runtime" or (not isinstance(arg, EvalData) and not has_function(arg)):
         return _to_label(arg, **kw)
     else:
         kw[_wrapper] = arg  # type: ignore
