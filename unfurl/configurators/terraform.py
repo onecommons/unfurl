@@ -481,15 +481,18 @@ class TerraformConfigurator(ShellConfigurator):
                 # changes were applied so set to OK
                 status = Status.ok
 
-        if success and task.configSpec.operation == "check":
-            if needs_changes:
-                if "0 to change, 0 to destroy" in result.stdout:
-                    # terraform only would add resources, so treat current state as absent
-                    status = Status.absent
-                else:
-                    status = Status.degraded
-            elif task.target.status in [Status.pending, Status.unknown]:
-                # no changes needed so set to known state
+        if success:
+            if task.configSpec.operation == "check":
+                if needs_changes:
+                    if "0 to change, 0 to destroy" in result.stdout:
+                        # terraform only would add resources, so treat current state as absent
+                        status = Status.absent
+                    else:
+                        status = Status.degraded
+                elif task.target.status in [Status.pending, Status.unknown]:
+                    # no changes needed so set to known state
+                    status = Status.ok
+            elif task.configSpec.operation != "delete":
                 status = Status.ok
 
         modified = (
