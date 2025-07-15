@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping, MutableSequence
-from typing_extensions import MutableMapping
+from typing_extensions import MutableMapping, Self
 from abc import ABC, abstractmethod, ABCMeta
 import datetime
 import io
@@ -683,6 +683,12 @@ class Results(ABC, metaclass=ProxyableType):
             self.defs = resource.template and resource.template.propertyDefs or {}
         else:
             self.defs = defs
+
+    def copy(self) -> Self:
+        copy = self.__class__(self._attributes, self.context, self.validate, self.defs)
+        copy._deleted = self._deleted.copy()
+        copy.applyTemplates = self.applyTemplates
+        return copy
 
     @overload
     def get_copy(self, key: str, default: T) -> T: ...
