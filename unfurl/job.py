@@ -1013,10 +1013,10 @@ class Job(ConfigChange):
         return self.plan_requests[:]
 
     @staticmethod
-    def _reorder_requests(reqs: List[PlanRequest], not_ready: List[PlanRequest]):
+    def _reorder_requests(reqs: List[PlanRequest], not_ready_reqs: List[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest]]:
         # first reorder not_ready in case one depends on another
-        not_ready = not_ready[:]
-        not_ready_appended = []
+        not_ready = not_ready_reqs[:]
+        not_ready_appended: List[PlanRequest] = []
         index = 0
         while len(not_ready) > index:
             req = not_ready[index]
@@ -1026,15 +1026,21 @@ class Job(ConfigChange):
                 not_ready_appended.append(req)
             else:
                 index += 1
-        not_ready.extend(not_ready_appended)
+        if not_ready_appended:
+            logger.trace("not ready dependents moved: %s", not_ready_appended)
+            not_ready.extend(not_ready_appended)
 
-        ready = []
+        ready: List[PlanRequest] = []
+        new_not_ready: List[PlanRequest] = []
         for req in reqs:
             depends = req.depends_on_not_ready(not_ready)
             if depends:
-                not_ready.append(req)
+                new_not_ready.append(req)
             else:
                 ready.append(req)
+        if new_not_ready:
+            logger.trace("ready dependents moved to not ready: %s", new_not_ready)
+            not_ready.extend(new_not_ready)
         return ready, not_ready
 
     def apply(

@@ -251,7 +251,11 @@ class PlanRequest:
                     and dep.target
                     and dep.target != self.target
                 ):
-                    if dep.target.local_status not in [Status.ok, Status.degraded]:
+                    # also check .operational because abstract instances might not have a local_status
+                    if (
+                        dep.target.local_status not in [Status.ok, Status.degraded]
+                        and not dep.target.operational
+                    ):
                         logger.trace(
                             f"{dep} not operational with local status {dep.target.local_status and dep.target.local_status.name}"
                         )
@@ -360,7 +364,7 @@ class PlanRequest:
                 msg += f"non-operational dependencies: {not_operational}"
             if invalid_deps:
                 if msg != start:
-                    msg += " and "
+                    msg += " and"
                 msg += f" unfulfilled dependencies: {invalid_deps}"
         if msg != start:
             return msg
