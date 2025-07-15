@@ -194,9 +194,10 @@ class ToscaSpec:
         return False
 
     def _overlay(self, overlays):
+        ExceptionCollector.start()  # clears previous errors
+
         def _find_matches():
             assert self.topology
-            ExceptionCollector.start()  # clears previous errors
             for expression, _tpl in overlays.items():
                 try:
                     match = Ref(expression).resolve_one(
@@ -288,6 +289,7 @@ class ToscaSpec:
             logger.debug("found decorators %s", decorators)
             matches = self._overlay(decorators)
             # overlay uses ExceptionCollector
+            ExceptionCollector.collecting = False
             if ExceptionCollector.exceptionsCaught():
                 # abort if overlay caused errors
                 # report previously collected errors too
@@ -345,13 +347,15 @@ class ToscaSpec:
             logger.info("Validating TOSCA template at %s", path)
             try:
                 self._parse_template(path, inputs, toscaDef, resolver, fragment)
-            except:
+            except Exception:
                 if (
                     not ExceptionCollector.exceptionsCaught()
                     or not self.template
                     or not self.topology  # type: ignore
                 ):
                     raise  # unexpected error
+            finally:
+                ExceptionCollector.collecting = False
 
             # copy errors because self._patch() might clear them
             errorsSoFar = ExceptionCollector.exceptions[:]
@@ -655,9 +659,7 @@ class ToscaSpec:
                     elif isinstance(target, toscaparser.artifacts.Artifact):
                         target_spec = target_node.artifacts[target.name]
                     else:
-                        assert False, (
-                            f"Unexpected node filter target {target.name} of type {type(target)}"
-                        )
+                        assert False, f"Unexpected node filter target {target.name} of type {type(target)}"
                 else:
                     target_spec = target_node
                 target_spec._update_property(name, value)
