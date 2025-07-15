@@ -1,10 +1,7 @@
-import dataclasses
-import inspect
 import os
 import time
 from typing import Any, List, Optional, Dict, Sequence, Union
 import typing
-import unittest
 from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
@@ -1234,7 +1231,7 @@ topology_template:
           - c
           extra: extra
         overlays:
-          overlay: 1
+          overlay: 2
         foo: foo
       directives:
       - dependent
@@ -1268,6 +1265,7 @@ def test_patching(mocker):
         foo: Optional[str] = None
 
         def _template_init(self):
+            assert not self.is_patch
             if self.has_default("container"):  # true even if initialized with PATCH
                 self.container = unfurl_datatypes_DockerContainer(
                     command=["a", "b", "c"],
@@ -1302,6 +1300,9 @@ def test_patching(mocker):
     assert app2.service.container.command == ["a", "b", "c"]
     assert app2.service.container.environment.P1 == "p"
     assert app2.service.container.environment.VAR1 == "a"
+
+    app_patch = App(PATCH, service=Service(PATCH, overlays={"overlay": 2}))
+    app2.patch(app_patch)
 
     __name__ = "tests.test_dsl"
     converter = PythonToYaml(locals())
@@ -2005,7 +2006,7 @@ node.__class__.feature
         "for key, value in {'a': 1}.items(): assert key == 'a' and value == 1",
         "a, b = 1, 2; assert a == 1 and b == 2",
         "(foo := 1)",
-        "try: a='ok'\nexcept: a='fail'"
+        "try: a='ok'\nexcept: a='fail'",
     ]
     for src in allowed:
         # print("\nallowed?\n", src)
