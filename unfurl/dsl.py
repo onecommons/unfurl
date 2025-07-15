@@ -266,8 +266,11 @@ def proxy_instance(
             return None
         # the instance was defined in yaml so has no python obj, create one now
         # since we proxy to the instance, we don't need to worry about setting its fields
+        previous_required = global_state._enforce_required_fields
+        previous_mode = global_state.mode
         try:
             global_state._enforce_required_fields = False
+            global_state.mode = "parse"
             metadata = instance.template.toscaEntityTemplate.entity_tpl.get("metadata")
             module_name = metadata and metadata.get("module")
             if (
@@ -276,8 +279,17 @@ def proxy_instance(
                 obj = found_cls(instance.template.name)  # type:ignore
             if module_name and obj:
                 obj.register_template(module_name, instance.template.name)
+        except Exception as e:
+            logger.error(
+                "failed to create TOSCA DSL object for proxy %s",
+                instance.template.name,
+                # exc_info=e,
+                stack_info=True,
+            )
+            return None
         finally:
-            global_state._enforce_required_fields = True
+            global_state._enforce_required_fields = previous_required
+            global_state.mode = previous_mode
 
     if not cls and not obj:
         return None
