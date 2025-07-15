@@ -5,6 +5,7 @@ TOSCA implementation
 """
 
 import copy
+from enum import Enum, Flag, auto
 import sys
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.elements.nodetype import NodeType
@@ -826,6 +827,12 @@ class ToscaTypeId:
 
 # represents a node, capability or relationship
 class EntitySpec(ResourceRef):
+    class ReferenceType(Flag):
+        Requirement = auto()
+        Property = auto()
+        Target = auto()
+        OperationHost = auto()
+
     # XXX need to define __eq__ for spec changes
     def __init__(
         self, toscaNodeTemplate: Optional[EntityTemplate], topology: "TopologySpec"
@@ -846,18 +853,17 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = cast(str, toscaNodeTemplate.type)
-        self._isReferencedBy: Sequence[
-            EntitySpec
-        ] = []  # this is referenced by another template or via property traversal
+        # this is referenced by another template or via property traversal
+        self._isReferencedBy: Dict[EntitySpec, EntitySpec.ReferenceType] = {}
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
         # XXX user should be able to declare default attribute values on templates
         self.propertyDefs: Dict[str, Property] = toscaNodeTemplate.get_properties()
         self.attributeDefs: Dict[str, Property] = {}
-        self.properties: CommentedMap = CommentedMap([
-            (prop.name, prop.value) for prop in self.propertyDefs.values()
-        ])
+        self.properties: CommentedMap = CommentedMap(
+            [(prop.name, prop.value) for prop in self.propertyDefs.values()]
+        )
         if toscaNodeTemplate.type_definition:
             self.global_type = toscaNodeTemplate.type_definition.global_name
             # add attributes definitions
@@ -890,6 +896,25 @@ class EntitySpec(ResourceRef):
         else:
             self.global_type = self.type
             self.defaultAttributes = {}
+
+    def add_reference(self, entity: "EntitySpec", ref_type: ReferenceType):
+        """
+        Add a reference to this EntitySpec from another EntitySpec.
+        If the entity is already referenced, update the flags.
+        """
+        if entity in self._isReferencedBy:
+            self._isReferencedBy[entity] |= ref_type
+        else:
+            self._isReferencedBy[entity] = ref_type
+
+    def has_reference(self, entity: "EntitySpec", ref_type: ReferenceType):
+        return self._has_reference(self._isReferencedBy, entity, ref_type)
+
+    @staticmethod
+    def _has_reference(references: Dict["EntitySpec", "EntitySpec.ReferenceType"], entity: "EntitySpec", ref_type: ReferenceType):
+        if entity not in references:
+            return False
+        return references[entity] & ref_type
 
     def _update_property(self, prop, value):
         # should only be called while parsing
@@ -1131,7 +1156,7 @@ class EntitySpec(ResourceRef):
 
     @property
     def required(self) -> bool:
-        # check if this template is required by another template
+        "Return True if this template is required by a non-default template or by the topology root if there is one."
         for root in _get_roots(self):
             if self.topology.substitution_node:
                 if self.topology.substitution_node is root:
@@ -1155,8 +1180,8 @@ def _get_roots(node: EntitySpec, seen=None):
         seen = set()
     yield node
     for parent in node._isReferencedBy:
-        if parent.name not in seen:
-            seen.add(node.name)
+        if parent not in seen:
+            seen.add(parent)
             yield from _get_roots(parent, seen)
 
 
@@ -1302,6 +1327,7 @@ class NodeSpec(EntitySpec):
                     nodeSpec = self.spec.node_from_template(relTpl.target)
                     if nodeSpec:
                         nodeSpec.add_relationship(reqSpec)
+                        nodeSpec.add_reference(self, self.ReferenceType.Requirement)
                     else:
                         msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
                         ExceptionCollector.appendException(UnfurlValidationError(msg))
@@ -1417,7 +1443,7 @@ class NodeSpec(EntitySpec):
                 reqSpec.relationship = relSpec
                 if not relSpec.requirement:
                     relSpec.requirement = reqSpec
-                    relSpec._isReferencedBy.append(self)  # type: ignore
+                    relSpec.add_reference(self, self.ReferenceType.Target)
                 elif relSpec.requirement.name != reqSpec.name:
                     continue
                 assert (
@@ -1809,7 +1835,7 @@ class TopologySpec(EntitySpec):
         self.propertyDefs = {}
         self.attributeDefs = {}
         self._default_relationships: List[RelationshipSpec] = []
-        self._isReferencedBy = []
+        self._isReferencedBy = {}
         self.add_discovered()
 
     def copy(self) -> "TopologySpec":

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         RelationshipInstance,
     )
     from .configurator import Dependency
+    from .spec import EntitySpec
 
 from .logs import getLogger
 from .eval import _Tracker, RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -1728,13 +1729,12 @@ class AttributeManager:
         else:
             self.statuses[resource.key][1] = newvalue
 
-    def mark_referenced_templates(self, template):
+    def mark_referenced_templates(self, template: "EntitySpec"):
         for resource, attr in self.attributes.values():
-            if (
-                resource.template is not template
-                and template not in resource.template._isReferencedBy
-            ):
-                resource.template._isReferencedBy.append(template)  # type: ignore
+            if resource.template is not template:
+                resource.template.add_reference(
+                    template, template.ReferenceType.Property
+                )
 
     def _get_context(self, resource) -> RefContext:
         if (

@@ -690,14 +690,17 @@ class Plan:
     def _get_templates(self) -> List[NodeSpec]:
         assert self.tosca.topology
         filter = self.filterTemplate and self.filterTemplate.name
-        seen: Set[NodeSpec] = set()
+        seen: Dict[EntitySpec, EntitySpec.ReferenceType] = {}
         # order by ancestors
         return list(
             self._get_templates_from_topology(self.tosca.topology, seen, filter)
         )
 
     def _get_templates_from_topology(
-        self, topology: TopologySpec, seen: Set[NodeSpec], filter=None
+        self,
+        topology: TopologySpec,
+        seen: Dict[EntitySpec, EntitySpec.ReferenceType],
+        filter=None,
     ) -> Iterator[NodeSpec]:
         templates = topology.node_templates.values()
         # order by ancestors
@@ -718,40 +721,52 @@ class Plan:
         )
 
     def order_templates(
-        self, templates: Dict[str, NodeSpec], seen: Set[NodeSpec]
+        self,
+        templates: Dict[str, NodeSpec],
+        seen: Dict[EntitySpec, EntitySpec.ReferenceType],
     ) -> Iterator[NodeSpec]:
+        """Order templates so dependencies are yielded first."""
         for source in templates.values():
-            if source in seen:
-                continue
-
             if self.interface:
                 for operation_host in find_explicit_operation_hosts(
                     source, self.interface
                 ):
                     operationHostSpec = templates.get(operation_host)
                     if operationHostSpec:
-                        if (
-                            operationHostSpec is not source
-                            and source not in operationHostSpec._isReferencedBy
-                        ):
-                            cast(list, operationHostSpec._isReferencedBy).append(source)
+                        if operationHostSpec is not source:
+                            operationHostSpec.add_reference(
+                                source, operationHostSpec.ReferenceType.OperationHost
+                            )
                         if operationHostSpec in seen:
                             continue
-                        seen.add(operationHostSpec)
+                        seen[operationHostSpec] = (
+                            operationHostSpec.ReferenceType.OperationHost
+                        )
                         yield operationHostSpec
 
+            # skip if we already encountered source while running get_ancestor_templates()
+            if EntitySpec._has_reference(
+                seen, source, EntitySpec.ReferenceType.Requirement
+            ):
+                continue
+
             for nodespec in get_ancestor_templates([source], templates):
-                if nodespec is not source and source not in nodespec._isReferencedBy:
-                    # ancestor is required by source
-                    cast(list, nodespec._isReferencedBy).append(source)
-                if nodespec in seen:
-                    continue
-                seen.add(nodespec)
-                if nodespec.substitution:
-                    yield from self._get_templates_from_topology(
-                        nodespec.substitution, seen
-                    )
-                yield nodespec
+                if nodespec is not source:
+                    # nodespec ancestor is required by source
+                    nodespec.add_reference(source, nodespec.ReferenceType.Requirement)
+                flags = seen.get(nodespec)
+                if not flags or not flags & EntitySpec.ReferenceType.Requirement:
+                    # setting nodespec now means we won't add nodespec references to other nodes
+                    # (because of the _has_reference check above)
+                    # so essentially, given a lineage, only the first one encountered in the topology will be in other node's _isReferencedBy
+                    # (which fine if we only use it to see if a node connected to the root node (see _get_roots()))
+                    seen[nodespec] = nodespec.ReferenceType.Requirement
+                    if nodespec.substitution:
+                        yield from self._get_templates_from_topology(
+                            nodespec.substitution, seen
+                        )
+                    if not flags:  # skip if already yielded as a operation host
+                        yield nodespec
 
     def include_not_found(self, template):
         return True
@@ -1198,6 +1213,8 @@ def interface_requirements_ok(root: TopologyInstance, template: NodeSpec):
 def get_ancestor_templates(
     stack: List[NodeSpec], templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
+    """Yield transitive requirements from topmost to self"""
+    # maintain a stack to avoid circular dependencies
     source = stack[-1]
     if not source.toscaEntityTemplate.is_replaced_by_outer():
         if source.abstract != "select":
