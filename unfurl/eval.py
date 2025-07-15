@@ -29,6 +29,7 @@ from ruamel.yaml.comments import CommentedMap
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 from unfurl.logs import UnfurlLogger
+from tosca import global_state
 
 from .util import validate_schema, UnfurlError, assert_form
 from .result import (
@@ -40,7 +41,7 @@ from .result import (
     ResultsMap,
     wrap_var,
     quoted_dict,
-    AnsibleUnsafeText
+    AnsibleUnsafeText,
 )
 
 import logging
@@ -514,16 +515,24 @@ class Ref:
             f"Ref.resolve(wantList={wantList}) start strict {ctx.strict}",
             self.source,
         )
-        ref_results = eval_ref(self.source, ctx, True)
-        assert isinstance(ref_results, list)
-        ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, ref_results)
-        select = self.foreach or self.select
-        if ref_results and select:
-            results = for_each(select, ref_results, ctx)
-        else:
-            results = ref_results  # , ctx)
-        ctx.add_ref_reference(self, results)
-        ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
+        saved_context = global_state.context
+        try:
+            global_state.context = ctx
+            ref_results = eval_ref(self.source, ctx, True)
+            assert isinstance(ref_results, list)
+            ctx.trace(
+                f"Ref.resolve(wantList={wantList}) evalRef", self.source, ref_results
+            )
+            select = self.foreach or self.select
+            if ref_results and select:
+                results = for_each(select, ref_results, ctx)
+            else:
+                results = ref_results  # , ctx)
+            ctx.add_ref_reference(self, results)
+            ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
+        finally:
+            global_state.context = saved_context
+
         if wantList == "result":
             return results
         values = [r.resolved for r in results]

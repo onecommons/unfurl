@@ -93,6 +93,7 @@ from .tosca_plugins.functions import (
     to_googlecloud_label,
     generate_string,
 )
+from tosca import global_state
 
 logger = getLogger("unfurl")
 
@@ -533,7 +534,10 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     index = ctx.referenced.start()
     # set referenced to track references (set by Ref.resolve)
     # need a way to turn on and off
+    saved_context = global_state.context
     try:
+        global_state.context = ctx
+
         # strip whitespace so jinija native types resolve even with extra whitespace
         # disable caching so we don't need to worry about the value of a cached var changing
         # use do_template because we already know it's a template
@@ -594,6 +598,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                 ctx.trace("no modification after processing template:", value)
     finally:
         ctx.referenced.stop()
+        global_state.context = saved_context
         if overrides:
             # restore original values
             templar._apply_templar_overrides(overrides)
