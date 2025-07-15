@@ -66,6 +66,7 @@ from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
 from .init import get_input_vars
+from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from ansible.parsing.dataloader import DataLoader
@@ -420,6 +421,8 @@ class YamlManifest(ReadOnlyManifest):
         skip_validation=False,  # tosca parser validation
         safe_mode: Optional[bool] = None,
     ):
+        if skip_validation:
+            global_state._enforce_required_fields = False
         super().__init__(manifest, path, validate, localEnv, vault, safe_mode)
         self.validate = not skip_validation  # see AttributeManager.validate
         # instantiate the tosca template
