@@ -641,8 +641,7 @@ foo
         assert not ctx.strict
         assert not ctx.task._errors
         result = map_value(template, ctx)
-        # templating failed so it returned the original template
-        self.assertEqual(result, template_contents.strip(), len(result))
+        assert result == '<<Error rendering template: missing variable: "str">>'
         assert ctx.task._errors
 
         template = dict(

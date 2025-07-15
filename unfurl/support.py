@@ -403,22 +403,35 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         else:
             return f"<<{msg}>>"
     value = value.strip()
+    want_result = ctx.wantList == "result"
+    if ctx.wantList:
+        # we're building a string so we don't want lists
+        ctx = ctx.copy(wantList=False)
     if ctx.task:
         log = ctx.task.logger
     else:
         log = logger  # type: ignore
+
+    in_log_message = False
 
     # local class to bind with logger and ctx
     class _UnfurlUndefined(DebugUndefined):
         __slots__ = ()
 
         def _log_message(self) -> None:
-            msg = "Template: %s" % self._undefined_message
-            # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
-            log.debug("%s\nTemplate source:\n%s", msg, value)
-            log.warning(msg)
-            if ctx.task:  # already logged, so don't log
-                UnfurlTaskError(ctx.task, msg, False)
+            nonlocal in_log_message
+            if in_log_message:
+                return
+            in_log_message = True
+            try:
+                msg = "Template: %s" % self._undefined_message
+                # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
+                log.debug("%s\nTemplate source:\n%s", msg, value)
+                log.warning(msg)
+                if ctx.task:  # already logged, so don't log
+                    UnfurlTaskError(ctx.task, msg, False)
+            finally:
+                in_log_message = False
 
         def _fail_with_undefined_error(  # type: ignore
             self, *args: Any, **kwargs: Any
@@ -547,7 +560,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                 value = _sandboxed_template(value, ctx, vars, _UnfurlUndefined)
             else:
                 value = templar.template(
-                    value, fail_on_undefined=fail_on_undefined, escape_backslashes=False
+                    value, fail_on_undefined=True, escape_backslashes=False
                 )
         except Exception as e:
             msg = str(e)
@@ -586,15 +599,12 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
 
                 if (
                     external_result
-                    and ctx.wantList == "result"
+                    and want_result
                     and external_result.external
                     and value == external_result.external.get()
                 ):
                     # return a Result with the external value instead
                     return external_result
-
-                # wrap result as AnsibleUnsafe so it isn't evaluated again
-                return wrap_var(value)
             else:
                 ctx.trace("no modification after processing template:", value)
     finally:
@@ -603,7 +613,8 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         if overrides:
             # restore original values
             templar._apply_templar_overrides(overrides)
-    return value
+    # wrap result as AnsibleUnsafe so it isn't evaluated again
+    return wrap_var(value)
 
 
 def _template_func(args, ctx: RefContext):
