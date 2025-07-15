@@ -76,7 +76,12 @@ from .spec import EntitySpec, NodeSpec, RelationshipSpec, PolicySpec, GroupSpec
 from .support import Status
 from .repo import RepoView
 from .util import UnfurlError, UnfurlTaskError, get_base_dir
-from tosca.python2yaml import _OperationProxy, python_src_to_yaml_obj, WritePolicy
+from tosca.python2yaml import (
+    _OperationProxy,
+    python_src_to_yaml_obj,
+    WritePolicy,
+    _write_yaml,
+)
 from .configurator import Configurator, ConfiguratorResult, TaskView
 import sys
 
@@ -88,6 +93,22 @@ logger = getLogger("unfurl")
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
+def is_python_file_newer(yaml_contents, path) -> Optional[str]:
+    yaml_path = Path(path)
+    python_path = yaml_path.parent / (yaml_path.stem + ".py")
+    if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
+        return None
+    if not python_path.exists():
+        return None
+    # only overwrite if yaml file is older than the python file
+    if not WritePolicy["older"].can_overwrite(str(python_path), path):
+        return ""
+    # only overwrite if the yaml file wasn't modified by another process
+    if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
+        return None
+    return str(python_path)
+
+
 def maybe_reconvert(
     import_resolver: "ImportResolver",
     yaml_contents: str,
@@ -97,21 +118,21 @@ def maybe_reconvert(
     yaml_dict=dict,
 ) -> Optional[dict]:
     "If the YAML was generated from a Python file, regenerate if Python file is newer."
-    if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
-        return None
-    yaml_path = Path(path)
-    python_path = yaml_path.parent / (yaml_path.stem + ".py")
-    if not python_path.exists():
-        return None
-    if not WritePolicy["older"].can_overwrite(str(python_path), path):
-        return None
-    if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
+    # path is a yaml file
+    python_path = is_python_file_newer(yaml_contents, path)
+    if not python_path:
         return None
     with open(python_path) as f:
         contents = f.read()
-    return convert_to_yaml(
-        import_resolver, contents, str(python_path), repo_view, base_dir, yaml_dict
+    tosca_tpl = convert_to_yaml(
+        import_resolver, contents, python_path, repo_view, base_dir, yaml_dict
     )
+    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
+    try:
+        _write_yaml(write_policy, tosca_tpl, python_path, path)
+    except Exception:
+        logger.error("error saving generated yaml file %s", path, exc_info=True)
+    return tosca_tpl
 
 
 def get_allowed_modules():
