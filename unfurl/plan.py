@@ -453,8 +453,7 @@ class Plan:
         seen: Set[int] = set()
         test = partial(self.should_delete, include_test)
         for child, reason in select_dependents(self.root, test, seen):
-            if reason != "cancelled" and id(child) not in seen:
-                seen.add(id(child))
+            if reason != "cancelled":
                 # eventually calls execute_default_undeploy() unless custom workflow
                 yield from self._generate_delete_configurations(child, reason)
 
@@ -885,7 +884,9 @@ class DeployPlan(Plan):
                 # customized is only set if created first!
                 # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
                 # discover would have to calculate digest for configure!
-                if (not instance.customized and not instance.is_managed()) or jobOptions.change_detection == "always":
+                if (
+                    not instance.customized and not instance.is_managed()
+                ) or jobOptions.change_detection == "always":
                     return Reason.reconfigure
         return reason
 
@@ -1197,10 +1198,12 @@ def interface_requirements_ok(root: TopologyInstance, template: NodeSpec):
     if reqs:
         assert isinstance(reqs, list)
         for req in reqs:
-            if not any([
-                rel.template.is_compatible_type(req)
-                for rel in root.default_relationships
-            ]):
+            if not any(
+                [
+                    rel.template.is_compatible_type(req)
+                    for rel in root.default_relationships
+                ]
+            ):
                 logger.debug(
                     'Skipping template "%s": could not find a connection for interface requirements: %s',
                     template.name,
@@ -1248,6 +1251,9 @@ def select_dependents(
     root_include_reason = include_test(resource)
     for dep in resource.get_operational_dependents():
         assert isinstance(dep, EntityInstance)
+        if id(dep) in seen:
+            continue
+        seen.add(id(dep))
         for child, include_reason in select_dependents(dep, include_test, seen):
             if include_reason != "cancelled":
                 yield child, include_reason
