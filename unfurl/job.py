@@ -539,7 +539,7 @@ class ConfigTask(TaskView, ConfigChange):
                     'Can\'t check for changes: could not find previous "%s" operation for "%s" with last config change "%s"',
                     self.target.key,
                     self.configSpec.operation,
-                    self.target.last_config_change
+                    self.target.last_config_change,
                 )
             return False
         return self.configurator.check_digest(self, changeset)
@@ -575,7 +575,7 @@ class ConfigTask(TaskView, ConfigChange):
         return missing, reason
 
     @property
-    def name(self) -> str: # type: ignore[override]
+    def name(self) -> str:  # type: ignore[override]
         name = self.configSpec.name
         if self.configSpec.operation and self.configSpec.operation not in name:
             name = name + ":" + self.configSpec.operation
@@ -678,8 +678,8 @@ def _dependency_check(
                 Status.ok,
                 Status.degraded,
             ]:
-                # we only want to consider local_status especially for the case of subsequent runs
-                # trying to repair a failed deployment.
+                # only check if the dependency was skipped because it (or its parent) is not ready
+                # (assume the plan ordered dependencies correctly)
                 if not _is_waiting_for(not_ready, cast(EntityInstance, dep), instance):
                     # TOSCA doesn't have a way to set which individual operations and workflows depend on which requirements
                     # so rely on this heuristic to break common deadlocks:
@@ -695,9 +695,9 @@ def _dependency_check(
                 return f"{dep.name} is {dep.status.name}"
 
         ready = "operational" if operational else state.name if state else "ready"
-        reason = f"required dependencies not {ready}: %s" % ", ".join([
-            dep_message(dep) for dep in missing
-        ])
+        reason = f"required dependencies not {ready}: %s" % ", ".join(
+            [dep_message(dep) for dep in missing]
+        )
     else:
         reason = ""
     return missing, reason
@@ -824,7 +824,6 @@ class Job(ConfigChange):
             )
             return self.rootResource
 
-        # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
         while ready or notReady or self.jobRequestQueue:
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
@@ -839,7 +838,9 @@ class Job(ConfigChange):
             # remove requests from notReady if they've had all their dependencies fulfilled
             completed = ready
             if completed:
-                ready, notReady = set_fulfilled(notReady, completed)
+                ready, notReady = self._reorder_requests(
+                    *set_fulfilled(notReady, completed)
+                )
                 check_target = ""
             else:
                 if self.jobOptions.workflow == "deploy":
@@ -864,7 +865,6 @@ class Job(ConfigChange):
                 break  # none of the stragglers are ready, give up
             if unfulfilled:
                 logger.trace("marking unfulfilled as not ready %s", unfulfilled)
-                # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
                 notReady.extend(unfulfilled)
 
         for req in failed:
@@ -1011,6 +1011,31 @@ class Job(ConfigChange):
         self.external_requests = external_requests
         self.plan_requests = plan_requests
         return self.plan_requests[:]
+
+    @staticmethod
+    def _reorder_requests(reqs: List[PlanRequest], not_ready: List[PlanRequest]):
+        # first reorder not_ready in case one depends on another
+        not_ready = not_ready[:]
+        not_ready_appended = []
+        index = 0
+        while len(not_ready) > index:
+            req = not_ready[index]
+            depends = req.depends_on_not_ready(not_ready[index + 1 :])
+            if depends:
+                not_ready.pop(index)
+                not_ready_appended.append(req)
+            else:
+                index += 1
+        not_ready.extend(not_ready_appended)
+
+        ready = []
+        for req in reqs:
+            depends = req.depends_on_not_ready(not_ready)
+            if depends:
+                not_ready.append(req)
+            else:
+                ready.append(req)
+        return ready, not_ready
 
     def apply(
         self,
@@ -1604,6 +1629,7 @@ def _render(job: Job):
     # note: we need to call render() before lock because render might run this ensemble as an external_job
     with change_cwd(job.manifest.get_base_dir()):
         ready, notReady, errors = job.render()
+        ready, notReady = job._reorder_requests(ready, notReady)
         msg, count = job._plan_summary(ready + notReady, [])
         logger.info(msg, extra=dict(truncate=0))
     return (ready, notReady, errors), count

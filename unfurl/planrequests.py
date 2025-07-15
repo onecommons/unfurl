@@ -371,6 +371,22 @@ class PlanRequest:
         else:
             return "Couldn't run"
 
+    def depends_on_not_ready(self, not_ready: List["PlanRequest"]) -> bool:
+        if self in not_ready:
+            return True
+
+        for req in not_ready:
+            if req.target.template.has_reference(
+                self.target.template, EntitySpec.ReferenceType.Requirement
+            ):
+                for dep in req.get_unfulfilled_refs():
+                    if dep.target == self.target:
+                        break
+                else:
+                    # req.target is required by self
+                    return True
+        return False
+
     def set_final_for_workflow(self, is_final: bool):
         self.is_final_for_workflow = is_final
 

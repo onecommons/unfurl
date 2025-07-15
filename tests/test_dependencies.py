@@ -6,7 +6,7 @@ import io
 import pytest
 from unfurl.localenv import LocalEnv
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner, JobOptions
+from unfurl.job import Job, Runner, JobOptions
 from unfurl.configurators import TemplateConfigurator
 from unfurl.projectpaths import FilePath
 
@@ -79,6 +79,16 @@ spec:
 
 manifestContent = _manifestTemplate % "ok"
 manifestErrorContent = _manifestTemplate % "error"
+
+reorderManifest = (
+    manifestContent
+    + """
+        nodeD:
+          type: nodes.Test
+          requirements:
+          - host: nodeB
+"""
+)
 
 static_dep_manifest = """
 apiVersion: unfurl/v1alpha1
@@ -480,3 +490,44 @@ def test_conditional_directive(spec, success):
             "skipped": 0,
             "changed": 0,
         }
+
+
+def _node_names(*reqlists):
+    return [[r.target.name for r in reqs] for reqs in reqlists]
+
+
+def test_reorder(mocker):
+    # test that tasks dependent on a task whose rendering is blocked run after the blocked task is unblocked and not before.
+    spy = mocker.spy(Job, "_reorder_requests")
+    manifest = YamlManifest(reorderManifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))  # deploy
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert spy.call_count == 3
+    assert _node_names(*spy.call_args_list[0].args) == [
+        ["nodeA", "nodeC", "nodeD"],
+        ["nodeB"],
+    ]
+    # B is blocked on C, D requires B, so _reorder_requests moves D after B
+    assert _node_names(*spy.spy_return_list[0]) == [
+        ["nodeA", "nodeC"],
+        ["nodeB", "nodeD"],
+    ]
+    # print(job.json_summary(True))
+    assert summary["job"] == {
+        "id": "A01110000000",
+        "status": "ok",
+        "total": 4,
+        "ok": 4,
+        "error": 0,
+        "unknown": 0,
+        "skipped": 0,
+        "changed": 4,
+    }
+    assert [t["target"] for t in summary["tasks"]] == [
+        "nodeA",
+        "nodeC",
+        "nodeB",
+        "nodeD",
+    ]
