@@ -638,14 +638,14 @@ class Manifest(AttributeManager):
             return False
         return True
 
+    def _show_task_status(self, target):
+        if target.local_status is not None and target.local_status != target.status:
+            return f"{target.local_status.name}/{target.status.name}"
+        else:
+            return f"{target.status.name}"
+
     def status_summary(self, verbose=False):
         def summary(instance, indent, show_all=True):
-            instantiated = instance.local_status not in [
-                None,
-                Status.unknown,
-                Status.ok,
-                Status.pending,
-            ]
             computed = instance.is_computed()
             virtual = "virtual" in instance.template.directives
             concrete = not virtual and not computed
@@ -662,16 +662,12 @@ class Manifest(AttributeManager):
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
             if verbose:
                 instance_label += f"({instance.template.global_type})"
-            local = (
-                f"({'None' if instance.local_status is None else instance.local_status.name})"
-                if verbose
-                else ""
-            )
             computed_label = " computed " if computed else ""
             vlabel = " virtual" if virtual else ""
+            status = self._show_task_status(instance)
             if concrete or verbose:
                 output.append(
-                    f"{' ' * indent}{instance_label}{vlabel}{computed_label} {status}{local} {state} {created}"
+                    f"{' ' * indent}{instance_label}{vlabel}{computed_label} {status} {state} {created}"
                 )
                 indent += 4
             elif show_all:  # un-verbose summary of not concrete instances

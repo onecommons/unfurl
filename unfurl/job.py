@@ -1375,22 +1375,35 @@ class Job(ConfigChange):
             end_collapsible(hash(req))
             task_success = task.result and task.result.success
             status = task.target.status.name.upper()
-            state_status = task.target.state.name if task.target.state else ""
+            state_status = (
+                f" State: {task.target.state.name}" if task.target.state else ""
+            )
             extra = dict(
                 rich=dict(style=task.target.status.color),
                 json=task.summary(asJson=True),
             )
+            if (
+                task.target.local_status is not None
+                and task.target.local_status != task.target.status
+            ):
+                local_status = (
+                    f" Resource Local Status: {task.target.local_status.name}"
+                )
+            else:
+                local_status = ""
             if task_success:
                 task.logger.info(
-                    "Task succeeded, Resource Status: %s State: %s",
+                    "Task succeeded, Resource Status: %s%s%s",
                     status,
+                    local_status,
                     state_status,
                     extra=extra,
                 )
             else:
                 task.logger.error(
-                    "Task failed, Resource Status: %s State: %s",
+                    "Task failed, Resource Status: %s%s%s",
                     status,
+                    local_status,
                     state_status,
                     extra=extra,
                 )

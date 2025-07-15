@@ -12,7 +12,7 @@ There are two fundamental workflows ("normative workflows" in TOSCA terminology)
 
 There are also :ref:`check` and  :std:ref:`discover` workflows which update the status of instances the based on their current live state.
 
-Each of these workflows can be triggered with the equivalently named  :cli:`commands<unfurl-deploy-commands>`.  You can run custom workflows using :cli:`unfurl run<unfurl-run>`.
+Each of these workflows can be triggered with the equivalently named  :cli:`commands<unfurl-deploy-commands>`. You can run `custom workflows <Ad-hoc Jobs>` using :cli:`unfurl run<unfurl-run>`. You can preview a workflow plan with :cli:`unfurl plan<unfurl-plan>`.
 
 Job Lifecycle
 ==============
@@ -26,8 +26,8 @@ a job is created and run. Running a job entails these steps:
 4. For each operation a task is generated and the operation's :std:ref:`inputs` are lazily evaluated
    if referenced, including Unfurl expressions, TOSCA functions, and template strings.
 5. If planned tasks require local dependencies to be installed, such as tool artifacts, run an external job to install them.
-6. Render the plan. The command will exit if there are unrecoverable errors. Render operations that depend on live attributes that will be deferred until those attributes are set when the task is executed.
-7. Execute the plan. You will be prompted with a plan summary to approve unless the ``--approve`` flag was used. As it runs, it tracks dependencies and changes to resource attributes and status.
+6. Render the plan and print a plan summary. Render operations that depend on live attributes that will be deferred until those attributes are set when the task is executed. The command will exit if there are unrecoverable errors or if you are running the :cli:`unfurl plan<unfurl-plan>` command.
+7. Execute the plan. You will be prompted to approve the plan summary unless the ``--approve`` flag was used. As it runs, it tracks dependencies and changes to resource attributes and status.
 8. Re-execute steps 5 and 6 to render and run any deferred operations if needed. Repeat until all operations complete.
 9. After the job completes, `ensemble.yaml` is updated with any changes to its instances status. It's ``jobs`` folder with have new `job.yaml` file and associated log files.
 10. If the ``--commit`` flag was set, the ensemble's git repository will see a new commit containing changes to any files touched by the job, along with commits to any other project repositories that had changes to it. And if the ``--push`` flag was set, the commits will be automatically pushed.
@@ -41,11 +41,12 @@ After the job finishes, a summary is printed showing the results of each operati
 
 The job summary table has the following columns:
 
-  :Task: Whether the task succeeded, failed, skipped (because it wasn't needed), or blocked (because a dependent didn't run or succeed).
+  :Task: Whether the task succeeded, failed, skipped (because it wasn't needed), or blocked (because a dependent task didn't run or succeed).
   :Resource: The resource that was the target of the task.
   :Operation: The TOSCA :ref:`operations<operation>` the task was executing.
   :Reason: `Reason` the plan include this task.
-  :Status: The `status <Operational status and state>` of the resource after the task ran (note: could be in error even if the task succeeded).
+  :Status: The `status <Operational status and state>` of the resource after the task ran (which is orthogonal to the task's status -- a task can run successfully even if the resource remains in a error state).
+           If the local status of the resource is different from its effective status, (ie. its status with its dependencies' statuses considered) both will be displayed (local first).
   :State: The resource `state <Node state>` after the task ran.
   :Changed: Whether the task modified the resource.
 
