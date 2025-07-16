@@ -134,7 +134,7 @@ Expression Functions
   `and`                            [test+]
   `div`                            [a, b]
   `eq`                             [a, b]
-  external                         name
+  `external <external_func>`       name
   `file`                           (see below)
   :std:ref:`find_connection`       expr
   foreach                          {key?, value?}
@@ -248,10 +248,12 @@ sub
 
   Returns the result of subtracting the second value from the first value.
 
+.. _external_func:
+
 external
 ^^^^^^^^
 
-  Return an instance
+  Return `external instance<External ensembles>` as a value.
 
 file
 ^^^^

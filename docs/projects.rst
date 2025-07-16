@@ -136,9 +136,9 @@ It can also associate ensembles with a named environment (using the ``environmen
 Default environments
 --------------------
 
-When creating new project ``--use-environment`` will set the ``default_environment`` field in the project's `unfurl.yaml`, which is applied to any ensemble that doesn't have an environment set.
+When creating a new project ``--use-environment`` will set the ``default_environment`` field in the project's `unfurl.yaml`, which is applied to any ensemble that doesn't have an environment set.
 
-When creating a new ensemble --use-environment sets the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
+When creating a new ensemble ``--use-environment`` sets the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
 
 Shared Environments
 -------------------
@@ -161,7 +161,7 @@ This creates a new ensemble named "staging" in a project named "my_app_project" 
 
 Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project".
 
-The unfurl_home coordinates between projects so both projects need to use the same unfurl_home.
+The unfurl_home project coordinates between projects so both projects need to use the same unfurl_home.
 
 Inheritance and precedence
 --------------------------
@@ -254,19 +254,27 @@ External ensembles
 
 Ensembles from external Unfurl projects can be imported into an Unfurl environment, allowing ensembles in that environment to access external resources.
 
-The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the "select" directive (see "3.4.3 Directives"). Two, they can be explicitly referenced using the `external` expression function.
+The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the "select" directive (see "3.4.3 Directives"). Two, they can be explicitly referenced using the `external <external_func>` expression function.
 
-Resources can be explicitly imported (document external names!) or dynamically selected given a criteria using TOSCA's `"select" node template directive<tosca.NodeTemplateDirective.select>`.
+Resources can be imported by name or dynamically selected given a criteria using TOSCA's `"select" node template directive<tosca.NodeTemplateDirective.select>`.
 
-There are 3 instances that are always implicitly imported even if they are not declared:
+An external instance with the name ``localhost`` is treated specially. It is assumed to represent the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA.
+The default project skeleton for unfurl home is defined in the home manifest that resides in your Unfurl home folder like this:
 
-- The ``localhost`` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
+.. code-block:: yaml
+
+    external:
+      localhost:
+        manifest:
+          file: ensemble/ensemble.yaml
+        instance: localhost
+
 
 :manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
 :instance: (default: "*") The name of the instance within the ensemble to make available.
   If ``*`` all instances in the ensemble will be available.
 
-:uri: The ``uri`` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
+:uri: The `uri <URIs>` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
 
 :``schema``: a JSON schema ``properties`` object describing the schema for the map. If missing, validation of the attributes will be skipped.
 
