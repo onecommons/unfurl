@@ -28,6 +28,8 @@ from typing_extensions import Protocol
 
 
 _debugger_started = False
+
+
 def _try_debugger():
     global _debugger_started
     debug = os.getenv("DEBUGPY")
@@ -38,6 +40,7 @@ def _try_debugger():
         _debugger_started = True
         debugpy.listen(port if port > 1 else 5678)
         debugpy.wait_for_client()
+
 
 from . import (
     DefaultNames,
@@ -395,7 +398,10 @@ commonOutputOptions = option_group(
 allJobOptions = option_group(
     commonOutputOptions,
     click.option(
-        "-i", "--instance", multiple=True, help="Instance name to target (multiple times ok)."
+        "-i",
+        "--instance",
+        multiple=True,
+        help="Instance name to target (multiple times ok).",
     ),
     click.option("--starttime", help="Set the start time of the job."),
     click.option(
@@ -885,6 +891,12 @@ def stop(ctx: Context, ensemble=None, **options):
 @commonJobOptions
 @deployFilterOptions
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
+@click.option(
+    "--dryrun",
+    default=False,
+    is_flag=True,
+    help="Plan as a dryrun job.",
+)
 def plan(ctx: Context, ensemble=None, **options):
     """Print the given deployment plan"""
     options.update(ctx.obj)
@@ -1297,13 +1309,16 @@ def git(ctx, gitargs, dir="."):
 
 
 class Committer(Protocol):
-    def commit(self, msg: str, add_all: bool = False, save_secrets: bool=True) -> int: ...
+    def commit(
+        self, msg: str, add_all: bool = False, save_secrets: bool = True
+    ) -> int: ...
 
     def add_all(self) -> None: ...
 
     def get_repo_status(self, dirty=False) -> str: ...
 
     def save_secrets(self) -> List[Path]: ...
+
 
 def get_commit_message(committer, default_message):
     statuses = committer.get_repo_status(True)
@@ -1392,7 +1407,7 @@ def commit(
             committer = localEnv.project.project_repoview
 
     # stage changes before invoking the commit editor
-    saved = committer.save_secrets() # saves but doesn't stage
+    saved = committer.save_secrets()  # saves but doesn't stage
     if save_secrets_only:
         click.echo(f"Updated {len(saved)} secret files.")
         return
@@ -1490,13 +1505,15 @@ def _yaml_to_python(
 @click.option(
     "--format",
     default="deployment",
-    type=click.Choice([
-        "python",
-        "blueprint",
-        "environments",
-        "deployment",
-        "deployments",
-    ]),
+    type=click.Choice(
+        [
+            "python",
+            "blueprint",
+            "environments",
+            "deployment",
+            "deployments",
+        ]
+    ),
     help="Default: deployment",
 )
 @click.option(
