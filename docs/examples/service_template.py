@@ -4,7 +4,16 @@
 import unfurl
 from typing import Sequence, Union
 import tosca
-from tosca import Attribute, Eval, GB, MB, Property, TopologyInputs, TopologyOutputs
+from tosca import (
+    Attribute,
+    Eval,
+    GB,
+    MB,
+    Property,
+    TopologyInputs,
+    TopologyOutputs,
+    Repository,
+)
 import unfurl.configurators.shell
 from unfurl.tosca_plugins.expr import concat
 
@@ -15,6 +24,16 @@ class Inputs(TopologyInputs):
 
 class Outputs(TopologyOutputs):
     url: str = concat("https://", Inputs.domain, "/api/events")
+
+
+docker_hub = Repository(
+    name="docker_hub",
+    url="https://registry.hub.docker.com/",
+    credential=tosca.datatypes.Credential(
+        user="user1",
+        token=Eval({"eval": {"secret": "dockerhub_user1_pw"}}),
+    ),
+)
 
 
 class DatabaseConnection(tosca.relationships.ConnectsTo):
@@ -77,5 +96,5 @@ myApp = MyApplication(
 myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
     "image",
     file="myapp:latest",
-    repository="docker_hub",
+    repository=docker_hub.tosca_name,
 )

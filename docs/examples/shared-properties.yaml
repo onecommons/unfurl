@@ -1,7 +1,8 @@
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
 artifact_types:
-  ClusterOp:
-    derived_from: unfurl.artifacts.Executable
+  ClusterTerraformModule:
+    derived_from: unfurl.artifacts.TerraformModule
     interfaces:
       Executable:
         type: unfurl.interfaces.Executable
@@ -37,12 +38,23 @@ node_types:
         metadata:
           output_match: KubernetesClusterOutputs
     artifacts:
-      clusterconfig:
-        type: ClusterOp
-        file: ''
+      cluster_config:
+        type: ClusterTerraformModule
+        file: my_module/main.tf
     interfaces:
       Standard:
         operations:
           configure:
+            metadata:
+              output_match:
+              - KubernetesClusterOutputs
+              arguments:
+              - do_region
+            inputs:
+              do_region:
+                eval: .::do_region
+            outputs:
+              do_id:
+                type: string
             implementation:
-              primary: clusterconfig
+              primary: cluster_config

@@ -107,7 +107,7 @@ Topology Template
 
 The topology Template defines the components of the service being deployed. It can be thought of as a graph of node templates and other components along with their relationships and dependencies.
 
-Topologies can parameterized with :std:ref:`inputs`, define `outputs<topology_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
+Topologies can parameterized with `inputs <Topology Inputs>`, define `outputs<topology_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
 
 Topologies can be embedded in other topologies via `substitution_mappings`.
 
@@ -184,6 +184,7 @@ The following more complex example first defines a "MyApplication" node type tha
   .. literalinclude:: ./examples/tosca-requirements.py
     :language: python
 
+.. _tosca_artifacts:
 
 Artifacts
 ^^^^^^^^^
@@ -194,27 +195,13 @@ Artifacts are declared in the ``artifacts`` section of node templates and node t
 
 This example defines an artifact that is a container image, along with a `repository<repositories>` that represents the image registry that manages it:
 
-.. code:: yaml
+.. tab-set-code::
 
-    repositories:
-      docker_hub:
-        url: https://registry.hub.docker.com/
-        credential:
-          user: user1
-          token:
-            eval:
-              secret:
-                dockerhub_user1_pw
+  .. literalinclude:: ./examples/artifact1.yaml
+    :language: yaml
 
-    topology_template:
-      node_templates:
-        myApp:
-          type: MyApplication
-          artifacts:
-            image:
-              type: tosca.artifacts.Deployment.Image.Container.Docker
-              file: myapp:latest
-              repository: docker_hub
+  .. literalinclude:: ./examples/artifact1.py
+    :language: python
 
 Artifacts can be used in the following ways:
 

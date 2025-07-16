@@ -197,7 +197,7 @@ def test_collection_artifact():
 def _to_yaml(python_src: str):
     namespace: dict = {}
     tosca_tpl = python_src_to_yaml_obj(python_src, namespace)
-    # yaml.dump(tosca_tpl, sys.stdout)
+    yaml.dump(tosca_tpl, sys.stdout)
     return tosca_tpl
 
 
@@ -272,7 +272,7 @@ def test_render_operation():
     assert "node_pool_name: node_pool-1" in job.out.getvalue()
 
 def test_artifact_dsl():
-    manifest_tpl = _get_python_manifest("dsl_artifacts.py")
+    manifest_tpl = _get_python_manifest("dsl_artifacts.py", "dsl_artifacts.yaml")
     manifest = YamlManifest(manifest_tpl)
     job = Runner(manifest)
     job = job.run(JobOptions(skip_save=True))

@@ -1,5 +1,3 @@
-from abc import abstractmethod
-from typing import Dict
 import unfurl
 import tosca
 from tosca import ToscaInputs, ToscaOutputs, Attribute, placeholder

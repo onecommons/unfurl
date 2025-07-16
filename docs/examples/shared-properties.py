@@ -7,15 +7,17 @@ class KubernetesClusterInputs(tosca.ToscaInputs):
 class KubernetesClusterOutputs(tosca.ToscaOutputs):
     do_id: str = tosca.Attribute()
 
-class ClusterOp(unfurl.artifacts.Executable):
+class ClusterTerraformModule(unfurl.artifacts.TerraformModule):
+    file: str = "my_module/main.tf"
     def execute(self, inputs: KubernetesClusterInputs) -> KubernetesClusterOutputs:
         return KubernetesClusterOutputs()
 
+# inherited ToscaInputs and ToscaOutputs are treated as properties and attributes
 class Cluster(tosca.nodes.Root, KubernetesClusterInputs, KubernetesClusterOutputs):
-    clusterconfig: "ClusterOp" = ClusterOp(file="")
+    cluster_config: "ClusterTerraformModule" = ClusterTerraformModule()
 
     my_property: str = "default"
 
-    def configure(self):
-        # return the implementation artifact... if you don't call execute() it defaults to properties inherited from KubernetesClusterInputs
-        return self.clusterconfig
+    def configure(self) -> KubernetesClusterOutputs:
+        return self.cluster_config.execute(self)
+

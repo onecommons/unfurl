@@ -751,12 +751,12 @@ properties
 Artifacts
 =============
 
-Instead of setting an operation's implementation to a configurator, you can set it to an `artifact`.
+Instead of setting an operation's `implementation` to a configurator, you can set it to an `artifact <tosca_artifacts>`.
 Using an artifact allows you to reuse an implementation with more than one operation. For example, you can create artifacts for specific Terraform modules, Ansible playbooks, or executables.
 
-You define an ``execute`` operation on an artifact's type or template definition to specify the inputs and outputs that can be passed to the artifacts configurator. How the inputs and outputs are used depends on the artifact's type. For example, with a Terraform module artifact, its inputs will be used as the Terraform module's variables and its outputs the Terraform module's outputs. Or with a shell executable artifact, the inputs specify the command line arguments passed to the executable.
+You define an ``execute`` operation on an artifact's type or template definition to specify the inputs and outputs that can be passed to the artifact's configurator. How the inputs and outputs are used depends on the artifact's type. For example, with a Terraform module artifact, its inputs will be used as the Terraform module's variables and its outputs the Terraform module's outputs. Or with a shell executable artifact, the inputs specify the command line arguments passed to the executable.
 
-The example below declares an artifact that represents shell script and shows how an operation can invoke the artifact and pass values to artifact itself.
+The example below declares an artifact that represents a shell script and shows how an operation can invoke the artifact and pass values to it.
 
 .. tab-set-code::
 
@@ -769,16 +769,15 @@ The example below declares an artifact that represents shell script and shows ho
 Arguments
 =========
 
-When an artifact is assigned as an operation's implementation, the operation `arguments` are passed to the artifact as the execute operation's inputs.
+When node operation invokes its artifact's ``execute`` operation, Unfurl looks for a operation input named ``arguments`` to pass as the ``execute`` operation's inputs.
+This should be dictionary whose keys and values corresponds to the ``execute`` operation's input specification.
 
-If ``arguments`` isn't explicitly declared as an operation input, one will be created:
+If ``arguments`` isn't explicitly declared, it will be synthesized from the following sources (listed here from lowest to highest merge order):
 
-* input defaults defined on the execution operation
-* properties mapped to on the node or on the implementation artifact (see `Shared Properties`)
-* operation inputs listed in "arguments" metadata key, if set. The Python DSL sets this based on the call to the ``execute`` method, as shown in the example above.
-* if "arguments" metadata key is missing, operation inputs with the same name as above inputs or the execute operation's input definitions.
-
-If an operation input with the same name as an execute input override any execute arguments and it is a validation error inputs doesn't meet the arguments input spec requirement (and the Python DSL will report a static type error).
+* Default input values defined for the execution operation.
+* Properties on the node template and on the implementation artifact if they have matching ``input_match`` metadata keys in their definitions (see `Shared Properties`).
+* The operation's inputs whose names are listed in the operation's ``arguments`` metadata key, if set. The Python DSL generates this based on the operation method's call to the ``execute`` method, as shown in the example above.
+* If the ``arguments`` metadata key is missing, operation inputs whose name matches execute a operation's input name or one of the above matching property names.
 
 Shared Properties
 =================
@@ -801,3 +800,13 @@ Abstract artifacts
 You can define abstract artifact types that just define the inputs and outputs it expects by defining an artifact type with an ``execute`` operation that doesn't have an implementation declared. Artifacts can implement that by, for example, by using multiple inheritance to inherit both the abstract artifact type and a concrete artifact type like ``unfurl.artifacts.TerraformModule``.
 
 This way a node type can declare operations with abstract artifacts and node templates or a node subclass can set a concrete artifact without having to reimplement the operations that use it -- with the assurance that the static type checker will check that operation signatures are compatible.
+
+The example below defines a node type specifies the abstract artifact type its configuration operation will use and a node template that uses a concrete artifact that implements the abstract artifact type.
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/artifact3.py
+    :language: python
+
+  .. literalinclude:: ./examples/artifact3.yaml
+    :language: yaml

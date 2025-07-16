@@ -1,0 +1,152 @@
+kind: Ensemble
+apiVersion: unfurl/v1.0.0
+spec:
+  service_template:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    topology_template:
+      node_templates:
+        mycluster:
+          type: DOCluster
+          artifacts:
+            clusterconfig:
+              type: CustomClusterTerraform
+              properties:
+                extra: extra
+              file: my_custom_kubernetes_tf_module
+              contents: "resource \"null_resource\" \"null\" {}\n                \
+                \                  output \"do_id\" {\n                          \
+                \          value = \"ABC\"\n                                  }\n "
+          metadata:
+            module: service_template
+    artifact_types:
+      ClusterOp:
+        derived_from: unfurl.artifacts.Executable
+        interfaces:
+          Executable:
+            type: unfurl.interfaces.Executable
+            operations:
+              execute:
+                metadata:
+                  output_match:
+                  - KubernetesClusterOutputs
+                  input_match:
+                  - KubernetesClusterInputs
+                inputs:
+                  do_region:
+                    type: string
+                    default: nyc3
+                  doks_k8s_version:
+                    type: string
+                    default: '1.30'
+                outputs:
+                  do_id:
+                    type: string
+      CustomClusterOp:
+        derived_from: ClusterOp
+        interfaces:
+          Executable:
+            type: unfurl.interfaces.Executable
+            operations:
+              execute:
+                metadata:
+                  output_match:
+                  - KubernetesClusterOutputs
+                  input_match:
+                  - KubernetesClusterInputs
+                  - MoreInputs
+                inputs:
+                  do_region:
+                    type: string
+                    default: nyc3
+                  doks_k8s_version:
+                    type: string
+                    default: '1.30'
+                  nodes:
+                    type: integer
+                    default: 4
+                outputs:
+                  do_id:
+                    type: string
+      ClusterTerraform:
+        derived_from:
+        - unfurl.artifacts.TerraformModule
+        - ClusterOp
+      ExtraClusterOp:
+        derived_from: ClusterOp
+        properties:
+          extra:
+            type: string
+            metadata:
+              input_match: true
+        interfaces:
+          Executable:
+            type: unfurl.interfaces.Executable
+            operations:
+              execute:
+                metadata:
+                  output_match:
+                  - KubernetesClusterOutputs
+                  input_match:
+                  - KubernetesClusterInputs
+                inputs:
+                  do_region:
+                    type: string
+                    default: nyc3
+                  doks_k8s_version:
+                    type: string
+                    default: '1.30'
+                  extra:
+                    type: string
+                outputs:
+                  do_id:
+                    type: string
+      CustomClusterTerraform:
+        derived_from:
+        - unfurl.artifacts.TerraformModule
+        - ExtraClusterOp
+    node_types:
+      DOCluster:
+        derived_from: tosca.nodes.Root
+        properties:
+          do_region:
+            type: string
+            default: nyc3
+            metadata:
+              input_match: KubernetesClusterInputs
+          doks_k8s_version:
+            type: string
+            default: '1.30'
+            metadata:
+              input_match: KubernetesClusterInputs
+          my_property:
+            type: string
+            default: default
+        attributes:
+          do_id:
+            type: string
+            metadata:
+              output_match: KubernetesClusterOutputs
+        artifacts:
+          clusterconfig:
+            type: ClusterTerraform
+            file: kubernetes
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                metadata:
+                  output_match:
+                  - KubernetesClusterOutputs
+                  arguments:
+                  - do_region
+                  - doks_k8s_version
+                inputs:
+                  do_region:
+                    eval: .::do_region
+                  doks_k8s_version:
+                    eval: .::doks_k8s_version
+                outputs:
+                  do_id:
+                    type: string
+                implementation:
+                  primary: clusterconfig

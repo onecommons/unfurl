@@ -1,4 +1,4 @@
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 metadata:
   uri: https://unfurl.cloud/user1/dashboard.git#:ensemble/ensemble.yaml
