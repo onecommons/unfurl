@@ -8,3 +8,4 @@ types-PyYAML
 types-requests
 types-redis
 types-waitress
+debugpy
