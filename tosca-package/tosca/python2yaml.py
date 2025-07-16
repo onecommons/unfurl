@@ -973,7 +973,7 @@ class _OperationProxy:
         sig = self.get_execute_signature()
         if sig:
             # if plain values are passed as positional args, we need to know the signature to get the argument name
-            bound = sig.bind(*args)
+            bound = sig.bind(*args, **kw)
             for name, parameter in sig.parameters.items():
                 if name in bound.arguments and parameter.kind in [
                     inspect.Parameter.POSITIONAL_ONLY,

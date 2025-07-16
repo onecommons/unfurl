@@ -1898,7 +1898,8 @@ class Convert:
         if field_args:
             if req_assignment:
                 field_args.insert(0, f"default={req_assignment}")
-            return f"Repository({', '.join(field_args)})"
+            self.imports.add_tosca_from("Requirement")
+            return f"Requirement({', '.join(field_args)})"
         return req_assignment
 
     def follow_import(

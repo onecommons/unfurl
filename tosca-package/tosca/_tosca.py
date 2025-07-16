@@ -84,7 +84,8 @@ class _LocalState(threading.local):
         self.context: Any = None  # orchestrator specific runtime state
         self.modules = {}
         self._type_proxy = None
-        self._enforce_required_fields = True
+        # by default, defer field validation to TOSCA parser:
+        self._enforce_required_fields = False
         self.__dict__.update(kw)
 
 
@@ -155,6 +156,10 @@ class ToscaObject:
     _namespace: Optional[Dict[str, Any]] = None
     _type_section: ClassVar[str] = ""
     _docstrings: ClassVar[Optional[Dict[str, str]]] = None
+
+    @property
+    def tosca_name(self) -> str:
+        return self._tosca_name
 
     @classmethod
     def tosca_type_name(cls) -> str:
@@ -2834,6 +2839,10 @@ class ToscaType(_ToscaType):
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
+
+    @property
+    def tosca_name(self) -> str:
+        return self._name
 
     @property
     def is_patch(self) -> bool:
