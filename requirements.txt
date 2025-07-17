@@ -4,7 +4,7 @@ click>=8.0.1,<8.1.4 # BSD 3-clause
 jsonschema[format_nongpl] # MIT
 ruamel.yaml==0.17.21
 # use range because ansible-core support for 3.8 stops at 2.13.13
-ansible-core >= 2.13.13, <= 2.15.13 # gpl 3
+ansible-core >= 2.13.13, <= 2.16.14 # 2.15.13 # gpl 3
 GitPython==3.1.41 # BSD
 rich==12.4.4  # MIT
 rich-click>=1.8.0 # MIT
