@@ -8,6 +8,6 @@ requests>=2.14.2 # Apache 2.0
 google-cloud-compute
 google-cloud-dns
 google-auth # Apache 2.0
-gunicorn==22.0.0
+gunicorn==23.0.0
 redis==4.4.4
 apache-libcloud==3.8.0  # Apache 2.0
