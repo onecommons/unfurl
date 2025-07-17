@@ -97,6 +97,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#id9">Example</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id10">Inputs</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id11">Outputs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tfvar-and-tfoutput-metadata"><code class="docutils literal notranslate"><span class="pre">tfvar</span></code> and <code class="docutils literal notranslate"><span class="pre">tfoutput</span></code> Metadata</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#environment-variables">Environment Variables</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#note-on-hcl-in-yaml">Note on HCL in YAML</a></li>
 </ul>
@@ -183,6 +184,12 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="#id38">Artifacts</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#arguments">Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#shared-properties">Shared Properties</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#abstract-artifacts">Abstract artifacts</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -219,6 +226,7 @@
              
   <section id="configurators">
 <h1>Configurators<a class="headerlink" href="#configurators" title="Permalink to this headline"></a></h1>
+<p>Configurators is a software plugin that implements an operation and applies changes to instances. There are built-in configurators for shell scripts, Ansible playbooks, Terraform configurations, and Kubernetes resources or you can include your own as part of your blueprint.</p>
 <p>To use a configurator, set it in the <code class="docutils literal notranslate"><span class="pre">implementation</span></code> field of an <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">Operation</span></a>
 and set its inputs as documented below. Configurator names are case-sensitive;
 if a configurator name isn’t found it is treated as an external command.</p>
@@ -247,7 +255,7 @@ YAML</label><div class="sd-tab-content docutils">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;configure&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">test_remote_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_remote_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="s1">&#39;echo &quot;abbreviated configuration&quot;&#39;</span><span class="p">,</span>
     <span class="p">)</span>
@@ -258,19 +266,20 @@ PYTHON</label><div class="sd-tab-content docutils">
 </div>
 </div>
 </div>
+<p>Configurators are fairly low-level. You can use “Installer” nodes that. Artifacts</p>
 <p>Available configurators include:</p>
 <div class="contents local topic" id="contents">
 <ul class="simple">
-<li><p><a class="reference internal" href="#ansible" id="id38">Ansible</a></p></li>
-<li><p><a class="reference internal" href="#cmd" id="id39">Cmd</a></p></li>
-<li><p><a class="reference internal" href="#delegate" id="id40">Delegate</a></p></li>
-<li><p><a class="reference internal" href="#shell" id="id41">Shell</a></p></li>
-<li><p><a class="reference internal" href="#template" id="id42">Template</a></p></li>
-<li><p><a class="reference internal" href="#terraform" id="id43">Terraform</a></p></li>
+<li><p><a class="reference internal" href="#ansible" id="id39">Ansible</a></p></li>
+<li><p><a class="reference internal" href="#cmd" id="id40">Cmd</a></p></li>
+<li><p><a class="reference internal" href="#delegate" id="id41">Delegate</a></p></li>
+<li><p><a class="reference internal" href="#shell" id="id42">Shell</a></p></li>
+<li><p><a class="reference internal" href="#template" id="id43">Template</a></p></li>
+<li><p><a class="reference internal" href="#terraform" id="id44">Terraform</a></p></li>
 </ul>
 </div>
 <section id="ansible">
-<span id="id1"></span><h2><a class="toc-backref" href="#id38">Ansible</a><a class="headerlink" href="#ansible" title="Permalink to this headline"></a></h2>
+<span id="id1"></span><h2><a class="toc-backref" href="#id39">Ansible</a><a class="headerlink" href="#ansible" title="Permalink to this headline"></a></h2>
 <p>The Ansible configurator executes the given playbook. You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
@@ -307,7 +316,7 @@ YAML</label><div class="sd-tab-content docutils">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;configure&quot;</span><span class="p">,</span> <span class="n">outputs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;fact1&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">})</span>
-<span class="k">def</span> <span class="nf">test_remote_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_remote_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">AnsibleConfigurator</span><span class="p">(</span>
         <span class="n">playbook</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;</span>
 <span class="s2">        - set_fact:</span>
@@ -335,8 +344,8 @@ PYTHON</label><div class="sd-tab-content docutils">
 <dd class="field-even"><p>If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline YAML inventory.
 If omitted, the inventory will be generated (see below)</p>
 </dd>
-<dt class="field-odd">extraVars</dt>
-<dd class="field-odd"><p>A dictionary of variables that will be passed to the playbook as Ansible facts</p>
+<dt class="field-odd">arguments</dt>
+<dd class="field-odd"><p>A dictionary of variables that will be passed to the playbook as Ansible facts. See <a class="reference internal" href="#arguments"><span class="std std-ref">Arguments</span></a></p>
 </dd>
 <dt class="field-even">playbookArgs</dt>
 <dd class="field-even"><p>A list of strings that will be passed to <code class="docutils literal notranslate"><span class="pre">ansible-playbook</span></code> as command-line arguments</p>
@@ -404,10 +413,10 @@ It will not be applied if set via <a class="reference internal" href="jsonschema
 </section>
 </section>
 <section id="cmd">
-<h2><a class="toc-backref" href="#id39">Cmd</a><a class="headerlink" href="#cmd" title="Permalink to this headline"></a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">Cmd</span></code> configurator executes a shell command either using the <a class="reference internal" href="#shell"><span class="std std-ref">Shell</span></a> configurator described below
-or the <a class="reference internal" href="#ansible"><span class="std std-ref">Ansible</span></a> configurator is used to execute the command remotely if the <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> is remote.
-As described above, this is the default if no configurator is specified.</p>
+<h2><a class="toc-backref" href="#id40">Cmd</a><a class="headerlink" href="#cmd" title="Permalink to this headline"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">Cmd</span></code> configurator executes a shell command using either the <a class="reference internal" href="#shell"><span class="std std-ref">Shell</span></a> configurator
+or the <a class="reference internal" href="#ansible"><span class="std std-ref">Ansible</span></a> configurator for remote execution if the <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> is set to a remote node.
+As described above, <code class="docutils literal notranslate"><span class="pre">Cmd</span></code> is the default configurator if none is specified.</p>
 <section id="id2">
 <h3>Example<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
 <p>In this example, <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> is set to a remote instance so the command is executed remotely using Ansible.</p>
@@ -437,10 +446,10 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl.configurators</span>
-<span class="kn">import</span> <span class="nn">tosca</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl.configurators</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
 <span class="nd">@tosca</span><span class="o">.</span><span class="n">operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;configure&quot;</span><span class="p">,</span> <span class="n">operation_host</span><span class="o">=</span><span class="s2">&quot;staging.example.com&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">test_remote_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_remote_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">CmdConfigurator</span><span class="p">(</span>
         <span class="n">cmd</span><span class="o">=</span><span class="s1">&#39;echo &quot;test&quot;&#39;</span><span class="p">,</span>
     <span class="p">)</span>
@@ -455,7 +464,7 @@ PYTHON</label><div class="sd-tab-content docutils">
 </section>
 </section>
 <section id="delegate">
-<h2><a class="toc-backref" href="#id40">Delegate</a><a class="headerlink" href="#delegate" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id41">Delegate</a><a class="headerlink" href="#delegate" title="Permalink to this headline"></a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">delegate</span></code> configurator will delegate the current operation to the specified one.</p>
 <section id="id3">
 <h3>Inputs<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
@@ -478,7 +487,7 @@ PYTHON</label><div class="sd-tab-content docutils">
 </section>
 </section>
 <section id="shell">
-<span id="shell-configurator"></span><h2><a class="toc-backref" href="#id41">Shell</a><a class="headerlink" href="#shell" title="Permalink to this headline"></a></h2>
+<span id="shell-configurator"></span><h2><a class="toc-backref" href="#id42">Shell</a><a class="headerlink" href="#shell" title="Permalink to this headline"></a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">Shell</span></code> configurator executes a shell command.</p>
 <section id="inline-shell-script-example">
 <h3>Inline shell script example<a class="headerlink" href="#inline-shell-script-example" title="Permalink to this headline"></a></h3>
@@ -514,7 +523,7 @@ YAML</label><div class="sd-tab-content docutils">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-7">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;configure&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">shellscript_example_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">shellscript_example_configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="s1">&#39;if ! [ -x &quot;$(command -v testvars)&quot; ]; then</span><span class="se">\n</span><span class="s1">  source testvars.sh</span><span class="se">\n</span><span class="s1">fi</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">,</span>
         <span class="n">cwd</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s1">&#39;{{ &quot;project&quot; | get_dir }}&#39;</span><span class="p">),</span>
@@ -567,17 +576,17 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-9" name="sd-tab-set-4" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-9">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">unfurl.tosca_plugins.artifacts</span> <span class="kn">import</span> <span class="n">artifact_AsdfTool</span>
-<span class="kn">import</span> <span class="nn">tosca</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.tosca_plugins.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">artifact_AsdfTool</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
 
-<span class="k">class</span> <span class="nc">artifact_example</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">artifact_example</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
     <span class="n">ripgrep</span><span class="p">:</span> <span class="n">artifact_AsdfTool</span> <span class="o">=</span> <span class="n">artifact_AsdfTool</span><span class="p">(</span>
         <span class="s2">&quot;ripgrep&quot;</span><span class="p">,</span>
         <span class="n">version</span><span class="o">=</span><span class="s2">&quot;13.0.0&quot;</span><span class="p">,</span>
         <span class="n">file</span><span class="o">=</span><span class="s2">&quot;ripgrep&quot;</span><span class="p">,</span>
     <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">ripgrep</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
             <span class="n">cmd</span><span class="o">=</span><span class="s2">&quot;rg search&quot;</span><span class="p">,</span>
         <span class="p">)</span>
@@ -592,25 +601,32 @@ PYTHON</label><div class="sd-tab-content docutils">
 <blockquote>
 <div><dl class="field-list simple">
 <dt class="field-odd">command</dt>
-<dd class="field-odd"><p>(<em>required</em>) The command. It can be either a string or a list of command arguments.</p>
+<dd class="field-odd"><p>(<em>required</em>) The command to execute It can be either a string or a list of command arguments.</p>
 </dd>
-<dt class="field-even">cwd</dt>
-<dd class="field-even"><p>Set the current working directory to execute the command in.</p>
+<dt class="field-even">arguments</dt>
+<dd class="field-even"><p>A map of arguments to pass to the command.</p>
 </dd>
-<dt class="field-odd">dryrun</dt>
-<dd class="field-odd"><p>During a during a dryrun job this will be either appended to the command line
+<dt class="field-odd">cwd</dt>
+<dd class="field-odd"><p>Set the current working directory to execute the command in.</p>
+</dd>
+<dt class="field-even">dryrun</dt>
+<dd class="field-even"><p>During a during a dryrun job this will be either appended to the command line
 or replace the string <code class="docutils literal notranslate"><span class="pre">%dryrun%</span></code> if it appears in the command. (<code class="docutils literal notranslate"><span class="pre">%dryrun%</span></code> is stripped out when running regular jobs.)
-If it is not set, the task will not be executed at all during a dry run job.</p>
+If not set, the task will not be executed at all during a dry run job.</p>
 </dd>
-<dt class="field-even">shell</dt>
-<dd class="field-even"><p>If a string, the executable of the shell to execute the command in (e.g. <code class="docutils literal notranslate"><span class="pre">/usr/bin/bash</span></code>).
+<dt class="field-odd">shell</dt>
+<dd class="field-odd"><p>If a string, the executable of the shell to execute the command in (e.g. <code class="docutils literal notranslate"><span class="pre">/usr/bin/bash</span></code>).
 A boolean indicates whether the command if invoked through the default shell or not.
 If omitted, it will be set to true if <code class="docutils literal notranslate"><span class="pre">command</span></code> is a string or false if it is a list.</p>
 </dd>
-<dt class="field-odd">echo</dt>
-<dd class="field-odd"><p>(<em>Default: true</em>) Whether or not should be standard output (and stderr)
-should be echod to Unfurl’s stdout while the command is being run.
+<dt class="field-even">echo</dt>
+<dd class="field-even"><p>A boolean that indicates whether or not should be standard output (and stderr)
+should be echoed to Unfurl’s stdout while the command is being run.
+If omitted, true unless running with <code class="docutils literal notranslate"><span class="pre">--quiet</span></code>.
 (Doesn’t affect the capture of stdout and stderr.)</p>
+</dd>
+<dt class="field-odd">input</dt>
+<dd class="field-odd"><p>Optional string to pass as stdin.</p>
 </dd>
 <dt class="field-even">keeplines</dt>
 <dd class="field-even"><p>(<em>Default: false</em>) If true, preserve line breaks in the given command.</p>
@@ -618,8 +634,11 @@ should be echod to Unfurl’s stdout while the command is being run.
 <dt class="field-odd">done</dt>
 <dd class="field-odd"><p>As as <a class="reference internal" href="api.html#unfurl.configurator.TaskView.done" title="unfurl.configurator.TaskView.done"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">done</span></code></a> defined by the <a class="reference internal" href="expressions.html#template"><span class="std std-ref">template</span></a> configurator.</p>
 </dd>
-<dt class="field-even">resultTemplate</dt>
-<dd class="field-even"><p>A <a class="reference internal" href="processing.html#ansible-jinja2-templates"><span class="std std-ref">Jinja2 template</span></a> that is processed after shell command completes, it will have the following template variables:</p>
+<dt class="field-even">outputsTemplate</dt>
+<dd class="field-even"><p>A <a class="reference internal" href="processing.html#ansible-jinja2-templates"><span class="std std-ref">Jinja2 template</span></a> or runtime expression that is processed after shell command completes, with same variables as <code class="docutils literal notranslate"><span class="pre">resultTemplate</span></code>. The template should evaluate to a map to be used as the operation’s outputs or null to skip.</p>
+</dd>
+<dt class="field-odd">resultTemplate</dt>
+<dd class="field-odd"><p>A <a class="reference internal" href="processing.html#ansible-jinja2-templates"><span class="std std-ref">Jinja2 template</span></a> or runtime expression that is processed after shell command completes, it will have the following template variables:</p>
 </dd>
 </dl>
 </div></blockquote>
@@ -654,11 +673,11 @@ should be echod to Unfurl’s stdout while the command is being run.
 </section>
 <section id="id5">
 <h3>Outputs<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
-<p>No outputs are set, use a <code class="docutils literal notranslate"><span class="pre">resultsTemplate</span></code> instead.</p>
+<p>No outputs are set unless <code class="docutils literal notranslate"><span class="pre">outputsTemplate</span></code> is present.</p>
 </section>
 </section>
 <section id="template">
-<h2><a class="toc-backref" href="#id42">Template</a><a class="headerlink" href="#template" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id43">Template</a><a class="headerlink" href="#template" title="Permalink to this headline"></a></h2>
 <p>The template configurator lets you implement an operation entirely within the template.</p>
 <section id="id6">
 <h3>Inputs<a class="headerlink" href="#id6" title="Permalink to this headline"></a></h3>
@@ -671,10 +690,11 @@ should be echod to Unfurl’s stdout while the command is being run.
 <dd class="field-even"><p>During a <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> job used instead of <code class="docutils literal notranslate"><span class="pre">run</span></code>.</p>
 </dd>
 <dt class="field-odd">done</dt>
-<dd class="field-odd"><p>If set, a map whose values passed as arguments to <a class="reference internal" href="api.html#unfurl.configurator.TaskView.done" title="unfurl.configurator.TaskView.done"><code class="xref py py-meth docutils literal notranslate"><span class="pre">unfurl.configurator.TaskView.done()</span></code></a></p>
+<dd class="field-odd"><p>If set, a map whose values are passed as arguments to <a class="reference internal" href="api.html#unfurl.configurator.TaskView.done" title="unfurl.configurator.TaskView.done"><code class="xref py py-meth docutils literal notranslate"><span class="pre">unfurl.configurator.TaskView.done()</span></code></a>.
+Embedded runtime expressions can access the previous value of those arguments as variables.</p>
 </dd>
 <dt class="field-even">resultTemplate</dt>
-<dd class="field-even"><p>A Jinja2 template that is processed with results of <code class="docutils literal notranslate"><span class="pre">run</span></code> as its variables.</p>
+<dd class="field-even"><p>A Jinja2 template or runtime expression that is processed with results of <code class="docutils literal notranslate"><span class="pre">run</span></code> as its variables.</p>
 </dd>
 </dl>
 </div></blockquote>
@@ -685,7 +705,7 @@ should be echod to Unfurl’s stdout while the command is being run.
 </section>
 </section>
 <section id="terraform">
-<span id="id8"></span><h2><a class="toc-backref" href="#id43">Terraform</a><a class="headerlink" href="#terraform" title="Permalink to this headline"></a></h2>
+<span id="id8"></span><h2><a class="toc-backref" href="#id44">Terraform</a><a class="headerlink" href="#terraform" title="Permalink to this headline"></a></h2>
 <p>The Terraform configurator will be invoked on any <a class="reference internal" href="tosca.html#node-template"><span class="std std-ref">Node Template</span></a> with the type <a class="reference internal" href="toscadef.html#unfurl-types"><span class="std std-ref">unfurl.nodes.Installer.Terraform</span></a>.
 It can also be used to implement any operation regardless of the node type by setting the <code class="docutils literal notranslate"><span class="pre">implementation</span></code> to <code class="docutils literal notranslate"><span class="pre">Terraform</span></code>.
 It will invoke the appropriate terraform command (e.g “apply” or “destroy”) based on the job’s workflow.</p>
@@ -734,16 +754,16 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-11" name="sd-tab-set-5" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-11">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
-<span class="kn">import</span> <span class="nn">unfurl</span>
-<span class="kn">from</span> <span class="nn">unfurl.tosca_plugins.artifacts</span> <span class="kn">import</span> <span class="n">unfurl_nodes_Installer_Terraform</span>
-<span class="kn">import</span> <span class="nn">unfurl.configurators.terraform</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.tosca_plugins.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">unfurl_nodes_Installer_Terraform</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">unfurl.configurators.terraform</span>
 
 
 <span class="nd">@tosca</span><span class="o">.</span><span class="n">operation</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span> <span class="n">apply_to</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Install.check&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard.configure&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard.delete&quot;</span><span class="p">]</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">terraform_example_default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">terraform_example_default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">terraform</span><span class="o">.</span><span class="n">TerraformConfigurator</span><span class="p">(</span>
         <span class="n">tfvars</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;tag&quot;</span><span class="p">:</span> <span class="s2">&quot;test&quot;</span><span class="p">},</span>
         <span class="n">main</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;</span>
@@ -787,7 +807,7 @@ If set to “remote”, Unfurl will not manage the Terraform state at all.</p>
 <dd class="field-even"><p>During a dry run job, this map of outputs will be used simulate the task’s outputs (otherwise outputs will be empty).</p>
 </dd>
 <dt class="field-odd">resultTemplate</dt>
-<dd class="field-odd"><p>A Jinja2 template that is processed with the Terraform state JSON file as its variables.
+<dd class="field-odd"><p>A Jinja2 template or runtime expression that is processed with the Terraform state JSON file as its variables as well as the <a class="reference internal" href="#resulttemplate"><span class="std std-ref">Result template variables</span></a> variables documented above for <a class="reference internal" href="#shell"><span class="std std-ref">Shell</span></a>.
 See the Terraform providers’ schema documentation for details but top-level keys will include “resources” and “outputs”.</p>
 </dd>
 </dl>
@@ -796,6 +816,82 @@ See the Terraform providers’ schema documentation for details but top-level ke
 <section id="id11">
 <h3>Outputs<a class="headerlink" href="#id11" title="Permalink to this headline"></a></h3>
 <p>Specifies which outputs defined by the Terraform module that will be set as the operation’s outputs. If omitted and the Terraform configuration is specified inline, all of the Terraform outputs will be included. But if a Terraform configuration directory was specified instead, its outputs need to be declared here to be exposed.</p>
+</section>
+<section id="tfvar-and-tfoutput-metadata">
+<h3><code class="docutils literal notranslate"><span class="pre">tfvar</span></code> and <code class="docutils literal notranslate"><span class="pre">tfoutput</span></code> Metadata<a class="headerlink" href="#tfvar-and-tfoutput-metadata" title="Permalink to this headline"></a></h3>
+<p>You can automatically map properties and attributes to a Terraform variables and outputs by setting <code class="docutils literal notranslate"><span class="pre">tfvar</span></code> and <code class="docutils literal notranslate"><span class="pre">tfoutput</span></code> keys in the property and attribute metadata, respectively. For example:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-12" name="sd-tab-set-6" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-12">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ExampleTerraformManagedResource</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Root</span>
+<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A type of resource that is managed (create/update/delete) by a terraform</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">resource</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">example_terraform_var</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A property the UI will render for user input</span>
+<span class="w">        </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">          </span><span class="c1"># TOSCA properties are conceptually similar to Terraform variables.</span>
+<span class="w">          </span><span class="c1"># This declares that this property will set as a terraform variable with the same name:</span>
+<span class="w">          </span><span class="nt">tfvar</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">example_terraform_output</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">          </span><span class="c1"># TOSCA attributes are conceptually similar to Terraform outputs.</span>
+<span class="w">          </span><span class="c1"># This declares that this attribute will be set to the terraform output with the same name:</span>
+<span class="w">          </span><span class="nt">tfoutput</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w">      </span>
+<span class="w">      </span><span class="nt">Install</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">check</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">delete</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">defaults</span><span class="p">:</span>
+<span class="w">        </span><span class="c1"># set this operation for the basic CRUD operations in the TOSCA deploy workflow</span>
+<span class="w">        </span><span class="nt">implementation</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">className</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.configurators.terraform.TerraformConfigurator</span>
+<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">terraform</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-13" name="sd-tab-set-6" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-13">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.configurators.terraform</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TerraformConfigurator</span><span class="p">,</span>
+    <span class="n">TerraformInputs</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.tosca_plugins.expr</span><span class="w"> </span><span class="kn">import</span> <span class="n">tfvar</span><span class="p">,</span> <span class="n">tfoutput</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ExampleTerraformManagedResource</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A type of resource that is managed (create/update/delete) by a terraform resource&quot;&quot;&quot;</span>
+
+    <span class="c1"># TOSCA properties are conceptually similar to Terraform variables.</span>
+    <span class="c1"># Set the tfvar option to indicate the property should set a Terraform variable with the same name.</span>
+    <span class="n">example_terraform_var</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Property</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">tfvar</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A property the UI will render for user input&quot;&quot;&quot;</span>
+
+    <span class="c1"># TOSCA attributes are conceptually similar to Terraform outputs.</span>
+    <span class="c1"># Set the tfoutput option to indicate the attribute should be set to the terraform output with the same name.</span>
+    <span class="n">example_terraform_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Attribute</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">tfoutput</span><span class="p">)</span>
+
+    <span class="c1"># call this function for the basic CRUD operations in the TOSCA deploy workflow</span>
+    <span class="nd">@tosca</span><span class="o">.</span><span class="n">operation</span><span class="p">(</span><span class="n">apply_to</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Install.check&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard.configure&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard.delete&quot;</span><span class="p">])</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TerraformConfigurator</span><span class="p">:</span>
+        <span class="c1"># Implement these operations using the Terraform module found in the directory named &quot;terraform&quot;</span>
+        <span class="k">return</span> <span class="n">TerraformConfigurator</span><span class="p">(</span><span class="n">TerraformInputs</span><span class="p">(</span><span class="n">main</span><span class="o">=</span><span class="s2">&quot;terraform&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+</div>
 </section>
 <section id="environment-variables">
 <h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Permalink to this headline"></a></h3>
@@ -862,25 +958,35 @@ See the Terraform providers’ schema documentation for details but top-level ke
 <span class="w">            </span><span class="nt">inline</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;sudo</span><span class="nv"> </span><span class="s">install-something</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">/tmp/example.txt&quot;</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
+<p>You can convert HCL to JSON and YAML using tools like <a class="reference external" href="https://github.com/tmccombs/hcl2json">hcl2json</a> and <a class="reference external" href="https://github.com/mikefarah/yq/">yq</a>, for example:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>hcl2json<span class="w"> </span>main.tf<span class="w"> </span><span class="p">|</span><span class="w"> </span>yq<span class="w"> </span>-P<span class="w"> </span>-oyaml
+</pre></div>
+</div>
+<p>Expressing terraform modules as YAML or JSON instead of HCL exposes the terraform in a structured way, making it easier to provide extensibility.
+For example, a derived node template or artifact could add or update terraform resources defined on the base type: In the example below, a derived type customizes its base type’s <code class="docutils literal notranslate"><span class="pre">main</span></code> property without have to replace its entire definition.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>main:<span class="w"> </span><span class="s2">&quot;{{ &#39;.super::main&#39; | eval | combine(SELF.custom_changes, recursive=True, list_merge=&#39;append_rp&#39;) }}&quot;</span>
+</pre></div>
+</div>
+<p>Here we merge the base class’s property using <code class="docutils literal notranslate"><span class="pre">.super</span></code> with a property called <code class="docutils literal notranslate"><span class="pre">custom_changes</span></code> using Ansible Jinja2’s <code class="docutils literal notranslate"><span class="pre">combine</span></code> filter which lets you recursively merge maps and lists.</p>
 </section>
 </section>
 </section>
 <section id="installers">
 <h1>Installers<a class="headerlink" href="#installers" title="Permalink to this headline"></a></h1>
-<p>Installation types already have operations defined.
+<p>Installer node types already have operations defined.
 You just need to import the service template containing the TOSCA type definitions and
 declare node templates with the needed properties and operation inputs.</p>
 <div class="contents local topic" id="id12">
 <ul class="simple">
-<li><p><a class="reference internal" href="#docker" id="id44">Docker</a></p></li>
-<li><p><a class="reference internal" href="#dns" id="id45">DNS</a></p></li>
-<li><p><a class="reference internal" href="#helm" id="id46">Helm</a></p></li>
-<li><p><a class="reference internal" href="#kubernetes" id="id47">Kubernetes</a></p></li>
-<li><p><a class="reference internal" href="#supervisor" id="id48">Supervisor</a></p></li>
+<li><p><a class="reference internal" href="#docker" id="id45">Docker</a></p></li>
+<li><p><a class="reference internal" href="#dns" id="id46">DNS</a></p></li>
+<li><p><a class="reference internal" href="#helm" id="id47">Helm</a></p></li>
+<li><p><a class="reference internal" href="#kubernetes" id="id48">Kubernetes</a></p></li>
+<li><p><a class="reference internal" href="#supervisor" id="id49">Supervisor</a></p></li>
 </ul>
 </div>
 <section id="docker">
-<span id="docker-configurator"></span><h2><a class="toc-backref" href="#id44">Docker</a><a class="headerlink" href="#docker" title="Permalink to this headline"></a></h2>
+<span id="docker-configurator"></span><h2><a class="toc-backref" href="#id45">Docker</a><a class="headerlink" href="#docker" title="Permalink to this headline"></a></h2>
 <p>Required TOSCA import: <code class="docutils literal notranslate"><span class="pre">configurators/templates/docker.yaml</span></code> (in the <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> repository)</p>
 <section id="unfurl-nodes-container-application-docker">
 <h3>unfurl.nodes.Container.Application.Docker<a class="headerlink" href="#unfurl-nodes-container-application-docker" title="Permalink to this headline"></a></h3>
@@ -912,8 +1018,8 @@ They are enumerated <a class="reference external" href="https://docs.ansible.com
 <section id="id14">
 <h3>Example<a class="headerlink" href="#id14" title="Permalink to this headline"></a></h3>
 <div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-12" name="sd-tab-set-6" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-12">
+<input checked="checked" id="sd-tab-item-14" name="sd-tab-set-7" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-14">
 YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
 <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
@@ -940,13 +1046,13 @@ YAML</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-13" name="sd-tab-set-6" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-13">
+<input id="sd-tab-item-15" name="sd-tab-set-7" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-15">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">unfurl.configurators.templates.docker</span> <span class="kn">import</span> <span class="p">(</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.configurators.templates.docker</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">unfurl_nodes_Container_Application_Docker</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">import</span> <span class="nn">tosca</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
 
 <span class="n">hello_world_container</span> <span class="o">=</span> <span class="n">unfurl_nodes_Container_Application_Docker</span><span class="p">(</span>
     <span class="s2">&quot;hello-world-container&quot;</span><span class="p">,</span>
@@ -955,7 +1061,7 @@ PYTHON</label><div class="sd-tab-content docutils">
         <span class="n">file</span><span class="o">=</span><span class="s2">&quot;busybox&quot;</span><span class="p">,</span>
     <span class="p">),</span>
 <span class="p">)</span>
-<span class="n">hello_world_container</span><span class="o">.</span><span class="n">Standard_default_inputs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+<span class="n">hello_world_container</span><span class="o">.</span><span class="n">_Standard_default_inputs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
     <span class="n">configuration</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;echo&quot;</span><span class="p">,</span> <span class="s2">&quot;hello world&quot;</span><span class="p">],</span> <span class="n">detach</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">output_logs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="p">)</span>
 </pre></div>
@@ -965,7 +1071,7 @@ PYTHON</label><div class="sd-tab-content docutils">
 </section>
 </section>
 <section id="dns">
-<h2><a class="toc-backref" href="#id45">DNS</a><a class="headerlink" href="#dns" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id46">DNS</a><a class="headerlink" href="#dns" title="Permalink to this headline"></a></h2>
 <p>The DNS installer support nearly all major DNS providers using <a class="reference external" href="https://github.com/octodns/octodns">OctoDNS</a>.</p>
 <p>Required TOSCA import: <code class="docutils literal notranslate"><span class="pre">configurators/templates/dns.yaml</span></code> (in the <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> repository)</p>
 <section id="unfurl-nodes-dnszone">
@@ -1022,8 +1128,8 @@ The DNS records specified here will be added, updated or removed from the zone w
 <section id="id16">
 <h3>Example<a class="headerlink" href="#id16" title="Permalink to this headline"></a></h3>
 <div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-14" name="sd-tab-set-7" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-14">
+<input checked="checked" id="sd-tab-item-16" name="sd-tab-set-8" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-16">
 YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
 <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
@@ -1060,14 +1166,14 @@ YAML</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-15" name="sd-tab-set-7" type="radio">
-</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-15">
+<input id="sd-tab-item-17" name="sd-tab-set-8" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-17">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
-<span class="kn">import</span> <span class="nn">tosca</span>
-<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">Eval</span>
 
-<span class="kn">from</span> <span class="nn">unfurl.configurators.templates.dns</span> <span class="kn">import</span> <span class="n">unfurl_nodes_DNSZone</span><span class="p">,</span> <span class="n">unfurl_relationships_DNSRecords</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.configurators.templates.dns</span><span class="w"> </span><span class="kn">import</span> <span class="n">unfurl_nodes_DNSZone</span><span class="p">,</span> <span class="n">unfurl_relationships_DNSRecords</span>
 
 <span class="n">example_com_zone</span> <span class="o">=</span> <span class="n">unfurl_nodes_DNSZone</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;example.com.&quot;</span><span class="p">,</span>
@@ -1096,7 +1202,7 @@ PYTHON</label><div class="sd-tab-content docutils">
 </section>
 </section>
 <section id="helm">
-<span id="id17"></span><h2><a class="toc-backref" href="#id46">Helm</a><a class="headerlink" href="#helm" title="Permalink to this headline"></a></h2>
+<span id="id17"></span><h2><a class="toc-backref" href="#id47">Helm</a><a class="headerlink" href="#helm" title="Permalink to this headline"></a></h2>
 <p>Requires Helm 3, which will be installed automatically if missing.</p>
 <p>Required TOSCA import: <code class="docutils literal notranslate"><span class="pre">configurators/templates/helm.yaml</span></code> (in the <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> repository)</p>
 <section id="unfurl-nodes-helmrelease">
@@ -1163,7 +1269,7 @@ Deploying or discovering a Helm release will add to the ensemble any Kubernetes 
 </section>
 </section>
 <section id="kubernetes">
-<span id="id21"></span><h2><a class="toc-backref" href="#id47">Kubernetes</a><a class="headerlink" href="#kubernetes" title="Permalink to this headline"></a></h2>
+<span id="id21"></span><h2><a class="toc-backref" href="#id48">Kubernetes</a><a class="headerlink" href="#kubernetes" title="Permalink to this headline"></a></h2>
 <p>Use these types to manage Kubernetes resources.</p>
 <section id="unfurl-nodes-k8scluster">
 <h3>unfurl.nodes.K8sCluster<a class="headerlink" href="#unfurl-nodes-k8scluster" title="Permalink to this headline"></a></h3>
@@ -1317,7 +1423,7 @@ Derived from <code class="docutils literal notranslate"><span class="pre">unfurl
 </section>
 </section>
 <section id="supervisor">
-<span id="sup"></span><h2><a class="toc-backref" href="#id48">Supervisor</a><a class="headerlink" href="#supervisor" title="Permalink to this headline"></a></h2>
+<span id="sup"></span><h2><a class="toc-backref" href="#id49">Supervisor</a><a class="headerlink" href="#supervisor" title="Permalink to this headline"></a></h2>
 <p><a class="reference external" href="http://supervisord.org">Supervisor</a> is a light-weight process manager that is useful when you want to run local development instances of server applications.</p>
 <p>Required TOSCA import: <code class="docutils literal notranslate"><span class="pre">configurators/templates/supervisor.yaml</span></code> (in the <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> repository)</p>
 <section id="unfurl-nodes-supervisor">
@@ -1367,6 +1473,323 @@ Derived from <code class="docutils literal notranslate"><span class="pre">unfurl
 </div></blockquote>
 </section>
 </section>
+</section>
+</section>
+<section id="id38">
+<h1>Artifacts<a class="headerlink" href="#id38" title="Permalink to this headline"></a></h1>
+<p>Instead of setting an operation’s <a class="reference internal" href="tosca.html#implementation"><span class="std std-ref">Implementation</span></a> to a configurator, you can set it to an <a class="reference internal" href="tosca.html#tosca-artifacts"><span class="std std-ref">artifact</span></a>.
+Using an artifact allows you to reuse an implementation with more than one operation. For example, you can create artifacts for specific Terraform modules, Ansible playbooks, or executables.</p>
+<p>You define an <code class="docutils literal notranslate"><span class="pre">execute</span></code> operation on an artifact’s type or template definition to specify the inputs and outputs that can be passed to the artifact’s configurator. How the inputs and outputs are used depends on the artifact’s type. For example, with a Terraform module artifact, its inputs will be used as the Terraform module’s variables and its outputs the Terraform module’s outputs. Or with a shell executable artifact, the inputs specify the command line arguments passed to the executable.</p>
+<p>The example below declares an artifact that represents a shell script and shows how an operation can invoke the artifact and pass values to it.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-18" name="sd-tab-set-9" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-18">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToscaOutputs</span><span class="p">,</span> <span class="n">Attribute</span><span class="p">,</span> <span class="n">Eval</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MyArtifact</span><span class="p">(</span><span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">ShellExecutable</span><span class="p">):</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;myscript.sh&quot;</span>
+    <span class="n">contrived_key</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">outputsTemplate</span> <span class="o">=</span> <span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;{{ stdout | from_json | subelements(SELF.contrived_key)}}&quot;</span><span class="p">)</span>
+
+    <span class="k">class</span><span class="w"> </span><span class="nc">Outputs</span><span class="p">(</span><span class="n">ToscaOutputs</span><span class="p">):</span>
+        <span class="n">a_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Attribute</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">arg2</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Outputs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">MyArtifact</span><span class="o">.</span><span class="n">Outputs</span><span class="p">()</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyNode</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">prop1</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">prop2</span><span class="p">:</span> <span class="nb">int</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MyArtifact</span><span class="o">.</span><span class="n">Outputs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">MyArtifact</span><span class="p">(</span><span class="n">contrived_key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prop1</span><span class="p">)</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;hello&quot;</span><span class="p">,</span> <span class="n">arg2</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prop2</span><span class="p">)</span> 
+
+<span class="n">my_node</span> <span class="o">=</span> <span class="n">MyNode</span><span class="p">(</span><span class="n">prop1</span><span class="o">=</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span> <span class="n">prop2</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-19" name="sd-tab-set-9" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-19">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">artifact_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">MyArtifact</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.artifacts.ShellExecutable</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">file</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myscript.sh</span>
+<span class="w">      </span><span class="nt">contrived_key</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">outputsTemplate</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{{</span><span class="nv"> </span><span class="s">stdout</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">from_json</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">subelements(SELF.contrived_key)}}&#39;</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Executable</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.interfaces.Executable</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">execute</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">output_key</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Outputs</span>
+<span class="w">            </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">arg1</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">              </span><span class="nt">arg2</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span>
+<span class="w">            </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">a_output</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">MyNode</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Root</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prop1</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">prop2</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">output_key</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Outputs</span>
+<span class="w">              </span><span class="nt">arguments</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">arg1</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">arg2</span>
+<span class="w">            </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">arg1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello</span>
+<span class="w">              </span><span class="nt">arg2</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.::prop2</span>
+<span class="w">            </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">a_output</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">            </span><span class="nt">implementation</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">primary</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyArtifact</span>
+<span class="w">                </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">contrived_key</span><span class="p">:</span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.parent::.::prop1</span>
+<span class="w">                </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myscript.sh</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">my_node</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MyNode</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">foo</span>
+<span class="w">        </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</pre></div>
+</div>
+</div>
+</div>
+<section id="arguments">
+<h2>Arguments<a class="headerlink" href="#arguments" title="Permalink to this headline"></a></h2>
+<p>When node operation invokes its artifact’s <code class="docutils literal notranslate"><span class="pre">execute</span></code> operation, Unfurl looks for a operation input named <code class="docutils literal notranslate"><span class="pre">arguments</span></code> to pass as the <code class="docutils literal notranslate"><span class="pre">execute</span></code> operation’s inputs.
+This should be dictionary whose keys and values corresponds to the <code class="docutils literal notranslate"><span class="pre">execute</span></code> operation’s input specification.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">arguments</span></code> isn’t explicitly declared, it will be synthesized from the following sources (listed here from lowest to highest merge order):</p>
+<ul class="simple">
+<li><p>Default input values defined for the execution operation.</p></li>
+<li><p>Properties on the node template and on the implementation artifact if they have matching <code class="docutils literal notranslate"><span class="pre">input_match</span></code> metadata keys in their definitions (see <a class="reference internal" href="#shared-properties"><span class="std std-ref">Shared Properties</span></a>).</p></li>
+<li><p>The operation’s inputs whose names are listed in the operation’s <code class="docutils literal notranslate"><span class="pre">arguments</span></code> metadata key, if set. The Python DSL generates this based on the operation method’s call to the <code class="docutils literal notranslate"><span class="pre">execute</span></code> method, as shown in the example above.</p></li>
+<li><p>If the <code class="docutils literal notranslate"><span class="pre">arguments</span></code> metadata key is missing, operation inputs whose name matches execute a operation’s input name or one of the above matching property names.</p></li>
+</ul>
+</section>
+<section id="shared-properties">
+<h2>Shared Properties<a class="headerlink" href="#shared-properties" title="Permalink to this headline"></a></h2>
+<p>In the Python DSL, TOSCA types can inherit from <a class="reference internal" href="api.html#tosca.ToscaInputs" title="tosca.ToscaInputs"><code class="xref py py-class docutils literal notranslate"><span class="pre">tosca.ToscaInputs</span></code></a> and  <a class="reference internal" href="api.html#tosca.ToscaOutputs" title="tosca.ToscaOutputs"><code class="xref py py-class docutils literal notranslate"><span class="pre">tosca.ToscaOutputs</span></code></a> classes using multiple inheritance and their fields will be inherited as TOSCA properties and attributes respectively. If an execute operation uses ToscaInputs as an argument in its method signature, any node or artifact that inherit that ToscaInputs class will have those properties passed as arguments. This way implementation definitions stay in sync with the nodes that use them.</p>
+<p>In YAML, you can do the equivalent by adding a <code class="docutils literal notranslate"><span class="pre">input_match</span></code> metadata key to those properties to indicate they should be treated as arguments to operations. When invoking an operation, any property on the node or on the implementation artifact has that set will be added arguments. Its value can be a boolean or the name of an artifact to indicate that it should only be passed as arguments to operations that use that artifact. You can also control with properties are passed as arguments by adding an <code class="docutils literal notranslate"><span class="pre">input_match</span></code> metadata key to the artifact <code class="docutils literal notranslate"><span class="pre">execute</span></code> interface’s metadata – if set, only properties with matching <code class="docutils literal notranslate"><span class="pre">input_match</span></code> values will be set.  The YAML generated by the Python DSL uses that mechanism as the example below shows:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-20" name="sd-tab-set-10" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-20">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">KubernetesClusterInputs</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">ToscaInputs</span><span class="p">):</span>
+    <span class="n">do_region</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;nyc3&quot;</span> 
+
+<span class="k">class</span><span class="w"> </span><span class="nc">KubernetesClusterOutputs</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">ToscaOutputs</span><span class="p">):</span>
+    <span class="n">do_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Attribute</span><span class="p">()</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ClusterTerraformModule</span><span class="p">(</span><span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">TerraformModule</span><span class="p">):</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;my_module/main.tf&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">KubernetesClusterInputs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">KubernetesClusterOutputs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">KubernetesClusterOutputs</span><span class="p">()</span>
+
+<span class="c1"># inherited ToscaInputs and ToscaOutputs are treated as properties and attributes</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Cluster</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">,</span> <span class="n">KubernetesClusterInputs</span><span class="p">,</span> <span class="n">KubernetesClusterOutputs</span><span class="p">):</span>
+    <span class="n">cluster_config</span><span class="p">:</span> <span class="s2">&quot;ClusterTerraformModule&quot;</span> <span class="o">=</span> <span class="n">ClusterTerraformModule</span><span class="p">()</span>
+
+    <span class="n">my_property</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">KubernetesClusterOutputs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster_config</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-21" name="sd-tab-set-10" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-21">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
+<span class="nt">topology_template</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+<span class="nt">artifact_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ClusterTerraformModule</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.artifacts.TerraformModule</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Executable</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.interfaces.Executable</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">execute</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">output_match</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KubernetesClusterOutputs</span>
+<span class="w">              </span><span class="nt">input_match</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KubernetesClusterInputs</span>
+<span class="w">            </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">do_region</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">                </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nyc3</span>
+<span class="w">            </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">do_id</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Cluster</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Root</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">do_region</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nyc3</span>
+<span class="w">        </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">input_match</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KubernetesClusterInputs</span>
+<span class="w">      </span><span class="nt">my_property</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">do_id</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">output_match</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KubernetesClusterOutputs</span>
+<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cluster_config</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterTerraformModule</span>
+<span class="w">        </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_module/main.tf</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">output_match</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KubernetesClusterOutputs</span>
+<span class="w">              </span><span class="nt">arguments</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">do_region</span>
+<span class="w">            </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">do_region</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.::do_region</span>
+<span class="w">            </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">do_id</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">            </span><span class="nt">implementation</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">primary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster_config</span>
+</pre></div>
+</div>
+</div>
+</div>
+</section>
+<section id="abstract-artifacts">
+<h2>Abstract artifacts<a class="headerlink" href="#abstract-artifacts" title="Permalink to this headline"></a></h2>
+<p>You can define abstract artifact types that just define the inputs and outputs it expects by defining an artifact type with an <code class="docutils literal notranslate"><span class="pre">execute</span></code> operation that doesn’t have an implementation declared. Artifacts can implement that by, for example, by using multiple inheritance to inherit both the abstract artifact type and a concrete artifact type like <code class="docutils literal notranslate"><span class="pre">unfurl.artifacts.TerraformModule</span></code>.</p>
+<p>This way a node type can declare operations with abstract artifacts and node templates or a node subclass can set a concrete artifact without having to reimplement the operations that use it – with the assurance that the static type checker will check that operation signatures are compatible.</p>
+<p>The example below defines a node type specifies the abstract artifact type its configuration operation will use and a node template that uses a concrete artifact that implements the abstract artifact type.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-22" name="sd-tab-set-11" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-22">
+PYTHON</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ClusterOp</span><span class="p">(</span><span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Executable</span><span class="p">):</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;kubernetes&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prop1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prop2</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">DOCluster</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+    <span class="n">cluster_config</span><span class="p">:</span> <span class="s2">&quot;ClusterOp&quot;</span>
+
+    <span class="n">my_property</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster_config</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">prop1</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">my_property</span><span class="p">,</span> <span class="n">prop2</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ClusterTerraform</span><span class="p">(</span><span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">TerraformModule</span><span class="p">,</span> <span class="n">ClusterOp</span><span class="p">):</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;main.tf&quot;</span>
+
+<span class="n">mycluster</span> <span class="o">=</span> <span class="n">DOCluster</span><span class="p">(</span><span class="n">cluster_config</span><span class="o">=</span><span class="n">ClusterTerraform</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-23" name="sd-tab-set-11" type="radio">
+</input><label class="sd-tab-label" data-sync-id="tabcode-yaml" for="sd-tab-item-23">
+YAML</label><div class="sd-tab-content docutils">
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">mycluster</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DOCluster</span>
+<span class="w">      </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">cluster_config</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterTerraform</span>
+<span class="w">          </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main.tf</span>
+<span class="w">      </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docs.examples.artifact3</span>
+<span class="nt">artifact_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ClusterOp</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.artifacts.Executable</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Executable</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.interfaces.Executable</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">execute</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">prop1</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">              </span><span class="nt">prop2</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span>
+<span class="w">  </span><span class="nt">ClusterTerraform</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.artifacts.TerraformModule</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterOp</span>
+<span class="nt">node_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">DOCluster</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Root</span>
+<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cluster_config</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterOp</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">my_property</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">prop1</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.::my_property</span>
+<span class="w">              </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">arguments</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2</span>
+<span class="w">            </span><span class="nt">implementation</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">primary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster_config</span>
+</pre></div>
+</div>
+</div>
+</div>
 </section>
 </section>
 

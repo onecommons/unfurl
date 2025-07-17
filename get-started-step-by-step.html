@@ -61,6 +61,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -201,7 +202,7 @@ YAML</label><div class="sd-tab-content docutils">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;gcloud compute instances delete {{ &#39;.name&#39; | eval }}&quot;</span><span class="p">),</span>
     <span class="p">)</span>
@@ -256,14 +257,14 @@ YAML</label><div class="sd-tab-content docutils">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-5">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;gcloud compute instances delete {{ &#39;.name&#39; | eval }}&quot;</span><span class="p">),</span>
     <span class="p">)</span>
 
 
 <span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;create&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_create</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_create</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
             <span class="p">(</span>
@@ -352,7 +353,7 @@ YAML</label><div class="sd-tab-content docutils">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-7">
 PYTHON</label><div class="sd-tab-content docutils">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;check&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_check</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_check</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
             <span class="s2">&quot;gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json&quot;</span>
@@ -478,15 +479,15 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-9" name="sd-tab-set-4" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-9">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Sequence</span>
-<span class="kn">import</span> <span class="nn">tosca</span>
-<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">GB</span><span class="p">,</span> <span class="n">MB</span><span class="p">,</span> <span class="n">operation</span>
-<span class="kn">import</span> <span class="nn">unfurl.configurators.shell</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">Eval</span><span class="p">,</span> <span class="n">GB</span><span class="p">,</span> <span class="n">MB</span><span class="p">,</span> <span class="n">operation</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">unfurl.configurators.shell</span>
 
 
 <span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;check&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_check</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_check</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
             <span class="s2">&quot;gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json&quot;</span>
@@ -526,14 +527,14 @@ PYTHON</label><div class="sd-tab-content docutils">
 
 
 <span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_delete</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span><span class="s2">&quot;gcloud compute instances delete {{ &#39;.name&#39; | eval }}&quot;</span><span class="p">),</span>
     <span class="p">)</span>
 
 
 <span class="nd">@operation</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;create&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">my_server_create</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_server_create</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="n">Eval</span><span class="p">(</span>
             <span class="p">(</span>

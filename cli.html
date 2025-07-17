@@ -63,6 +63,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -82,7 +83,6 @@
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-clone">clone</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-commit">commit</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-git">git</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#unfurl-git-status">git-status</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-init">init</a></li>
 </ul>
 </li>
@@ -95,6 +95,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#unfurl-info-commands">Info Commands</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#unfurl-git-status">git-status</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-help">help</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-status">status</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#unfurl-validate">validate</a></li>
@@ -157,21 +158,21 @@
 <li><p><a class="reference internal" href="#unfurl-clone" id="id11">clone</a></p></li>
 <li><p><a class="reference internal" href="#unfurl-commit" id="id12">commit</a></p></li>
 <li><p><a class="reference internal" href="#unfurl-git" id="id13">git</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-git-status" id="id14">git-status</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-init" id="id15">init</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-init" id="id14">init</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#unfurl-utility-commands" id="id16">Utility Commands</a></p>
+<li><p><a class="reference internal" href="#unfurl-utility-commands" id="id15">Utility Commands</a></p>
 <ul>
-<li><p><a class="reference internal" href="#unfurl-cloudmap" id="id17">cloudmap</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-export" id="id18">export</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-home" id="id19">home</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-runtime" id="id20">runtime</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-serve" id="id21">serve</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-cloudmap" id="id16">cloudmap</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-export" id="id17">export</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-home" id="id18">home</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-runtime" id="id19">runtime</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-serve" id="id20">serve</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#unfurl-info-commands" id="id22">Info Commands</a></p>
+<li><p><a class="reference internal" href="#unfurl-info-commands" id="id21">Info Commands</a></p>
 <ul>
+<li><p><a class="reference internal" href="#unfurl-git-status" id="id22">git-status</a></p></li>
 <li><p><a class="reference internal" href="#unfurl-help" id="id23">help</a></p></li>
 <li><p><a class="reference internal" href="#unfurl-status" id="id24">status</a></p></li>
 <li><p><a class="reference internal" href="#unfurl-validate" id="id25">validate</a></p></li>
@@ -360,8 +361,8 @@
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-check-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-i">
+<span id="cmdoption-unfurl-check-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -497,8 +498,8 @@
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-i">
+<span id="cmdoption-unfurl-deploy-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -684,8 +685,8 @@
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-discover-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-i">
+<span id="cmdoption-unfurl-discover-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -819,8 +820,8 @@
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-plan-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-i">
+<span id="cmdoption-unfurl-plan-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -903,6 +904,12 @@
 <dt class="sig sig-object std" id="cmdoption-unfurl-plan-workflow">
 <span class="sig-name descname"><span class="pre">--workflow</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workflow&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-workflow" title="Permalink to this definition"></a></dt>
 <dd><p>plan workflow (default: deploy)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Plan as a dryrun job.</p>
 </dd></dl>
 
 <p class="rubric">Arguments</p>
@@ -1006,8 +1013,8 @@ Use “–” to separate the given command line, for example:</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-run-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-i">
+<span id="cmdoption-unfurl-run-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -1107,8 +1114,8 @@ Use “–” to separate the given command line, for example:</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-stop-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-i">
+<span id="cmdoption-unfurl-stop-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -1242,8 +1249,8 @@ Use “–” to separate the given command line, for example:</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-teardown-instance">
-<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-teardown-instance" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object std" id="cmdoption-unfurl-teardown-i">
+<span id="cmdoption-unfurl-teardown-instance"></span><span class="sig-name descname"><span class="pre">-i</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-teardown-i" title="Permalink to this definition"></a></dt>
 <dd><p>Instance name to target (multiple times ok).</p>
 </dd></dl>
 
@@ -1462,6 +1469,12 @@ Use “–” to separate the given command line, for example:</p>
 <dd><p>Use this environment.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-commit-save-secrets-only">
+<span class="sig-name descname"><span class="pre">--save-secrets-only</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-commit-save-secrets-only" title="Permalink to this definition"></a></dt>
+<dd><p>Encrypt secret files to “.secrets” directories instead of committing.</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-unfurl-commit-arg-PROJECT_OR_ENSEMBLE_PATH">
@@ -1491,35 +1504,8 @@ Use “–” to separate the given command line, for example:</p>
 </dd></dl>
 
 </section>
-<section id="unfurl-git-status">
-<h4><a class="toc-backref" href="#id14">git-status</a><a class="headerlink" href="#unfurl-git-status" title="Permalink to this headline"></a></h4>
-<p>Show the git status for paths relevant to the given project or ensemble.</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>git-status<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROJECT_OR_ENSEMBLE_PATH<span class="o">]</span>
-</pre></div>
-</div>
-<p class="rubric">Options</p>
-<dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-dirty">
-<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-status-dirty" title="Permalink to this definition"></a></dt>
-<dd><p>Only show repositories with uncommitted changes</p>
-</dd></dl>
-
-<dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-use-environment">
-<span class="sig-name descname"><span class="pre">--use-environment</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;NAME&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-git-status-use-environment" title="Permalink to this definition"></a></dt>
-<dd><p>Use this environment.</p>
-</dd></dl>
-
-<p class="rubric">Arguments</p>
-<dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH">
-<span id="cmdoption-unfurl-git-status-arg-project-or-ensemble-path"></span><span class="sig-name descname"><span class="pre">PROJECT_OR_ENSEMBLE_PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH" title="Permalink to this definition"></a></dt>
-<dd><p>Optional argument</p>
-</dd></dl>
-
-</section>
 <section id="unfurl-init">
-<h4><a class="toc-backref" href="#id15">init</a><a class="headerlink" href="#unfurl-init" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id14">init</a><a class="headerlink" href="#unfurl-init" title="Permalink to this headline"></a></h4>
 <p>Create a new project, or, if [project_dir] is an existing project, create a new ensemble.
 If [ensemble_name] is omitted, use a default name.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROJECTDIR<span class="o">]</span><span class="w"> </span><span class="o">[</span>ENSEMBLE_NAME<span class="o">]</span>
@@ -1592,6 +1578,12 @@ If [ensemble_name] is omitted, use a default name.</p>
 <dd><p>Generate files only (don’t commit them).</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-design">
+<span class="sig-name descname"><span class="pre">--design</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-design" title="Permalink to this definition"></a></dt>
+<dd><p>Set up project for blueprint development.</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-unfurl-init-arg-PROJECTDIR">
@@ -1608,9 +1600,9 @@ If [ensemble_name] is omitted, use a default name.</p>
 </section>
 </section>
 <section id="unfurl-utility-commands">
-<h3><a class="toc-backref" href="#id16">Utility Commands</a><a class="headerlink" href="#unfurl-utility-commands" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id15">Utility Commands</a><a class="headerlink" href="#unfurl-utility-commands" title="Permalink to this headline"></a></h3>
 <section id="unfurl-cloudmap">
-<h4><a class="toc-backref" href="#id17">cloudmap</a><a class="headerlink" href="#unfurl-cloudmap" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id16">cloudmap</a><a class="headerlink" href="#unfurl-cloudmap" title="Permalink to this headline"></a></h4>
 <p>Manage a cloud map.</p>
 <p>[CLOUDMAP] is either a named cloudmap, a git url, or a local path.
 (Default: “cloudmap”)</p>
@@ -1698,7 +1690,7 @@ If [ensemble_name] is omitted, use a default name.</p>
 
 </section>
 <section id="unfurl-export">
-<h4><a class="toc-backref" href="#id18">export</a><a class="headerlink" href="#unfurl-export" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id17">export</a><a class="headerlink" href="#unfurl-export" title="Permalink to this headline"></a></h4>
 <p>If path to an Unfurl project or ensemble, export ensemble in a simplified json format or as Python source.
 If a Python file, export to YAML.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PATH<span class="o">]</span>
@@ -1768,9 +1760,10 @@ If a Python file, export to YAML.</p>
 
 </section>
 <section id="unfurl-home">
-<h4><a class="toc-backref" href="#id19">home</a><a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id18">home</a><a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h4>
 <p>If no options are set, display the location of current unfurl home.
-To create a new home project use –init and the global –home option.</p>
+To create a new home project use –init
+with the global –home option to set the location (and the global –no-runtime option to skip creating a runtime).</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>home<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
@@ -1811,9 +1804,15 @@ To create a new home project use –init and the global –home option.</p>
 <dd><p>Name/value pair to pass to skeleton (multiple times ok).</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-home-register">
+<span class="sig-name descname"><span class="pre">--register</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;PROJECT</span> <span class="pre">PATH&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-home-register" title="Permalink to this definition"></a></dt>
+<dd><p>Register project with the home project.</p>
+</dd></dl>
+
 </section>
 <section id="unfurl-runtime">
-<h4><a class="toc-backref" href="#id20">runtime</a><a class="headerlink" href="#unfurl-runtime" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id19">runtime</a><a class="headerlink" href="#unfurl-runtime" title="Permalink to this headline"></a></h4>
 <p>If no options are set, display the runtime currently used by the project. To create
 a new runtime in the project root use –init and the global –runtime option.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>runtime<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROJECT_FOLDER<span class="o">]</span>
@@ -1841,7 +1840,7 @@ a new runtime in the project root use –init and the global –runtime option.<
 
 </section>
 <section id="unfurl-serve">
-<h4><a class="toc-backref" href="#id21">serve</a><a class="headerlink" href="#unfurl-serve" title="Permalink to this headline"></a></h4>
+<h4><a class="toc-backref" href="#id20">serve</a><a class="headerlink" href="#unfurl-serve" title="Permalink to this headline"></a></h4>
 <p>Run Unfurl’s built-in web server.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>serve<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROJECT_OR_ENSEMBLE_PATH<span class="o">]</span>
 </pre></div>
@@ -1948,7 +1947,34 @@ a new runtime in the project root use –init and the global –runtime option.<
 </section>
 </section>
 <section id="unfurl-info-commands">
-<h3><a class="toc-backref" href="#id22">Info Commands</a><a class="headerlink" href="#unfurl-info-commands" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id21">Info Commands</a><a class="headerlink" href="#unfurl-info-commands" title="Permalink to this headline"></a></h3>
+<section id="unfurl-git-status">
+<h4><a class="toc-backref" href="#id22">git-status</a><a class="headerlink" href="#unfurl-git-status" title="Permalink to this headline"></a></h4>
+<p>Show the git status for paths relevant to the given project or ensemble.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>git-status<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROJECT_OR_ENSEMBLE_PATH<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-status-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Only show repositories with uncommitted changes</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-use-environment">
+<span class="sig-name descname"><span class="pre">--use-environment</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;NAME&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-git-status-use-environment" title="Permalink to this definition"></a></dt>
+<dd><p>Use this environment.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH">
+<span id="cmdoption-unfurl-git-status-arg-project-or-ensemble-path"></span><span class="sig-name descname"><span class="pre">PROJECT_OR_ENSEMBLE_PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
 <section id="unfurl-help">
 <h4><a class="toc-backref" href="#id23">help</a><a class="headerlink" href="#unfurl-help" title="Permalink to this headline"></a></h4>
 <p>Get help on a command.</p>

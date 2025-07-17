@@ -136,9 +136,9 @@ It can also associate ensembles with a named environment (using the ``environmen
 Default environments
 --------------------
 
-When creating new project ``--use-environment`` will set the ``default_environment`` field in the project's `unfurl.yaml`, which is applied to any ensemble that doesn't have an environment set.
+When creating a new project ``--use-environment`` will set the ``default_environment`` field in the project's `unfurl.yaml`, which is applied to any ensemble that doesn't have an environment set.
 
-When creating a new ensemble --use-environment sets the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
+When creating a new ensemble ``--use-environment`` sets the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
 
 Shared Environments
 -------------------
@@ -161,7 +161,7 @@ This creates a new ensemble named "staging" in a project named "my_app_project" 
 
 Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project".
 
-The unfurl_home coordinates between projects so both projects need to use the same unfurl_home.
+The unfurl_home project coordinates between projects so both projects need to use the same unfurl_home.
 
 Inheritance and precedence
 --------------------------
@@ -254,19 +254,27 @@ External ensembles
 
 Ensembles from external Unfurl projects can be imported into an Unfurl environment, allowing ensembles in that environment to access external resources.
 
-The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the "select" directive (see "3.4.3 Directives"). Two, they can be explicitly referenced using the `external` expression function.
+The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the "select" directive (see "3.4.3 Directives"). Two, they can be explicitly referenced using the `external <external_func>` expression function.
 
-Resources can be explicitly imported (document external names!) or dynamically selected given a criteria using TOSCA's `"select" node template directive<tosca.NodeTemplateDirective.select>`.
+Resources can be imported by name or dynamically selected given a criteria using TOSCA's `"select" node template directive<tosca.NodeTemplateDirective.select>`.
 
-There are 3 instances that are always implicitly imported even if they are not declared:
+An external instance with the name ``localhost`` is treated specially. It is assumed to represent the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA.
+The default project skeleton for unfurl home is defined in the home manifest that resides in your Unfurl home folder like this:
 
-- The ``localhost`` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
+.. code-block:: yaml
+
+    external:
+      localhost:
+        manifest:
+          file: ensemble/ensemble.yaml
+        instance: localhost
+
 
 :manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
 :instance: (default: "*") The name of the instance within the ensemble to make available.
   If ``*`` all instances in the ensemble will be available.
 
-:uri: The ``uri`` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
+:uri: The `uri <URIs>` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
 
 :``schema``: a JSON schema ``properties`` object describing the schema for the map. If missing, validation of the attributes will be skipped.
 
@@ -285,21 +293,35 @@ Keeping the ensemble repository separate from the project repository is useful
 if the resources the ensemble creates are transitory or if you want to restrict access to them.
 Using the ``--submodule`` option allows those repositories to be easily packaged and shared with the project repository but still maintain separate access control and git history for each ensemble.
 
-Creating an ensemble in a new repository will add a ``vault_secrets`` secret with a generated password to ``local/unfurl.yaml`` and add a ``secrets/secrets.yaml`` file to the repository.  Or in any new project by setting the `VAULT_PASSWORD skeleton variable <vault_password_var>`.
+Creating an ensemble in a new repository will add a ``vault_secrets`` secret with a generated password to ``local/unfurl.yaml`` and add a ``secrets/secrets.yaml`` file to the repository.  Or in any new project by setting the `VAULT_PASSWORD skeleton variable <vault_password_var>` or the ``vaultid`` skeleton variable. (If either are omitted, the missing vault password or id will be autogenerated.)
 
 .. important::
 
   Store the vault password found in ``ensemble/local/unfurl.yaml`` in a safe place! This password is used to encrypt any sensitive data committed to repository. See :doc:`secrets` for more information.
 
 Project Skeletons
------------------
+=================
 
-New Unfurl projects and ensembles are created from a ``project skeleton``, which is a directory containing Jinja2 templates that are used to render the project files.
+New Unfurl projects and ensembles are created from a "project skeleton", which is a directory containing Jinja2 templates that are used to render the project files.
 
-The ``--skeleton`` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
+The :cli:`--skeleton<cmdoption-unfurl-init-skeleton>` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
 
-You can pass skeleton variables to the skeleton Jinj2a templates using the ``--var`` option, like the example `below<vault_password_var>`.
+You can pass skeleton variables to the skeleton Jinj2a templates using the :cli:`--var<cmdoption-unfurl-init-var>` option, like the example `below<vault_password_var>`.
 
+The built-in project skeletons recognize the following skeleton variables:
+
+.. list-table::
+
+  * - ``api_version``
+    - The version for the schema for Unfurl's `configuration files` (defaults to latest stable version).
+  * - ``input_<input_name>``
+    - Skeleton variables that start with ``input_`` will be including the ensemble as `Topology Inputs`.
+  * - ``std``
+    - Set to "true" to include the `Unfurl Cloud standard library <https://unfurl.cloud/onecommons/std>`_  repository.
+  * - ``vaultid``
+    - Set up the project to use Ansible Vault encryption and use the given vault id.
+  * - ``VAULT_PASSWORD``
+    - Set up the project to use Ansible Vault encryption and use the given password.
 
 Cloning projects and ensembles
 ==============================

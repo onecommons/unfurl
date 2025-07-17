@@ -89,6 +89,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
@@ -210,9 +211,9 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">TopologyInputs</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">TopologyInputs</span>
 
-<span class="k">class</span> <span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
     <span class="n">image_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;Ubuntu 12.04&quot;</span>
 
 <span class="n">vm</span> <span class="o">=</span> <span class="n">MyVM</span><span class="p">(</span><span class="n">image_name</span><span class="o">=</span><span class="n">Inputs</span><span class="o">.</span><span class="n">image_name</span><span class="p">)</span>

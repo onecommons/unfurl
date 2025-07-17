@@ -84,6 +84,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cloudmap.html">Cloud Maps</a></li>
@@ -301,21 +302,21 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-1">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MongoDatabase</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MongoDatabase</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">DBMS</span><span class="p">):</span>
   <span class="n">port</span><span class="p">:</span> <span class="nb">int</span>
   <span class="s2">&quot;MongoDB port&quot;</span>
 
-  <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+  <span class="k">def</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
       <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/install-mongo.sh&quot;</span><span class="p">]</span>
       <span class="p">)</span>
 
-  <span class="k">def</span> <span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+  <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
       <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/start-mongo.sh&quot;</span><span class="p">]</span>
       <span class="p">)</span>
 
-  <span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+  <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
       <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/stop-mongo.sh&quot;</span><span class="p">]</span>
       <span class="p">)</span>
@@ -347,16 +348,16 @@ YAML</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-3">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MongoDatabaseExtended</span><span class="p">(</span><span class="n">MongoDatabase</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MongoDatabaseExtended</span><span class="p">(</span><span class="n">MongoDatabase</span><span class="p">):</span>
   <span class="n">enable_replication</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
   <span class="s2">&quot;MongoDB replication enabling flag&quot;</span>
 
-  <span class="k">def</span> <span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+  <span class="k">def</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
       <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/install-mongo-extended.sh&quot;</span><span class="p">]</span>
       <span class="p">)</span>
 
-  <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+  <span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
       <span class="k">return</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">congifurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span><span class="p">(</span>
         <span class="n">command</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;scripts/mongo/configure-mongo-extended.sh&quot;</span><span class="p">]</span>
       <span class="p">)</span>

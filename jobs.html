@@ -82,6 +82,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -145,7 +146,7 @@
 <p>There are two fundamental workflows (“normative workflows” in TOSCA terminology):
 <a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, which installs the topology, and <a class="reference internal" href="cli.html#unfurl-teardown"><span class="std std-ref">undeploy</span></a>, which uninstalls it.</p>
 <p>There are also <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> and  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> workflows which update the status of instances the based on their current live state.</p>
-<p>Each of these workflows can be triggered with the equivalently named  <a class="reference external" href="cli.html#unfurl-deploy-commands">commands</a>.  You can run custom workflows using <a class="reference external" href="cli.html#unfurl-run">unfurl run</a>.</p>
+<p>Each of these workflows can be triggered with the equivalently named  <a class="reference external" href="cli.html#unfurl-deploy-commands">commands</a>. You can run <a class="reference internal" href="#ad-hoc-jobs"><span class="std std-ref">custom workflows</span></a> using <a class="reference external" href="cli.html#unfurl-run">unfurl run</a>. You can preview a workflow plan with <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a>.</p>
 <section id="job-lifecycle">
 <h2><a class="toc-backref" href="#id2">Job Lifecycle</a><a class="headerlink" href="#job-lifecycle" title="Permalink to this headline"></a></h2>
 <p>When a command that invokes a workflow is executed (<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, <a class="reference internal" href="cli.html#unfurl-teardown"><span class="std std-ref">undeploy</span></a>, <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a>,  <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> and <a class="reference internal" href="cli.html#unfurl-run"><span class="std std-ref">run</span></a>)
@@ -157,8 +158,8 @@ a job is created and run. Running a job entails these steps:</p>
 <li><p>For each operation a task is generated and the operation’s <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a> are lazily evaluated
 if referenced, including Unfurl expressions, TOSCA functions, and template strings.</p></li>
 <li><p>If planned tasks require local dependencies to be installed, such as tool artifacts, run an external job to install them.</p></li>
-<li><p>Render the plan. The command will exit if there are unrecoverable errors. Render operations that depend on live attributes that will be deferred until those attributes are set when the task is executed.</p></li>
-<li><p>Execute the plan. You will be prompted with a plan summary to approve unless the <code class="docutils literal notranslate"><span class="pre">--approve</span></code> flag was used. As it runs, it tracks dependencies and changes to resource attributes and status.</p></li>
+<li><p>Render the plan and print a plan summary. Render operations that depend on live attributes that will be deferred until those attributes are set when the task is executed. The command will exit if there are unrecoverable errors or if you are running the <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command.</p></li>
+<li><p>Execute the plan. You will be prompted to approve the plan summary unless the <code class="docutils literal notranslate"><span class="pre">--approve</span></code> flag was used. As it runs, it tracks dependencies and changes to resource attributes and status.</p></li>
 <li><p>Re-execute steps 5 and 6 to render and run any deferred operations if needed. Repeat until all operations complete.</p></li>
 <li><p>After the job completes, <a class="reference internal" href="jsonschema.html#id2"><span class="std std-ref">ensemble.yaml</span></a> is updated with any changes to its instances status. It’s <code class="docutils literal notranslate"><span class="pre">jobs</span></code> folder with have new <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">job.yaml</span></a> file and associated log files.</p></li>
 <li><p>If the <code class="docutils literal notranslate"><span class="pre">--commit</span></code> flag was set, the ensemble’s git repository will see a new commit containing changes to any files touched by the job, along with commits to any other project repositories that had changes to it. And if the <code class="docutils literal notranslate"><span class="pre">--push</span></code> flag was set, the commits will be automatically pushed.</p></li>
@@ -170,12 +171,40 @@ if referenced, including Unfurl expressions, TOSCA functions, and template strin
 <p><span class="caption-text">Example deploy job output</span><a class="headerlink" href="#id1" title="Permalink to this image"></a></p>
 </figcaption>
 </figure>
+<p>The job summary table has the following columns:</p>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">Task</dt>
+<dd class="field-odd"><p>Whether the task succeeded, failed, skipped (because it wasn’t needed), or blocked (because a dependent task didn’t run or succeed).</p>
+</dd>
+<dt class="field-even">Resource</dt>
+<dd class="field-even"><p>The resource that was the target of the task.</p>
+</dd>
+<dt class="field-odd">Operation</dt>
+<dd class="field-odd"><p>The TOSCA <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> the task was executing.</p>
+</dd>
+<dt class="field-even">Reason</dt>
+<dd class="field-even"><p><a class="reference internal" href="api.html#unfurl.support.Reason" title="unfurl.support.Reason"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Reason</span></code></a> the plan include this task.</p>
+</dd>
+<dt class="field-odd">Status</dt>
+<dd class="field-odd"><p>The <a class="reference internal" href="#operational-status-and-state"><span class="std std-ref">status</span></a> of the resource after the task ran (which is orthogonal to the task’s status – a task can run successfully even if the resource remains in a error state).
+If the local status of the resource is different from its effective status, (ie. its status with its dependencies’ statuses considered) both will be displayed (local first).</p>
+</dd>
+<dt class="field-even">State</dt>
+<dd class="field-even"><p>The resource <a class="reference internal" href="#node-state"><span class="std std-ref">state</span></a> after the task ran.</p>
+</dd>
+<dt class="field-odd">Changed</dt>
+<dd class="field-odd"><p>Whether the task modified the resource.</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>You can also output this table as json using the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-output">–output</a> option.</p>
 </section>
 <section id="generated-files">
 <h2><a class="toc-backref" href="#id3">Generated Files</a><a class="headerlink" href="#generated-files" title="Permalink to this headline"></a></h2>
 <p>When a job runs it creates several directories and files, some of which are committed to the ensemble’s git repository.</p>
 <p>During the planning stage, tasks can generate (“render”) files that are used during deployment. They are saved in the <code class="docutils literal notranslate"><span class="pre">planned</span></code> directory in one of the subdirectories described below. It is the task’s <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a>’s responsibility to creates the files it needs – for example, the Terraform configurator might generate a terraform module.</p>
-<p>During the deployment stage, those files are moved to the <code class="docutils literal notranslate"><span class="pre">active</span></code> directory after the task completes successfully. If it fails, they are moved to a directory named <code class="docutils literal notranslate"><span class="pre">failed.&lt;taskid&gt;</span></code>.</p>
+<p>During the deployment stage, those files are moved to the <code class="docutils literal notranslate"><span class="pre">active</span></code> directory after the task completes successfully. If it fails, they are moved to a directory named <code class="docutils literal notranslate"><span class="pre">failed/&lt;changeid&gt;</span></code>.</p>
 <p>When the job completes, <code class="docutils literal notranslate"><span class="pre">job.tsv</span></code> is updated and files for that job are added to <code class="docutils literal notranslate"><span class="pre">changes</span></code> and <code class="docutils literal notranslate"><span class="pre">jobs</span></code> directories.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">planned</span></code> and <code class="docutils literal notranslate"><span class="pre">active</span></code> directories can have the following subdirectories:</p>
 <dl class="field-list simple">
@@ -225,11 +254,11 @@ if referenced, including Unfurl expressions, TOSCA functions, and template strin
 <p>After ensemble is created, running a job will compared with the current state of its resources.</p>
 <p>The deploy workflow follows these rules:</p>
 <ul class="simple">
-<li><p>Any existing instance that not at the expecting status or state. (this is controlled by the –repair option). (reason: repair)</p></li>
-<li><p>Previously created resources already in their desired state are evaluated to see if their configuration changed (controlled by the –change-detection option) (reason: reconfigure).</p></li>
-<li><p>New templates will create new resources (reason “new”) (disabled by the –skip-new flag)</p></li>
-<li><p>If the –check flag is set, the <code class="docutils literal notranslate"><span class="pre">&quot;check&quot;</span> <span class="pre">operation</span></code> will be run before trying to create the instance.</p></li>
-<li><p>Existing resources no longer referenced by the model are not removed unless the –prune flag is used. When –prune is used, deletion follows the rules of the <a class="reference internal" href="#undeploy-teardown"><span class="std std-ref">Undeploy (teardown)</span></a> workflow described below.</p></li>
+<li><p>Any existing instance that not at the expecting status or state. (this is controlled by the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-repair">–repair</a> option). (reason: repair)</p></li>
+<li><p>Previously created resources already in their desired state are evaluated to see if their configuration changed (controlled by the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-change-detection">–change-detection</a> option) (reason: reconfigure).</p></li>
+<li><p>New templates will create new resources (reason “new”) (disabled by the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-skip-new">–skip-new</a> flag)</p></li>
+<li><p>If the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-check">–check</a> flag is set, the <code class="docutils literal notranslate"><span class="pre">&quot;check&quot;</span> <span class="pre">operation</span></code> will be run before trying to create the instance.</p></li>
+<li><p>Existing resources no longer referenced by the model are not removed unless the <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-prune">–prune</a> flag is used. When <a class="reference external" href="cli.html#cmdoption-unfurl-deploy-prune">–prune</a> is used, deletion follows the rules of the <a class="reference internal" href="#undeploy-teardown"><span class="std std-ref">Undeploy (teardown)</span></a> workflow described below.</p></li>
 </ul>
 <section id="applying-configuration-changes">
 <h3><a class="toc-backref" href="#id5">Applying configuration changes.</a><a class="headerlink" href="#applying-configuration-changes" title="Permalink to this headline"></a></h3>
@@ -386,7 +415,7 @@ can be found in the <a class="reference internal" href="jsonschema.html#status">
 <span class="w">  </span><span class="nt">effective</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span><span class="w"> </span><span class="c1">#  `status` with dependencies&#39; statuses considered</span>
 <span class="w">  </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">started</span><span class="w"> </span><span class="c1"># Node state</span>
 <span class="nt">lastConfigChange</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A0AP4P9C0001</span><span class="w"> </span><span class="c1"># change id of the last ConfigChange that was applied</span>
-<span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;optional&quot;</span><span class="w">  </span><span class="c1"># default Priority is &quot;required&quot;</span>
+<span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">optional</span><span class="w">  </span><span class="c1"># or &quot;required&quot; (the default), &quot;critical&quot;, &quot;ignore&quot;</span>
 <span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A0AP4P9C0001</span><span class="w"> </span><span class="c1"># change id that created this or name of instance that manages this resource</span>
 <span class="nt">protected</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># (optional) prevents deletion</span>
 <span class="nt">customized</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># (optional) prevents reconfiguring from spec</span>

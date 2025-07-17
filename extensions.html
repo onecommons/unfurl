@@ -78,6 +78,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -133,7 +134,7 @@
 <li><p>groups can have other groups as members</p></li>
 <li><p>an operation’s <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> field can also be set to a node template’s name.</p></li>
 <li><p>added <code class="docutils literal notranslate"><span class="pre">OPERATION_HOST</span></code> as a reserved function keyword.</p></li>
-<li><p>add “discover”, “default”, “dependent”, “virtual”, and “protected” directives</p></li>
+<li><p>add “check”, “conditional”, “discover”, “default”, “dependent”, “virtual”, and “protected” directives</p></li>
 <li><p>add “default_for” keyword to relationship templates</p></li>
 <li><p>add “defaults” section to interface definitions</p></li>
 <li><p>add “requirements” keyword to interface definitions</p></li>
@@ -155,6 +156,10 @@
 <li><p>add <code class="docutils literal notranslate"><span class="pre">removed</span></code> property status value</p></li>
 <li><p>artifacts can be declared on node types.</p></li>
 <li><p>add <code class="docutils literal notranslate"><span class="pre">target</span></code>, <code class="docutils literal notranslate"><span class="pre">contents</span></code>, <code class="docutils literal notranslate"><span class="pre">order</span></code>, <code class="docutils literal notranslate"><span class="pre">permissions</span></code>, and <code class="docutils literal notranslate"><span class="pre">intent</span></code> keywords to artifacts (see <a class="reference internal" href="CHANGELOG.html#artifact-enhancements"><span class="std std-ref">Artifact enhancements</span></a>)</p></li>
+<li><p>support <code class="docutils literal notranslate"><span class="pre">ANON</span></code> keyword in <a class="reference internal" href="expressions.html#get-artifact"><span class="std std-ref">get_artifact</span></a></p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">artifacts</span></code> keyword to node_filters to match on artifact properties (syntax matches “capabilities” keyword)</p></li>
+<li><p>add <code class="docutils literal notranslate"><span class="pre">input_values</span></code> section to service templates (see <a class="reference internal" href="runtime.html#topology-inputs"><span class="std std-ref">Topology Inputs</span></a>).</p></li>
 </ul>
 </section>
 <section id="not-yet-implemented">

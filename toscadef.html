@@ -78,6 +78,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -182,21 +183,33 @@ node_types:
     properties:
       name:
         type: string
+        description: &gt;
+          The logical name of the store (or container).
       size:
         type: scalar-unit.size
         default: 0 MB
         constraints:
           - greater_or_equal: 0 MB
+        description: &gt;
+          The requested initial storage size.
 
   tosca.nodes.Storage.BlockStorage:
     derived_from: tosca.nodes.Abstract.Storage
+    description: &gt;
+      The TOSCA BlockStorage node currently represents a server-local block storage device (i.e., not shared)
+      offering evenly sized blocks of data from which raw storage volumes can be created.
     properties:
+      name:
+        type: string
+        default: &quot;&quot;
       volume_id:
         type: string
         required: false
+        description: ID of an existing volume (that is in the accessible scope of the requesting application).
       snapshot_id:
         type: string
         required: false
+        description: Some identifier that represents an existing snapshot that should be used when creating the block storage (volume).
     attributes:
       volume_id:
         type: string
@@ -204,24 +217,35 @@ node_types:
       attachment:
         type: tosca.capabilities.Attachment
 
-  # for backwards compatibility:
   tosca.nodes.BlockStorage:
     derived_from: tosca.nodes.Storage.BlockStorage
-    properties:
-      name:
-        type: string
-        default: &quot;&quot;
+    metadata:
+      alias: true
+      deprecated: true
 
   tosca.nodes.Storage.ObjectStorage:
     derived_from: tosca.nodes.Abstract.Storage
+    description: &gt;
+      The TOSCA ObjectStorage node represents storage that provides the ability
+      to store data as objects (or BLOBs of data) without consideration for the
+      underlying filesystem or devices
     properties:
       maxsize:
         type: scalar-unit.size
+        required: false
         constraints:
           - greater_or_equal: 0 GB
+        description: &gt;
+          The requested maximum storage size.
     capabilities:
       storage_endpoint:
         type: tosca.capabilities.Endpoint
+
+  tosca.nodes.ObjectStorage:
+    derived_from: tosca.nodes.Storage.ObjectStorage
+    metadata:
+      alias: true
+      deprecated: true
 
   tosca.nodes.Abstract.Compute:
     derived_from: tosca.nodes.Root
@@ -524,36 +548,6 @@ node_types:
           capability: tosca.capabilities.network.Linkable
           relationship: tosca.relationships.network.LinksTo
           node: tosca.nodes.network.Port
-
-  tosca.nodes.ObjectStorage:
-    derived_from: tosca.nodes.Root
-    description: &gt;
-      The TOSCA ObjectStorage node represents storage that provides the ability
-      to store data as objects (or BLOBs of data) without consideration for the
-      underlying filesystem or devices
-    properties:
-      name:
-        type: string
-        required: true
-        description: &gt;
-          The logical name of the object store (or container).
-      size:
-        type: scalar-unit.size
-        required: false
-        constraints:
-          - greater_or_equal: 0 GB
-        description: &gt;
-          The requested initial storage size.
-      maxsize:
-        type: scalar-unit.size
-        required: false
-        constraints:
-          - greater_or_equal: 0 GB
-        description: &gt;
-          The requested maximum storage size.
-    capabilities:
-      storage_endpoint:
-        type: tosca.capabilities.Endpoint
 
   tosca.nodes.LoadBalancer:
     derived_from: tosca.nodes.Root
@@ -918,7 +912,7 @@ interface_types:
   tosca.interfaces.Root:
     description: &gt;
       The TOSCA root Interface Type all other TOSCA Interface types derive from
-  
+
   tosca.interfaces.node.lifecycle.Standard:
     operations:
       create:
@@ -1056,6 +1050,16 @@ data_types:
   tosca.datatypes.xml:
     type: string
 
+  tosca.datatypes.TimeInterval:
+    derived_from: tosca.datatypes.Root
+    properties:
+      start_time:
+        type: timestamp
+        required: true
+      end_time:
+        type: timestamp
+        required: true
+
 ##########################################################################
 # Artifact Type.
 # An Artifact Type is a reusable entity that defines the type of one or more
@@ -1183,12 +1187,23 @@ metadata:
   template_version: 1.0.0
 
 artifact_types:
+  unfurl.artifacts.Executable:
+    derived_from: tosca.artifacts.Root
+    description: &gt;
+      Base type for declaring abstract executable artifacts that only define its expected inputs and outputs.
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+
   unfurl.artifacts.HasConfigurator:
     derived_from: tosca.artifacts.Implementation
     properties:
       className:
         type: string
         description: Name of the python class that implements the configurator interface
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
 
   unfurl.artifacts.TemplateOperation:
     derived_from: unfurl.artifacts.HasConfigurator
@@ -1196,20 +1211,112 @@ artifact_types:
       className:
         type: string
         default: unfurl.configurators.TemplateConfigurator
+      resultTemplate:
+        type: any
+        required: false
+        description: &gt;
+          A Jinja2 template or runtime expression that is processed after the operation completes.
+          Note: This evaluate in the context of the task executing this artifact, so &quot;SELF&quot; will be the current task&#39;s target, not the artifact.
+          The artifact can be accessed through the &quot;implementation&quot; variable.
 
   unfurl.artifacts.ShellExecutable:
-    derived_from: unfurl.artifacts.HasConfigurator
+    derived_from: unfurl.artifacts.TemplateOperation
     properties:
       className:
         type: string
         default: unfurl.configurators.shell.ShellConfigurator
+      command:
+        type: any
+        required: false
+        default: &quot;{{  &#39;.::contents&#39; | eval or &#39;.path&#39; | eval }}&quot;
+        description: &gt;
+          The command to execute. It can be either a string or a list of command arguments.
+          Defaults to the artifact&#39;s file, or that can embedded in the command using {{ &#39;.path&#39; | eval }}
+      cwd:
+        type: string
+        required: false
+        description: Set the current working directory to execute the command in.
+      keeplines:
+        type: boolean
+        default: false
+        description: If true, preserve line breaks in the given command.
+      shell:
+        type: any
+        required: false
+        description: &gt;
+          If a string, the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
+          A boolean indicates whether the command if invoked through the default shell or not.
+          If omitted, it will be set to true if ``command`` is a string or false if it is a list.
+      echo:
+        type: boolean
+        required: false
+        description: &gt;
+          A boolean that indicates whether or not should be standard output (and stderr)
+          should be echoed to Unfurl&#39;s stdout while the command is being run.
+          If omitted, true unless running with ``--quiet``.
+          (Doesn&#39;t affect the capture of stdout and stderr.)
+      input:
+        type: string
+        required: false
+        description: Optional string to pass as stdin.
+      outputsTemplate:
+        type: any
+        required: false
+        description: &gt;
+          A `Jinja2 template or runtime expression that is processed after shell command completes, with same variables as `resultTemplate`.
+          The template should evaluate to a map to be used as the operation&#39;s outputs or null to skip.
+      dryrun:
+        type: string
+        required: false
+        description: &gt;
+          During a during a dryrun job this will be either appended to the command line
+          or replace the string ``%dryrun%`` if it appears in the command. (``%dryrun%`` is stripped out when running regular jobs.)
+          If not set, the task will not be executed at all during a dry run job.
 
   unfurl.artifacts.AnsiblePlaybook:
-    derived_from: unfurl.artifacts.HasConfigurator
+    derived_from: unfurl.artifacts.TemplateOperation
     properties:
       className:
         type: string
         default: unfurl.configurators.ansible.AnsibleConfigurator
+      playbook:
+        type: any
+        default: &quot;{{  &#39;.::contents&#39; | eval or &#39;.path&#39; | eval }}&quot;
+        description: &gt;
+          If a string, treat as a file path to the Ansible playbook to run, otherwise treat as an inline playbook
+          If omitted, it will use the artifact&#39;s ``contents`` if present or else the artifact&#39;s resolved file path.
+      playbookArgs:
+        type: list
+        required: false
+        description: &gt;
+          A list of strings that will be passed to ``ansible-playbook`` as command-line arguments.
+
+  unfurl.artifacts.TerraformModule:
+    derived_from: unfurl.artifacts.TemplateOperation
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.terraform.TerraformConfigurator
+      main:
+        type: any
+        default: &quot;{{  &#39;.::contents&#39; | eval or &#39;.path&#39; | eval }}&quot;
+        description: &gt;
+          The contents of the root Terraform module or a path to a directory containing the Terraform configuration.
+          If it is a directory path, the configurator will treat it as a local Terraform module.
+          Otherwise, if ``main`` is a string it will be treated as HCL and if it is a map, it will be written out as JSON.
+          If omitted, it will use the artifact&#39;s ``contents`` if present or else the artifact&#39;s resolved file path as the directory.
+      dryrun_mode:
+        type: string
+        constraints:
+          - valid_values: [plan, real]
+        default: plan
+        description: &gt;
+          How to run during a dry run job. If set to &quot;plan&quot; just generate the Terraform plan. If set to &quot;real&quot;, run the task without any dry run logic. Default: &quot;plan&quot;
+      dryrun_outputs:
+        type: any
+        required: false
+        description: &gt;
+          During a dry run job, this map of outputs will be used simulate the task&#39;s outputs (otherwise outputs will be empty).
 
 node_types:
   tosca.nodes.Root:
@@ -1464,6 +1571,27 @@ relationship_types:
 
   unfurl.relationships.ConnectsTo.ComputeMachines:
     derived_from: tosca.relationships.ConnectsTo
+    metadata:
+      exclude-from-configuration: true
+
+  unfurl.relationships.ConnectsTo.ObjectStorage:
+    derived_from: tosca.relationships.ConnectsTo
+    metadata:
+      exclude-from-configuration: true
+    properties:
+      access_key:
+        type: string
+      secret_key:
+        type: string
+        metadata:
+          sensitive: true
+      region:
+        type: string
+        default: us-east-1
+      endpoint_hostname:
+        type: string
+        description: hostname
+        required: false
 
   unfurl.relationships.ConnectsTo.CloudAccount:
     derived_from: unfurl.relationships.ConnectsTo.ComputeMachines
@@ -1533,7 +1661,11 @@ relationship_types:
             #   - google-auth
 
   unfurl.relationships.ConnectsTo.AWSAccount:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       endpoints:
         description: custom service endpoints
@@ -1576,11 +1708,24 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_CONFIG_FILE }
         required: false
-    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
-    # for more environment variables
+      # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
+      # for more environment variables
+      access_key:
+        default: &quot;{{ SELF.AWS_ACCESS_KEY_ID }}&quot;
+        required: false
+      secret_key:
+        default: &quot;{{ SELF.AWS_SECRET_ACCESS_KEY }}&quot;
+        required: false
+      region:
+        default: &quot;{{ SELF.AWS_DEFAULT_REGION }}&quot;
+        required: false
 
   unfurl.relationships.ConnectsTo.DigitalOcean:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       credential:
         metadata:
@@ -1599,6 +1744,7 @@ relationship_types:
         required: false
         metadata:
           user_settable: true
+          env_vars: [SPACES_ACCESS_KEY_ID]
       SPACES_SECRET_ACCESS_KEY:
         description: &quot;The secret key for Spaces object storage.&quot;
         type: unfurl.datatypes.EnvVar
@@ -1607,16 +1753,31 @@ relationship_types:
         metadata:
           user_settable: true
           sensitive: true
+          env_vars: [SPACES_SECRET_ACCESS_KEY]
       default_region:
         type: string
         title: Default Region
-        default: nyc1
-        description: &quot;The default region to use, e.g. fra1, nyc2, etc.&quot;
+        default: nyc3
+        description: &quot;The default region to use, e.g. fra1, nyc3, etc.&quot;
         metadata:
           user_settable: true
+      access_key:
+        default: &quot;{{ SELF.SPACES_ACCESS_KEY_ID }}&quot;
+        required: false
+      secret_key:
+        default: &quot;{{ SELF.SPACES_SECRET_ACCESS_KEY }}&quot;
+        required: false
+      endpoint_hostname:
+        default: &quot;{{ SELF.default_region }}.digitaloceanspaces.com&quot;
+      region:
+        default: &quot;{{ SELF.default_region }}&quot;
 
   unfurl.relationships.ConnectsTo.Azure:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       AZURE_CLIENT_ID:
         description: &gt;
@@ -1628,7 +1789,7 @@ relationship_types:
           env_vars: [ARM_CLIENT_ID, AZURE_CLIENT_ID]
           title: Client ID
           user_settable: true
-        default: { get_env: [ARM_CLIENT_ID, {get_env: AZURE_CLIENT_ID}] }
+        default: { get_env: [ARM_CLIENT_ID, { get_env: AZURE_CLIENT_ID }] }
         required: false
       AZURE_TENANT:
         description: &gt;
@@ -1638,7 +1799,7 @@ relationship_types:
           env_vars: [ARM_TENANT_ID, AZURE_TENANT]
           title: Tenant
           user_settable: true
-        default: { get_env: [ARM_TENANT_ID, {get_env: AZURE_TENANT}] }
+        default: { get_env: [ARM_TENANT_ID, { get_env: AZURE_TENANT }] }
         required: false
       AZURE_SUBSCRIPTION_ID:
         description: &gt;
@@ -1649,13 +1810,14 @@ relationship_types:
           env_vars: [ARM_SUBSCRIPTION_ID, AZURE_SUBSCRIPTION_ID]
           title: Azure Subscription
           user_settable: true
-        default: { get_env: [ARM_SUBSCRIPTION_ID, {get_env: AZURE_SUBSCRIPTION_ID}] }
+        default:
+          { get_env: [ARM_SUBSCRIPTION_ID, { get_env: AZURE_SUBSCRIPTION_ID }] }
       AZURE_SECRET:
         description: &gt;
           For authentication with service principal. [(Portal link)](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal#option-2-create-a-new-application-secret)
         type: string
         required: false
-        default: { get_env: [ARM_CLIENT_SECRET, {get_env: AZURE_SECRET}] }
+        default: { get_env: [ARM_CLIENT_SECRET, { get_env: AZURE_SECRET }] }
         metadata:
           env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
           sensitive: true
@@ -1677,6 +1839,31 @@ relationship_types:
         description: set if you have your own ADFS authority
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_ADFS_AUTHORITY_URL }
+        required: false
+      AZURE_STORAGE_ACCOUNT:
+        description: The storage account name.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_ACCOUNT }
+        required: false
+      AZURE_STORAGE_KEY:
+        description: The storage account key.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_KEY }
+        required: false
+        metadata:
+          sensitive: true
+      AZURE_STORAGE_CONNECTION_STRING:
+        description: A connection string that includes the storage account key or a SAS token.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_CONNECTION_STRING }
+        required: false
+        metadata:
+          sensitive: true
+      access_key:
+        default: &quot;{{ SELF.AZURE_STORAGE_ACCOUNT }}&quot;
+        required: false
+      secret_key:
+        default: &quot;{{ SELF.AZURE_STORAGE_KEY }}&quot;
         required: false
 
   unfurl.relationships.ConnectsTo.Packet:
@@ -1705,6 +1892,12 @@ relationship_types:
 interface_types:
   Mock:
     derived_from: tosca.interfaces.Root
+
+  unfurl.interfaces.Executable:
+    derived_from: tosca.interfaces.Root
+    operations:
+      execute:
+        description: Execute the artifact
 
   unfurl.interfaces.Install:
     derived_from: tosca.interfaces.Root

@@ -84,10 +84,8 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#external-ensembles">External ensembles</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#creating-projects">Creating projects</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#project-skeletons">Project Skeletons</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="#creating-projects">Creating projects</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#project-skeletons">Project Skeletons</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#cloning-projects-and-ensembles">Cloning projects and ensembles</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#clone-a-project">Clone a project</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#clone-an-ensemble">Clone an ensemble</a></li>
@@ -120,6 +118,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -164,11 +163,12 @@
 <li><p><a class="reference internal" href="#environments" id="id4">Environments</a></p></li>
 <li><p><a class="reference internal" href="#external-ensembles" id="id5">External ensembles</a></p></li>
 <li><p><a class="reference internal" href="#creating-projects" id="id6">Creating projects</a></p></li>
-<li><p><a class="reference internal" href="#cloning-projects-and-ensembles" id="id7">Cloning projects and ensembles</a></p></li>
-<li><p><a class="reference internal" href="#publishing-your-project" id="id8">Publishing your project</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.server.gui" id="id9">Browser-based Admin User Interface</a></p></li>
-<li><p><a class="reference internal" href="#unfurl-home" id="id10">Unfurl Home</a></p></li>
-<li><p><a class="reference internal" href="#execution-runtime" id="id11">Execution Runtime</a></p></li>
+<li><p><a class="reference internal" href="#project-skeletons" id="id7">Project Skeletons</a></p></li>
+<li><p><a class="reference internal" href="#cloning-projects-and-ensembles" id="id8">Cloning projects and ensembles</a></p></li>
+<li><p><a class="reference internal" href="#publishing-your-project" id="id9">Publishing your project</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.server.gui" id="id10">Browser-based Admin User Interface</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-home" id="id11">Unfurl Home</a></p></li>
+<li><p><a class="reference internal" href="#execution-runtime" id="id12">Execution Runtime</a></p></li>
 </ul>
 </div>
 <section id="introduction">
@@ -275,8 +275,8 @@ Ensembles are reproducible and location-independent while Unfurl projects manage
 <p>It can also associate ensembles with a named environment (using the <code class="docutils literal notranslate"><span class="pre">environment</span></code> field in the <code class="docutils literal notranslate"><span class="pre">ensembles</span></code> section of <a class="reference internal" href="jsonschema.html#id4"><span class="std std-ref">unfurl.yaml</span></a>).</p>
 <section id="default-environments">
 <h3>Default environments<a class="headerlink" href="#default-environments" title="Permalink to this headline"></a></h3>
-<p>When creating new project <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> will set the <code class="docutils literal notranslate"><span class="pre">default_environment</span></code> field in the project’s <a class="reference internal" href="jsonschema.html#id4"><span class="std std-ref">unfurl.yaml</span></a>, which is applied to any ensemble that doesn’t have an environment set.</p>
-<p>When creating a new ensemble –use-environment sets the ensemble’s environment (in the project’s unfurl.yaml’s <code class="docutils literal notranslate"><span class="pre">ensembles</span></code> section).</p>
+<p>When creating a new project <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> will set the <code class="docutils literal notranslate"><span class="pre">default_environment</span></code> field in the project’s <a class="reference internal" href="jsonschema.html#id4"><span class="std std-ref">unfurl.yaml</span></a>, which is applied to any ensemble that doesn’t have an environment set.</p>
+<p>When creating a new ensemble <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> sets the ensemble’s environment (in the project’s unfurl.yaml’s <code class="docutils literal notranslate"><span class="pre">ensembles</span></code> section).</p>
 </section>
 <section id="shared-environments">
 <h3>Shared Environments<a class="headerlink" href="#shared-environments" title="Permalink to this headline"></a></h3>
@@ -291,7 +291,7 @@ Ensembles are reproducible and location-independent while Unfurl projects manage
 </div>
 <p>This creates a new ensemble named “staging” in a project named “my_app_project” and sets to deploy into the environment you specified with <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> option</p>
 <p>Because <code class="docutils literal notranslate"><span class="pre">aws-staging</span></code> was created as a shared environment, the ensemble will be added to the “aws-staging” project’s repository even though it is managed by “my_app_project”.</p>
-<p>The unfurl_home coordinates between projects so both projects need to use the same unfurl_home.</p>
+<p>The unfurl_home project coordinates between projects so both projects need to use the same unfurl_home.</p>
 </section>
 <section id="inheritance-and-precedence">
 <h3>Inheritance and precedence<a class="headerlink" href="#inheritance-and-precedence" title="Permalink to this headline"></a></h3>
@@ -366,12 +366,17 @@ The properties for each connection type match the environments variables commonl
 <section id="external-ensembles">
 <h2><a class="toc-backref" href="#id5">External ensembles</a><a class="headerlink" href="#external-ensembles" title="Permalink to this headline"></a></h2>
 <p>Ensembles from external Unfurl projects can be imported into an Unfurl environment, allowing ensembles in that environment to access external resources.</p>
-<p>The <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the “select” directive (see “3.4.3 Directives”). Two, they can be explicitly referenced using the <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> expression function.</p>
-<p>Resources can be explicitly imported (document external names!) or dynamically selected given a criteria using TOSCA’s <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.select" title="tosca.NodeTemplateDirective.select"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">&quot;select&quot;</span> <span class="pre">node</span> <span class="pre">template</span> <span class="pre">directive</span></code></a>.</p>
-<p>There are 3 instances that are always implicitly imported even if they are not declared:</p>
-<ul class="simple">
-<li><p>The <code class="docutils literal notranslate"><span class="pre">localhost</span></code> instance that represents the machine Unfurl is currently executing on. This instance is accessed through the <code class="docutils literal notranslate"><span class="pre">ORCHESTRATOR</span></code> keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.</p></li>
-</ul>
+<p>The <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the “select” directive (see “3.4.3 Directives”). Two, they can be explicitly referenced using the <a class="reference internal" href="expressions.html#external-func"><span class="std std-ref">external</span></a> expression function.</p>
+<p>Resources can be imported by name or dynamically selected given a criteria using TOSCA’s <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.select" title="tosca.NodeTemplateDirective.select"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">&quot;select&quot;</span> <span class="pre">node</span> <span class="pre">template</span> <span class="pre">directive</span></code></a>.</p>
+<p>An external instance with the name <code class="docutils literal notranslate"><span class="pre">localhost</span></code> is treated specially. It is assumed to represent the machine Unfurl is currently executing on. This instance is accessed through the <code class="docutils literal notranslate"><span class="pre">ORCHESTRATOR</span></code> keyword in TOSCA.
+The default project skeleton for unfurl home is defined in the home manifest that resides in your Unfurl home folder like this:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">external</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">localhost</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">manifest</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ensemble/ensemble.yaml</span>
+<span class="w">    </span><span class="nt">instance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+</pre></div>
+</div>
 <dl class="field-list simple">
 <dt class="field-odd">manifest</dt>
 <dd class="field-odd"><p>A map specifying the location of the manifest. It must contain a <code class="docutils literal notranslate"><span class="pre">file</span></code> key with the path to the ensemble and optionally either a <code class="docutils literal notranslate"><span class="pre">repository</span></code> key indicating the name of the repository where the file is located or a <code class="docutils literal notranslate"><span class="pre">project</span></code> key to indicate the project the ensemble is in.</p>
@@ -381,7 +386,7 @@ The properties for each connection type match the environments variables commonl
 If <code class="docutils literal notranslate"><span class="pre">*</span></code> all instances in the ensemble will be available.</p>
 </dd>
 <dt class="field-odd">uri</dt>
-<dd class="field-odd"><p>The <code class="docutils literal notranslate"><span class="pre">uri</span></code> of the ensemble. If it is set and it doesn’t match the retrieved ensemble’s URI a validation error will occur.</p>
+<dd class="field-odd"><p>The <a class="reference internal" href="ensembles.html#uris"><span class="std std-ref">uri</span></a> of the ensemble. If it is set and it doesn’t match the retrieved ensemble’s URI a validation error will occur.</p>
 </dd>
 <dt class="field-even"><code class="docutils literal notranslate"><span class="pre">schema</span></code></dt>
 <dd class="field-even"><p>a JSON schema <code class="docutils literal notranslate"><span class="pre">properties</span></code> object describing the schema for the map. If missing, validation of the attributes will be skipped.</p>
@@ -398,20 +403,44 @@ By default, a separate, local git repository will be created for the ensemble. U
 <p>Keeping the ensemble repository separate from the project repository is useful
 if the resources the ensemble creates are transitory or if you want to restrict access to them.
 Using the <code class="docutils literal notranslate"><span class="pre">--submodule</span></code> option allows those repositories to be easily packaged and shared with the project repository but still maintain separate access control and git history for each ensemble.</p>
-<p>Creating an ensemble in a new repository will add a <code class="docutils literal notranslate"><span class="pre">vault_secrets</span></code> secret with a generated password to <code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> and add a <code class="docutils literal notranslate"><span class="pre">secrets/secrets.yaml</span></code> file to the repository.  Or in any new project by setting the <a class="reference internal" href="#vault-password-var"><span class="std std-ref">VAULT_PASSWORD skeleton variable</span></a>.</p>
+<p>Creating an ensemble in a new repository will add a <code class="docutils literal notranslate"><span class="pre">vault_secrets</span></code> secret with a generated password to <code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> and add a <code class="docutils literal notranslate"><span class="pre">secrets/secrets.yaml</span></code> file to the repository.  Or in any new project by setting the <a class="reference internal" href="#vault-password-var"><span class="std std-ref">VAULT_PASSWORD skeleton variable</span></a> or the <code class="docutils literal notranslate"><span class="pre">vaultid</span></code> skeleton variable. (If either are omitted, the missing vault password or id will be autogenerated.)</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>Store the vault password found in <code class="docutils literal notranslate"><span class="pre">ensemble/local/unfurl.yaml</span></code> in a safe place! This password is used to encrypt any sensitive data committed to repository. See <a class="reference internal" href="secrets.html"><span class="doc">Managing Secrets</span></a> for more information.</p>
 </div>
-<section id="project-skeletons">
-<h3>Project Skeletons<a class="headerlink" href="#project-skeletons" title="Permalink to this headline"></a></h3>
-<p>New Unfurl projects and ensembles are created from a <code class="docutils literal notranslate"><span class="pre">project</span> <span class="pre">skeleton</span></code>, which is a directory containing Jinja2 templates that are used to render the project files.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">--skeleton</span></code> option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons <a class="reference external" href="https://github.com/onecommons/unfurl/tree/main/unfurl/skeletons">here</a> or use an absolute path to specify your own.</p>
-<p>You can pass skeleton variables to the skeleton Jinj2a templates using the <code class="docutils literal notranslate"><span class="pre">--var</span></code> option, like the example <a class="reference internal" href="#vault-password-var"><span class="std std-ref">below</span></a>.</p>
 </section>
+<section id="project-skeletons">
+<h2><a class="toc-backref" href="#id7">Project Skeletons</a><a class="headerlink" href="#project-skeletons" title="Permalink to this headline"></a></h2>
+<p>New Unfurl projects and ensembles are created from a “project skeleton”, which is a directory containing Jinja2 templates that are used to render the project files.</p>
+<p>The <a class="reference external" href="cli.html#cmdoption-unfurl-init-skeleton">–skeleton</a> option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons <a class="reference external" href="https://github.com/onecommons/unfurl/tree/main/unfurl/skeletons">here</a> or use an absolute path to specify your own.</p>
+<p>You can pass skeleton variables to the skeleton Jinj2a templates using the <a class="reference external" href="cli.html#cmdoption-unfurl-init-var">–var</a> option, like the example <a class="reference internal" href="#vault-password-var"><span class="std std-ref">below</span></a>.</p>
+<p>The built-in project skeletons recognize the following skeleton variables:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">api_version</span></code></p></td>
+<td><p>The version for the schema for Unfurl’s <a class="reference internal" href="jsonschema.html#configuration-files"><span class="std std-ref">Configuration Files</span></a> (defaults to latest stable version).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">input_&lt;input_name&gt;</span></code></p></td>
+<td><p>Skeleton variables that start with <code class="docutils literal notranslate"><span class="pre">input_</span></code> will be including the ensemble as <a class="reference internal" href="runtime.html#topology-inputs"><span class="std std-ref">Topology Inputs</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">std</span></code></p></td>
+<td><p>Set to “true” to include the <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud standard library</a>  repository.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vaultid</span></code></p></td>
+<td><p>Set up the project to use Ansible Vault encryption and use the given vault id.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VAULT_PASSWORD</span></code></p></td>
+<td><p>Set up the project to use Ansible Vault encryption and use the given password.</p></td>
+</tr>
+</tbody>
+</table>
 </section>
 <section id="cloning-projects-and-ensembles">
-<h2><a class="toc-backref" href="#id7">Cloning projects and ensembles</a><a class="headerlink" href="#cloning-projects-and-ensembles" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id8">Cloning projects and ensembles</a><a class="headerlink" href="#cloning-projects-and-ensembles" title="Permalink to this headline"></a></h2>
 <p>Use the <a class="reference external" href="cli.html#unfurl-clone">unfurl clone</a> command to clone projects and ensembles. Its syntax is:</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>clone<span class="w"> </span><span class="o">[</span>options<span class="o">]</span><span class="w"> </span>&lt;source&gt;<span class="w"> </span><span class="o">[</span>&lt;dest&gt;<span class="o">]</span>
 </pre></div>
@@ -477,7 +506,7 @@ You can also use a cloudmap url like <code class="docutils literal notranslate">
 </section>
 </section>
 <section id="publishing-your-project">
-<span id="publish-project"></span><h2><a class="toc-backref" href="#id8">Publishing your project</a><a class="headerlink" href="#publishing-your-project" title="Permalink to this headline"></a></h2>
+<span id="publish-project"></span><h2><a class="toc-backref" href="#id9">Publishing your project</a><a class="headerlink" href="#publishing-your-project" title="Permalink to this headline"></a></h2>
 <p>You can publish and share your projects like any git repository.
 If you want to publish local git repositories on a git hosting service like github.com
 (e.g. ones created by <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code>) follow these steps:</p>
@@ -494,11 +523,11 @@ with this command:</p>
 </ol>
 </section>
 <section id="module-unfurl.server.gui">
-<span id="browser-based-admin-user-interface"></span><h2><a class="toc-backref" href="#id9">Browser-based Admin User Interface</a><a class="headerlink" href="#module-unfurl.server.gui" title="Permalink to this headline"></a></h2>
+<span id="browser-based-admin-user-interface"></span><h2><a class="toc-backref" href="#id10">Browser-based Admin User Interface</a><a class="headerlink" href="#module-unfurl.server.gui" title="Permalink to this headline"></a></h2>
 <p>Running <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">serve</span> <span class="pre">--gui</span> <span class="pre">/path/to/your/project</span></code> will start Unfurl’s built-in web server (at <a class="reference external" href="http://127.0.0.1:8081">http://127.0.0.1:8081</a> by default, see <a class="reference external" href="cli.html#unfurl-serve">unfurl serve</a> for more options).</p>
 <p>When the server starts it checks for the web application’s files at
 <code class="docutils literal notranslate"><span class="pre">.cache/unfurl_gui</span></code> in your unfurl home project if there is one set or in the current project.</p>
-<p>If that directory is missing or the web application version there isn’t compatible with the version required by your unfurl (currently “v0.1.0-alpha.2”), the web application is downloaded from <code class="docutils literal notranslate"><span class="pre">https://github.com/onecommons/unfurl-gui/releases/download/v0.1.0-alpha.2/unfurl-gui-dist.tar.gz</span></code> to <code class="docutils literal notranslate"><span class="pre">.cache/unfurl_gui</span></code>.</p>
+<p>If that directory is missing or the web application version there isn’t compatible with the version required by your local unfurl (currently “v0.1.0-alpha.2”), the web application is downloaded from <code class="docutils literal notranslate"><span class="pre">https://github.com/onecommons/unfurl-gui/releases/download/v0.1.0-alpha.2/unfurl-gui-dist.tar.gz</span></code> to <code class="docutils literal notranslate"><span class="pre">.cache/unfurl_gui</span></code>.</p>
 <p>You can set an alternative download URL with the <code class="docutils literal notranslate"><span class="pre">UNFURL_GUI_DIST_URL</span></code> environment variable or set it to “skip” to skip downloading a release. If a version tag is embedded in that URL then the local download needs to exactly match that version otherwise a semantic version compatibility check is made.
 You can also set an alternative download location with the <code class="docutils literal notranslate"><span class="pre">UNFURL_GUI_DIST_DIR</span></code> environment variable.</p>
 <p>For development, you can instead set the <code class="docutils literal notranslate"><span class="pre">UNFURL_GUI_DIR</span></code> environment variable to point
@@ -507,7 +536,7 @@ You’ll need to either build the release distribution with  <code class="docuti
 <p>See <a class="reference internal" href="CHANGELOG.html#browser-based-ui-experimental"><span class="std std-ref">Browser-based UI (experimental)</span></a> for more information.</p>
 </section>
 <section id="unfurl-home">
-<h2><a class="toc-backref" href="#id10">Unfurl Home</a><a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id11">Unfurl Home</a><a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h2>
 <p>Unfurl Home is an Unfurl project that contains local settings and resources that are shared with other projects on that machine.</p>
 <p>When Unfurl starts, it looks for the home project (by default in <code class="docutils literal notranslate"><span class="pre">~/.unfurl_home</span></code>) and, if it exists, will merge its settings with the current project. You can control its location by using the <code class="docutils literal notranslate"><span class="pre">--home</span></code> global option or setting the environment variable <code class="docutils literal notranslate"><span class="pre">UNFURL_HOME</span></code>. Setting either to an empty string disables loading the Unfurl home project.</p>
 <p>When executing an Unfurl command, the loaded Unfurl Home will:</p>
@@ -542,7 +571,7 @@ Resource deployed in your Unfurl project can be access by other projects by decl
 </section>
 </section>
 <section id="execution-runtime">
-<h2><a class="toc-backref" href="#id11">Execution Runtime</a><a class="headerlink" href="#execution-runtime" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id12">Execution Runtime</a><a class="headerlink" href="#execution-runtime" title="Permalink to this headline"></a></h2>
 <p>A Unfurl execution runtime is an isolated execution environment that Unfurl can run in. This can be a Python virtual environment or a Docker container. When you run an Unfurl cli command that executes a job (such as <a class="reference external" href="cli.html#unfurl-deploy">unfurl deploy</a> or <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a>) with a runtime defined then Unfurl will proxy that command to the runtime and execute it there.</p>
 <p>The runtime is specified by the <a class="reference internal" href="cli.html#cmdoption-unfurl-runtime"><code class="xref std std-option docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">--runtime</span></code></a> CLI argument. If this is missing, it will look for a Python virtual environment directory (<code class="docutils literal notranslate"><span class="pre">.venv</span></code>) in the current project’s directory and then in your <a class="reference internal" href="#unfurl-home"><span class="std std-ref">Unfurl Home</span></a>. By default, Unfurl will create a Python virtual environment in <a class="reference internal" href="#unfurl-home"><span class="std std-ref">~/unfurl_home</span></a> when the home project is created. You can disable use of a runtime entirely using the <a class="reference internal" href="cli.html#cmdoption-unfurl-no-runtime"><code class="xref std std-option docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">--no-runtime</span></code></a> CLI argument.</p>
 <p>The following runtime types can be specified as the argument to the <code class="docutils literal notranslate"><span class="pre">--runtime</span></code> option.</p>

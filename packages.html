@@ -74,6 +74,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -117,7 +118,7 @@
 <section id="repositories">
 <h2>Repositories<a class="headerlink" href="#repositories" title="Permalink to this headline"></a></h2>
 <p>You declare repositories using TOSCA’s <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">repository</span></a> syntax at the top-level of a TOSCA service template or in the <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a> section of your project’s <a class="reference internal" href="jsonschema.html#id4"><span class="std std-ref">unfurl.yaml</span></a>.</p>
-<p>You can also create “virtual” repositories by declaring node templates of type <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.Repository</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.LocalRepository</span></code>. This will instantiate a repository of with same name as the template and it will contain the artifacts listed in the <code class="docutils literal notranslate"><span class="pre">artifacts</span></code> section of the node template – here’s <a class="reference external" href="https://github.com/onecommons/unfurl/blob/f5da8de13ae2dcce293508c4ccac9b373e66dd49/unfurl/tosca_plugins/artifacts.yaml#L140">an example</a>.</p>
+<p>You can also create “virtual” repositories by declaring node templates of type <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.Repository</span></code> or <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.LocalRepository</span></code>. This will instantiate a repository with same name as the template and it will contain the artifacts listed in the <code class="docutils literal notranslate"><span class="pre">artifacts</span></code> section of the node template – here’s <a class="reference external" href="https://github.com/onecommons/unfurl/blob/f5da8de13ae2dcce293508c4ccac9b373e66dd49/unfurl/tosca_plugins/artifacts.yaml#L140">an example</a>.</p>
 <p>The contents of a <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">repository</span></a> can be referenced in the following ways:</p>
 <ul class="simple">
 <li><p>In TOSCA <a class="reference internal" href="toscaref/spec-imports.html#imports"><span class="std std-ref">Imports</span></a> statements.</p></li>
@@ -204,6 +205,8 @@ that ship with Unfurl. This allow service templates to declare the unfurl versio
 <p>You can also set these rules with the <code class="docutils literal notranslate"><span class="pre">UNFURL_PACKAGE_RULES</span></code> environment variable where the repository key and the <code class="docutils literal notranslate"><span class="pre">url</span></code> value are paired together and separated by spaces. If you want to specify the <code class="docutils literal notranslate"><span class="pre">revision</span></code>, spell it as an URL fragment (“#revision”) and append that to the URL if you need to specify both. This example defines two rules:</p>
 <p><code class="docutils literal notranslate"><span class="pre">`UNFURL_PACKAGE_RULES=&quot;unfurl.cloud/onecommons/*</span> <span class="pre">#main</span> <span class="pre">unfurl.cloud/onecommons/unfurl-types</span> <span class="pre">github.com/user1/myfork&quot;`</span></code></p>
 <p>The first rule sets the revision of matching packages to the branch “main”, and the second replaces one package with another package.</p>
+<p>If a <code class="docutils literal notranslate"><span class="pre">UNFURL_PACKAGE_RULES</span></code> environment variable is defined, its package rules are appended to the list of package rules in the enviroment’s <a class="reference internal" href="toscaref/spec-repositories.html#repositories"><span class="std std-ref">Repositories</span></a> section.</p>
+<p>The active packages rules of an ensemble are saved in its <a class="reference internal" href="jsonschema.html#lock"><span class="std std-ref">lock section</span></a> and are used in subsequent deployments if the ensemble’s environment did not define any package rules.</p>
 </section>
 </section>
 

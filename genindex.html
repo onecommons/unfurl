@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -100,6 +101,7 @@
  <a href="#Symbols"><strong>Symbols</strong></a>
  | <a href="#_"><strong>_</strong></a>
  | <a href="#A"><strong>A</strong></a>
+ | <a href="#B"><strong>B</strong></a>
  | <a href="#C"><strong>C</strong></a>
  | <a href="#D"><strong>D</strong></a>
  | <a href="#E"><strong>E</strong></a>
@@ -234,6 +236,8 @@
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-clone-design">unfurl-clone command line option</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-init-design">unfurl-init command line option</a>
+</li>
       </ul></li>
       <li>
     --destroyunmanaged
@@ -283,6 +287,8 @@
         <li><a href="cli.html#cmdoption-unfurl-deploy-dryrun">unfurl-deploy command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-dryrun">unfurl-discover command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-plan-dryrun">unfurl-plan command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-dryrun">unfurl-run command line option</a>
 </li>
@@ -397,19 +403,19 @@
     --instance
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-check-instance">unfurl-check command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-check-i">unfurl-check command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-deploy-instance">unfurl-deploy command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-i">unfurl-deploy command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-discover-instance">unfurl-discover command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-discover-i">unfurl-discover command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-plan-instance">unfurl-plan command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-plan-i">unfurl-plan command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-run-instance">unfurl-run command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-run-i">unfurl-run command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-stop-instance">unfurl-stop command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-stop-i">unfurl-stop command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-teardown-instance">unfurl-teardown command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-teardown-i">unfurl-teardown command line option</a>
 </li>
       </ul></li>
       <li>
@@ -562,8 +568,6 @@
         <li><a href="cli.html#cmdoption-unfurl-cloudmap-project">unfurl-cloudmap command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --prune
 
@@ -590,6 +594,8 @@
         <li><a href="cli.html#cmdoption-unfurl-teardown-push">unfurl-teardown command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --python-target
 
@@ -623,6 +629,13 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-q">unfurl command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --register
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-home-register">unfurl-home command line option</a>
 </li>
       </ul></li>
       <li>
@@ -676,6 +689,13 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-run-save">unfurl-run command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --save-secrets-only
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-commit-save-secrets-only">unfurl-commit command line option</a>
 </li>
       </ul></li>
       <li>
@@ -947,6 +967,25 @@
 </li>
       </ul></li>
       <li>
+    -i
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-check-i">unfurl-check command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-i">unfurl-deploy command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-discover-i">unfurl-discover command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-plan-i">unfurl-plan command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-run-i">unfurl-run command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-stop-i">unfurl-stop command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-teardown-i">unfurl-teardown command line option</a>
+</li>
+      </ul></li>
+      <li>
     -m
 
       <ul>
@@ -985,7 +1024,29 @@
 <h2 id="_">_</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.ToscaType.__getattribute__">__getattribute__() (tosca.ToscaType method)</a>
+</li>
+      <li><a href="api.html#tosca.ToscaType._class_init">_class_init() (tosca.ToscaType class method)</a>
+</li>
       <li><a href="api.html#unfurl.projectpaths._get_base_dir">_get_base_dir() (in module unfurl.projectpaths)</a>
+</li>
+      <li><a href="api.html#tosca.Interface._interface_requirements">_interface_requirements (tosca.Interface attribute)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Unit._round">_round() (tosca.scalars._Unit method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.scalars._Scalar">_Scalar (class in tosca.scalars)</a>
+</li>
+      <li><a href="api.html#tosca.ToscaType._template_init">_template_init() (tosca.ToscaType method)</a>
+</li>
+      <li><a href="api.html#tosca.Interface._type_metadata">_type_metadata (tosca.Interface attribute)</a>
+</li>
+      <li><a href="api.html#tosca.Interface._type_name">_type_name (tosca.Interface attribute)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Unit">_Unit (class in tosca.scalars)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._unit">_unit() (in module tosca.scalars)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1009,12 +1070,12 @@
 </li>
       <li><a href="api.html#unfurl.runtime.Operational.aggregate_status">aggregate_status() (unfurl.runtime.Operational static method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.projectpaths.WorkFolder.always_apply">always_apply (unfurl.projectpaths.WorkFolder attribute)</a>
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.and_expr">and_expr() (in module unfurl.tosca_plugins.expr)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.projectpaths.WorkFolder.apply">apply() (unfurl.projectpaths.WorkFolder method)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.apply_work_folders">apply_work_folders() (unfurl.configurator.TaskView method)</a>
@@ -1025,9 +1086,25 @@
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.as_bool">as_bool() (in module unfurl.tosca_plugins.expr)</a>
 </li>
+      <li><a href="api.html#tosca.scalars._Unit.as_float">as_float() (tosca.scalars._Unit method)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Unit.as_int">as_int() (tosca.scalars._Unit method)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Scalar.as_ref">as_ref() (tosca.scalars._Scalar method)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Scalar.as_unit">as_unit (tosca.scalars._Scalar property)</a>
+</li>
       <li><a href="api.html#tosca.Attribute">Attribute() (in module tosca)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.attribute_output_metadata_key">attribute_output_metadata_key (unfurl.configurator.Configurator attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="B">B</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.scalars.Bitrate">Bitrate (class in tosca.scalars)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1080,13 +1157,17 @@
       </ul></li>
       <li><a href="api.html#unfurl.configurator.TaskRequest.completed">completed (unfurl.configurator.TaskRequest property)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#tosca.Computed">Computed() (in module tosca)</a>
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.concat">concat() (in module unfurl.tosca_plugins.expr)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.NodeTemplateDirective.conditional">conditional (tosca.NodeTemplateDirective attribute)</a>
+</li>
       <li><a href="api.html#unfurl.job.ConfigChange">ConfigChange (class in unfurl.job)</a>
+</li>
+      <li><a href="api.html#unfurl.configurator.TaskView.configSpec">configSpec (unfurl.configurator.TaskView attribute)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator">Configurator (class in unfurl.configurator)</a>
 </li>
@@ -1099,6 +1180,8 @@
       <li><a href="api.html#unfurl.support.Reason.connect">connect (unfurl.support.Reason attribute)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.connections">connections (unfurl.configurator.TaskView property)</a>
+</li>
+      <li><a href="api.html#unfurl.eval.RefContext.copy">copy() (unfurl.eval.RefContext method)</a>
 </li>
       <li><a href="api.html#unfurl.projectpaths.WorkFolder.copy_from">copy_from() (unfurl.projectpaths.WorkFolder method)</a>
 </li>
@@ -1203,6 +1286,8 @@
       </ul></li>
       <li><a href="api.html#unfurl.configurator.TaskView.environ">environ (unfurl.configurator.TaskView property)</a>
 </li>
+      <li><a href="api.html#tosca.equal">equal (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.support.NodeState.error">error (unfurl.support.NodeState attribute)</a>
 
       <ul>
@@ -1213,7 +1298,7 @@
       </ul></li>
       <li><a href="api.html#tosca.Eval">Eval() (in module tosca)</a>
 </li>
-      <li><a href="api.html#unfurl.eval.eval_ref">eval_ref() (in module unfurl.eval)</a>
+      <li><a href="api.html#tosca.EvalData">EvalData (class in tosca)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.exclude_from_digest">exclude_from_digest (unfurl.configurator.Configurator attribute)</a>
 </li>
@@ -1227,14 +1312,20 @@
 </li>
       <li><a href="api.html#unfurl.projectpaths.WorkFolder.failed">failed() (unfurl.projectpaths.WorkFolder method)</a>
 </li>
+      <li><a href="api.html#tosca.FieldProjection">FieldProjection (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.util.filter_env">filter_env() (in module unfurl.util)</a>
 </li>
       <li><a href="api.html#tosca.Node.find_all_required_by">find_all_required_by() (tosca.Node method)</a>
 </li>
       <li><a href="api.html#tosca.ToscaType.find_configured_by">find_configured_by() (tosca.ToscaType method)</a>
 </li>
-      <li><a href="api.html#unfurl.configurator.TaskView.find_connection">find_connection() (unfurl.configurator.TaskView static method)</a>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.find_connection">find_connection() (in module unfurl.tosca_plugins.expr)</a>
+
+      <ul>
+        <li><a href="api.html#unfurl.configurator.TaskView.find_connection">(unfurl.configurator.TaskView static method)</a>
 </li>
+      </ul></li>
       <li><a href="api.html#unfurl.localenv.Project.find_ensemble_by_name">find_ensemble_by_name() (unfurl.localenv.Project method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.Project.find_ensemble_by_path">find_ensemble_by_path() (unfurl.localenv.Project method)</a>
@@ -1279,6 +1370,10 @@
 </li>
       <li><a href="api.html#unfurl.result.ChangeRecord.format_log">format_log() (unfurl.result.ChangeRecord class method)</a>
 </li>
+      <li><a href="api.html#tosca.scalars.Frequency">Frequency (class in tosca.scalars)</a>
+</li>
+      <li><a href="api.html#tosca.ToscaType.from_owner">from_owner() (tosca.ToscaType method)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1287,9 +1382,11 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.Project.get_asdf_paths">get_asdf_paths() (unfurl.localenv.Project static method)</a>
 </li>
-      <li><a href="api.html#unfurl.localenv.LocalEnv.get_context">get_context() (unfurl.localenv.LocalEnv method)</a>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.get_context">get_context() (in module unfurl.tosca_plugins.expr)</a>
 
       <ul>
+        <li><a href="api.html#unfurl.localenv.LocalEnv.get_context">(unfurl.localenv.LocalEnv method)</a>
+</li>
         <li><a href="api.html#unfurl.localenv.Project.get_context">(unfurl.localenv.Project method)</a>
 </li>
       </ul></li>
@@ -1314,6 +1411,10 @@
       <li><a href="api.html#unfurl.configurator.Configurator.get_generator">get_generator() (unfurl.configurator.Configurator method)</a>
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.get_input">get_input() (in module unfurl.tosca_plugins.expr)</a>
+</li>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.get_instance">get_instance() (in module unfurl.tosca_plugins.expr)</a>
+</li>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.get_instance_maybe">get_instance_maybe() (in module unfurl.tosca_plugins.expr)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.JobRequest.get_instance_specs">get_instance_specs() (unfurl.configurator.JobRequest method)</a>
 </li>
@@ -1344,6 +1445,8 @@
       <li><a href="api.html#unfurl.localenv.LocalEnv.get_paths">get_paths() (unfurl.localenv.LocalEnv method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.get_project">get_project() (unfurl.localenv.LocalEnv method)</a>
+</li>
+      <li><a href="api.html#tosca.ToscaType.get_ref">get_ref() (tosca.ToscaType method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.Project.get_relative_path">get_relative_path() (unfurl.localenv.Project method)</a>
 </li>
@@ -1376,6 +1479,10 @@
 </li>
       <li><a href="api.html#tosca.global_state_mode">global_state_mode() (in module tosca)</a>
 </li>
+      <li><a href="api.html#tosca.greater_or_equal">greater_or_equal (class in tosca)</a>
+</li>
+      <li><a href="api.html#tosca.greater_than">greater_than (class in tosca)</a>
+</li>
       <li><a href="api.html#tosca.Group">Group (class in tosca)</a>
 </li>
   </ul></td>
@@ -1385,6 +1492,8 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.runtime.Operational.has_changed">has_changed() (unfurl.runtime.Operational method)</a>
+</li>
+      <li><a href="api.html#tosca.ToscaType.has_default">has_default() (tosca.ToscaType method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -1402,6 +1511,8 @@
 </li>
       <li><a href="api.html#unfurl.support.Priority.ignore">ignore (unfurl.support.Priority attribute)</a>
 </li>
+      <li><a href="api.html#tosca.in_range">in_range (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.support.NodeState.initial">initial (unfurl.support.NodeState attribute)</a>
 </li>
   </ul></td>
@@ -1411,6 +1522,8 @@
       <li><a href="api.html#tosca.Interface">Interface (class in tosca)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.Project.is_path_in_project">is_path_in_project() (unfurl.localenv.Project method)</a>
+</li>
+      <li><a href="api.html#unfurl.eval.Ref.is_ref">is_ref() (unfurl.eval.Ref static method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1432,14 +1545,20 @@
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.length">length (class in tosca)</a>
+</li>
+      <li><a href="api.html#tosca.less_or_equal">less_or_equal (class in tosca)</a>
+</li>
+      <li><a href="api.html#tosca.less_than">less_than (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.link_repo">link_repo() (unfurl.localenv.LocalEnv method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.Project.load_yaml_include">load_yaml_include() (unfurl.localenv.Project method)</a>
 </li>
       <li><a href="api.html#unfurl.runtime.OperationalInstance.local_status">local_status (unfurl.runtime.OperationalInstance property)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.LocalEnv">LocalEnv (class in unfurl.localenv)</a>
 </li>
       <li><a href="api.html#unfurl.result.ChangeRecord.log">log() (unfurl.result.ChangeRecord method)</a>
@@ -1462,6 +1581,10 @@
         <li><a href="api.html#unfurl.localenv.LocalEnv.map_value">(unfurl.localenv.LocalEnv method)</a>
 </li>
       </ul></li>
+      <li><a href="api.html#tosca.max_length">max_length (class in tosca)</a>
+</li>
+      <li><a href="api.html#tosca.min_length">min_length (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.support.Reason.missing">missing (unfurl.support.Reason attribute)</a>
 </li>
       <li>
@@ -1469,6 +1592,8 @@
 
       <ul>
         <li><a href="api.html#module-tosca">tosca</a>
+</li>
+        <li><a href="api.html#module-tosca.scalars">tosca.scalars</a>
 </li>
         <li><a href="api.html#module-unfurl.configurator">unfurl.configurator</a>
 </li>
@@ -1515,17 +1640,17 @@
         <li><a href="api.html#unfurl.localenv.Project.name">(unfurl.localenv.Project property)</a>
 </li>
       </ul></li>
-      <li><a href="api.html#unfurl.tosca_plugins.expr.negate">negate() (in module unfurl.tosca_plugins.expr)</a>
+      <li><a href="api.html#tosca.Node">Node (class in tosca)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api.html#tosca.Node">Node (class in tosca)</a>
-</li>
       <li><a href="api.html#unfurl.support.NodeState">NodeState (class in unfurl.support)</a>
 </li>
       <li><a href="api.html#tosca.NodeTemplateDirective">NodeTemplateDirective (class in tosca)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.Project.normalize_path">normalize_path() (unfurl.localenv.Project static method)</a>
+</li>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.not_">not_() (in module unfurl.tosca_plugins.expr)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1564,6 +1689,8 @@
         <li><a href="cli.html#cmdoption-unfurl-validate-arg-PATH">unfurl-validate command line option</a>
 </li>
       </ul></li>
+      <li><a href="api.html#tosca.pattern">pattern (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.support.Status.pending">pending (unfurl.support.Status attribute)</a>
 </li>
       <li><a href="api.html#unfurl.projectpaths.WorkFolder.pending_path">pending_path() (unfurl.projectpaths.WorkFolder method)</a>
@@ -1578,10 +1705,10 @@
 </li>
       <li><a href="api.html#unfurl.localenv.Project">Project (class in unfurl.localenv)</a>
 </li>
-      <li><a href="api.html#unfurl.localenv.LocalEnv.project">project (unfurl.localenv.LocalEnv attribute)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#unfurl.localenv.LocalEnv.project">project (unfurl.localenv.LocalEnv attribute)</a>
+</li>
       <li>
     PROJECT_FOLDER
 
@@ -1629,6 +1756,8 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.read">read() (in module unfurl.tosca_plugins.expr)</a>
+</li>
       <li><a href="api.html#unfurl.support.Reason">Reason (class in unfurl.support)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.reason">reason (unfurl.configurator.TaskView attribute)</a>
@@ -1651,11 +1780,15 @@
 </li>
       <li><a href="api.html#unfurl.projectpaths.WorkFolder.relpath_to_current">relpath_to_current() (unfurl.projectpaths.WorkFolder method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.remove_dependency">remove_dependency() (unfurl.configurator.TaskView method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.Configurator.render">render() (unfurl.configurator.Configurator method)</a>
+</li>
+      <li><a href="api.html#unfurl.support.Reason.repair">repair (unfurl.support.Reason attribute)</a>
+</li>
+      <li><a href="api.html#tosca.Repository">Repository (class in tosca)</a>
 </li>
       <li><a href="api.html#unfurl.support.Priority.required">required (unfurl.support.Priority attribute)</a>
 </li>
@@ -1677,6 +1810,8 @@
 </li>
       <li><a href="api.html#unfurl.job.Job.run_task">run_task() (unfurl.job.Job method)</a>
 </li>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.runtime_func">runtime_func() (in module unfurl.tosca_plugins.expr)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1686,6 +1821,24 @@
       <li><a href="api.html#tosca.safe_mode">safe_mode() (in module tosca)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.save_digest">save_digest() (unfurl.configurator.Configurator method)</a>
+</li>
+      <li><a href="api.html#tosca.scalars.scalar">scalar() (in module tosca.scalars)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Scalar.SCALAR_UNIT_DICT">SCALAR_UNIT_DICT (tosca.scalars._Scalar attribute)</a>
+
+      <ul>
+        <li><a href="api.html#tosca.scalars.Bitrate.SCALAR_UNIT_DICT">(tosca.scalars.Bitrate attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Frequency.SCALAR_UNIT_DICT">(tosca.scalars.Frequency attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Size.SCALAR_UNIT_DICT">(tosca.scalars.Size attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Time.SCALAR_UNIT_DICT">(tosca.scalars.Time attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="api.html#tosca.scalars.scalar_value">scalar_value() (in module tosca.scalars)</a>
+</li>
+      <li><a href="api.html#tosca.schema">schema (class in tosca)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.Project.search_for_default_manifest">search_for_default_manifest() (unfurl.localenv.Project method)</a>
 </li>
@@ -1711,19 +1864,25 @@
 </li>
       <li><a href="api.html#tosca.set_evaluation_mode">set_evaluation_mode() (in module tosca)</a>
 </li>
-      <li><a href="api.html#tosca.ToscaType.set_operation">set_operation() (tosca.ToscaType method)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.ToscaType.set_operation">set_operation() (tosca.ToscaType method)</a>
+</li>
+      <li><a href="api.html#tosca.set_operations">set_operations() (in module tosca)</a>
+</li>
       <li><a href="api.html#tosca.ToscaType.set_to_property_source">set_to_property_source() (tosca.ToscaType class method)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.set_work_folder">set_work_folder() (unfurl.configurator.TaskView method)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.short_name">short_name (unfurl.configurator.Configurator attribute)</a>
 </li>
+      <li><a href="api.html#unfurl.localenv.Project.should_include_path">should_include_path() (unfurl.localenv.Project method)</a>
+</li>
       <li><a href="api.html#unfurl.configurator.Configurator.should_run">should_run() (unfurl.configurator.Configurator method)</a>
 </li>
       <li><a href="api.html#unfurl.job.Job.should_run_task">should_run_task() (unfurl.job.Job method)</a>
+</li>
+      <li><a href="api.html#tosca.scalars.Size">Size (class in tosca.scalars)</a>
 </li>
       <li>
     SOURCE
@@ -1732,6 +1891,8 @@
         <li><a href="cli.html#cmdoption-unfurl-clone-arg-SOURCE">unfurl-clone command line option</a>
 </li>
       </ul></li>
+      <li><a href="api.html#tosca.StandardOperationsKeywords">StandardOperationsKeywords (class in tosca)</a>
+</li>
       <li><a href="api.html#unfurl.support.NodeState.started">started (unfurl.support.NodeState attribute)</a>
 </li>
       <li><a href="api.html#unfurl.support.NodeState.starting">starting (unfurl.support.NodeState attribute)</a>
@@ -1747,6 +1908,10 @@
       <li><a href="api.html#unfurl.support.NodeState.stopping">stopping (unfurl.support.NodeState attribute)</a>
 </li>
       <li><a href="api.html#tosca.NodeTemplateDirective.substitute">substitute (tosca.NodeTemplateDirective attribute)</a>
+</li>
+      <li><a href="api.html#unfurl.support.Reason.subtask">subtask (unfurl.support.Reason attribute)</a>
+</li>
+      <li><a href="api.html#unfurl.tosca_plugins.expr.super">super() (in module unfurl.tosca_plugins.expr)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1768,18 +1933,22 @@
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.template">template() (in module unfurl.tosca_plugins.expr)</a>
 </li>
+      <li><a href="api.html#tosca.scalars.Time">Time (class in tosca.scalars)</a>
+</li>
       <li><a href="api.html#unfurl.tosca_plugins.functions.to_dns_label">to_dns_label() (in module unfurl.tosca_plugins.functions)</a>
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.to_env">to_env() (in module unfurl.tosca_plugins.expr)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.tosca_plugins.functions.to_googlecloud_label">to_googlecloud_label() (in module unfurl.tosca_plugins.functions)</a>
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.functions.to_kubernetes_label">to_kubernetes_label() (in module unfurl.tosca_plugins.functions)</a>
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.functions.to_label">to_label() (in module unfurl.tosca_plugins.functions)</a>
 </li>
+      <li><a href="api.html#tosca.scalars._Scalar.to_yaml">to_yaml() (tosca.scalars._Scalar method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.tosca_plugins.expr.token">token() (in module unfurl.tosca_plugins.expr)</a>
 </li>
       <li><a href="api.html#tosca.TopologyInputs">TopologyInputs (class in tosca)</a>
@@ -1793,6 +1962,27 @@
         <li><a href="api.html#module-tosca">module</a>
 </li>
       </ul></li>
+      <li>
+    tosca.scalars
+
+      <ul>
+        <li><a href="api.html#module-tosca.scalars">module</a>
+</li>
+      </ul></li>
+      <li><a href="api.html#tosca.scalars.Bitrate.tosca_name">tosca_name (tosca.scalars.Bitrate attribute)</a>
+
+      <ul>
+        <li><a href="api.html#tosca.scalars.Frequency.tosca_name">(tosca.scalars.Frequency attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Size.tosca_name">(tosca.scalars.Size attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Time.tosca_name">(tosca.scalars.Time attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="api.html#tosca.ToscaInputs">ToscaInputs (class in tosca)</a>
+</li>
+      <li><a href="api.html#tosca.ToscaOutputs">ToscaOutputs (class in tosca)</a>
+</li>
       <li><a href="api.html#tosca.ToscaType">ToscaType (class in tosca)</a>
 </li>
   </ul></td>
@@ -1848,7 +2038,7 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-check-force">--force</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-check-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-check-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-check-jobexitcode">--jobexitcode</a>
 </li>
@@ -1871,6 +2061,8 @@
         <li><a href="cli.html#cmdoption-unfurl-check-use-environment">--use-environment</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-check-var">--var</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-check-i">-i</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-check-m">-m</a>
 </li>
@@ -1943,6 +2135,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-commit-no-edit">--no-edit</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-commit-save-secrets-only">--save-secrets-only</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-commit-skip-add">--skip-add</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-commit-use-environment">--use-environment</a>
@@ -1972,7 +2166,7 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-force">--force</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-deploy-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-jobexitcode">--jobexitcode</a>
 </li>
@@ -2004,6 +2198,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-a">-a</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-i">-i</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-m">-m</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-arg-ENSEMBLE">ENSEMBLE</a>
@@ -2023,7 +2219,7 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-force">--force</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-discover-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-discover-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-jobexitcode">--jobexitcode</a>
 </li>
@@ -2046,6 +2242,8 @@
         <li><a href="cli.html#cmdoption-unfurl-discover-var">--var</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-a">-a</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-discover-i">-i</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-m">-m</a>
 </li>
@@ -2104,6 +2302,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-home-poly">--poly</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-home-register">--register</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-home-render">--render</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-home-replace">--replace</a>
@@ -2118,6 +2318,8 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-init-as-shared-environment">--as-shared-environment</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-init-design">--design</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-init-empty">--empty</a>
 </li>
@@ -2156,9 +2358,11 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-plan-destroyunmanaged">--destroyunmanaged</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-plan-dryrun">--dryrun</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-plan-force">--force</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-plan-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-plan-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-plan-output">--output</a>
 </li>
@@ -2184,6 +2388,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-plan-workflow">--workflow</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-plan-i">-i</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-plan-arg-ENSEMBLE">ENSEMBLE</a>
 </li>
       </ul></li>
@@ -2203,7 +2409,7 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-host">--host</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-run-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-run-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-jobexitcode">--jobexitcode</a>
 </li>
@@ -2230,6 +2436,8 @@
         <li><a href="cli.html#cmdoption-unfurl-run-var">--var</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-a">-a</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-run-i">-i</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-m">-m</a>
 </li>
@@ -2295,7 +2503,7 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-force">--force</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-stop-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-stop-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-jobexitcode">--jobexitcode</a>
 </li>
@@ -2319,6 +2527,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-a">-a</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-stop-i">-i</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-stop-m">-m</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-arg-ENSEMBLE">ENSEMBLE</a>
@@ -2340,7 +2550,7 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-teardown-force">--force</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-teardown-instance">--instance</a>
+        <li><a href="cli.html#cmdoption-unfurl-teardown-i">--instance</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-teardown-jobexitcode">--jobexitcode</a>
 </li>
@@ -2363,6 +2573,8 @@
         <li><a href="cli.html#cmdoption-unfurl-teardown-var">--var</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-teardown-a">-a</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-teardown-i">-i</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-teardown-m">-m</a>
 </li>
@@ -2498,6 +2710,20 @@
 </li>
       <li><a href="api.html#unfurl.util.UnfurlTaskError">UnfurlTaskError</a>
 </li>
+      <li><a href="api.html#tosca.scalars._Scalar.unit">unit (tosca.scalars._Scalar attribute)</a>
+
+      <ul>
+        <li><a href="api.html#tosca.scalars.Bitrate.unit">(tosca.scalars.Bitrate attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Frequency.unit">(tosca.scalars.Frequency attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Size.unit">(tosca.scalars.Size attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Time.unit">(tosca.scalars.Time attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="api.html#tosca.scalars.unit">unit() (in module tosca.scalars)</a>
+</li>
       <li><a href="api.html#unfurl.support.Status.unknown">unknown (unfurl.support.Status attribute)</a>
 </li>
       <li><a href="api.html#unfurl.support.Reason.update">update (unfurl.support.Reason attribute)</a>
@@ -2508,20 +2734,32 @@
 </li>
       <li><a href="api.html#unfurl.tosca_plugins.expr.uri">uri() (in module unfurl.tosca_plugins.expr)</a>
 </li>
-      <li><a href="api.html#unfurl.tosca_plugins.functions.urljoin">urljoin() (in module unfurl.tosca_plugins.functions)</a>
-</li>
   </ul></td>
 </tr></table>
 
 <h2 id="V">V</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#tosca.valid_values">valid_values (class in tosca)</a>
+</li>
+      <li><a href="api.html#tosca.scalars._Scalar.value">value (tosca.scalars._Scalar attribute)</a>
+
+      <ul>
+        <li><a href="api.html#tosca.scalars.Bitrate.value">(tosca.scalars.Bitrate attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Frequency.value">(tosca.scalars.Frequency attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Size.value">(tosca.scalars.Size attribute)</a>
+</li>
+        <li><a href="api.html#tosca.scalars.Time.value">(tosca.scalars.Time attribute)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.vars">vars (unfurl.configurator.TaskView property)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.Project.venv">venv (unfurl.localenv.Project property)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.verbose">verbose (unfurl.configurator.TaskView attribute)</a>
 </li>
       <li><a href="api.html#tosca.NodeTemplateDirective.virtual">virtual (tosca.NodeTemplateDirective attribute)</a>

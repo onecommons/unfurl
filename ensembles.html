@@ -69,6 +69,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -145,7 +146,7 @@ Ensembles can also have multiple <a class="reference internal" href="jsonschema.
 This enables ensembles to be renamed while still maintaining compatibility with references to the old URI. An Ensemble’s identity is established by its <code class="docutils literal notranslate"><span class="pre">uri</span></code> not by its contents.</p>
 <p>If you change an ensemble’s <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">uri</span></a> along with any <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">aliases</span></a> it you are essentially forking
 that ensemble because it will now be treated as a different ensemble.</p>
-<p>Ensemble URI don’t need to be resolvable or memorable but it is useful if they are. When you create a new ensemble Unfurl will autogenerate a URL that is the path to itself in the git repository it appears in. <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">Aliases</span></a> can point to alternative locations or capabilities for the ensemble, for example a <code class="docutils literal notranslate"><span class="pre">ssh</span></code> URL to the git repository for clients with access for committing to the repository.</p>
+<p>Ensemble URIs don’t need to be resolvable or memorable but it is useful if they are. When you create a new ensemble Unfurl will autogenerate a URL that is the path to itself in the git repository it appears in. <a class="reference internal" href="jsonschema.html#id1"><span class="std std-ref">Aliases</span></a> can point to alternative locations or capabilities for the ensemble, for example a <code class="docutils literal notranslate"><span class="pre">ssh</span></code> URL to the git repository for clients with access for committing to the repository.</p>
 <p>If you clone an ensemble into the same project or if the ensemble is in a standalone local repository (an ensemble that isn’t in a project repository or in a repository that is a git submodule of a project repository) Unfurl will generate a new URI and remove any aliases. Otherwise, it won’t change the URI and so the cloned ensemble will be treated as a copy of the source ensemble.</p>
 </section>
 </section>

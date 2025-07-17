@@ -20,7 +20,7 @@ Extensions
 * groups can have other groups as members
 * an operation's ``operation_host`` field can also be set to a node template's name.
 * added ``OPERATION_HOST`` as a reserved function keyword.
-* add "discover", "default", "dependent", "virtual", and "protected" directives
+* add "check", "conditional", "discover", "default", "dependent", "virtual", and "protected" directives
 * add "default_for" keyword to relationship templates
 * add "defaults" section to interface definitions
 * add "requirements" keyword to interface definitions
@@ -42,7 +42,10 @@ Extensions
 * add ``removed`` property status value
 * artifacts can be declared on node types.
 * add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts (see `Artifact enhancements`)
-
+* support ``ANON`` keyword in `get_artifact`
+* add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
+* add ``artifacts`` keyword to node_filters to match on artifact properties (syntax matches "capabilities" keyword)
+* add ``input_values`` section to service templates (see `Topology Inputs`).
 
 Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

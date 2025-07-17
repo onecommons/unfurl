@@ -63,6 +63,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Expression Functions</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#tosca-functions-and-other-stand-alone-functions">TOSCA functions and other stand-alone functions</a><ul>
@@ -82,9 +83,21 @@
 <li class="toctree-l3"><a class="reference internal" href="#abspath">abspath</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#and">and</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#eq">eq</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ne">ne</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#gt">gt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ge">ge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#lt">lt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#le">le</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#add">add</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#mul">mul</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pow">pow</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#div">div</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#mod">mod</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#sub">sub</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#external">external</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#file">file</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#get-ensemble-metadata">get_ensemble_metadata</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#find-connection">find_connection</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#foreach">foreach</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#get-dir">get_dir</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#if">if</a></li>
@@ -94,6 +107,8 @@
 <li class="toctree-l3"><a class="reference internal" href="#or">or</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#not">not</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#python">python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scalar">scalar</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scalar-value">scalar_value</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#secret">secret</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#sensitive">sensitive</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#tempfile">tempfile</a></li>
@@ -103,7 +118,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#to-kubernetes-label">to_kubernetes_label</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-label">to_label</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#urljoin">urljoin</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#validate">validate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#validate-json">validate_json</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#special-keys">Special keys</a></li>
@@ -214,9 +229,12 @@ The location depends on the type of artifact. If the artifact is a Docker contai
 If it is a file, return a local file path that is resolvable while unfurl is running.
 In this case, calling get_artifact may have the side effect of downloading the file or cloning a git repository.</p>
 <p>The first argument is either a string or a instance reference (from an <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">eval expression</span></a>).</p>
-<p>If it is a string it should be the name of a node template or one of <code class="docutils literal notranslate"><span class="pre">SELF</span></code>, <code class="docutils literal notranslate"><span class="pre">SOURCE</span></code>, <code class="docutils literal notranslate"><span class="pre">TARGET</span></code>, <code class="docutils literal notranslate"><span class="pre">HOST</span></code>.
+<p>If it is a string it should be the name of a node template or one of <code class="docutils literal notranslate"><span class="pre">ANON</span></code>, <code class="docutils literal notranslate"><span class="pre">SELF</span></code>, <code class="docutils literal notranslate"><span class="pre">SOURCE</span></code>, <code class="docutils literal notranslate"><span class="pre">TARGET</span></code>, <code class="docutils literal notranslate"><span class="pre">HOST</span></code>.
 If no node template is found return <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p>
-<p>The second argument is the name of the artifact associated with the node template referenced by the first argument.
+<p><code class="docutils literal notranslate"><span class="pre">ANON</span></code> is like <code class="docutils literal notranslate"><span class="pre">SELF</span></code> but if the artifact is not found on current node template it will create an artifact using name in that second argument as its <code class="docutils literal notranslate"><span class="pre">file</span></code>.
+This is the same logic used to find an artifact when it is referenced in an operation’s implementation.</p>
+<p>The second argument is the name of the artifact associated with the node template referenced by the first argument;
+Alternatively, if the first argument was <code class="docutils literal notranslate"><span class="pre">ANON</span></code>, the second argument may be a dictionary with <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">repository</span></code> keys.
 If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p>
 <p>See also the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125538">TOSCA get_artifact spec</a> (but note that <code class="docutils literal notranslate"><span class="pre">location</span></code> and <code class="docutils literal notranslate"><span class="pre">remove</span></code> arguments are not currently supported).</p>
 </div></blockquote>
@@ -306,20 +324,32 @@ For example:</p>
 <tr class="row-even"><td><p><a class="reference internal" href="#abspath"><span class="std std-ref">abspath</span></a></p></td>
 <td><p>path | [path, location, mkdir?]</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#and"><span class="std std-ref">and</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#add"><span class="std std-ref">add</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#and"><span class="std std-ref">and</span></a></p></td>
 <td><p>[test+]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#div"><span class="std std-ref">div</span></a></p></td>
+<td><p>[a, b]</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="#eq"><span class="std std-ref">eq</span></a></p></td>
 <td><p>[a, b]</p></td>
 </tr>
-<tr class="row-odd"><td><p>external</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#external-func"><span class="std std-ref">external</span></a></p></td>
 <td><p>name</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="#file"><span class="std std-ref">file</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-odd"><td><p>foreach</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#find-connection"><span class="std std-ref">find_connection</span></a></p></td>
+<td><p>expr</p></td>
+</tr>
+<tr class="row-even"><td><p>foreach</p></td>
 <td><p>{key?, value?}</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#ge"><span class="std std-ref">ge</span></a></p></td>
+<td><p>[a, b]</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="#get-ensemble-metadata"><span class="std std-ref">get_ensemble_metadata</span></a></p></td>
 <td><p>key?</p></td>
@@ -327,32 +357,62 @@ For example:</p>
 <tr class="row-odd"><td><p><a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a></p></td>
 <td><p>location | [location, mkdir?]</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#is-function-defined"><span class="std std-ref">is_function_defined</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#gt"><span class="std std-ref">gt</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#is-function-defined"><span class="std std-ref">is_function_defined</span></a></p></td>
 <td><p>function name</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#local"><span class="std std-ref">local</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#le"><span class="std std-ref">le</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#lt"><span class="std std-ref">lt</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#local"><span class="std std-ref">local</span></a></p></td>
 <td><p>name</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
 <td><p>(see below)</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#mod"><span class="std std-ref">mod</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#mul"><span class="std std-ref">mul</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
 <td><p>[test+]</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#ne"><span class="std std-ref">ne</span></a></p></td>
+<td><p>[a, b]</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#not"><span class="std std-ref">not</span></a></p></td>
 <td><p>expr</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#pow"><span class="std std-ref">pow</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
 <td><p>path#function_name | module.function_name</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#scalar"><span class="std std-ref">scalar</span></a></p></td>
+<td><p>string or scalar</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#scalar-value"><span class="std std-ref">scalar_value</span></a></p></td>
+<td><p>(see below)</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
 <td><p>name</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
 <td><p>any</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#sub"><span class="std std-ref">sub</span></a></p></td>
+<td><p>[a, b]</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="#tempfile"><span class="std std-ref">tempfile</span></a></p></td>
 <td><p>(see below)</p></td>
@@ -375,7 +435,7 @@ For example:</p>
 <tr class="row-odd"><td><p><a class="reference internal" href="#urljoin"><span class="std std-ref">urljoin</span></a></p></td>
 <td><p>[scheme, host, port?, path?, query?, fragment?]</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#validate"><span class="std std-ref">validate</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#validate-json"><span class="std std-ref">validate_json</span></a></p></td>
 <td><p>[contents, schema]</p></td>
 </tr>
 </tbody>
@@ -409,11 +469,80 @@ returns the result of the last expression evaluated.</p>
 </section>
 <section id="eq">
 <h3>eq<a class="headerlink" href="#eq" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns true if the two values are equal.</p>
+</div></blockquote>
+</section>
+<section id="ne">
+<h3>ne<a class="headerlink" href="#ne" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns true if the two values are not equal.</p>
+</div></blockquote>
+</section>
+<section id="gt">
+<h3>gt<a class="headerlink" href="#gt" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns true if the first value is greater than the second value.</p>
+</div></blockquote>
+</section>
+<section id="ge">
+<h3>ge<a class="headerlink" href="#ge" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns true if the first value is greater than or equal to the second value.</p>
+</div></blockquote>
+</section>
+<section id="lt">
+<h3>lt<a class="headerlink" href="#lt" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns true if the first value is less than the second value.</p>
+</div></blockquote>
+</section>
+<section id="le">
+<h3>le<a class="headerlink" href="#le" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns true if the first value is less than or equal to the second value.</p>
+</div></blockquote>
+</section>
+<section id="add">
+<h3>add<a class="headerlink" href="#add" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the sum of the two values.</p>
+</div></blockquote>
+</section>
+<section id="mul">
+<h3>mul<a class="headerlink" href="#mul" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the product of the two values.</p>
+</div></blockquote>
+</section>
+<section id="pow">
+<h3>pow<a class="headerlink" href="#pow" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the result of raising the first value to the power of the second value.</p>
+</div></blockquote>
+</section>
+<section id="div">
+<h3>div<a class="headerlink" href="#div" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the result of dividing the first value by the second value.</p>
+</div></blockquote>
+</section>
+<section id="mod">
+<h3>mod<a class="headerlink" href="#mod" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the remainder of dividing the first value by the second value.</p>
+</div></blockquote>
+</section>
+<section id="sub">
+<h3>sub<a class="headerlink" href="#sub" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the result of subtracting the second value from the first value.</p>
+</div></blockquote>
 </section>
 <section id="external">
-<h3>external<a class="headerlink" href="#external" title="Permalink to this headline"></a></h3>
+<span id="external-func"></span><h3>external<a class="headerlink" href="#external" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>Return an instance</p>
+<div><p>Return <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">external instance</span></a> as a value.</p>
 </div></blockquote>
 </section>
 <section id="file">
@@ -533,6 +662,17 @@ if no argument is given, return a map with all the metadata.</p>
 </div>
 </div></blockquote>
 </section>
+<section id="find-connection">
+<h3>find_connection<a class="headerlink" href="#find-connection" title="Permalink to this headline"></a></h3>
+<p>Find a relationship that can be used to connect to the given instance. See <a class="reference internal" href="api.html#unfurl.configurator.TaskView.find_connection" title="unfurl.configurator.TaskView.find_connection"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">TaskView.find_connection</span></code></a>.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">find_connection</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::a_instance</span>
+<span class="w">  </span><span class="c1"># optional: use the &quot;relation&quot; keyword to restrict connection to a subtype of tosca.relationships.ConnectsTo:</span>
+<span class="w">  </span><span class="nt">relation</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;tosca.relationships.RoutesTo&quot;</span>
+</pre></div>
+</div>
+</section>
 <section id="foreach">
 <h3>foreach<a class="headerlink" href="#foreach" title="Permalink to this headline"></a></h3>
 </section>
@@ -588,8 +728,14 @@ if no argument is given, return a map with all the metadata.</p>
 <dt class="field-odd">project</dt>
 <dd class="field-odd"><p>The root directory of the current project.</p>
 </dd>
-<dt class="field-even">unfurl.home</dt>
-<dd class="field-even"><p>The location of home project (UNFURL_HOME).</p>
+<dt class="field-even">project.secrets</dt>
+<dd class="field-even"><p>The “secrets” directory for the current project (files written there are vault encrypted when committed to the repository).</p>
+</dd>
+<dt class="field-odd">unfurl.home</dt>
+<dd class="field-odd"><p>The location of home project (UNFURL_HOME).</p>
+</dd>
+<dt class="field-even">repository.&lt;name&gt;</dt>
+<dd class="field-even"><p>The location of the repository with the given name.</p>
 </dd>
 </dl>
 <p>Otherwise look for a <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">repository</span></a> with the given name and return its path or None if not found.</p>
@@ -751,6 +897,62 @@ If the path to the python script is a relative path, it will be treated as relat
 (ie. the template file that is invoking the expression).
 The function will being invoke the current <a class="reference internal" href="api.html#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><code class="xref any py py-class docutils literal notranslate"><span class="pre">RefContext</span></code></a> as the first argument.
 If <code class="docutils literal notranslate"><span class="pre">args</span></code> is declared, its value will passed as a second argument to the function.</p>
+</div></blockquote>
+</section>
+<section id="scalar">
+<h3>scalar<a class="headerlink" href="#scalar" title="Permalink to this headline"></a></h3>
+<p>Parse the given string into a scalar, e.g. “5 mb”.</p>
+<p>TOSCA properties with scalar-unit types represented as as strings so use this function to treat them as scalars.
+For example, in the example below, even though <code class="docutils literal notranslate"><span class="pre">mem_size</span></code> property is declared with type <code class="docutils literal notranslate"><span class="pre">scalar-unit.size</span></code> you still need to use the <code class="docutils literal notranslate"><span class="pre">scalar</span></code> expression function.</p>
+<blockquote>
+<div><div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">add</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">scalar</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;5</span><span class="nv"> </span><span class="s">mb&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">scalar</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mem_size</span>
+</pre></div>
+</div>
+</div></blockquote>
+</section>
+<section id="scalar-value">
+<h3>scalar_value<a class="headerlink" href="#scalar-value" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Convert a scalar to a number denominated by the given unit.
+If the <code class="docutils literal notranslate"><span class="pre">scalar_value</span></code> is a string, parse it as a scalar.
+If the <code class="docutils literal notranslate"><span class="pre">scalar_value</span></code> is a number assume it is already in the given unit.
+If the <code class="docutils literal notranslate"><span class="pre">unit</span></code> keyword is omitted, use the unit parsed from the scalar.</p>
+<p>Return a float or an int depending on the  “round” key, if a integer the number of digits to round to, or “ceil’, “floor” to round up or down to the nearest integer.
+If round is omitted or null, round to the nearest integer unless the absolute value is less than 1.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 75%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>scalar_value</p></td>
+<td><p>scalar, string, or number</p></td>
+</tr>
+<tr class="row-odd"><td><p>unit?</p></td>
+<td><p>unit</p></td>
+</tr>
+<tr class="row-even"><td><p>round?</p></td>
+<td><p>“ceil” | “floor” | “round” | integer</p></td>
+</tr>
+</tbody>
+</table>
+<p>The example below will evaluate to 0.01:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">scalar_value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;6</span><span class="nv"> </span><span class="s">mb&quot;</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gb&quot;</span>
+<span class="w">  </span><span class="nt">round</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</pre></div>
+</div>
 </div></blockquote>
 </section>
 <section id="secret">
@@ -924,8 +1126,8 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 </pre></div>
 </div>
 </section>
-<section id="validate">
-<h3>validate<a class="headerlink" href="#validate" title="Permalink to this headline"></a></h3>
+<section id="validate-json">
+<h3>validate_json<a class="headerlink" href="#validate-json" title="Permalink to this headline"></a></h3>
 <blockquote>
 <div><p>Return true if the first argument conforms to the JSON schema supplied as the second argument.</p>
 </div></blockquote>
@@ -965,58 +1167,70 @@ Default ports (80 and 443 for <code class="docutils literal notranslate"><span c
 <td><p>the instance’s <a class="reference internal" href="api.html#unfurl.support.NodeState" title="unfurl.support.NodeState"><code class="xref py py-class docutils literal notranslate"><span class="pre">unfurl.support.NodeState</span></code></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>.parents</p></td>
-<td><p>list of parents</p></td>
+<td><p>list of parents starting from root</p></td>
 </tr>
 <tr class="row-even"><td><p>.ancestors</p></td>
 <td><p>self and parents</p></td>
 </tr>
-<tr class="row-odd"><td><p>.root</p></td>
+<tr class="row-odd"><td><p>.owner</p></td>
+<td><p>parent or source if embedded instance otherwise self</p></td>
+</tr>
+<tr class="row-even"><td><p>.source</p></td>
+<td><p>SOURCE node if instance is a relationship</p></td>
+</tr>
+<tr class="row-odd"><td><p>.target</p></td>
+<td><p>TARGET node if instance is a relationship</p></td>
+</tr>
+<tr class="row-even"><td><p>.root</p></td>
 <td><p>root ancestor</p></td>
 </tr>
-<tr class="row-even"><td><p>.instances</p></td>
+<tr class="row-odd"><td><p>.instances</p></td>
 <td><p>child instances (via the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship)</p></td>
 </tr>
-<tr class="row-odd"><td><p>.capabilities</p></td>
+<tr class="row-even"><td><p>.capabilities</p></td>
 <td><p>list of capabilities</p></td>
 </tr>
-<tr class="row-even"><td><p>.requirements</p></td>
+<tr class="row-odd"><td><p>.requirements</p></td>
 <td><p>list of requirements</p></td>
 </tr>
-<tr class="row-odd"><td><p>.relationships</p></td>
+<tr class="row-even"><td><p>.relationships</p></td>
 <td><p>list of relationships that target this capability</p></td>
 </tr>
-<tr class="row-even"><td><p>.targets</p></td>
+<tr class="row-odd"><td><p>.targets</p></td>
 <td><p>map with requirement names as keys and target instances as values</p></td>
 </tr>
-<tr class="row-odd"><td><p>.sources</p></td>
+<tr class="row-even"><td><p>.sources</p></td>
 <td><p>map with requirement names as keys and source instances as values</p></td>
 </tr>
-<tr class="row-even"><td><p>.artifacts</p></td>
+<tr class="row-odd"><td><p>.artifacts</p></td>
 <td><p>map with artifact names as keys and artifact instances as values</p></td>
 </tr>
-<tr class="row-odd"><td><p>.repository</p></td>
+<tr class="row-even"><td><p>.repository</p></td>
 <td><p>repository associated with this artifact or resource</p></td>
 </tr>
-<tr class="row-even"><td><p>.hosted_on</p></td>
+<tr class="row-odd"><td><p>.hosted_on</p></td>
 <td><p>Follow .targets, filtering by the <code class="docutils literal notranslate"><span class="pre">HostedOn</span></code> relationship</p></td>
 </tr>
-<tr class="row-odd"><td><p>.configured_by</p></td>
+<tr class="row-even"><td><p>.configured_by</p></td>
 <td><p>Follow .sources, filtering by the <code class="docutils literal notranslate"><span class="pre">Configures</span></code> relationship</p></td>
 </tr>
-<tr class="row-even"><td><p>.descendants</p></td>
+<tr class="row-odd"><td><p>.descendants</p></td>
 <td><p>(including self)</p></td>
 </tr>
-<tr class="row-odd"><td><p>.all</p></td>
+<tr class="row-even"><td><p>.all</p></td>
 <td><p>Dictionary of child resources with their names as keys</p></td>
 </tr>
-<tr class="row-even"><td><p>.uri</p></td>
+<tr class="row-odd"><td><p>.uri</p></td>
 <td><p>Unique URI for this instance (<a class="reference internal" href="ensembles.html#uris"><span class="std std-ref">URI</span></a> plus the tosca_id)</p></td>
 </tr>
-<tr class="row-odd"><td><p>.deployment</p></td>
+<tr class="row-even"><td><p>.deployment</p></td>
 <td><p>Name of the ensemble</p></td>
 </tr>
-<tr class="row-even"><td><p>.apex</p></td>
+<tr class="row-odd"><td><p>.apex</p></td>
 <td><p>Root ancestor of the outermost topology</p></td>
+</tr>
+<tr class="row-even"><td><p>.super</p></td>
+<td><p>map of properties defined on the template’s type or base type</p></td>
 </tr>
 </tbody>
 </table>

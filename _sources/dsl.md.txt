@@ -6,7 +6,7 @@ TOSCA (Topology and Orchestration Specification for Cloud Applications) is an [O
 
 ## Why a DSL (Domain Specic Language)?
 
-Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or internal) DSL](https://en.wikipedia.org/wiki/Domain-specific_language#External_and_Embedded_Domain_Specific_Languages) -- a DSL that is a subset of existing programming language?
+Why build a DSL for TOSCA? Or more precisely, why build an [embedded (or internal) DSL](https://en.wikipedia.org/wiki/Domain-specific_language#External_and_Embedded_Domain_Specific_Languages) -- a DSL that is a subset of an existing programming language?
 
 * Avoid what is affectionately known as "YAML hell". YAML's syntax is limited to expressing basic data types and has [various quirks](https://noyaml.com) that makes it hard to manage at scale. But TOSCA is a fairly strongly typed language, so expressing it in a syntax that can reflect that makes for a much more powerful solution with regard to developer usability and tooling.
 
@@ -163,6 +163,26 @@ Also note `_type_name`, which can be used to name the type when the YAML identif
 
 You can see all of TOSCA 1.3's pre-defined types as automatically converted from YAML to Python [here](https://github.com/onecommons/unfurl/blob/main/tosca-package/tosca/builtin_types.py).
 
+### Scalars
+
+TOSCA's data types include [scalar units](https://docs.unfurl.run/_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125205) for different dimensions: size (e.g. MB, MiB, GiB, GB), time (e.g. d, s, ms), frequency (e.g. kHz, Ghz) and bitrates (e.g. Kbps, GBps). 
+
+The DSL provides these scalar units as first-class Python types, so you can avoid mistakes calculating values with mismatched units. 
+
+```python
+from tosca import GB, MB, GHz
+mem_size = 2*GB
+mem_size + 1000*MB # 3 GB
+mem_size + 50*GHz # static type error!
+```
+
+When generating configuration, the value can be converted to the unit that the configuration expects:
+
+```python
+MB.as_int(mem_size)  # return an integer with the value in MBs
+GHz.as_int(mem_size) # static type error!
+```
+
 ### Interfaces and Operations
 
 By mapping TOSCA's interfaces and operations to Python's classes and methods we can create a TOSCA syntax that is concise, intuitive, and easily statically validated. Consider this definition of a custom interface and its implementation by a node type:
@@ -266,7 +286,7 @@ Unfurl provides this integration and other orchestrators can implement a callbac
 
 ### Node Filters
 
-Tosca types can declared a special class-level method called `_class_init` that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where type checker (include the IDE) has the class definition available.
+Tosca types can declared a special class-level method called `_class_init` that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where your Python type checker (such as the IDE's) has the class definition available.
 
 This example creates sets the `node_filter` on the declared `host` requirement:
 
@@ -301,13 +321,13 @@ node_types:
                   - 20 GB
 ```
 
-Note that your IDE's type checker will detect if the `mem_size`'s type was incompatible with the values passed to `in_range`.
+Note that your IDE's type checker will highlight an error if the `mem_size`'s type was incompatible with the values passed to `in_range`.
 
-### Names and identifiers
+### Names and Identifiers
 
 TOSCA's YAML syntax allows names that are not valid Python identifiers so the DSL's APIs let you provide an alternative name for types, templates, fields, and operations, etc. which will used when generating YAML -- whose those if the TOSCA name is not a valid [Python identifier](https://docs.python.org/3/reference/lexical_analysis.html#identifiers) or if the name starts with a `_`.  Names that starts with `_` are reserved for internal use by your DSL classes and are ignored when generating YAML. When converting YAML to Python the code generator will generate Python code that preserves non-conforming names as needed.
 
-### Imports and repositories
+### Imports and Repositories
 
 We translate TOSCA imports statements as relative imports in Python or, if a repository was specified, as a Python import in a package named "tosca_repositories.<repository_name>". For example:
 
@@ -391,7 +411,7 @@ With unfurl, the command line equivalent is:
 To enable untrusted Python service templates to be safely parsed in the same contexts as TOSCA YAML files, the `python_to_yaml` function has a `safe_mode` flag that will execute the Python code in a sandboxed environment. The following rules apply to code running in the sandbox:
 
 * The sandbox only a provides a subset of Python's built-ins functions and objects -- ones that do not perform IO or modify global state.
-* Imports are limited to relative imports, TOSCA repositories via the  `tosca_repository` package, or the modules named in the `tosca.python2yaml.ALLOWED_MODULES` list, which defaults to "tosca", "typing", "typing_extensions", "random", "math", "string", "DateTime", and "unfurl".
+* Imports are limited to relative imports, TOSCA repositories via the  `tosca_repositories`, or the modules named in the `tosca.loader.ALLOWED_MODULES` list, which defaults to "base64", "DateTime", "math",  (safe subset of)"os.path", "random", "re", "string", "tosca", "typing",  "typing_extensions", "urllib.parse", and "unfurl".
 * If a module in the `ALLOWED_MODULES` has a `__safe__` attribute that is a list of names, only those attributes can be accessed by the sandboxed code. Otherwise only attributes listed in `__all__` can be accessed.
 * Modules in the `ALLOWED_MODULES` can not be modified, nor can objects, functions or classes declared in the module (this is enforced by checking the object `__module__` attribute).
 * All other modules imported have their contents executed in the same sandbox.

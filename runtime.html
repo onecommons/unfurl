@@ -72,6 +72,7 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -110,12 +111,18 @@
 <h1>Runtime Environment<a class="headerlink" href="#runtime-environment" title="Permalink to this headline"></a></h1>
 <section id="job-variables">
 <h2>Job Variables<a class="headerlink" href="#job-variables" title="Permalink to this headline"></a></h2>
-<p>When a task is being evaluated the following variables are available as an <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">expression</span></a> variable or a jinja2 template variable.
+<p>When a <a class="reference internal" href="glossary.html#tasks"><span class="std std-ref">task</span></a> is being evaluated the following variables are available as an <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">expression</span></a> variable or a jinja2 template variable.
 Instances are represented as a dictionary containing its properties and attributes and its <a class="reference internal" href="expressions.html#special-keys"><span class="std std-ref">Special keys</span></a>.</p>
 <blockquote>
 <div><dl class="field-list simple">
-<dt class="field-odd">inputs</dt>
-<dd class="field-odd"><p>A dictionary containing the inputs passed to the task’s operation.</p>
+<dt class="field-odd">implementation</dt>
+<dd class="field-odd"><p>The artifact used by the operation’s implementation (or null if one wasn’t set).</p>
+</dd>
+<dt class="field-even">inputs</dt>
+<dd class="field-even"><p>A dictionary containing the inputs declared on the task’s operation.</p>
+</dd>
+<dt class="field-odd">arguments</dt>
+<dd class="field-odd"><p>A dictionary containing inputs and properties passed to task’s <a class="reference internal" href="glossary.html#artifact"><span class="std std-ref">Artifact</span></a>.</p>
 </dd>
 <dt class="field-even">connections</dt>
 <dd class="field-even"><p>See <a class="reference internal" href="#connections"><span class="std std-ref">Connections</span></a> below.</p>
@@ -123,23 +130,26 @@ Instances are represented as a dictionary containing its properties and attribut
 <dt class="field-odd">SELF</dt>
 <dd class="field-odd"><p>The current task’s target instance.</p>
 </dd>
-<dt class="field-even">HOST</dt>
-<dd class="field-even"><p>The host of SELF.</p>
+<dt class="field-even">Self</dt>
+<dd class="field-even"><p>The <a class="reference internal" href="CHANGELOG.html#python-dsl"><span class="std std-ref">Python DSL</span></a> <a class="reference internal" href="api.html#tosca.ToscaType" title="tosca.ToscaType"><code class="xref any py py-class docutils literal notranslate"><span class="pre">object</span></code></a> representing <code class="docutils literal notranslate"><span class="pre">SELF</span></code> if one was defined, or null.</p>
 </dd>
-<dt class="field-odd">ORCHESTRATOR</dt>
-<dd class="field-odd"><p>The instance Unfurl is running on (<code class="docutils literal notranslate"><span class="pre">localhost</span></code>)</p>
+<dt class="field-odd">HOST</dt>
+<dd class="field-odd"><p>The host of SELF.</p>
 </dd>
-<dt class="field-even">OPERATION_HOST</dt>
-<dd class="field-even"><p>Current task’s <code class="docutils literal notranslate"><span class="pre">operation_host</span></code>. If it is not declared, defaults to <code class="docutils literal notranslate"><span class="pre">localhost</span></code>.</p>
+<dt class="field-even">ORCHESTRATOR</dt>
+<dd class="field-even"><p>The instance Unfurl is running on (<code class="docutils literal notranslate"><span class="pre">localhost</span></code>)</p>
 </dd>
-<dt class="field-odd">SOURCE</dt>
-<dd class="field-odd"><p>If the task’s target instance is a relationship, its source instance</p>
+<dt class="field-odd">OPERATION_HOST</dt>
+<dd class="field-odd"><p>Current task’s <code class="docutils literal notranslate"><span class="pre">operation_host</span></code>. If it is not declared, defaults to <code class="docutils literal notranslate"><span class="pre">localhost</span></code>.</p>
 </dd>
-<dt class="field-even">TARGET</dt>
-<dd class="field-even"><p>If the task’s target instance is a relationship, its target instance</p>
+<dt class="field-even">SOURCE</dt>
+<dd class="field-even"><p>If the task’s target instance is a relationship, its source instance</p>
 </dd>
-<dt class="field-odd">task</dt>
-<dd class="field-odd"><p>A dictionary containing the current task’s settings. Its keys include:</p>
+<dt class="field-odd">TARGET</dt>
+<dd class="field-odd"><p>If the task’s target instance is a relationship, its target instance</p>
+</dd>
+<dt class="field-even">task</dt>
+<dd class="field-even"><p>A dictionary containing the current task’s settings. Its keys include:</p>
 </dd>
 </dl>
 </div></blockquote>
@@ -154,7 +164,7 @@ Instances are represented as a dictionary containing its properties and attribut
 <dd class="field-even"><p>The current workflow (e.g. <code class="docutils literal notranslate"><span class="pre">deploy</span></code>, <code class="docutils literal notranslate"><span class="pre">undeploy</span></code>, or <code class="docutils literal notranslate"><span class="pre">discover</span></code>)</p>
 </dd>
 <dt class="field-odd">target</dt>
-<dd class="field-odd"><p>The name of instance the task is operating on.</p>
+<dd class="field-odd"><p>The name of the instance that the task is operating on.</p>
 </dd>
 <dt class="field-even">operation</dt>
 <dd class="field-even"><p>The name of the operation the task is running.</p>
@@ -163,7 +173,7 @@ Instances are represented as a dictionary containing its properties and attribut
 <dd class="field-odd"><p>(boolean) Whether the current job has the <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> flag set.</p>
 </dd>
 <dt class="field-even">reason</dt>
-<dd class="field-even"><p>Reason the current task was selected, e.g. “add”, “update”, “prune”, “repair”</p>
+<dd class="field-even"><p><a class="reference internal" href="api.html#unfurl.support.Reason" title="unfurl.support.Reason"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Reason</span></code></a> the current task was selected, e.g. “add”, “update”, “prune”, “repair”</p>
 </dd>
 <dt class="field-odd">cwd</dt>
 <dd class="field-odd"><p>The current working directory the task process is executing in.</p>
@@ -212,7 +222,7 @@ The keys are the name of the relationship template or the name of the type of th
 <section id="environment-variables">
 <h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Permalink to this headline"></a></h2>
 <p>You can set the environment variables that are available while Unfurl is running
-in the <code class="docutils literal notranslate"><span class="pre">variables</span></code> section when declaring an <code class="docutils literal notranslate"><span class="pre">environment</span></code>.
+in the <code class="docutils literal notranslate"><span class="pre">variables</span></code> section when declaring an <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a>.
 These global directives can be overridden when executing an individual operation by
 by adding an <code class="docutils literal notranslate"><span class="pre">environment</span></code> section to an operation’s <a class="reference internal" href="tosca.html#implementation"><span class="std std-ref">Implementation</span></a> declaration.
 This environment is used when an operation invokes a external process such as a shell command.</p>
@@ -248,7 +258,7 @@ into the new one. In that case “*” and “?” are treated like filename wil
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>TMPDIR</p></td>
+<tr class="row-even"><td><p>ASDF_DATA_DIR</p></td>
 </tr>
 <tr class="row-odd"><td><p>CURL_CA_BUNDLE</p></td>
 </tr>
@@ -272,39 +282,43 @@ into the new one. In that case “*” and “?” are treated like filename wil
 </tr>
 <tr class="row-odd"><td><p>PYTHONPATH</p></td>
 </tr>
-<tr class="row-even"><td><p>VIRTUAL_ENV</p></td>
+<tr class="row-even"><td><p>TMPDIR</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_TMPDIR</p></td>
+<tr class="row-odd"><td><p>VIRTUAL_ENV</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_LOGGING</p></td>
+<tr class="row-even"><td><p>UNFURL_TMPDIR</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_HOME</p></td>
+<tr class="row-odd"><td><p>UNFURL_LOGGING</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_RUNTIME</p></td>
+<tr class="row-even"><td><p>UNFURL_HOME</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_NORUNTIME</p></td>
+<tr class="row-odd"><td><p>UNFURL_RUNTIME</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_APPROVE</p></td>
+<tr class="row-even"><td><p>UNFURL_NORUNTIME</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_MOCK_DEPLOY</p></td>
+<tr class="row-odd"><td><p>UNFURL_APPROVE</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_LOGFILE</p></td>
+<tr class="row-even"><td><p>UNFURL_MOCK_DEPLOY</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_SKIP_VAULT_DECRYPT</p></td>
+<tr class="row-odd"><td><p>UNFURL_LOGFILE</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_SKIP_UPSTREAM_CHECK</p></td>
+<tr class="row-even"><td><p>UNFURL_SKIP_VAULT_DECRYPT</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_SKIP_SAVE</p></td>
+<tr class="row-odd"><td><p>UNFURL_SKIP_UPSTREAM_CHECK</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_SEARCH_ROOT</p></td>
+<tr class="row-even"><td><p>UNFURL_SKIP_SAVE</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_CLOUD_SERVER</p></td>
+<tr class="row-odd"><td><p>UNFURL_SEARCH_ROOT</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_VALIDATION_MODE</p></td>
+<tr class="row-even"><td><p>UNFURL_CLOUD_SERVER</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_PACKAGE_RULES</p></td>
+<tr class="row-odd"><td><p>UNFURL_VALIDATION_MODE</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_LOG_FORMAT</p></td>
+<tr class="row-even"><td><p>UNFURL_PACKAGE_RULES</p></td>
+</tr>
+<tr class="row-odd"><td><p>UNFURL_LOG_FORMAT</p></td>
+</tr>
+<tr class="row-even"><td><p>UNFURL_LOG_TRUNCATE</p></td>
 </tr>
 <tr class="row-odd"><td><p>UNFURL_RAISE_LOGGING_EXCEPTIONS</p></td>
 </tr>
@@ -332,6 +346,14 @@ and a <code class="docutils literal notranslate"><span class="pre">.tool-version
 <span class="w">    </span><span class="nt">foo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 <span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
 <span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+</li>
+<li><p>As a TOSCA extension, in the <code class="docutils literal notranslate"><span class="pre">inputs_values</span></code> section of the service template. For example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">inputs_values</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">foo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 </pre></div>
 </div>
 </li>

@@ -70,6 +70,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -114,55 +115,35 @@
 <section id="step-1-create-a-project">
 <h2>Step 1 Create a project<a class="headerlink" href="#step-1-create-a-project" title="Permalink to this headline"></a></h2>
 <p>The first step is to create an Unfurl project to manage your deployments:</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>myproject<span class="w"> </span>--empty
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>myproject<span class="w"> </span>--empty<span class="w"> </span>--var<span class="w"> </span>std<span class="w"> </span><span class="nb">true</span><span class="w"> </span>--design
 </pre></div>
 </div>
-<p>This is will create an Unfurl project in directory “myproject”.  The <code class="docutils literal notranslate"><span class="pre">--empty</span></code> option skips creating an ensemble (a deployment) for now (we’ll add that later in <a class="reference internal" href="#step-3-instantiate-your-blueprint"><span class="std std-ref">step 3</span></a>).</p>
+<p>This will create an Unfurl project in directory “myproject”.  The <a class="reference external" href="cli.html#cmdoption-unfurl-init-empty">–empty</a> option skips creating an ensemble (a deployment) for now (we’ll add that later in <a class="reference internal" href="#step-3-instantiate-your-blueprint"><span class="std std-ref">step 3</span></a>).
+The <a class="reference external" href="cli.html#cmdoption-unfurl-init-var">–var</a> option passes settings to the <a class="reference internal" href="projects.html#project-skeletons"><span class="std std-ref">project skeleton</span></a> templates that create the project. When the default project skeleton sees <code class="docutils literal notranslate"><span class="pre">std</span></code>, it adds our <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard TOSCA library</a> repository, which includes TOSCA types that provide basic abstractions for resources like compute instances and container images.</p>
+<p>The <a class="reference external" href="cli.html#cmdoption-unfurl-init-design">–design</a> option initialized your project for development, in particular, it will download the <code class="docutils literal notranslate"><span class="pre">std</span></code> repository so that if you open <code class="docutils literal notranslate"><span class="pre">service_template.py</span></code> in an Python IDE such as VS Code the Python import statements will resolve, enabling your editor’s type checking and code navigation.
+(If you didn’t do use that option, this will happen when you first deploy an ensemble or when you run the <a class="reference external" href="cli.html#unfurl-validate">validate</a> command.)</p>
 <p>If this is the first time you’ve created a Unfurl project, you’ll notice a message like “Unfurl home created at ~/.unfurl_home”.  Unfurl home is an Unfurl project that contains local settings and resources that are shared with other projects on that machine, including an isolated execution environment to run Unfurl in. For more information, see <a class="reference internal" href="projects.html#unfurl-home"><span class="std std-ref">Unfurl Home</span></a>.</p>
 </section>
 <section id="step-2-describe-your-application">
 <h2>Step 2: Describe your application<a class="headerlink" href="#step-2-describe-your-application" title="Permalink to this headline"></a></h2>
-<p>Now that your project is set up, we’ll create an TOSCA <a class="reference internal" href="solution-overview.html#step-2-create-a-cloud-blueprint"><span class="std std-ref">blueprint</span></a> for deploying our application. In this example, its a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of things we need to do to deploy this web application:</p>
+<p>Now that your project is set up, we’ll create a TOSCA <a class="reference internal" href="solution-overview.html#step-2-create-a-cloud-blueprint"><span class="std std-ref">blueprint</span></a> for deploying our application. In this example, it’s a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of the tasks we need to do to deploy this web application:</p>
 <ul class="simple">
 <li><p>Create a service that can run the container image.</p></li>
 <li><p>Deploy a database and connect it to the web app.</p></li>
 <li><p>Consider DNS to resolve to the web app.</p></li>
 </ul>
-<p>We’ll add the blueprint to the project’s <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> file so that it can be reused by different <a class="reference internal" href="ensembles.html"><span class="doc">Ensembles</span></a>.</p>
-<p>The TOSCA specification defines types that provide basic abstractions for resources like compute instances and container images. In addition to TOSCA’s built-in types, we’ll use our <a class="reference external" href="https://unfurl.cloud/onecommons/std">Unfurl Cloud Standard TOSCA library</a>, so first we need to import that:</p>
-<ol class="arabic simple">
-<li><p>Open <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> and uncomment these lines:</p></li>
-</ol>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">std</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://unfurl.cloud/onecommons/std.git</span>
-</pre></div>
-</div>
-<ol class="arabic simple" start="2">
-<li><p>You can create your TOSCA blueprint in either YAML or Python. If you want to follow along using the Python examples, open <code class="docutils literal notranslate"><span class="pre">service_template.py</span></code> and uncomment these lines:</p></li>
-</ol>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
-<span class="kn">from</span> <span class="nn">tosca_repositories</span> <span class="kn">import</span> <span class="n">std</span>
-</pre></div>
-</div>
-<ol class="arabic simple" start="3">
-<li><p>Run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">validate</span></code>.</p></li>
-</ol>
-<p>This will make sure the changes you just made are valid but more importantly, as a side effect, it will install the <code class="docutils literal notranslate"><span class="pre">std</span></code> repository so that if you open <code class="docutils literal notranslate"><span class="pre">service_template.py</span></code> in an Python IDE such as VS Code the Python import statements will resolve, enabling your editor’s type checking and code navigation.</p>
-<ol class="arabic simple" start="4">
-<li><p>Add the blueprint.</p></li>
-</ol>
+<p>You can create your TOSCA blueprint in either YAML or Python. If you want to use YAML, add the blueprint to the project’s <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> file so that it can be reused by different <a class="reference internal" href="ensembles.html"><span class="doc">Ensembles</span></a>. If you want to follow along using the Python examples, edit the <code class="docutils literal notranslate"><span class="pre">service_template.py</span></code> file.</p>
 <p>Copy the code below to either service_template.py or ensemble-template.yaml. They are equivalent, in fact you can <a class="reference internal" href="dsl.html#usage"><span class="std std-ref">bi-directionally convert</span></a> them using the <a class="reference external" href="cli.html#unfurl-export">unfurl export</a> command.</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-0">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">unfurl</span>
-<span class="kn">from</span> <span class="nn">unfurl.configurators.templates.docker</span> <span class="kn">import</span> <span class="n">unfurl_datatypes_DockerContainer</span>
-<span class="kn">from</span> <span class="nn">tosca</span> <span class="kn">import</span> <span class="n">Size</span><span class="p">,</span> <span class="n">TopologyInputs</span><span class="p">,</span> <span class="n">gb</span><span class="p">,</span> <span class="n">mb</span>
-<span class="kn">from</span> <span class="nn">tosca_repositories</span> <span class="kn">import</span> <span class="n">std</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">unfurl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.configurators.templates.docker</span><span class="w"> </span><span class="kn">import</span> <span class="n">unfurl_datatypes_DockerContainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">Size</span><span class="p">,</span> <span class="n">TopologyInputs</span><span class="p">,</span> <span class="n">gb</span><span class="p">,</span> <span class="n">mb</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories</span><span class="w"> </span><span class="kn">import</span> <span class="n">std</span>
 
-<span class="k">class</span> <span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Inputs</span><span class="p">(</span><span class="n">TopologyInputs</span><span class="p">):</span>
     <span class="n">disk_size</span><span class="p">:</span> <span class="n">Size</span> <span class="o">=</span> <span class="mi">10</span> <span class="o">*</span> <span class="n">gb</span>
     <span class="n">mem_size</span><span class="p">:</span> <span class="n">Size</span> <span class="o">=</span> <span class="mi">2048</span> <span class="o">*</span> <span class="n">mb</span>
 
@@ -192,55 +173,51 @@ YAML</label><div class="sd-tab-content docutils">
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># add this to ensemble-template.yaml under</span>
 <span class="c1"># spec: </span>
 <span class="c1">#   service_template:</span>
-<span class="w">      </span><span class="nt">topology_template</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">disk_size</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scalar-unit.size</span>
-<span class="w">            </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10 GB</span>
-<span class="w">          </span><span class="nt">mem_size</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scalar-unit.size</span>
-<span class="w">            </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048 MB</span>
-<span class="w">        </span><span class="nt">node_templates</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">db</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDB</span>
-<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
-<span class="w">              </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_template</span>
-<span class="w">          </span><span class="nt">host</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerHost</span>
-<span class="w">            </span><span class="nt">metadata</span><span class="p">:</span>
-<span class="w">              </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_template</span>
-<span class="w">          </span><span class="nt">container</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerService</span>
-<span class="w">            </span><span class="nt">requirements</span><span class="p">:</span>
-<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
-<span class="w">            </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">              </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">                </span><span class="nt">DBASE</span><span class="p">:</span>
-<span class="w">                  </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::db::url</span>
-<span class="w">                </span><span class="nt">url</span><span class="p">:</span>
-<span class="w">                  </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::[.type=SQLWebApp]::url</span>
-<span class="w">              </span><span class="nt">container</span><span class="p">:</span>
-<span class="w">                </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.gitlab.com/gitlab-org/project-templates/express/main:latest</span>
-<span class="w">                </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000:5000</span>
-<span class="w">                </span><span class="nt">deploy</span><span class="p">:</span>
-<span class="w">                  </span><span class="nt">resources</span><span class="p">:</span>
-<span class="w">                    </span><span class="nt">limits</span><span class="p">:</span>
-<span class="w">                      </span><span class="nt">memory</span><span class="p">:</span>
-<span class="w">                        </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mem_size</span>
-<span class="w">          </span><span class="nt">__root__</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SQLWebApp</span>
-<span class="w">            </span><span class="nt">requirements</span><span class="p">:</span>
-<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
-<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db</span>
-<span class="w">            </span><span class="nt">properties</span><span class="p">:</span>
-<span class="w">              </span><span class="nt">subdomain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span>
-<span class="w">        </span><span class="nt">root</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">__root__</span>
-<span class="w">      </span><span class="nt">imports</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configurators/templates/docker.yaml</span>
-<span class="w">        </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_repositories/std/generic_types.yaml</span>
+<span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">disk_size</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scalar-unit.size</span>
+<span class="w">      </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10 GB</span>
+<span class="w">    </span><span class="nt">mem_size</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scalar-unit.size</span>
+<span class="w">      </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048 MB</span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDB</span>
+<span class="w">      </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_template</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerHost</span>
+<span class="w">      </span><span class="nt">metadata</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service_template</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerService</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">DBASE</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::db::url</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">::[.type=SQLWebApp]::url</span>
+<span class="w">        </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.gitlab.com/gitlab-org/project-templates/express/main:latest</span>
+<span class="w">          </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000:5000</span>
+<span class="w">          </span><span class="nt">deploy</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">resources</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">limits</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">memory</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mem_size</span>
+<span class="w">    </span><span class="nt">__root__</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SQLWebApp</span>
+<span class="w">      </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">subdomain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span>
+<span class="w">  </span><span class="nt">root</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">__root__</span>
 </pre></div>
 </div>
 </div>
@@ -272,13 +249,14 @@ unfurl<span class="w"> </span>init<span class="w"> </span>development<span class
 <input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
 </input><label class="sd-tab-label" data-sync-id="tabcode-python" for="sd-tab-item-2">
 PYTHON</label><div class="sd-tab-content docutils">
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">tosca</span>
-<span class="kn">from</span> <span class="nn">tosca_repositories.std.aws.compute</span> <span class="kn">import</span> <span class="n">EC2Compute</span>
-<span class="kn">from</span> <span class="nn">tosca_repositories.std.aws.db</span> <span class="kn">import</span> <span class="n">AwsRdsPostgres</span>
-<span class="kn">from</span> <span class="nn">tosca_repositories.std</span> <span class="kn">import</span> <span class="n">k8s</span>
-<span class="kn">from</span> <span class="nn">tosca_repositories.std.dns_services</span> <span class="kn">import</span> <span class="n">Route53DNSZone</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">tosca</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories.std.aws.compute</span><span class="w"> </span><span class="kn">import</span> <span class="n">EC2Compute</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories.std.aws.db</span><span class="w"> </span><span class="kn">import</span> <span class="n">AwsRdsPostgres</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories.std</span><span class="w"> </span><span class="kn">import</span> <span class="n">k8s</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories.std.dns_services</span><span class="w"> </span><span class="kn">import</span> <span class="n">Route53DNSZone</span>
 
-<span class="k">class</span> <span class="nc">production</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">DeploymentBlueprint</span><span class="p">):</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">production</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">DeploymentBlueprint</span><span class="p">):</span>
     <span class="n">_cloud</span> <span class="o">=</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsToAWSAccount</span>
 
     <span class="n">host</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">HttpsProxyContainerComputeHost</span><span class="p">(</span>
@@ -291,12 +269,14 @@ PYTHON</label><div class="sd-tab-content docutils">
     <span class="p">)</span>
     <span class="n">db</span> <span class="o">=</span> <span class="n">AwsRdsPostgres</span><span class="p">()</span>
 
-<span class="k">class</span> <span class="nc">dev</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">DeploymentBlueprint</span><span class="p">):</span>
-    <span class="c1"># unfurl_relationships_ConnectsTo_K8sCluster</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">dev</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">DeploymentBlueprint</span><span class="p">):</span>
     <span class="n">_cloud</span> <span class="o">=</span> <span class="s2">&quot;unfurl.relationships.ConnectsTo.K8sCluster&quot;</span>
 
     <span class="n">host</span> <span class="o">=</span> <span class="n">k8s</span><span class="o">.</span><span class="n">PublicK8sContainerHost</span><span class="p">(</span>
-        <span class="n">labels</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;kompose.volume.size&quot;</span><span class="p">:</span> <span class="n">Inputs</span><span class="o">.</span><span class="n">disk_size</span><span class="p">}</span>
+        <span class="n">labels</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;kompose.volume.size&quot;</span><span class="p">:</span> <span class="n">Inputs</span><span class="o">.</span><span class="n">disk_size</span><span class="p">},</span>
+        <span class="c1"># match any unfurl.nodes.DNSZone template:</span>
+        <span class="n">dns</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">Requirement</span><span class="p">(</span><span class="n">node</span><span class="o">=</span><span class="s2">&quot;unfurl.nodes.DNSZone&quot;</span><span class="p">),</span>
     <span class="p">)</span>
     <span class="n">db</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">PostgresDBInstance</span><span class="p">(</span>
         <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;my_db&quot;</span><span class="p">,</span> <span class="n">host_requirement</span><span class="o">=</span><span class="n">k8s</span><span class="o">.</span><span class="n">PrivateK8sContainerHost</span><span class="p">()</span>
@@ -312,9 +292,10 @@ YAML</label><div class="sd-tab-content docutils">
 <span class="w">    </span><span class="nt">cloud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.ConnectsTo.AWSAccount</span>
 <span class="w">    </span><span class="nt">node_templates</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">host</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ContainerComputeHost</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HttpsProxyContainerComputeHost</span>
 <span class="w">        </span><span class="nt">requirements</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_host</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">dns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_dns</span>
 <span class="w">      </span><span class="nt">host_host</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EC2Compute</span>
 <span class="w">        </span><span class="nt">properties</span><span class="p">:</span>
@@ -323,6 +304,10 @@ YAML</label><div class="sd-tab-content docutils">
 <span class="w">            </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mem_size</span>
 <span class="w">          </span><span class="nt">disk_size</span><span class="p">:</span>
 <span class="w">            </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">disk_size</span>
+<span class="w">      </span><span class="nt">host_dns</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Route53DNSZone</span>
+<span class="w">          </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.com</span>
 <span class="w">      </span><span class="nt">db</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">AwsRdsPostgres</span>
 <span class="w">  </span><span class="nt">dev</span><span class="p">:</span>
@@ -334,6 +319,8 @@ YAML</label><div class="sd-tab-content docutils">
 <span class="w">          </span><span class="nt">labels</span><span class="p">:</span>
 <span class="w">            </span><span class="nt">kompose.volume.size</span><span class="p">:</span>
 <span class="w">              </span><span class="nt">get_input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">disk_size</span>
+<span class="w">        </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">dns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.DNSZone</span>
 <span class="w">      </span><span class="nt">db</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PostgresDBInstance</span>
 <span class="w">        </span><span class="nt">requirements</span><span class="p">:</span>
@@ -348,6 +335,8 @@ YAML</label><div class="sd-tab-content docutils">
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k8s.yaml</span>
 <span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">std</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aws/compute.yaml</span>
+<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">std</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dns_services.yaml</span>
 <span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">std</span>
 </pre></div>
 </div>

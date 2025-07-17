@@ -62,6 +62,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -255,7 +256,7 @@
 <li><p>Add “_node_filter” attribute for node templates with the “select” directive.</p></li>
 </ul>
 </li>
-<li><p>Serialize attributes that match the pattern “{interface_name}_default_inputs” as interface level operation inputs on TOSCA types or templates.</p></li>
+<li><p>Serialize attributes that match the pattern “_{interface_name}_default_inputs” as interface level operation inputs on TOSCA types or templates.</p></li>
 <li><p>Add set_operation() method for setting TOSCA operation definitions directly on template objects.</p></li>
 <li><p>Deployment blueprints with the DeploymentBlueprint class.</p></li>
 <li><p>The “concat” and “token” TOSCA functions.</p></li>
@@ -455,7 +456,7 @@ Generation of type global names with export and the APIs can be disabled by sett
 <li><p>ToscaType implementations of TOSCA operations can return a Python method instead of an artifact or configurator and that method will converted to a configurator.</p></li>
 <li><p>If TOSCA operation attempts to execute runtime-only functionality it will be invoked during the job’s render phase instead of converted to YAML.</p></li>
 <li><p>Introduce a <code class="docutils literal notranslate"><span class="pre">Computed()</span></code> field specifier for TOSCA properties whose value is computed at runtime with the given method.</p></li>
-<li><p>Add a <code class="docutils literal notranslate"><span class="pre">unfurl.tosca_plugins.functions</span></code> module containing utility functions that can be executed in the safe mode Python sandbox. This allows these functions to be executed in “spec” mode (e.g. as part of a class definition or in <code class="docutils literal notranslate"><span class="pre">_class_init</span></code>).</p></li>
+<li><p>Add a <code class="docutils literal notranslate"><span class="pre">unfurl.tosca_plugins.functions</span></code> module containing utility functions that can be executed in the safe mode Python sandbox. This allows these functions to be executed in “parse” mode (e.g. as part of a class definition or in <code class="docutils literal notranslate"><span class="pre">_class_init</span></code>).</p></li>
 <li><p>Add a <code class="docutils literal notranslate"><span class="pre">unfurl.expr</span></code> module containing type-safe python equivalents to Unfurl’s eval expression functions.</p></li>
 <li><p>Add methods and free functions providing type-safes equivalents to Unfurl’s query expressions: <code class="docutils literal notranslate"><span class="pre">find_configured_by</span></code>, <code class="docutils literal notranslate"><span class="pre">find_hosted_on</span></code>, <code class="docutils literal notranslate"><span class="pre">find_required_by</span></code> and <code class="docutils literal notranslate"><span class="pre">find_all_required_by</span></code> APIs.</p></li>
 <li><p>Providing these apis required synchronizing a job’s task context as a per-thread global runtime state, add public apis for querying global state and retrieving the current <code class="docutils literal notranslate"><span class="pre">RefContext</span></code>.</p></li>
@@ -591,14 +592,14 @@ By default, don’t instantiate environment instances unless they are imported f
 <li><p>Introduce the <code class="docutils literal notranslate"><span class="pre">Options</span></code> class to enable typed metadata for TOSCA fields and have the Terraform configurator add <code class="docutils literal notranslate"><span class="pre">tfvar</span></code> and <code class="docutils literal notranslate"><span class="pre">tfoutput</span></code> options to automatically map properties and attributes to Terraform variables and outputs, respectively.</p></li>
 </ul>
 <p>This example uses the above features to integrate a Terraform module.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">unfurl.configurators.terraform</span> <span class="kn">import</span> <span class="n">TerraformConfigurator</span><span class="p">,</span> <span class="n">TerraformInputs</span><span class="p">,</span> <span class="n">tfvar</span><span class="p">,</span> <span class="n">tfoutput</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">unfurl.configurators.terraform</span><span class="w"> </span><span class="kn">import</span> <span class="n">TerraformConfigurator</span><span class="p">,</span> <span class="n">TerraformInputs</span><span class="p">,</span> <span class="n">tfvar</span><span class="p">,</span> <span class="n">tfoutput</span>
 
-<span class="k">class</span> <span class="nc">GenericTerraformManagedResource</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GenericTerraformManagedResource</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
     <span class="n">example_terraform_var</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Property</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">tfvar</span><span class="p">)</span>
     <span class="n">example_terraform_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Attribute</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">tfoutput</span><span class="p">)</span>
 
     <span class="nd">@operation</span><span class="p">(</span><span class="n">apply_to</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Install.check&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard.configure&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard.delete&quot;</span><span class="p">])</span>
-    <span class="k">def</span> <span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">TerraformConfigurator</span><span class="p">(</span><span class="n">TerraformInputs</span><span class="p">(</span><span class="n">main</span><span class="o">=</span><span class="s2">&quot;terraform_dir&quot;</span><span class="p">))</span>
 </pre></div>
 </div>
