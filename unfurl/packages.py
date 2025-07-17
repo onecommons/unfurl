@@ -24,8 +24,8 @@ If multiple repository declarations refer to the same package and they specify v
 
 If no revision was set, the package will retrieve the revision that matches the latest git tag that looks like a semantic version tag (see https://go.dev/ref/mod#vcs-version for the algorithm). If none is found the latest revision from the repository's default branch will be used.
 
-If the keys in a `repositories` section look like package identifiers 
-that block is used as a rule override the location or version of a package 
+If the keys in a `repositories` section look like package identifiers
+that block is used as a rule override the location or version of a package
 or replace the package with another package.
 
 ```
@@ -43,7 +43,7 @@ environments:
       # A trailing * applies the rule to all packages that match
       unfurl.cloud/onecommons/*:
           url: https://staging.unfurl.cloud/onecommons/*
-      
+
       # replace for a particular package, version combination
       unfurl.cloud/onecommons/blueprints/ghost#v1.6.0:
         url: github.com/user1/myforks.git/ghost
@@ -56,9 +56,11 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 
 The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
 """
+
 import os.path
 import re
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
+from git import GitCommandError
 from typing_extensions import Literal
 from urllib.parse import urlparse
 
@@ -68,6 +70,7 @@ from .repo import (
     get_remote_tags,
     sanitize_url,
     is_url_or_git_path,
+    normalize_git_url_hard,
 )
 from .logs import getLogger
 from .util import UnfurlError
@@ -90,6 +93,7 @@ def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
         (include_unreleased or not revision.lstrip("v").startswith("0"))
         and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
     )
+
 
 def is_semver_compatible_with(expected: str, test: str) -> bool:
     """
@@ -115,11 +119,16 @@ class PackageSpec:
         minimum_version: Optional[str] = None,
     ) -> None:
         # url can be package id, a url prefix, or an url with a revision or branch
+        # minimum_version if set overrides revision in url_ish
         self.package_spec = package_spec
         if url_ish:
             self.package_id, self.url, revision = get_package_id_from_url(url_ish)
             # if url_ish was a full url, preserve the original
             if self.url and "*" not in url_ish:
+                if revision == "HEAD":
+                    url_ish = url_ish.replace("#HEAD", "#")
+                    if url_ish.endswith("#"):
+                        url_ish = url_ish[:-1]
                 self.url = url_ish
         else:
             self.url = None
@@ -173,15 +182,11 @@ class PackageSpec:
         # print("match", candidate, self.package_spec, candidate.startswith(self.package_spec.rstrip("*")))
         if self.package_spec.endswith("*"):
             return candidate.startswith(self.package_spec.rstrip("*"))
-        elif "#" in self.package_spec:
-            package_id, revision = self.package_spec.split("#")
-            # match exact match with package and revision
-            return candidate == package_id and revision == package.revision
         else:
             return candidate == self.package_spec
 
     @staticmethod
-    def _replace(match, replace, candidate):
+    def _replace(match: str, replace: str, candidate: str):
         # if `candidate` startswith `match`, replace the matching segment with replace
         match = match.rstrip("*")
         if candidate.startswith(match):
@@ -189,15 +194,16 @@ class PackageSpec:
             return replace.replace("*", candidate[len(match) :])
         return candidate
 
-    def replace(self, replace, package):
-        return self._replace(self.package_spec, replace, package.package_id)
+    def replace(self, replace: str, package_id: str) -> str:
+        # replaces package_id if package_spec.endswith("*")
+        return self._replace(self.package_spec, replace, package_id)
 
     def update(self, package: "Package") -> str:
         # if the package's package_id was replaced return that
         # assume package already matched
         if self.package_spec.endswith("*"):
             if self.url:
-                package.url = self.replace(self.url, package)
+                package.url = self.replace(self.url, package.package_id)
                 if self.revision:
                     package.revision = self.revision
                     # PackageSpec.url used above will always have revision stripped off
@@ -206,7 +212,9 @@ class PackageSpec:
             else:
                 if self.package_id:
                     replaced_id = package.package_id
-                    package.package_id = self.replace(self.package_id, package)
+                    package.package_id = self.replace(
+                        self.package_id, package.package_id
+                    )
                     package.url = ""
                     return replaced_id
                 if self.revision:
@@ -222,7 +230,10 @@ class PackageSpec:
                 )
         if self.url:
             package.url = self.url
-        if self.revision:
+        if self.revision == "HEAD":
+            package.locked = True
+            package.revision = None
+        elif self.revision:
             package.revision = self.revision
             if package.url and "#" not in package.url:
                 package.url += "#" + self.revision
@@ -246,7 +257,7 @@ class PackageSpec:
         Returns:
             bool: True if the package was updated
         """
-        old = []
+        old: List[str] = []
         changed = False
         replaced = True
         # if the package_id changes, start over
@@ -270,9 +281,14 @@ class PackageSpec:
                             package.set_url_from_package_id()
                         continue
                     if replaced_id in old:
-                        raise UnfurlError(
-                            f"Circular reference in package rules: {replaced_id}"
+                        # we've already replaced this package_id
+                        logger.trace(
+                            "circular reference in package rules: %s, %s, %s",
+                            replaced_id,
+                            old,
+                            package_specs,
                         )
+                        continue
                     replaced = True
                     old.append(replaced_id)
                     break  # package_id replaced start over
@@ -348,6 +364,15 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
     return Package_Url_Info(package_id, url if parts.scheme else None, revision)
 
 
+def normalize_url(url: str) -> str:
+    """Normalize url to a package_id, a git URL, or a file path, depending on the URL."""
+    package_id, _, _ = get_package_id_from_url(url)
+    if package_id:
+        return package_id
+    else:
+        return normalize_git_url_hard(normalize_path(url))
+
+
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
     # XXX assumes .git and https
     package_id, sep, revision = package_id.partition(".git/")
@@ -379,6 +404,11 @@ class Package:
         self, package_id: str, url: Optional[str], minimum_version: Optional[str]
     ):
         self.package_id = package_id
+        if minimum_version == "HEAD":
+            minimum_version = None
+            self.locked = True  # use current state of package
+        else:
+            self.locked = False
         self.revision = minimum_version
         if url is None:
             # set self.url now because set_url_from_package_id() calls version_tag_prefix()
@@ -390,7 +420,6 @@ class Package:
         # flags:
         self.discovered = False  # the current revision was discovered
         self.missing = False  # if set, failed to find a version tag
-        self.locked = False  # current revision set from lock
         self.original_id = package_id
 
     @property
@@ -440,11 +469,11 @@ class Package:
     def set_version_from_repo(self, get_remote_tags) -> bool:
         try:
             revision = self.find_latest_semver_from_repo(get_remote_tags)
-        except Exception:
+        except GitCommandError as e:
             logger.warning(
-                "failed to look up version tags on remote git at %s",
+                "failed to look up version tags on remote git at %s: %s",
                 self.safe_url,
-                exc_info=True,
+                e.stderr,
             )
             return False
         # remember the result of the search even if we don't set the revision
@@ -476,7 +505,9 @@ class Package:
             return False
         if self.discovered or not self.revision:
             return True
-        return not self.has_semver(True)  # if set to an explicit version tag, assume it wont change
+        return not self.has_semver(
+            True
+        )  # if set to an explicit version tag, assume it wont change
 
     def add_reference(self, repoview: RepoView) -> bool:
         if repoview not in self.repositories:
@@ -503,21 +534,33 @@ class Package:
         If either package doesn't specify a version, return true.
         Otherwise only return true if the packages revisions match exactly.
         """
+        return not bool(self.compare_versions(package))
+
+    def compare_versions(self, package: "Package") -> Union[bool, str]:
+        """
+        If it returns a string, the package is compatible but with a caveat.
+        """
         if not self.revision or not package.revision:
             # there aren't two revisions to compare so skip compatibility check
-            return True
+            return "missing"
         # if either revision wasn't explicitly specified, skip compatibility check
         if self.discovered or package.discovered:
-            return True
+            return "discovered"
         if not self.has_semver(True):
             # require an exact match for non-semver revisions
             return self.revision == package.revision
         if not package.has_semver(True):
             return False  # the other package doesn't have a semver and doesn't match
         # # if given revision is newer than current packages we need to reload (error for now?)
-        return TOSCAVersionProperty(package.revision).is_semver_compatible_with(
-            TOSCAVersionProperty(self.revision)
-        )
+        package_version = TOSCAVersionProperty(package.revision)
+        version = TOSCAVersionProperty(self.revision)
+        unreleased = int(package_version.major_version) == 0
+        if unreleased and int(version.major_version) == 1:
+            return "unreleased"
+        compat = package_version.is_semver_compatible_with(version)
+        if compat and unreleased and version.minor_version != package_version.minor_version:
+            return "unreleased" # more recent unreleased version, not an exact match
+        return compat
 
 
 PackagesType = Dict[str, Union[Literal[False], Package]]
@@ -558,14 +601,15 @@ def resolve_package(
             raise UnfurlError(
                 f'Could not find a repository that matched package "{package.package_id}"'
             )
-        if not package.revision and get_remote_tags:
-            # no version specified, use the latest version tagged in the repository
-            package.set_version_from_repo(get_remote_tags)
-        if not changed and not package.revision:
-            # don't treat repository as a package
-            repoview.package = False
-            packages[package.package_id] = False
-            return None
+        if not package.locked and not package.revision:
+            if get_remote_tags:
+                # no version specified, use the latest version tagged in the repository
+                package.set_version_from_repo(get_remote_tags)
+            if not changed and not package.revision:
+                # don't treat repository as a package
+                repoview.package = False
+                packages[package.package_id] = False
+                return None
         packages[package.package_id] = package
     else:
         existing = packages[package.package_id]
@@ -573,13 +617,22 @@ def resolve_package(
             return None
         # We don't want different implementations of the same package so use the one we already have.
         # But first check if it compatible with the version requested here.
-        if not existing.is_compatible_with(package):
+        compatible = existing.compare_versions(package)
+        if not compatible:
             # XXX if we need a later version, update the existing package and reload any content from it
             # XXX update existing.repositories and invalidate associated file_refs in the cache
             # XXX switch to raising UnfurlPackageUpdateNeeded after updating repositories and cache
-            raise UnfurlError(
-                f"{package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use."
-            )
+            if package.package_id == "github.com/onecommons/unfurl":
+                msg = f"Unfurl version {package.revision} was specified but the running version is {existing.revision}."
+            else:
+                msg = f"Package {package.package_id} has version {package.revision} but incompatible version {existing.revision} is already in use."
+            raise UnfurlError(msg)
+        elif compatible == "unreleased":
+            if package.package_id == "github.com/onecommons/unfurl":
+                msg = f"Unreleased Unfurl version {package.revision} was specified but the running version is {existing.revision}."
+            else:
+                msg = "Package {package.package_id} has an unreleased version {package.revision} but version {existing.revision} is already in use."
+            logger.warning(msg)
         package = existing
 
     package.add_reference(repoview)

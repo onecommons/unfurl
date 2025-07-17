@@ -92,7 +92,7 @@ from .repo import (
     sanitize_url,
     split_git_url,
 )
-from .util import UnfurlError, assert_not_none, unique_name
+from .util import API_VERSION, UnfurlError, assert_not_none, unique_name
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
 from .logs import getLogger
@@ -603,7 +603,7 @@ class CloudMapDB:
     def _load(self, path: str, contents=None):
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
-        default_db = dict(apiVersion="unfurl/v1alpha1", kind="CloudMap")
+        default_db = dict(apiVersion=API_VERSION, kind="CloudMap", repositories={})
         self.config = YamlConfig(
             contents or default_db,
             path,

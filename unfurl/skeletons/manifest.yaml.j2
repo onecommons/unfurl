@@ -1,7 +1,7 @@
-apiVersion: unfurl/v1alpha1
+apiVersion: {{ api_version }}
 kind: Ensemble
 {%- if ensembleTemplate is defined %}
-+include:
++include-blueprint:
   file: {{ensembleTemplate}}
   repository: spec
 {%- endif %}

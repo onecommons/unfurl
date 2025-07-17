@@ -1,17 +1,19 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import io
 from unfurl.eval import Ref, map_value
 from unfurl.projectpaths import _abspath, _getdir
-from unfurl.support import (
+from unfurl.tosca_plugins.functions import (
+    scalar,
     to_dns_label,
     to_googlecloud_label,
     to_kubernetes_label,
     to_label,
 )
-from unfurl.util import which, wrap_sensitive_value
+from unfurl.util import which, wrap_sensitive_value, to_text, to_native
 from jinja2 import pass_context
-
-# from ansible.errors import AnsibleError, AnsibleFilterError
+from unfurl.yamlloader import cleartext_yaml
+from ansible.errors import AnsibleFilterError
 
 
 @pass_context
@@ -19,7 +21,7 @@ def ref(context, ref, *args, **vars):
     refContext = context["__unfurl"]
     trace = vars.pop("trace", None)
     wantList = vars.pop("wantList", False)
-    return Ref(ref, trace=trace, vars=vars).resolve(refContext, wantList = wantList)
+    return Ref(ref, trace=trace, vars=vars).resolve(refContext, wantList=wantList)
 
 
 @pass_context
@@ -53,24 +55,19 @@ def get_dir(context, relativeTo, mkdir=False):
     return filepath.get()
 
 
+def to_yaml(a, *args, **kw):
+    """Override ansible's built-in filter so we use our own yaml object"""
+    default_flow_style = kw.pop("default_flow_style", None)  # XXX
+    try:
+        output = io.StringIO()
+        cleartext_yaml.dump(a, output)
+        transformed = output.getvalue()
+    except Exception as e:
+        raise AnsibleFilterError("to_yaml - %s" % to_native(e), orig_exc=e)
+    return to_text(transformed)
+
+
 # XXX
-# override ansible built-in so we use our yaml object
-# @pass_context
-# def to_yaml(context, a, *args, **kw):
-#     refContext = context["__unfurl"]
-#     refContext.yaml
-#     default_flow_style = kw.pop("default_flow_style", None)
-#     transformed = yaml.dump(
-#         a,
-#         Dumper=AnsibleDumper,
-#         allow_unicode=True,
-#         default_flow_style=default_flow_style,
-#         **kw
-#     )
-#     return to_text(transformed)
-
-
-# @pass_context
 # def to_nice_yaml(context, a, indent=4, *args, **kw):
 #     transformed = yaml.dump(
 #         a,
@@ -92,6 +89,8 @@ SAFE_FILTERS = {
     "to_dns_label": to_dns_label,
     "to_kubernetes_label": to_kubernetes_label,
     "to_googlecloud_label": to_googlecloud_label,
+    "scalar": scalar,
+    "to_yaml": to_yaml,
 }
 
 ALL_FILTERS = dict(
@@ -100,7 +99,7 @@ ALL_FILTERS = dict(
         "abspath": abspath,
         "get_dir": get_dir,
         "which": which,
-    }
+    },
 )
 
 

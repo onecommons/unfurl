@@ -43,10 +43,14 @@ get_artifact
 
   The first argument is either a string or a instance reference (from an `eval expression <eval expressions>`).
 
-  If it is a string it should be the name of a node template or one of ``SELF``, ``SOURCE``, ``TARGET``, ``HOST``.
+  If it is a string it should be the name of a node template or one of ``ANON``, ``SELF``, ``SOURCE``, ``TARGET``, ``HOST``.
   If no node template is found return ``null``.
 
-  The second argument is the name of the artifact associated with the node template referenced by the first argument.
+  ``ANON`` is like ``SELF`` but if the artifact is not found on current node template it will create an artifact using name in that second argument as its ``file``.
+  This is the same logic used to find an artifact when it is referenced in an operation's implementation.
+
+  The second argument is the name of the artifact associated with the node template referenced by the first argument;
+  Alternatively, if the first argument was ``ANON``, the second argument may be a dictionary with ``name`` and ``repository`` keys.
   If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return ``null``.
 
   See also the :tosca_spec:`TOSCA get_artifact spec <_Toc50125538>` (but note that ``location`` and ``remove`` arguments are not currently supported).
@@ -126,22 +130,36 @@ Expression Functions
   Key                              Value
   ================================ ==================================================
   :std:ref:`abspath`               path | [path, location, mkdir?]
+  :std:ref:`add`                   [a, b]
   `and`                            [test+]
+  `div`                            [a, b]
   `eq`                             [a, b]
-  external                         name
+  `external <external_func>`       name
   `file`                           (see below)
+  :std:ref:`find_connection`       expr
   foreach                          {key?, value?}
+  `ge`                             [a, b]
   :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
+  `gt`                             [a, b]
   `is_function_defined`            function name
   `if`                             (see below)
+  `le`                             [a, b]
+  `lt`                             [a, b]
   `local`                          name
   :std:ref:`lookup`                (see below)
+  `mod`                            [a, b]
+  `mul`                            [a, b]
   `or`                             [test+]
+  `ne`                             [a, b]
   `not`                            expr
+  `pow`                            [a, b]
   `python`                         path#function_name | module.function_name
+  :std:ref:`scalar`                string or scalar
+  :std:ref:`scalar_value`          (see below)
   `secret`                         name
    :std:ref:`sensitive`            any
+  `sub`                            [a, b]
   :std:ref:`tempfile`              (see below)
   :std:ref:`template`              contents
   :std:ref:`to_dns_label`          string or map or lists
@@ -149,7 +167,7 @@ Expression Functions
   :std:ref:`to_kubernetes_label`   string or map or list
   :std:ref:`to_label`              string or map or list
   :std:ref:`urljoin`               [scheme, host, port?, path?, query?, fragment?]
-  `validate`                       [contents, schema]
+  `validate_json`                  [contents, schema]
   ================================ ==================================================
 
 abspath
@@ -173,10 +191,69 @@ and
 eq
 ^^
 
+  Returns true if the two values are equal.
+
+ne
+^^
+
+  Returns true if the two values are not equal.
+
+gt
+^^
+
+  Returns true if the first value is greater than the second value.
+
+ge
+^^
+
+  Returns true if the first value is greater than or equal to the second value.
+
+lt
+^^
+
+  Returns true if the first value is less than the second value.
+
+le
+^^
+
+  Returns true if the first value is less than or equal to the second value.
+
+add
+^^^
+
+  Returns the sum of the two values.
+
+mul
+^^^
+
+  Returns the product of the two values.
+
+pow
+^^^
+
+  Returns the result of raising the first value to the power of the second value.
+
+div
+^^^
+
+  Returns the result of dividing the first value by the second value.
+
+mod
+^^^
+
+  Returns the remainder of dividing the first value by the second value.
+
+sub
+^^^
+
+  Returns the result of subtracting the second value from the first value.
+
+.. _external_func:
+
 external
 ^^^^^^^^
 
-  Return an instance
+  Return `external instance<External ensembles>` as a value.
 
 file
 ^^^^
@@ -253,6 +330,19 @@ get_ensemble_metadata
               get_ensemble_metadata:
 
 
+find_connection
+^^^^^^^^^^^^^^^
+
+Find a relationship that can be used to connect to the given instance. See `TaskView.find_connection`.
+
+.. code-block:: YAML
+
+    eval:
+      find_connection:
+        eval: ::a_instance
+      # optional: use the "relation" keyword to restrict connection to a subtype of tosca.relationships.ConnectsTo:
+      relation: "tosca.relationships.RoutesTo"
+
 foreach
 ^^^^^^^
 
@@ -277,7 +367,9 @@ get_dir
   :spec.home: Directory unique to current instance's TOSCA template (committed to the spec repository).
   :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
   :project: The root directory of the current project.
+  :project.secrets: The "secrets" directory for the current project (files written there are vault encrypted when committed to the repository).
   :unfurl.home: The location of home project (UNFURL_HOME).
+  :repository.<name>: The location of the repository with the given name.
 
   Otherwise look for a `repository <tosca_repositories>` with the given name and return its path or None if not found.
 
@@ -396,6 +488,52 @@ python
   (ie. the template file that is invoking the expression).
   The function will being invoke the current `RefContext` as the first argument.
   If ``args`` is declared, its value will passed as a second argument to the function.
+
+scalar
+^^^^^^
+
+Parse the given string into a scalar, e.g. "5 mb".
+
+TOSCA properties with scalar-unit types represented as as strings so use this function to treat them as scalars.
+For example, in the example below, even though ``mem_size`` property is declared with type ``scalar-unit.size`` you still need to use the ``scalar`` expression function.
+
+  .. code-block:: YAML
+
+    eval:
+      add:
+      - eval:
+          scalar: "5 mb"
+      - eval:
+          scalar: mem_size
+
+
+scalar_value
+^^^^^^^^^^^^
+
+  Convert a scalar to a number denominated by the given unit.
+  If the ``scalar_value`` is a string, parse it as a scalar.
+  If the ``scalar_value`` is a number assume it is already in the given unit.
+  If the ``unit`` keyword is omitted, use the unit parsed from the scalar.
+
+  Return a float or an int depending on the  "round" key, if a integer the number of digits to round to, or "ceil', "floor" to round up or down to the nearest integer.
+  If round is omitted or null, round to the nearest integer unless the absolute value is less than 1.
+
+  ============   ====================================
+  Key            Value
+  ============   ====================================
+  scalar_value   scalar, string, or number
+  unit?          unit
+  round?         "ceil" | "floor" | "round" | integer
+  ============   ====================================
+
+  The example below will evaluate to 0.01:
+
+  .. code-block:: YAML
+
+    eval:
+      scalar_value: "6 mb"
+      unit: "gb"
+      round: 2
 
 secret
 ^^^^^^
@@ -544,8 +682,8 @@ Default ports (80 and 443 for ``http`` and ``https`` URLs respectively) are omit
     urljoin: [http, localhost, "", path, query, fragment]
 
 
-validate
-^^^^^^^^
+validate_json
+^^^^^^^^^^^^^
 
   Return true if the first argument conforms to the JSON schema supplied as the second argument.
 
@@ -553,7 +691,7 @@ Special keys
 ~~~~~~~~~~~~~
 Built-in keys start with a leading **.**:
 
-============== ========================================================
+============== =============================================================
 **.**          self
 **..**         parent
 .name          name of this instance
@@ -562,8 +700,11 @@ Built-in keys start with a leading **.**:
 .tosca_name    name of the instance's TOSCA template
 .status        the instance's :class:`unfurl.support.Status`
 .state         the instance's :class:`unfurl.support.NodeState`
-.parents       list of parents
+.parents       list of parents starting from root
 .ancestors     self and parents
+.owner         parent or source if embedded instance otherwise self
+.source        SOURCE node if instance is a relationship
+.target        TARGET node if instance is a relationship
 .root          root ancestor
 .instances     child instances (via the ``HostedOn`` relationship)
 .capabilities  list of capabilities
@@ -580,4 +721,5 @@ Built-in keys start with a leading **.**:
 .uri           Unique URI for this instance (`URI<uris>` plus the tosca_id)
 .deployment    Name of the ensemble
 .apex          Root ancestor of the outermost topology
-============== ========================================================
+.super         map of properties defined on the template's type or base type
+============== =============================================================

@@ -21,6 +21,7 @@ from collections.abc import MutableSequence, Mapping
 import numbers
 import os
 import os.path
+from pathlib import Path
 import itertools
 
 try:
@@ -30,20 +31,42 @@ except ImportError:
     from functools import lru_cache as cache
 
 from . import DefaultNames
-from .util import UnfurlError, get_base_dir, substitute_env, to_yaml_text, filter_env
-from .merge import patch_dict, intersect_dict
-from .yamlloader import YamlConfig, load_yaml, make_yaml
+from .util import (
+    UnfurlError,
+    UnfurlValidationError,
+    get_base_dir,
+    substitute_env,
+    to_yaml_text,
+    filter_env,
+)
+from .merge import patch_dict
+from .yamlloader import YamlConfig, load_yaml, make_yaml, cleartext_yaml
 from .result import serialize_value
 from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .spec import ArtifactSpec, NodeSpec, encode_unfurl_identifier, find_env_vars
-from .runtime import EntityInstance, NodeInstance, TopologyInstance
-from .eval import map_value
+from .packages import is_semver_compatible_with, is_semver
+from .spec import (
+    ArtifactSpec,
+    NodeSpec,
+    RelationshipSpec,
+    ToscaSpec,
+    encode_unfurl_identifier,
+    find_env_vars,
+    get_default_topology,
+)
+from .runtime import (
+    EntityInstance,
+    NodeInstance,
+    TopologyInstance,
+    RelationshipInstance,
+)
+from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
 from .init import get_input_vars
+from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from ansible.parsing.dataloader import DataLoader
@@ -216,8 +239,6 @@ def split_changes(
     committed_changes = []
     for change in changes:
         local_change = change.copy()
-        local_change.pop("dependencies", None)
-        local_change.pop("change", None)
         local_changes.append(local_change)
         if "result" in change and change["result"] != "skipped":
             change.pop("result")
@@ -275,6 +296,7 @@ class ReadOnlyManifest(Manifest):
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
+        self.apiVersion = manifest.get("apiVersion")
         spec = manifest.get("spec", {})
         self.context = manifest.get("environment", CommentedMap())
         if localEnv:
@@ -321,8 +343,14 @@ class ReadOnlyManifest(Manifest):
         return uri in self.uris
 
     @property
-    def metadata(self):
+    def metadata(self) -> Dict[str, Any]:
         return self.manifest.config.setdefault("metadata", CommentedMap())
+
+    @property
+    def version(self) -> Optional[str]:
+        return (
+            self.tosca.template.metadata.get("template_version") if self.tosca else None
+        )
 
     @property
     def yaml(self):
@@ -388,11 +416,13 @@ class YamlManifest(ReadOnlyManifest):
         manifest=None,
         path=None,
         validate=True,  # json schema validation
-        localEnv=None,
+        localEnv: Optional[LocalEnv] = None,
         vault=None,
         skip_validation=False,  # tosca parser validation
         safe_mode: Optional[bool] = None,
     ):
+        if skip_validation:
+            global_state._enforce_required_fields = False
         super().__init__(manifest, path, validate, localEnv, vault, safe_mode)
         self.validate = not skip_validation  # see AttributeManager.validate
         # instantiate the tosca template
@@ -426,6 +456,15 @@ class YamlManifest(ReadOnlyManifest):
                 logger.warning(
                     "This ensemble contains deployment blueprints but none were specified for use."
                 )
+
+        # need to load external ensembles before we cal _set_spec
+        importsSpec = self.context.get("external", {})
+        # note: external "localhost" is defined in UNFURL_HOME's context by convention
+        connections = []
+        for name, value in importsSpec.items():
+            connections.extend(self.load_external_ensemble(name, value))
+        self.imports.connections = connections
+
         if self.context.get("instances") and load_env_instances:
             # add context instances to spec instances but skip ones that are just in there because they were shared
             env_instances = {
@@ -462,12 +501,16 @@ class YamlManifest(ReadOnlyManifest):
         for key, val in status.get("instances", {}).items():
             self.create_node_instance(key, val, rootResource)
         # create an new instances declared in the spec:
-        for name, instance in spec.get("instances", {}).items():
+        for name, instance_tpl in spec.get("instances", {}).items():
             if not rootResource.find_resource(name):
-                if "readyState" not in instance:
-                    instance["readyState"] = "ok"
-                create_instance_from_spec(self, rootResource, name, instance)
+                if "readyState" not in instance_tpl:
+                    instance_tpl["readyState"] = "ok"
+                create_instance_from_spec(self, rootResource, name, instance_tpl)
 
+        if self._load_errors and not skip_validation:
+            raise UnfurlValidationError(
+                "Error loading ensemble, see logs for errors",
+            )
         self._configure_root(rootResource)
         self._set_repository_links()
         self._ready(rootResource)
@@ -509,7 +552,6 @@ class YamlManifest(ReadOnlyManifest):
                     resource_templates[template_name] = local_resource_templates[
                         template_name
                     ]
-
         if resource_templates:
             node_templates = more_spec["topology_template"]["node_templates"]
             self._load_resource_templates(resource_templates, node_templates, False)
@@ -558,7 +600,7 @@ class YamlManifest(ReadOnlyManifest):
         # values maybe wrong before we set up the env vars so disable validation to suppress validation exceptions
         self.validate = False
         try:
-            for rel in root.requirements:
+            for rel in root.default_relationships:
                 rules.update(rel.merge_props(find_env_vars, True))
             rules = cast(
                 dict, serialize_value(map_value(rules, root), resolveExternal=True)
@@ -595,16 +637,9 @@ class YamlManifest(ReadOnlyManifest):
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
+        root.imports = self.imports
         if not self.safe_mode:
             self._set_root_environ()
-
-        # self.load_external_ensemble("localhost", tpl) # declared in templates/home/unfurl.yaml.j2
-        importsSpec = self.context.get("external", {})
-        # note: external "localhost" is defined in UNFURL_HOME's context by convention
-        for name, value in importsSpec.items():
-            self.load_external_ensemble(name, value)
-
-        root.imports = self.imports
         return root
 
     def _load_resource_templates(self, templates, node_templates, virtual):
@@ -625,11 +660,14 @@ class YamlManifest(ReadOnlyManifest):
         prefixes: Dict[str, list] = {}
         if imports and not include_all_imports:
             # only include imports that match a prefix required by a connection
-            for imp_def in imports:
+            all_imports = list(imports)
+            imports = []
+            for imp_def in all_imports:
                 prefix = imp_def.get("namespace_prefix")
                 if prefix:
                     prefixes.setdefault(prefix + ".", []).append(imp_def)
-            imports = []
+                else:
+                    imports.append(imp_def)
         connections = relabel_dict(context, localEnv, "connections")
         for name, c in connections.items():
             for prefix, imp_defs in prefixes.items():
@@ -637,6 +675,13 @@ class YamlManifest(ReadOnlyManifest):
                     imports.extend(imp_defs)
             if "default_for" not in c:
                 c["default_for"] = "ANY"
+            metadata = c.setdefault("metadata", {})
+            metadata["from_environment"] = True
+        if "primary_provider" not in connections:
+            connections["_default_provider"] = dict(
+                type="unfurl.relationships.ConnectsTo.ComputeMachines",
+                default_for=RelationshipSpec.ANY,
+            )
         tosca: Dict[str, Any] = dict(
             topology_template=dict(
                 node_templates={}, relationship_templates=connections
@@ -646,7 +691,9 @@ class YamlManifest(ReadOnlyManifest):
             tosca["imports"] = imports
         return tosca
 
-    def load_external_ensemble(self, name: str, value: Dict[str, Any]) -> None:
+    def load_external_ensemble(
+        self, name: str, value: Dict[str, Any]
+    ) -> List["RelationshipInstance"]:
         """
         :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
@@ -678,9 +725,10 @@ class YamlManifest(ReadOnlyManifest):
             artifact = ArtifactSpec(
                 artifact_tpl,
                 path=baseDir,
-                topology=self.tosca and self.tosca.topology or None,
+                topology=(self.tosca and self.tosca.topology)
+                or ToscaSpec(get_default_topology()).topology,
             )
-            path = artifact.get_path()
+            path = artifact.get_path(self.get_import_resolver(expand=True))
             localEnv = LocalEnv(
                 path,
                 parent=self.localEnv,
@@ -688,7 +736,7 @@ class YamlManifest(ReadOnlyManifest):
             )
             if self.is_path_to_self(localEnv.manifestPath):
                 # don't import self (might happen when context is shared)
-                return
+                return []
             logger.verbose("loading external ensemble at %s", localEnv.manifestPath)
             importedManifest = localEnv.get_manifest(
                 skip_validation=not self.validate, safe_mode=self.safe_mode
@@ -710,8 +758,34 @@ class YamlManifest(ReadOnlyManifest):
             raise UnfurlError(
                 f"Can not import external ensemble '{name}': instance '{rname}' not found"
             )
+        version = value.get("version")
+        if version:
+            imported_version = importedManifest.version
+            if not imported_version:
+                raise UnfurlError(
+                    f"Can not import external ensemble '{name}': requires version '{version}' and ensemble doesn't specify a version."
+                )
+            else:
+                has_semver = is_semver(imported_version)
+                if (not has_semver and imported_version != version) or (
+                    has_semver
+                    and not is_semver_compatible_with(version, imported_version)
+                ):
+                    raise UnfurlError(
+                        f"Can not import external ensemble '{name}': ensemble's version '{imported_version}' isn't compatible with '{version}'"
+                    )
         self.imports.add_import(name, resource, value)
         self._importedManifests[id(root)] = importedManifest
+        matches = []
+        connections = value.get("connections")
+        if connections:
+            for rel in root.default_relationships:
+                if rel.source:
+                    if f"{rel.source.name}::{rel.name}" in connections:
+                        matches.append(rel)
+                elif rel.name in connections:
+                    matches.append(rel)
+        return matches
 
     def load_changes(self, changes: Optional[List[dict]], changeLogPath: str) -> bool:
         if changes is not None:
@@ -900,10 +974,16 @@ class YamlManifest(ReadOnlyManifest):
     def _save_entity_if_instantiated(
         self, resource, checkstatus=True
     ) -> Optional[Tuple[str, Dict]]:
-        if not self.is_instantiated(resource, checkstatus):
-            # no reason to serialize entities that haven't been instantiated
+        try:
+            if not self.is_instantiated(resource, checkstatus):
+                # no reason to serialize entities that haven't been instantiated
+                return None
+            return self.save_entity_instance(resource)
+        except Exception:
+            logger.error(
+                'Unexpected error saving "%s"', resource.nested_key, exc_info=True
+            )
             return None
-        return self.save_entity_instance(resource)
 
     def save_resource(
         self, resource: NodeInstance, discovered: Dict[str, Any]
@@ -925,7 +1005,7 @@ class YamlManifest(ReadOnlyManifest):
             and resource.template.nested_name in self.tosca.discovered
         ):
             discovered[resource.template.nested_name] = self.tosca.discovered[
-                resource.template.name
+                resource.template.nested_name
             ]
 
         if resource._capabilities:
@@ -986,9 +1066,7 @@ class YamlManifest(ReadOnlyManifest):
                 None,
                 map(
                     lambda r: self.save_resource(r, discovered),
-                    cast(
-                        Iterable[NodeInstance], root.get_operational_dependencies()
-                    ),
+                    cast(Iterable[NodeInstance], root.get_operational_dependencies()),
                 ),
             )
         )
@@ -1104,10 +1182,14 @@ class YamlManifest(ReadOnlyManifest):
 
         if self.changeLogPath:
             if job.dry_run:  # don't commit dry run changes
-                self.save_change_log(job.log_path(ext=".yaml"), jobRecord, changes)
+                self.save_change_log(
+                    job.log_path(ext=".yaml"), jobRecord, changes, cleartext_yaml
+                )
             else:
                 local_changes, committed_changes = split_changes(changes)
-                self.save_change_log(job.log_path(ext=".yaml"), jobRecord, local_changes)
+                self.save_change_log(
+                    job.log_path(ext=".yaml"), jobRecord, local_changes, cleartext_yaml
+                )
                 jobLogPath = job.log_path("changes", ".yaml")
                 self.save_change_log(jobLogPath, jobRecord, committed_changes)
                 self._append_log(job, jobRecord, changes, jobLogPath)
@@ -1143,10 +1225,19 @@ class YamlManifest(ReadOnlyManifest):
             if not repository.read_only and repository.is_dirty():
                 repository.add_all()
 
-    def commit(self, msg: str, add_all: bool = False, ensemble_only=False) -> int:
+    def save_secrets(self) -> List[Path]:
+        saved: List[Path] = []
+        for repository in self.repositories.values():
+            if not repository.read_only:
+                saved.extend(repository.save_secrets())
+        return saved
+
+    def commit(
+        self, msg: str, add_all: bool = False, save_secrets=True, *, ensemble_only=False
+    ) -> int:
         committed = 0
-        save_secrets = not self.localEnv or not self.localEnv.overrides.get(
-            "skip_secret_files"
+        save_secrets = save_secrets and (
+            not self.localEnv or not self.localEnv.overrides.get("skip_secret_files")
         )
         if not ensemble_only:
             for repository in self.repositories.values():
@@ -1192,19 +1283,17 @@ class YamlManifest(ReadOnlyManifest):
         logger.info("saving changelog to %s", logPath)
         with open(logPath, "a") as f:
             attrs = dict(status=job.status.name)
-            attrs.update(
-                {
-                    k: jobRecord[k]
-                    for k in (
-                        "status",
-                        "startTime",
-                        "specDigest",
-                        "startCommit",
-                        "summary",
-                    )
-                    if k in jobRecord
-                }
-            )
+            attrs.update({
+                k: jobRecord[k]
+                for k in (
+                    "status",
+                    "startTime",
+                    "specDigest",
+                    "startCommit",
+                    "summary",
+                )
+                if k in jobRecord
+            })
             attrs["changelog"] = jobLogRelPath
             f.write(job.log(attrs))
 
@@ -1227,7 +1316,7 @@ class YamlManifest(ReadOnlyManifest):
                 line = ChangeRecordRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
-    def save_change_log(self, fullPath, jobRecord, newChanges) -> None:
+    def save_change_log(self, fullPath, jobRecord, newChanges, yaml=None) -> None:
         try:
             changelog = CommentedMap()
             if self.manifest.path is not None:
@@ -1237,7 +1326,7 @@ class YamlManifest(ReadOnlyManifest):
             changes = itertools.chain([jobRecord], newChanges)
             changelog["changes"] = list(changes)
             output = io.StringIO()
-            self.yaml.dump(changelog, output)
+            (yaml or self.yaml).dump(changelog, output)
             if not os.path.isdir(os.path.dirname(fullPath)):
                 os.makedirs(os.path.dirname(fullPath))
             logger.info("saving job changes to %s", fullPath)

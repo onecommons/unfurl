@@ -6,4 +6,4 @@ class plugindef_1_0_0:
 
     DEFS_FILE = "tosca-ext.yaml"
 
-    SECTIONS = ("metadata", "decorators", "deployment_blueprints")
+    SECTIONS = ("metadata", "decorators", "deployment_blueprints", "input_values")

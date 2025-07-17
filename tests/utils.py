@@ -54,12 +54,20 @@ def print_config(dir, homedir=None):
             print(f.read())
 
         print("!home/local")
-        with open(Path(homedir) / "local" / "unfurl.yaml") as f:
-            print(f.read())
+        local = Path(homedir) / "local" / "unfurl.yaml"
+        if local.exists():
+            with open(local) as f:
+                print(f.read())
+        else:
+            print(local, "does not exist")
 
     print(f"!{dir}!")
     with open(Path(dir) / "unfurl.yaml") as f:
         print(f.read())
     print(f"!{dir}/local!")
-    with open(Path(dir) / "local" / "unfurl.yaml") as f:
-        print(f.read())
+    local = Path(dir) / "local" / "unfurl.yaml"
+    if local.exists():
+        with open(local) as f:
+            print(f.read())
+    else:
+        print(local, "does not exist")

@@ -15,11 +15,11 @@ from typing import (
     cast,
     MutableSequence,
 )
-from typing_extensions import TypedDict
 from collections.abc import Mapping
 import os
 import copy
-from tosca import ToscaInputs
+from tosca import ToscaInputs, ToscaOutputs
+from toscaparser.elements.interfaces import OperationDef
 from toscaparser.properties import Property
 from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncate
 
@@ -34,7 +34,10 @@ from .support import (
     Status,
     ResourceChanges,
     Priority,
+    Reason,
+    find_connection,
     set_context_vars,
+    get_Self,
 )
 from .result import (
     ChangeRecord,
@@ -47,6 +50,7 @@ from .result import (
     Result,
 )
 from .util import (
+    ChainMap,
     register_class,
     validate_schema,
     UnfurlTaskError,
@@ -71,12 +75,13 @@ from .projectpaths import WorkFolder, Folders
 from .planrequests import (
     TaskRequest,
     JobRequest,
-    ConfigurationSpec,  # import used by unit tests
+    ConfigurationSpec,
+    _find_implementation,
     create_task_request,
     find_operation_host,
     create_instance_from_spec,
 )
-from .spec import find_env_vars, EntitySpec
+from .spec import find_env_vars, EntitySpec, RelationshipSpec
 
 import logging
 
@@ -180,7 +185,7 @@ class Configurator(metaclass=AutoRegisterClass):
         return False
 
     def __init__(self, *args: ToscaInputs, **kw) -> None:
-        self.inputs: Dict[str, Any] = ToscaInputs._get_inputs(*args, **kw)
+        self._inputs: Dict[str, Any] = ToscaInputs._get_inputs(*args, **kw)
 
     def _run(self, task: "TaskView") -> Generator:
         # internal function to convert user defined run() to a generator
@@ -191,8 +196,10 @@ class Configurator(metaclass=AutoRegisterClass):
             yield task.done(None, None, result)
         elif isinstance(result, (bool, type(None))):
             yield task.done(result)
+        elif isinstance(result, ToscaOutputs):
+            yield task.done(True, outputs=result.to_yaml())
         else:
-            raise UnfurlTaskError(task, "bad return valuate")
+            raise UnfurlTaskError(task, "configurator.run() returned a bad value")
 
     def _is_generator(self):
         if self.__is_generator is None:
@@ -347,30 +354,24 @@ class Configurator(metaclass=AutoRegisterClass):
             bool: True if configuration's digest has changed, False if it is the same.
         """
         _parameters: str = getattr(changeset, "digestKeys", "")
+        if not _parameters:
+            task.logger.debug(
+                "skipping digest check for %s, previous task did not record any changes",
+                task.target.name,
+            )
+            return False
         current_inputs = {
             k for k in task.inputs.keys() if k not in self.exclude_from_digest
         }
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
-        if not _parameters:
-            if current_inputs:
-                task.logger.verbose(
-                    "digest keys for %s was previously empty, now found %s",
-                    task.target.name,
-                    current_inputs,
-                )
-                return True
-            else:
-                return False
-        else:
-            old_keys = _parameters.split(",")
+        old_keys = _parameters.split(",")
         old_inputs = {key for key in old_keys if "::" not in key}
         if old_inputs - current_inputs:
             # an old input was removed
             task.logger.verbose(
-                "digest keys changed for %s: old %s, new %s",
+                "digest keys changed for %s: these inputs were removed: %s",
                 task.target.name,
-                old_inputs,
-                current_inputs,
+                old_inputs - current_inputs,
             )
             return True
         # only resolve the inputs and dependencies that were resolved before
@@ -464,7 +465,7 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
                 task_id += f" (reason: {task.reason})"
             if task._rendering:
                 msg = f"Rendering task {task_id} (errors expected): {msg}"
-                if level >= Levels.VERBOSE:
+                if level >= Levels.VERBOSE:  # suppress logger severity when rendering
                     level = Levels.VERBOSE
             else:
                 msg = f"Task {task_id}: {msg}"
@@ -481,6 +482,7 @@ class TaskView:
 
     Attributes:
         target: The instance this task is operating on.
+        configSpec (ConfigurationSpec)
         reason (str): The reason this operation was planned. See :class:`~unfurl.support.Reason`
         cwd (str): Current working directory
         dry_run (bool): Dry run only
@@ -518,6 +520,8 @@ class TaskView:
         self._workFolders: Dict[str, WorkFolder] = {}
         self._failed_paths: List[str] = []
         self._rendering = False
+        self._execute_op: Optional[OperationDef] = None
+        self._artifact: Optional[ArtifactInstance] = None
         # (_environ type is object because of _initializing_environ)
         self._environ: Optional[object] = None
         self._attributeManager: AttributeManager = None  # type: ignore
@@ -539,7 +543,7 @@ class TaskView:
 
     def set_envvars(self):
         """
-        Update os.environ with the task's environ and save the current one so it can be restored by ``restore_envvars``
+        Update os.environ with the task's environment variables and save the current one so it can be restored by `restore_envvars`.
         """
         # self.logger.trace("update os.environ with %s", self.environ)
         for key in os.environ:
@@ -551,7 +555,7 @@ class TaskView:
                 os.environ[key] = str(value)
 
     def restore_envvars(self):
-        # restore the environ set on root resource
+        """Restore the os.environ to the environment's state before this task ran."""
         # self.logger.trace("restoring os.environ with %s", self.target.root.environ)
         for key in os.environ:
             current = self.target.root.environ.get(key)
@@ -575,9 +579,9 @@ class TaskView:
         if self._inputs is None:
             assert self._attributeManager
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
-            ctx = RefContext(self.target, task=self)
+            ctx = self.target.attributes.context
+            ctx.task = self
             ctx.referenced = self._attributeManager.tracker
-            inputs = self.configSpec.inputs
             relationship = None
             if isinstance(self.target, RelationshipInstance):
                 relationship = self.target
@@ -599,20 +603,147 @@ class TaskView:
                 and self.operation_host.attributes
                 or {},
             )
-            set_context_vars(vars, target)
+            set_context_vars(vars, target.root)
+            vars["Self"] = get_Self(ctx)
             if relationship:
                 if relationship.source:
                     vars["SOURCE"] = relationship.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
-            # expose inputs lazily to allow self-referencee
+            # expose inputs lazily to allow self-reference
             ctx.vars = vars
+            self._artifact = artifact = self._get_artifact()
+
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
             elif self.configSpec.base_dir:
                 ctx.base_dir = self.configSpec.base_dir
-            self._inputs = ResultsMap(inputs, ctx)
+            self._inputs = self._to_resultsmap(ctx)
+            if artifact:
+                vars["implementation"] = artifact
+                artifact.attributes.context.vars = self._inputs.context.vars
+            else:
+                vars["implementation"] = None
             vars["inputs"] = self._inputs
+            vars["arguments"] = dict(eval="$inputs::arguments")
         return self._inputs
+
+    def _get_artifact(self) -> Optional[ArtifactInstance]:
+        artifact = None
+        if self.configSpec.artifact and self.configSpec.artifact.parentNode:
+            parent = self.target.root.find_instance(
+                self.configSpec.artifact.parentNode.nested_name
+            )
+            if parent:
+                artifact = parent.artifacts.get(self.configSpec.artifact.name)
+                if not artifact:
+                    artifact = ArtifactInstance(
+                        self.configSpec.artifact.name,
+                        template=self.configSpec.artifact,
+                        parent=parent,
+                    )
+        return artifact
+
+    def _to_resultsmap(self, ctx) -> ResultsMap:
+        inputs: MutableMapping = self.configSpec.inputs
+        artifact = self._artifact
+        if artifact:
+            # copy the ChainMap and insert inputs at the beginning
+            attributes = artifact.attributes
+            defs = artifact.template.propertyDefs.copy()
+            self._execute_op = executeOp = _find_implementation(
+                "unfurl.interfaces.Executable", "execute", artifact.template, True
+            )
+            if executeOp and executeOp.input_defs:
+                # add defs to provide validation for operation inputs with the same name
+                for name, prop in executeOp.get_declared_inputs().items():
+                    defs[name] = prop
+            if self.configSpec.input_defs:
+                defs.update(self.configSpec.input_defs)
+            inputs = ChainMap(inputs, attributes)
+        else:
+            defs = self.configSpec.input_defs or {}
+        rm = ResultsMap(inputs, ctx, defs=defs)
+        if "arguments" not in rm:
+            # add to inputs as lazily evaluated expression function
+            # this way "arguments" is recorded as a input digest key when accessed
+            rm._attributes["arguments"] = dict(eval=dict(_arguments=None))
+        return rm
+
+    def _match_metadata_key(self, name, val):
+        # check this metadata should be applied to this task's operation
+        # if its value is a bool return that
+        # if its value is a string or a list of strings, compare with the artifact name
+        # and matching metadata on the artifact's execute operation if it set
+        if not val:
+            return False
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            val = [val]
+        if self._artifact and self._artifact.name in val:
+            return True
+        keys = (
+            self._execute_op
+            and self._execute_op.metadata
+            and self._execute_op.metadata.get(name)
+        )
+        if keys:
+            if isinstance(keys, str):
+                return keys in val
+            for key in keys:
+                if key in val:
+                    return True
+        return False
+
+    def _get_inputs_from_properties(
+        self, attributes: ResultsMap, name: str
+    ) -> Dict[str, Any]:
+        return {
+            p.name: attributes[p.name]
+            for p in attributes.defs.values()
+            if p.schema.get("metadata", {}).get(name)
+        }
+
+    def _arguments(self) -> Dict[str, Any]:
+        """
+        Return the "arguments" variable.
+
+        The item sources from lowest to highest priority are:
+        * inputs set on the artifact's execute operation
+        * artifact properties with the ToscaInputs._metadata_key (input_match)
+        * target properties with ToscaInputs._metadata_key
+        * operation inputs listed in "arguments" metadata key, if set
+        * if "arguments" metadata key is missing, operation inputs with the same name as above inputs or the execute operation's input defs
+        """
+        key = ToscaInputs._metadata_key
+        if self._execute_op and self._execute_op.inputs:
+            execute_inputs = self._execute_op.inputs
+        else:
+            execute_inputs = {}
+        if self._artifact:  # simple match
+            execute_inputs.update(
+                self._get_inputs_from_properties(self._artifact.attributes, key)
+            )
+            # don't include artifact properties:
+            op_inputs = cast(ChainMap, self.inputs._attributes)._maps[0]
+        else:
+            op_inputs = self.inputs
+        # full match
+        execute_inputs.update({
+            p.name: self.target.attributes[p.name]
+            for p in self.target.attributes.defs.values()
+            if self._match_metadata_key(key, p.schema.get("metadata", {}).get(key))
+        })
+        if self.configSpec.arguments is not None:
+            execute_names = set(self.configSpec.arguments)
+        else:
+            input_defs = self._execute_op and self._execute_op.input_defs
+            execute_names = set(execute_inputs) | set(input_defs or [])
+        # operation inputs override execute inputs
+        for name in execute_names:
+            if name in op_inputs:
+                execute_inputs[name] = self.inputs[name]
+        return execute_inputs
 
     @property
     def vars(self) -> dict:
@@ -627,12 +758,8 @@ class TaskView:
 
     @staticmethod
     def _get_connection(
-        source: HasInstancesInstance, target: Optional[NodeInstance], seen: dict
+        source: HasInstancesInstance, target: NodeInstance, seen: dict
     ) -> None:
-        """
-        Find the requirements on source that match the target
-        If source is root, requirements will be the connections that are the default_for the target.
-        """
         if source is target:
             return None
         for rel in source.get_requirements(target):
@@ -645,7 +772,7 @@ class TaskView:
         might to connect to (transitively following the target's hostedOn relationship)
         and adding any connections (relationships) that the operation_host has with those instances.
         Then add any default connections, prioritizing default connections to those instances.
-        (Connections that explicity set a ``default_for`` key that matches those instances.)
+        (Connections that explicitly set a ``default_for`` key that matches those instances.)
         """
         seen: Dict[int, Any] = {}
         for parent in self.target.ancestors:
@@ -653,11 +780,12 @@ class TaskView:
                 continue
             if parent is self.target.root:
                 break
+            # XXX include explicit relationships on host requirement too
+            for rel in parent.get_default_relationships():
+                if id(rel) not in seen:
+                    seen[id(rel)] = rel
             if self.operation_host:
                 self._get_connection(self.operation_host, parent, seen)
-            self._get_connection(self.target.root, parent, seen)
-        # get the rest of the default connections
-        self._get_connection(self.target.root, None, seen)
 
         # reverse so nearest relationships replace less specific ones that have matching names
         connections = _ConnectionsMap(  # the list() is for Python 3.7
@@ -735,14 +863,12 @@ class TaskView:
                 )
             )
             if self.target.source:
-                SOURCES = ",".join(
-                    [
-                        r.tosca_id
-                        for r in self.target.source.get_requirements(
-                            self.target.template.name
-                        )
-                    ]
-                )
+                SOURCES = ",".join([
+                    r.tosca_id
+                    for r in self.target.source.get_requirements(
+                        self.target.template.name
+                    )
+                ])
                 SOURCE = self.target.source.tosca_id
         return env
 
@@ -777,27 +903,7 @@ class TaskView:
         Returns:
             RelationshipInstance or None: The connection instance.
         """
-        connection: Optional[RelationshipInstance] = None
-        if ctx.vars.get("OPERATION_HOST"):
-            operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
-            connection = cast(
-                Optional[RelationshipInstance],
-                Ref(
-                    f"$operation_host::.requirements::*[.type={relation}][.target=$target]",
-                    vars=dict(target=target, operation_host=operation_host),
-                ).resolve_one(ctx),
-            )
-
-        # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
-        if not connection:
-            # no connection, see if there's a default relationship template defined for this target
-            endpoints = target.get_default_relationships(relation)
-            if endpoints:
-                connection = endpoints[0]
-        if connection:
-            assert isinstance(connection, RelationshipInstance)
-            return connection
-        return None
+        return find_connection(ctx, target, relation)
 
     def sensitive(self, value: object) -> Union[sensitive, object]:
         """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
@@ -812,7 +918,7 @@ class TaskView:
         self.messages.append(message)
 
     def find_instance(self, name: str) -> Optional[NodeInstance]:
-        root = self._manifest.get_root_resource()
+        root = self.target.root
         if root:
             return cast(Optional[NodeInstance], root.find_instance_or_external(name))
         return None
@@ -831,10 +937,14 @@ class TaskView:
         metadata_key = self.configurator.attribute_output_metadata_key  # type: ignore
         for key, value in outputs.items():
             mapping = self.configSpec.outputs.get(key)
+            if isinstance(mapping, dict):  # output type definition
+                # XXX validate output value with output property
+                mapping = mapping.get("mapping")
             if mapping:
                 invalid = False
                 if isinstance(mapping, list):
                     # XXX support more TOSCA mapping forms, e.g. to capabilities
+                    # (see 3.6.15 Attribute Mapping definitions in TOSCA 1.3 spec)
                     if len(mapping) == 2 and mapping[0] == "SELF":
                         mapping = mapping[1]
                     else:
@@ -854,10 +964,17 @@ class TaskView:
                         self.target.state = to_enum(NodeState, value)
                 else:
                     self.target.attributes[mapping] = value
-            elif metadata_key:
+            else:
                 attr_def = self.target.template.attributeDefs.get(key)
-                if attr_def and attr_def.schema.get("metadata", {}).get(metadata_key):
-                    self.target.attributes[key] = value
+                if attr_def and (metadata := attr_def.schema.get("metadata")):
+                    mkey = ToscaOutputs._metadata_key
+                    metadata_value = metadata.get(mkey)
+                    if self._match_metadata_key(mkey, metadata_value):
+                        self.target.attributes[key] = value
+                    elif metadata_key:
+                        metadata_value = metadata.get(metadata_key)
+                        if self._match_metadata_key(metadata_key, metadata_value):
+                            self.target.attributes[key] = value
 
     def done(
         self,
@@ -919,12 +1036,32 @@ class TaskView:
         name: Optional[str] = None,
         required: bool = False,
         wantList: bool = False,
-        resolveExternal: bool = True,
         strict: bool = True,
         vars: Optional[dict] = None,
         throw: bool = False,
         trace: Optional[int] = None,
     ) -> Union[Any, Result, List[Result], None]:
+        """
+        Executes a query using this task's current context and returns the result.
+
+        Args:
+          query (Union[str, dict]): The query to be executed. Can be a string or a dictionary.
+          dependency (bool, optional): If True, saves the query result as a dependency. Defaults to False.
+          name (Optional[str], optional): The name of the dependency. Defaults to None.
+          required (bool, optional): If True, marks the dependency as required. Defaults to False.
+          wantList (bool, optional): If True, expects the result to be a list. Defaults to False.
+          strict (bool, optional): If True, enforces strict resolution rules. Defaults to True.
+          vars (Optional[dict], optional): Variables to be added to the query context. Defaults to None.
+          throw (bool, optional): If True, raises an exception on error, otherwise add to task errors and returns None. Defaults to False.
+          trace (Optional[int], optional): Trace level for debugging. Defaults to None.
+
+        Returns:
+          Union[Any, Result, List[Result], None]: The result of the query, which can be of various types
+          depending on the query and options provided. Returns None if an error occurs and throw is False.
+
+        Raises:
+          Exception: If an error occurs during query evaluation and throw is True.
+        """
         # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars, trace=trace).resolve(
@@ -1039,7 +1176,7 @@ class TaskView:
         #  self.add_dependency(expr, required=required)
 
         # otherwise operation should be a ConfigurationSpec
-        return TaskRequest(operation, resource, "subtask", persist, required)
+        return TaskRequest(operation, resource, Reason.subtask, persist, required)
 
     def _update_instance(
         self, existingResource: EntityInstance, resourceSpec: Mapping
@@ -1054,9 +1191,21 @@ class TaskView:
             # XXX track all status attributes (esp. state and created) and remove this hack
             operational = Manifest.load_status(resourceSpec)
             if operational.local_status is not None:
+                self.logger.debug(
+                    "setting local status on %s from %s to %s",
+                    existingResource.name,
+                    existingResource.local_status,
+                    operational.local_status,
+                )
                 existingResource.local_status = operational.local_status
                 updated = True
             if operational.state is not None:
+                self.logger.debug(
+                    "setting node state on %s from %s to %s",
+                    existingResource.name,
+                    existingResource.state,
+                    operational.state,
+                )
                 existingResource.state = operational.state
                 updated = True
 
@@ -1097,9 +1246,7 @@ class TaskView:
             if isinstance(template, dict):
                 tname = existingResource.template.name
                 existingResource.template = (
-                    existingResource.template.topology.add_node_template(
-                        tname, template
-                    )
+                    existingResource.template.topology.add_template(tname, template)
                 )
             elif (
                 isinstance(template, str) and template != existingResource.template.name
@@ -1171,14 +1318,13 @@ class TaskView:
                 anAttribute: aNewValue
                 ...
             artifacts:
-                artifact1: 
+                artifact1:
                   ...
             readyState:
               local: ok
               state: started
             protected: true
             customized: true
-
         """
         instances, err = self._parse_instances_tpl(instances)  # type: ignore
         if err:
@@ -1200,7 +1346,9 @@ class TaskView:
                 existingResource: Optional[EntityInstance] = self.target
                 rname = self.target.name
             elif rname == "HOST":
-                existingResource = cast(EntityInstance, self.target.parent or self.target.root)
+                existingResource = cast(
+                    EntityInstance, self.target.parent or self.target.root
+                )
             else:
                 existingResource = self.find_instance(rname)
 
@@ -1208,7 +1356,7 @@ class TaskView:
             try:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
-                    discovered = "" if existingResource is self.target else " dynamic "
+                    discovered = " " if existingResource is self.target else " dynamic "
                     if updated:
                         self.logger.info(
                             f'updating{discovered}instance "{existingResource.name}"',
@@ -1224,7 +1372,7 @@ class TaskView:
                     newResource = create_instance_from_spec(
                         self._manifest, self.target, rname, resourceSpec
                     )
-                    if "priority" not in resourceSpec:
+                    if newResource and "priority" not in resourceSpec:
                         # set priority so this resource isn't ignored even if no one if referencing it
                         newResource.priority = Priority.required
 
@@ -1257,13 +1405,15 @@ class TaskView:
         preserve: Optional[bool] = None,
         always_apply: bool = False,
     ) -> WorkFolder:
-        if location in self._workFolders:
-            return self._workFolders[location]
         if preserve is None:
             preserve = True if location in Folders.Persistent else False
-        wf = WorkFolder(self, location, preserve)
+        if location in self._workFolders:
+            wf = self._workFolders[location]
+            wf.preserve = preserve
+        else:
+            wf = WorkFolder(self, location, preserve)
+            self._workFolders[location] = wf
         wf.always_apply = always_apply
-        self._workFolders[location] = wf
         return wf
         # XXX multiple tasks can be accessing the same workfolder, so:
         # return self.job.setFolder(
@@ -1274,7 +1424,7 @@ class TaskView:
         # return self.job.getFolder(self, location)
         if location is None:
             if not self._workFolders:
-                raise UnfurlTaskError(self, f"No task folder was set.")
+                raise UnfurlTaskError(self, "No task folder was set.")
             # XXX error if there is more than one?
             return next(iter(self._workFolders.values()))
         else:

@@ -1,0 +1,20 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+repositories:
+  docker_hub:
+    url: https://registry.hub.docker.com/
+    credential:
+      user: user1
+      token:
+        eval:
+          secret:
+            dockerhub_user1_pw
+
+topology_template:
+  node_templates:
+    myApp:
+      type: tosca.nodes.Root
+      artifacts:
+        image:
+          type: tosca.artifacts.Deployment.Image.Container.Docker
+          file: myapp:latest
+          repository: docker_hub

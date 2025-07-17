@@ -4,7 +4,7 @@ from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
 import git
-from unfurl.util import change_cwd
+from unfurl.util import change_cwd, API_VERSION
 from tests.utils import init_project, run_cmd
 
 if not os.getenv("UNFURL_TEST_CLOUDMAP_URL"):
@@ -37,11 +37,14 @@ environments:
           canonical_url: https://unfurl.cloud
 """
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 @pytest.fixture(scope="module")
 def runner():
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("saving to", test_dir)
         os.system("git init cloudmap")
         with change_cwd("cloudmap"):
             with open("README", "w") as foo:
@@ -64,10 +67,8 @@ def runner():
 
             yield runner
 
-
-expected_cloudmap = """apiVersion: unfurl/v1alpha1
+expected_cloudmap = f"""apiVersion: {API_VERSION}
 kind: CloudMap
-schema: unfurl.cloud/onecommons/unfurl-types
 repositories:
   unfurl.cloud/feb20a/dashboard:
     git: unfurl.cloud/feb20a/dashboard.git
@@ -83,14 +84,10 @@ repositories:
     private: true
     default_branch: main
     branches:
-      main: 1dd9512edccaec2049a001fedf47195ab6ea298f
+      main: f2440a4f6cf20bf0c14d0d256d28b796aeacff0b
     notable:
       ensemble/ensemble.yaml#spec/service_template:
-        artifact_type: artifact.tosca.UnfurlEnsemble
-        name: Generic cloud provider implementations
-        version: 2.0.0
-        schema: https://unfurl.cloud/onecommons/unfurl-types.git#v"""
-
+        artifact_type: artifact.tosca.UnfurlEnsemble""".rstrip()
 
 def test_create(runner, caplog):
     run_cmd(
@@ -100,9 +97,9 @@ def test_create(runner, caplog):
     )
     with change_cwd("cloudmap"):
         with open("cloudmap.yaml") as f:
-            cloudmap = f.read()
-            # print("cloudmap", cloudmap)
-            assert cloudmap.startswith(expected_cloudmap), cloudmap
+            cloudmap = f.read().rstrip()
+            # print("cloudmap\n", cloudmap)
+            assert cloudmap == expected_cloudmap
         assert not os.system("git push origin main")
 
     assert "importing group feb20a" in caplog.text

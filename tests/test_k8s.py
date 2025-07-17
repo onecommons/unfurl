@@ -380,5 +380,5 @@ def test_kompose_ingress():
             ingress = f.read().strip()
             # print("ingress", ingress)
             assert "foo.com.mymetadata:" in ingress
-            assert re.search(r"""annotations:\s+kubernetes.io/ingress.class: nginx""", ingress) is not None, ingress
+            assert re.search(r"""annotations:\s+"kubernetes.io/ingress.class": "nginx"\n""", ingress) is not None, ingress
             assert re.search(r"""spec:\s+tls:""", ingress) is not None, ingress

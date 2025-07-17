@@ -1,8 +1,7 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-apiVersion: unfurl/v1alpha1
+apiVersion: [% api_version %]
 kind: Project
 [% ensemble_repository_config | default("") %]
-
 [%include | default("") %]
 {%- if default_context | default("") %}
 default_environment: [%default_context%]
@@ -15,7 +14,7 @@ environments:
       primary_provider:
         type: unfurl.relationships.ConnectsTo.DigitalOcean
         #  properties:
-        #   default_region: nyc1
+        #   default_region: nyc3
         #   you should declare sensitive properties like this following in secrets/secrets.yaml or local/unfurl.yaml or define them as environment variables:
         #   DIGITALOCEAN_TOKEN:
         #   SPACES_ACCESS_KEY_ID:
@@ -25,3 +24,10 @@ environments:
         # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
         # setting "primary_provider" to the name of the inherited connection, for example:
         # primary_provider: digitalocean
+{%- if defaultProject | default("") == default_context | default("") %}
+    defaultProject: SELF
+{% endif %}
+{%- if defaultProject | default("") and defaultProject | default("") != default_context | default("") %}
+  [%defaultProject%]:
+    defaultProject: SELF
+{% endif %}

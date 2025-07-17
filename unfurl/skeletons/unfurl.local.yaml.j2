@@ -1,5 +1,5 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-apiVersion: unfurl/v1alpha1
+apiVersion: [% api_version %]
 kind: Project
 # this file is including into unfurl.yaml but is listed in .gitignore
 # so you can add configuration that you don't want committed to the repository,
@@ -28,23 +28,4 @@ environments:
 {% if default_context | default("") %}
 # This sets the default environment to use for new ensembles created in this project.
 default_environment: [%default_context%]
-{% endif %}
-
-{%if manifestPath %}
-# This lists ensembles managed by this project
-# (note that they can be located in a different project)
-# Ensembles contained in local repositories (without a remote git origin) appear here instead of the main file.
-ensembles:
-  - file: [%manifestPath%]
-    default: true
-    {%- if external | default("") %}
-    # the ensemble is located in a different project
-    project: [%external%]
-    {% endif -%}
-    {% if context | default("") %}
-    environment: [%context%]
-    {% else %}
-    # uncomment to associate this ensemble with an environment
-    # environment: your_environment
-    {% endif %}
 {% endif %}

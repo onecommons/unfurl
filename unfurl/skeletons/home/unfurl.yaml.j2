@@ -1,5 +1,5 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-apiVersion: unfurl/v1alpha1
+apiVersion: [% api_version %]
 kind: Project
 [%include | default("") %]
 
@@ -16,13 +16,15 @@ environments:
   # So it is convenient to define global configuration here.
 
   defaults:
+    {% if manifestPath | default("") %}
     # this exposes this project's ensemble as "localhost" to all the projects
     # that inherit this context
     external:
       localhost:
         manifest:
-          file: [% manifestPath | default("ensemble/ensemble.yaml", true) %]
+          file: [% manifestPath %]
         instance: localhost
+    {% endif %}
 
   home:
     # Below we define a few connections for the most common cloud providers.
@@ -50,6 +52,7 @@ environments:
     # aws: # delete the aws connection
     #   +%: whiteout
 
+    # For more properties on connection types see https://docs.unfurl.run/toscadef.html#unfurl-types
     # connections:
       # aws:
       #   type: unfurl.relationships.ConnectsTo.AWSAccount
@@ -65,8 +68,6 @@ environments:
       #     CLOUDSDK_COMPUTE_ZONE: us-central1-a
       #     # place application-credentials.json in the "secrets" so that it is automatically encrypted
       #     GOOGLE_APPLICATION_CREDENTIALS: "{{ 'secrets/application-credentials.json' | abspath('src') }}"
-
-      #      #  For more properties see https://docs.unfurl.run/toscadef.html#unfurl-types
       #
       # azure:
       #   type: unfurl.relationships.ConnectsTo.Azure
@@ -78,8 +79,9 @@ environments:
       #   properties:
       #     context:
 
-      # packet:
-      #   type: unfurl.relationships.ConnectsTo.Packet
+      # digitalocean:
+      #   type: unfurl.relationships.ConnectsTo.DigitalOcean
       #   properties:
-      #     project: # required property, need to set this
+      #     default_region: nyc3
+      #   set DIGITALOCEAN_TOKEN in secrets or local config
 {% endif %}

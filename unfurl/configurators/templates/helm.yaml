@@ -62,12 +62,9 @@ node_types:
         default: {eval: ".name"}
       url:
         type: string
-    capabilities:
-      feature:
-        type: tosca.capabilities.Node
     interfaces:
       Standard:
-        create: helm repo add {{ SELF.name }} "{{ SELF.url }}"
+        configure: helm repo add {{ SELF.name }} "{{ SELF.url }}" --force-update
         delete: helm repo remove {{ SELF.name }}
       Install:
         check:
@@ -117,15 +114,31 @@ node_types:
           # valid_target_types: [ unfurl.nodes.K8sNamespace, unfurl.nodes.K8sCluster]
       - repository:
           node: unfurl.nodes.HelmRepository
-          capability: tosca.capabilities.Node
+          occurrences: [0, 1]
     properties:
       chart:
         type: string
+      version:
+        type: string
+        description: chart version
+        required: false
       chart_values:
         type: map
         required: false
+      record_resources:
+        description: Save kubernetes resources created by the Helm release as managed instances.
+        type: boolean
+        default: true
       release_name:
         type: string
+        description: name of the helm release
+        constraints:
+          - max_length: 53
+        default:
+          eval:
+            to_dns_label:
+              eval: .name
+            max: 53
       namespace:
         type: string
         # if we are hosted on a namespace then use that
@@ -145,6 +158,7 @@ node_types:
               release_name: { get_property: ["SELF", "release_name"] }
               dryrun: "--dry-run"
               chart_values: { get_property: ["SELF", "chart_values"] }
+              echo: false # avoid dumping massive and/or binary manifest to console
               command:
                 eval:
                   template: >-
@@ -158,10 +172,10 @@ node_types:
                       {% endif %}
                       {% if task.verbose > 0 %}--debug{%endif%}
                       {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
-                      {% if inputs.helmcmd == 'upgrade' %}--reuse-values{%endif%}
+                      {% if 'upgrade' in inputs.helmcmd %}--reuse-values{%endif%}
                       {% if inputs.flags is defined -%}
                         {% for flag, value in inputs.flags.items() %}
-                          --{{flag}} "{{value | quote }}"
+                          --{{flag}} {%if value is not none %}"{{ value | quote }}"{% endif %}
                         {% endfor%}
                       {%endif%}
                 vars:
@@ -173,7 +187,7 @@ node_types:
                     select: path
               # XXX if still deploying readyState should be set to pending instead of ok but delegate the check to this release
               resultTemplate: |
-                {%if returncode == 0 %}
+                {%if returncode == 0 and SELF.record_resources %}
                 {% set json = stdout | from_json %}
                 {%for doc in json.manifest | from_yaml_all %}
                   {%if doc.kind is defined and doc.kind != 'Secret' %}
@@ -213,7 +227,7 @@ node_types:
           configure:
             invoke: Helm.execute
             inputs:
-              helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}}'
+              helmcmd: 'upgrade --install {%if SELF.version | default("") %}--version {{SELF.version}}{% endif %}'
           delete:
             implementation:
               primary: helm
@@ -223,12 +237,12 @@ node_types:
                 eval:
                   template: >-
                     helm uninstall {{ "release_name" | eval }}
-                      {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif %}
-                      {% if task.verbose > 0 %}--debug{%endif%}
-                      {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif -%}
+                      {% if task.verbose > 0 %} --debug{%endif -%}
+                      {% if task.timeout %} --timeout {{task.timeout}}{%endif -%}
                       {% if inputs.flags is defined -%}
                         {% for flag, value in inputs.flags.items() %}
-                          --{{flag}} "{{value | quote }}"
+                          --{{flag}} {%if value is not none %}"{{ value | quote }}"{% endif %}
                         {% endfor%}
                       {%endif%}
               # XXX add result template that removes added resources
@@ -239,10 +253,20 @@ node_types:
             invoke: Helm.execute
             inputs:
               done:
-                success: true # helm status returns an error if the release doesn't exist
+                # helm status returns an error if the release doesn't exist
+                success: '{%if result.returncode == 0 or "release: not found" in result.stderr %}True{%else%}False{%endif%}'
                 modified: false
               resultTemplate: |
-                - readyState: {%if returncode == 0 %}ok{%else%}absent{%endif%}
+                  {%if returncode == 0 %}
+                  {% set json = stdout | from_json %}
+                  - readyState: {%if json.info.status == 'deleted' or json.info.status == 'deleting' %}absent
+                                {%- elif json.info.status=='superseded' %}degraded
+                                {%- elif json.info.status=='deployed' %}ok
+                                {%- elif json.info.status=='failed' %}error
+                                {%- else %}ok{%- endif%}
+                  {% elif "release: not found" in stderr %}
+                  - readyState: absent
+                  {% endif %}
               helmcmd: status
               dryrun: "--dry-run"
               # don't pass these as cmd arguments

@@ -1,23 +1,12 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-Public Api:
-
-map_value - returns a copy of the given value resolving any embedded queries or template strings
-
-Ref.resolve given an expression, returns a list of values or Result
-Ref.resolve_one given an expression, return value, none or a list of values
-Ref.is_ref return true if the given diction looks like a Ref
-
-Internal:
-
-eval_ref() given expression (string or dictionary) return list of Result
-Expr.resolve() given expression string, return list of Result
-Results._map_value same as map_value but with lazily evaluation
+API for evaluating `eval expressions`. See also `unfurl.configurator.TaskView.query`.
 """
-from functools import partial
+
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -37,18 +26,22 @@ import sys
 import collections
 from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
-
+from toscaparser.common.exception import ExceptionCollector
+from toscaparser.elements.statefulentitytype import StatefulEntityType
 from unfurl.logs import UnfurlLogger
+from tosca import global_state
 
 from .util import validate_schema, UnfurlError, assert_form
 from .result import (
-    AnyRef,
     ResultsList,
     Result,
     Results,
     ExternalValue,
     ResourceRef,
     ResultsMap,
+    wrap_var,
+    quoted_dict,
+    AnsibleUnsafeText,
 )
 
 import logging
@@ -68,22 +61,46 @@ def map_value(
     value: Any,
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
+    as_list: bool = False,
+    flatten: bool = False,
 ) -> Any:
-    """Resolves any expressions or template strings embedded in the given map or list."""
+    """
+    Return a copy of the given string, dict, or list, resolving any expressions or template strings embedded in it.
+
+    Args:
+      value (Any): The value to be processed, which can be a string, dictionary, or list.
+      resourceOrCxt (Union["RefContext", "ResourceRef"]): The context or resource instance used for resolving expressions.
+      applyTemplates (bool, optional): Whether to evaluate Jinja2 templates embedded in strings. Defaults to True.
+      as_list (bool, optional): Whether to return the result as a list. Defaults to False.
+
+    Returns:
+      Any: The processed value with resolved expressions or template strings. If ``as_list`` is True, the result is always a list.
+    """
+    # as_list always returns a list but preserves wantList semantics for internal evaluation
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
-    return _map_value(
-        value, resourceOrCxt, resourceOrCxt.wantList or False, applyTemplates
+    ret_val = _map_value(
+        value, resourceOrCxt, resourceOrCxt.wantList or False, applyTemplates, flatten
     )
+    if as_list and not isinstance(ret_val, list):
+        if ret_val is None:
+            ret_val = []
+        else:
+            ret_val = [ret_val]
+    return ret_val
 
 
 def _map_value(
     value: Any,
     ctx: "RefContext",
-    wantList: Union[bool, str] = False,
+    wantList: Union[bool, Literal["result"]] = False,
     applyTemplates: bool = True,
+    flatten=False,
 ) -> Any:
     from .support import is_template, apply_template
+
+    if isinstance(value, quoted_dict):
+        return value
 
     if Ref.is_ref(value):
         # wantList=False := resolve_one
@@ -102,7 +119,17 @@ def _map_value(
         finally:
             ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
-        return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
+        if flatten:
+            result = []
+            for item in value:
+                item_val = _map_value(item, ctx, wantList, applyTemplates)
+                if isinstance(item_val, list):
+                    result.extend(item_val)
+                else:
+                    result.append(item_val)
+            return result
+        else:
+            return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
     elif applyTemplates and is_template(value, ctx):
         return apply_template(value, ctx.copy(wantList=wantList))
     return value
@@ -152,12 +179,13 @@ class RefContext:
 
     DefaultTraceLevel = 0
     _Funcs: Dict = {}
+    currentFunc: Optional[str] = None
 
     def __init__(
         self,
         currentResource: "ResourceRef",
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, str]] = False,
+        wantList: Optional[Union[bool, Literal["result"]]] = False,
         resolveExternal: bool = False,
         trace: Optional[int] = None,
         strict: Optional[bool] = None,
@@ -179,7 +207,8 @@ class RefContext:
         self.templar = currentResource.templar
         self.referenced = _Tracker()
         self.task = task
-        self.kw: MappingType[str, Any] = {}
+        self.kw: Mapping[str, Any] = {}
+        self.tosca_type: Optional[StatefulEntityType] = None
 
     @property
     def strict(self) -> bool:
@@ -200,11 +229,26 @@ class RefContext:
     def copy(
         self,
         resource: Optional["ResourceRef"] = None,
-        vars: dict = None,
-        wantList: Optional[Union[bool, str]] = None,
+        vars: Optional[dict] = None,
+        wantList: Optional[Union[bool, Literal["result"]]] = None,
         trace: int = 0,
-        strict: bool = None,
+        strict: Optional[bool] = None,
+        tosca_type: Optional[StatefulEntityType] = None,
     ) -> "RefContext":
+        """
+        Create a copy of the current RefContext with optional modifications.
+
+        Args:
+          resource (Optional[ResourceRef]): The resource reference to use for the copy. Defaults to None.
+          vars (Optional[dict]): A dictionary of variables to update in the copy. Defaults to None.
+          wantList (Optional[Union[bool, Literal["result"]]]): Determines if a list is desired. Defaults to None.
+          trace (int): The trace level for the copy. Defaults to 0.
+          strict (Optional[bool]): Whether to enforce strict mode. Defaults to None.
+          tosca_type (Optional[StatefulEntityType]): The TOSCA type for the copy. Defaults to None.
+
+        Returns:
+          RefContext: A new instance of RefContext with the specified modifications.
+        """
         if not isinstance(resource or self.currentResource, ResourceRef) and isinstance(
             self._lastResource, ResourceRef
         ):
@@ -222,16 +266,27 @@ class RefContext:
             copy.vars.update(vars)
         if wantList is not None:
             copy.wantList = wantList
-        copy.base_dir = self.base_dir
+        base_dir = getattr(self.kw, "base_dir", None)
+        if base_dir is not None:
+            copy.base_dir = base_dir
+        else:
+            copy.base_dir = self.base_dir
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
+
+        if tosca_type:
+            copy.tosca_type = tosca_type
+        else:
+            copy.tosca_type = self.tosca_type
         return copy
 
     def trace(self, *msg: Any) -> None:
         if self._trace:
             log = logger.info if self._trace >= 2 else logger.trace
-            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")  # type: ignore
+            log(
+                f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource} {self.tosca_type and self.tosca_type.type or ''})"
+            )  # type: ignore
 
     def add_external_reference(self, external: ExternalValue) -> Result:
         result = Result(external)
@@ -271,7 +326,7 @@ class RefContext:
         self,
         expr: Union[str, Mapping],
         vars: Optional[dict] = None,
-        wantList: Union[bool, str] = False,
+        wantList: Union[bool, Literal["result"]] = False,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         return Ref(expr, vars).resolve(self, wantList)
 
@@ -296,7 +351,7 @@ class RefContext:
 
         def _eval_func(*args, **kw):
             self.currentFunc = key
-            self.kw = kw
+            self.kw = kw  # XXX set base_dir to preserve
             assert func
             return func(args, self)
 
@@ -332,15 +387,18 @@ class Expr:
         # XXX vars
         return f"Expr('{self.source}')"
 
-    def resolve(self, context) -> List[Result]:
-        # returns a list of Result
+    def resolve(self, context: RefContext) -> List[Result]:
         currentResource = context.currentResource
         if not self.paths[0].key and not self.paths[0].filters:  # starts with "::"
             currentResource = currentResource.all
             paths = self.paths[1:]
         elif self.paths[0].key and self.paths[0].key[0] == "$":
             # if starts with a var, use that as the start
-            currentResource = context.resolve_var(self.paths[0].key)
+            try:
+                currentResource = context.resolve_var(self.paths[0].key)
+            except KeyError:
+                context.trace("initial variable in expression not found", self.source)
+                return []
             if len(self.paths) == 1:
                 # bare reference to a var, just return it's value
                 return [Result(currentResource)]
@@ -367,6 +425,7 @@ class Ref:
         self.validation = None
         trace = RefContext.DefaultTraceLevel if trace is None else trace
         self.trace = trace
+        self.base_dir = None
         if isinstance(exp, Mapping):
             keys = list(exp)
             if keys and keys[0] not in _FuncsTop:
@@ -384,6 +443,7 @@ class Ref:
                     self.validation = strict
                 else:
                     self.strict = strict
+                self.base_dir = exp.get("base_dir")
                 exp = exp.get("eval", exp.get("ref", exp))
 
         if vars:
@@ -410,7 +470,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: str,  # == "result"
+        wantList: Literal["result"],
         strict: Optional[bool] = None,
     ) -> List[Result]: ...
 
@@ -418,22 +478,26 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, str] = True,
+        wantList: Union[bool, Literal["result"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]: ...
 
-    # returns a list of values, a list of Result, or resolve_one
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, str] = True,
+        wantList: Union[bool, Literal["result"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         """
-        If wantList=True (default) returns list of values
-        Note that values in the list can be a list or None
-        If wantList=False return `resolve_one` semantics
-        If wantList='result' return a list of Result
+        Given an expression, returns a value, a list of values, or or list of Result, depending on ``wantList``:
+
+        If wantList=True (default), return a list of matches.
+
+        Note that values in the list can be a list or None.
+
+        If wantList=False, return `resolve_one` semantics.
+
+        If wantList='result', return a list of Result.
         """
         if self.strict is not None:
             # overrides RefContext's strict
@@ -441,7 +505,7 @@ class Ref:
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
-        base_dir = getattr(self.source, "base_dir", "")
+        base_dir = self.base_dir or getattr(self.source, "base_dir", "")
         if base_dir:
             ctx.base_dir = base_dir
         # $start is set in eval_ref but the user use that to override currentResource
@@ -451,16 +515,24 @@ class Ref:
             f"Ref.resolve(wantList={wantList}) start strict {ctx.strict}",
             self.source,
         )
-        ref_results = eval_ref(self.source, ctx, True)
-        assert isinstance(ref_results, list)
-        ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, ref_results)
-        select = self.foreach or self.select
-        if ref_results and select:
-            results = for_each(select, ref_results, ctx)
-        else:
-            results = ref_results  # , ctx)
-        ctx.add_ref_reference(self, results)
-        ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
+        saved_context = global_state.context
+        try:
+            global_state.context = ctx
+            ref_results = eval_ref(self.source, ctx, True)
+            assert isinstance(ref_results, list)
+            ctx.trace(
+                f"Ref.resolve(wantList={wantList}) evalRef", self.source, ref_results
+            )
+            select = self.foreach or self.select
+            if ref_results and select:
+                results = for_each(select, ref_results, ctx)
+            else:
+                results = ref_results  # , ctx)
+            ctx.add_ref_reference(self, results)
+            ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
+        finally:
+            global_state.context = saved_context
+
         if wantList == "result":
             return results
         values = [r.resolved for r in results]
@@ -485,31 +557,36 @@ class Ref:
         strict: Optional[bool] = None,
     ) -> ResolveOneUnion:
         """
-        If no match return None
-        If more than one match return a list of matches
-        Otherwise return the match
+        Given an expression, return a value, None or a list of values.
+
+        If there is no match, return None.
+
+        If there is more than one match, return a list of matches.
+
+        Otherwise return the match.
 
         Note: If you want to distinguish between None values and no match
         or between single match that is a list and a list of matches
-        use resolve() which always returns a (possible empty) of matches
+        use `Ref.resolve`, which always returns a (possible empty) of matches
         """
         return self.resolve(ctx, False, strict)
 
     @staticmethod
     def is_ref(value: Union[Mapping, "Ref"]) -> bool:
+        """
+        Return true if the given value looks like a Ref.
+        """
         if isinstance(value, Mapping):
-            if not value:
+            if not value or isinstance(value, quoted_dict):
                 return False
             first = next(iter(value))
 
             if "ref" in value or "eval" in value:
-                return len(
-                    [
-                        x
-                        for x in ["vars", "trace", "foreach", "select", "strict"]
-                        if x in value
-                    ]
-                ) + 1 == len(value)
+                return len([
+                    x
+                    for x in ["vars", "trace", "foreach", "select", "strict", "base_dir"]
+                    if x in value
+                ]) + 1 == len(value)
             if len(value) == 1 and first in _FuncsTop:
                 return True
             return False
@@ -566,8 +643,7 @@ def and_func(arg, ctx):
 
 
 def quote_func(arg, ctx):
-    return arg
-
+    return wrap_var(arg)
 
 def func_defined_func(arg, ctx):
     return map_value(arg, ctx) in ctx._Funcs
@@ -581,7 +657,7 @@ def eq_func(arg, ctx):
 
 def validate_schema_func(arg, ctx):
     args = map_value(arg, ctx)
-    assert_form(args, MutableSequence, len(args) == 2)  # type: ignore
+    assert_form(args, MutableSequence, len(args) == 2)
     return validate_schema(args[0], args[1])
 
 
@@ -691,10 +767,20 @@ _CoreFuncs = {
     "not": not_func,
     "q": quote_func,
     "eq": eq_func,
-    "validate": validate_schema_func,
+    "validate_json": validate_schema_func,
     "foreach": for_each_func,
     "is_function_defined": func_defined_func,
 }
+
+
+def _make_op_func(op):
+    op_func = getattr(operator, op)
+    return lambda arg, ctx: op_func(*map_value(arg, ctx))
+
+
+for op in "ne gt ge lt le add mul pow truediv floordiv mod sub".split():
+    _CoreFuncs[op] = _make_op_func(op)
+_CoreFuncs["div"] = _CoreFuncs["truediv"]
 RefContext._Funcs = _CoreFuncs.copy()
 _FuncsTop = ["q"]
 
@@ -703,21 +789,106 @@ class SafeRefContext(RefContext):
     _Funcs = _CoreFuncs.copy()
 
 
+class AnyRef(ResourceRef):
+    "Used by eval.analyze_expr to analyze expressions"
+
+    def __init__(self, name: str, parent=None):
+        self.set_parent(parent)
+        self._key = name
+        self.children: List[AnyRef] = []
+
+    def set_parent(self, parent):
+        self.parent = parent
+        while parent:
+            if not parent.parent:
+                parent.children.append(self)
+                break
+            else:
+                parent = parent.parent
+
+    @property
+    def key(self):
+        return self._key
+
+    class _ChildResources(Mapping):
+        def __init__(self, resource):
+            self.parent = resource
+
+        def __getitem__(self, key):
+            return AnyRef("::" + key, self.parent)
+
+        def __iter__(self):
+            return iter(["*"])
+
+        def __len__(self):
+            return 1
+
+    @property
+    def all(self):
+        # called by Expr.resolve when expression starts with "::"
+        return AnyRef._ChildResources(self)
+
+    def _get_prop(self, name: str) -> Optional["AnyRef"]:
+        if name == ".":
+            return self
+        elif name == "..":
+            return cast(AnyRef, self.parent)
+        return AnyRef(name, self)
+
+    def _resolve(self, key):
+        return AnyRef(key, self)
+
+    def get_keys(self) -> List[str]:
+        head = self
+        while head.parent:
+            head = cast(AnyRef, head.parent)
+        return [head.key] + [c.key for c in head.children]
+
+    def __repr__(self) -> str:
+        return f"AnyRef({hex(id(self))} {self.key})"
+
+    def __eq__(self, other):
+        # assumes this is called from an expression's filter test and we want to proceed for analysis
+        if isinstance(other, AnyRef):
+            if self.key == ".name":
+                self._key = other.key
+            elif self.key == ".type":
+                if not other.parent:  # just set once
+                    other.set_parent(self)
+            return True
+        return False
+
+    def __ne__(self, other):
+        # assumes this is called from an expression's filter test and we want to proceed for analysis
+        return True
+
+
 def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
-    ctx = ctx_cls(AnyRef("$start"), vars={n: AnyRef(n) for n in var_list})
+    start = AnyRef("$start")
+    # use SafeRefContext to avoid side effects
+    ctx = ctx_cls(start, vars={n: AnyRef(n) for n in var_list})
+    ctx._strict = False
     try:
+        ExceptionCollector.pause()
         result = Ref(expr).resolve(ctx)
     except:
         return ctx.currentResource  # type: ignore
+    finally:
+        ExceptionCollector.resume()
     # return the last AnyRef
-    return result[-1] if result else ctx.currentResource  # type: ignore
+    if result and isinstance(result[-1], AnyRef):
+        return result[-1]
+    return ctx.currentResource  # type: ignore
 
 
 def get_eval_func(name):
     return RefContext._Funcs.get(name)
 
 
-def set_eval_func(name, val, topLevel=False, safe=False):
+EvalFunc = Callable[[Any, RefContext], Any]
+
+
+def set_eval_func(name, val: EvalFunc, topLevel=False, safe=False):
     RefContext._Funcs[name] = val
     if topLevel:
         _FuncsTop.append(name)
@@ -728,7 +899,7 @@ def set_eval_func(name, val, topLevel=False, safe=False):
 def eval_ref(
     val: Union[Mapping, str], ctx: RefContext, top: bool = False
 ) -> List[Result]:
-    "val is assumed to be an expression, evaluate and return a list of Result"
+    "Evaluate and return a list of Result. ``val`` is assumed to be an expression."
     from .support import is_template, apply_template
 
     # functions and ResultsMap assume resolve_one semantics
@@ -743,7 +914,7 @@ def eval_ref(
             if func:
                 args = val[key]
                 ctx.kw = val
-                ctx.currentFunc = key  # type: ignore
+                ctx.currentFunc = key
                 if "var" in val:
                     unexpected: Union[bool, str] = "var"
                 elif key != "foreach" and "foreach" in val:
@@ -766,9 +937,9 @@ def eval_ref(
                 if isinstance(ctx, SafeRefContext):
                     msg = f"function unsafe or missing in {dict(val)}"
                     if not ctx.strict:
-                        logger.warning(
+                        logger.verbose(
                             "In safe mode, skipping unsafe eval: " + msg,
-                            stack_info=True,
+                            stack_info=False,
                         )
                         return [Result("Error: in safe mode, skipping unsafe eval")]
                     else:
@@ -939,7 +1110,7 @@ def recursive_eval(v, exp, context):
             else:
                 # flattens
                 rest = exp
-                context.trace("flattening", item)
+                context.trace("flattening", item, "rest:", rest)
 
         # iv will be a generator or list
         if rest:

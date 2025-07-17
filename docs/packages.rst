@@ -15,7 +15,7 @@ Repositories
 
 You declare repositories using TOSCA's `repository <tosca_repositories>` syntax at the top-level of a TOSCA service template or in the `environment` section of your project's `unfurl.yaml`.
 
-You can also create "virtual" repositories by declaring node templates of type ``unfurl.nodes.Repository`` or ``unfurl.nodes.LocalRepository``. This will instantiate a repository of with same name as the template and it will contain the artifacts listed in the ``artifacts`` section of the node template -- here's `an example <https://github.com/onecommons/unfurl/blob/f5da8de13ae2dcce293508c4ccac9b373e66dd49/unfurl/tosca_plugins/artifacts.yaml#L140>`_.
+You can also create "virtual" repositories by declaring node templates of type ``unfurl.nodes.Repository`` or ``unfurl.nodes.LocalRepository``. This will instantiate a repository with same name as the template and it will contain the artifacts listed in the ``artifacts`` section of the node template -- here's `an example <https://github.com/onecommons/unfurl/blob/f5da8de13ae2dcce293508c4ccac9b373e66dd49/unfurl/tosca_plugins/artifacts.yaml#L140>`_.
 
 The contents of a `repository <tosca_repositories>` can be referenced in the following ways:
 
@@ -131,3 +131,6 @@ You can also set these rules with the ``UNFURL_PACKAGE_RULES`` environment varia
 
 The first rule sets the revision of matching packages to the branch "main", and the second replaces one package with another package.
 
+If a ``UNFURL_PACKAGE_RULES`` environment variable is defined, its package rules are appended to the list of package rules in the enviroment's `repositories` section.
+
+The active packages rules of an ensemble are saved in its `lock section <lock>` and are used in subsequent deployments if the ensemble's environment did not define any package rules.

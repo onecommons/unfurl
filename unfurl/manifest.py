@@ -5,8 +5,20 @@ import datetime
 import os.path
 import hashlib
 import json
+import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, Tuple, cast
+from typing import (
+    Dict,
+    List,
+    Optional,
+    Any,
+    Sequence,
+    TYPE_CHECKING,
+    Tuple,
+    Type,
+    TypeVar,
+    cast,
+)
 from urllib.parse import urlparse
 from ruamel.yaml.comments import CommentedMap
 
@@ -33,6 +45,7 @@ from .runtime import (
     TopologyInstance,
 )
 from .util import (
+    API_VERSION,
     UnfurlError,
     assert_not_none,
     is_relative_to,
@@ -41,13 +54,14 @@ from .util import (
     get_base_dir,
     taketwo,
 )
-from .repo import normalize_git_url, split_git_url, RepoView, GitRepo
+from .repo import Repo, normalize_git_url, split_git_url, RepoView, GitRepo
 from .packages import (
     Package,
     PackageSpec,
     PackagesType,
     find_canonical,
     get_package_id_from_url,
+    is_semver,
 )
 from .merge import merge_dicts
 from .result import ChangeRecord, ResourceRef
@@ -59,10 +73,11 @@ from .yamlloader import (
     yaml_dict_type,
     SimpleCacheResolver,
 )
-from .logs import getLogger
+from .logs import getLogger, get_console_log_level
 from . import DEFAULT_CLOUD_SERVER, __version__
 import toscaparser.imports
 from toscaparser.repositories import Repository
+from toscaparser.nodetemplate import NodeTemplate
 import tosca
 from tosca.loader import install
 
@@ -73,6 +88,8 @@ if TYPE_CHECKING:
 logger = getLogger("unfurl")
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
+
+_TI = TypeVar("_TI", bound=EntityInstance)
 
 
 def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str, Any]:
@@ -140,6 +157,8 @@ class Manifest(AttributeManager):
         self.imports = Imports()
         self.imports.manifest = self
         self.modules: Optional[Dict] = None
+        self.apiVersion = API_VERSION
+        self._load_errors = False
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
@@ -209,23 +228,40 @@ class Manifest(AttributeManager):
             if name not in repositoriesTpl:
                 repositoriesTpl[name] = value
 
+        validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
         # make sure this is present
-        toscaDef["tosca_definitions_version"] = TOSCA_VERSION
+        if "tosca_definitions_version" not in toscaDef:
+            toscaDef["tosca_definitions_version"] = TOSCA_VERSION
+        api_version = self.apiVersion[len("unfurl/") :]
+        if is_semver(api_version):  # old version with non-semver syntax is less strict
+            if validation_mode is None:
+                validation_mode = "types"
+
+            # if overriding a template, make sure it is compatible with the old one by adding "should_implement" hint
+            def replaceStrategy(key, old, new):
+                old_type = old.get("type")
+                if old_type:
+                    new.setdefault("metadata", {})["should_implement"] = old_type
+                return new
+
+        else:
+            replaceStrategy = "replace"  # type: ignore
         if more_spec:
             # don't merge individual templates
             toscaDef = merge_dicts(
                 toscaDef,
                 more_spec,
                 replaceKeys=["node_templates", "relationship_templates"],
+                replaceStrategy=replaceStrategy,
             )
         yaml_dict_cls = yaml_dict_type(bool(self.localEnv and self.localEnv.readonly))
         if not isinstance(toscaDef, yaml_dict_cls):
             toscaDef = yaml_dict_cls(toscaDef.items())
         if getattr(toscaDef, "base_dir", None) and (
-            not path or toscaDef.base_dir != os.path.dirname(path)
+            not path or toscaDef.base_dir != os.path.dirname(path)  # type: ignore
         ):
             # note: we only recorded the baseDir not the name of the included file
-            path = toscaDef.base_dir
+            path = toscaDef.base_dir  # type: ignore
         return ToscaSpec(
             toscaDef,
             spec,
@@ -233,6 +269,7 @@ class Manifest(AttributeManager):
             self.get_import_resolver(expand=True),
             skip_validation,
             fragment,
+            validation_mode,
         )
 
     def get_spec_digest(self, spec):
@@ -273,11 +310,8 @@ class Manifest(AttributeManager):
         pass
 
     def load_error(self, msg: str) -> None:
-        if self.validate:
-            raise UnfurlError(msg)
-        else:
-            logger.error(msg)
-        return None
+        self._load_error = True
+        logger.error(msg, stack_info=get_console_log_level() < logging.INFO)
 
     def load_template(
         self, name: str, parent: Optional[EntityInstance], lastChange=None
@@ -409,21 +443,28 @@ class Manifest(AttributeManager):
     #     )
 
     def _create_requirement(self, key, val, root) -> Optional[RelationshipInstance]:
-        # parent will be the capability, should have already been created
-        capabilityId = val.get("capability")
-        if not capabilityId:
+        capability_id = val.get("capability")
+        if not capability_id:
             nodeId = val.get("node")
             if not nodeId:
                 logger.warning(
                     f"skipping requirement {key}: no node or capability specified"
                 )
-                return None
-        capability = capabilityId and root.query(capabilityId)
-        if not capability or not isinstance(capability, CapabilityInstance):
-            return self.load_error(f"can not find capability {capabilityId}")  # type: ignore
-        if capability._relationships is None:
-            capability._relationships = []
-        return self._create_entity_instance(RelationshipInstance, key, val, capability)
+            return None
+        else:
+            if capability_id == "::root":
+                capability = root  # its a default connection
+            else:
+                # parent will be the capability, should have already been created
+                capability = root.query(capability_id)
+                if not capability or not isinstance(capability, CapabilityInstance):
+                    self.load_error(f"can not find capability {capability_id}")
+                    return None
+                if capability._relationships is None:
+                    capability._relationships = []
+            return self._create_entity_instance(
+                RelationshipInstance, key, val, capability
+            )
 
     def _create_substituted_topology(
         self, rname: str, resourceSpec: dict, parent: Optional[EntityInstance]
@@ -464,7 +505,7 @@ class Manifest(AttributeManager):
         rname: str,
         resourceSpec: Dict[str, Any],
         parent: HasInstancesInstance,
-    ) -> NodeInstance:
+    ) -> Optional[NodeInstance]:
         # if parent property is set it overrides the parent argument
         root: ResourceRef = assert_not_none(parent.root)
         pname = resourceSpec.get("parent")
@@ -481,6 +522,8 @@ class Manifest(AttributeManager):
         resource = self._create_entity_instance(
             NodeInstance, rname, resourceSpec, parent
         )
+        if not resource:
+            return None
         if resourceSpec.get("capabilities"):
             for key, val in resourceSpec["capabilities"].items():
                 self._create_entity_instance(CapabilityInstance, key, val, resource)
@@ -492,9 +535,12 @@ class Manifest(AttributeManager):
                 if not requirement:
                     continue
                 requirement._source = resource
-                assert (
-                    requirement in resource.requirements
-                ), f"{requirement} not in {resource.requirements} for {rname}"
+                if requirement.parent is root:
+                    resource._requirements.append(requirement)
+                else:
+                    assert requirement in resource.requirements, (
+                        f"{requirement} not in {resource.requirements} for {rname}"
+                    )
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
@@ -514,14 +560,14 @@ class Manifest(AttributeManager):
         return self.changeSets.get(jobId)
 
     def _create_entity_instance(
-        self, ctor, name: str, status: Dict[str, Any], parent: EntityInstance
-    ):
+        self, ctor: Type[_TI], name: str, status: Dict[str, Any], parent: EntityInstance
+    ) -> Optional[_TI]:
         templateName = status.get("template", name)
 
         imported = None
         importName = status.get("imported")
         if importName is not None:
-            imported = self.imports.find_import(importName)
+            imported = self.imports.find_instance(importName)
             if not imported:
                 self.load_error(f"missing import {importName}")
 
@@ -550,9 +596,10 @@ class Manifest(AttributeManager):
                 # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
         if template is None:
-            return self.load_error(
+            self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"
             )
+            return None
         # logger.debug("creating instance for template %s: %s", templateName, template)
 
         # omit keys that match <<REDACTED>> so can we use the computed property
@@ -561,9 +608,7 @@ class Manifest(AttributeManager):
             for k, v in status.get("attributes", {}).items()
             if v != sensitive_str.redacted_str
         }
-        instance = cast(
-            EntityInstance, ctor(name, attributes, parent, template, operational)
-        )
+        instance = ctor(name, attributes, parent, template, operational)
         if "created" in status:
             instance.created = status["created"]
         if "protected" in status:
@@ -571,6 +616,7 @@ class Manifest(AttributeManager):
         if "customized" in status:
             instance.customized = status["customized"]
         if imported:
+            assert isinstance(importName, str)
             instance.imported = importName
             self.imports.set_shadow(importName, instance, imported)
         properties = status.get("properties")
@@ -592,35 +638,42 @@ class Manifest(AttributeManager):
             return False
         return True
 
+    def _show_task_status(self, target):
+        if target.local_status is not None and target.local_status != target.status:
+            return f"{target.local_status.name}/{target.status.name}"
+        else:
+            return f"{target.status.name}"
+
     def status_summary(self, verbose=False):
-        def summary(instance, indent, show_virtual=True):
-            instantiated = self.is_instantiated(instance)
-            computed = " computed " if verbose and instance.is_computed() else ""
+        def summary(instance, indent, show_all=True):
+            computed = instance.is_computed()
+            virtual = "virtual" in instance.template.directives
+            concrete = not virtual and not computed
             status = "" if instance.status is None else instance.status.name
             state = instance.state and instance.state.name or ""
             if instance.created:
                 if isinstance(instance.created, bool):
                     created = "managed"
                 else:
-                    created = f"created by {instance.created}"
+                    prep = "by" if instance.created.startswith("::") else "on"
+                    created = f"created {prep} {instance.created}"
             else:
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
             if verbose:
                 instance_label += f"({instance.template.global_type})"
-            local = (
-                f"({'None' if instance.local_status is None else instance.local_status.name})"
-                if verbose
-                else ""
-            )
-            if instantiated or verbose:
-                vlabel = "" if instantiated else " virtual"
+            computed_label = " computed " if computed else ""
+            vlabel = " virtual" if virtual else ""
+            status = self._show_task_status(instance)
+            if concrete or verbose:
                 output.append(
-                    f"{' ' * indent}{instance_label}{vlabel}{computed} {status}{local} {state} {created}"
+                    f"{' ' * indent}{instance_label}{vlabel}{computed_label} {status} {state} {created}"
                 )
                 indent += 4
-            elif show_virtual:
-                output.append(f"{' ' * indent}{instance_label} virtual{computed}")
+            elif show_all:  # un-verbose summary of not concrete instances
+                output.append(
+                    f"{' ' * indent}{instance_label} {vlabel}{computed_label}"
+                )
                 indent += 4
             if isinstance(instance, HasInstancesInstance):
                 for rel in instance.requirements:
@@ -686,14 +739,26 @@ class Manifest(AttributeManager):
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
 
-    def find_repo_from_git_url(self, path, base):
+    def find_repo_from_git_url(self, url, base, locked=False):
         revision: Optional[str]
-        repoURL, filePath, revision = split_git_url(path)
+        repoURL, filePath, revision = split_git_url(url)
         if not repoURL:
-            raise UnfurlError(f"invalid git URL {path}")
-        assert self.localEnv
+            raise UnfurlError(f"invalid git URL {url}")
+        if not self.localEnv:  # can happen in unit tests
+            repo = Repo.find_containing_repo(base)
+            if repo and (
+                repo.find_remote(url=url)
+                or toscaparser.imports.normalize_path(url.partition("#")[0]).rstrip("/")
+                == repo.working_dir.rstrip("/")
+            ):
+                return repo, filePath, revision, None
+            else:
+                logger.warning(
+                    "Can't resolve repository %s because there's no localenv.", url
+                )
+                return None, None, None, None
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
-            repoURL, revision, base
+            repoURL, revision, base, locked=locked
         )
         return repo, filePath, revision, bare
 
@@ -702,10 +767,15 @@ class Manifest(AttributeManager):
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
-            if repository.repository.tpl != toscaRepository.tpl:
+            # full compatibility check is done in resolve_url
+            if (
+                repository.repository.tpl != toscaRepository.tpl
+                or repository.path != file_name
+            ):
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
+            return repository
         repository = RepoView(toscaRepository, None, file_name)
         self.repositories[toscaRepository.name] = repository
         return repository
@@ -719,11 +789,11 @@ class Manifest(AttributeManager):
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
         lock = config.get("lock")
-        if lock and "package_rules" in lock:
+        if lock and "package_rules" in lock and not self.package_specs:
             package_specs = [
                 PackageSpec(*spec.split()) for spec in lock.get("package_rules", [])
             ]
-            if package_specs and not self.package_specs:
+            if package_specs:
                 # only use lock section package rules if the environment didn't set some already
                 logger.debug(
                     "applying package rules from lock section: %s", package_specs
@@ -739,7 +809,7 @@ class Manifest(AttributeManager):
                 except UnfurlError:
                     # just warn if the repository is redefined
                     logger.warning(
-                        f"Ignoring redefinition of repository {name} to {tpl}"
+                        "Ignoring redefinition of repository '%s' to %s", name, tpl
                     )
 
         if inlineRepositories:
@@ -787,6 +857,8 @@ class Manifest(AttributeManager):
         return repositories
 
     def _set_builtin_repositories(self):
+        """Sets "unfurl", "self", "spec", and "project" repositories if not declared.
+        Also adds a package rule for the unfurl package that points to the local installation of unfurl."""
         repositories = self.repositories
         if "github.com/onecommons/unfurl" not in self.packages:
             # add a package rule so the unfurl package uses the local installed location
@@ -964,6 +1036,108 @@ class Manifest(AttributeManager):
                 resolver._resolve_repo_to_path(repo_view, base, "")
                 return repo_view
         return None
+
+    def resolve_select(self, node_template: NodeTemplate) -> NodeTemplate:
+        # "select" templates are incomplete, we need to update them with enough of selected (imported) template
+        # so that the solver matches this template properly: i.e. the node type, capabilities, properties (for node_filters).
+        # An important consideration is what to include as part of the template specification
+        # -- we don't want to over-specify with details from the external ensemble that should be private.
+        # so requirements are excluded (and so node_filter match expressions won't work)
+
+        instance = self.find_external_instance(
+            node_template, is_external_template_compatible
+        )
+        if not instance:
+            return node_template
+        imported_tpl = node_template.entity_tpl
+        imported_type = (
+            node_template.custom_def
+            and node_template.custom_def.get_local_name(instance.template.global_type)
+        )
+        if imported_type and imported_type != node_template.type:
+            imported_tpl.setdefault("metadata", {})["select_type"] = node_template.type
+            imported_tpl["type"] = imported_type
+        # XXX else: find closest super type that is in this template's scope.
+
+        # we don't eval expressions (we don't want them applied to this topology) so use serialized values
+        # Note that live instances use properties and capabilities in the imported manifest so aren't affected by this.
+        if instance._properties:
+            imported_tpl["properties"] = instance._properties
+        if imported_tpl.get("capabilities"):
+            logger.warning(
+                f'Ignoring capabilities defined on imported node template "{node_template.name}" with "select" directive, the imported node\'s capabilities are used instead.'
+            )
+        for cap_name in cast(NodeSpec, instance.template).capabilities:
+            cap_instances = instance.get_capabilities(cap_name)
+            if cap_instances:
+                cap_tpl = imported_tpl.setdefault("capabilities", {}).setdefault(
+                    cap_name, {}
+                )
+                if cap_instances[0]._properties:
+                    cap_tpl["properties"] = cap_instances[0]._properties
+        return node_template
+
+    def find_external_instance(
+        self, template: NodeTemplate, match
+    ) -> Optional[NodeInstance]:
+        # Updates self.imports and sets "imported" on template yaml if needed
+        assert "select" in template.directives
+        imported = template.entity_tpl.get("imported")
+        assert self.imports is not None
+        logger.warning(f"searching for {imported} / {template.name}")
+        if imported:
+            _import = self.imports.find_import(imported)
+            if not _import:
+                return None
+            return cast(NodeInstance, _import.external_instance)
+
+        searchAll = []
+        for name, record in self.imports.items():
+            external = record.external_instance
+            if match(name, external.template, template):
+                template.entity_tpl["imported"] = name
+                self.imports.add_import(name, external)
+                return cast(NodeInstance, external)
+            if record.spec.get("instance") in ["root", "*"]:
+                # add root instance
+                searchAll.append((name, external))
+
+        # look in the topologies where were are importing everything
+        for name, root in searchAll:
+            for external_descendant in root.get_self_and_descendants():
+                if match(name, external_descendant.template, template):
+                    import_name = name + ":" + external_descendant.name
+                    self.imports.add_import(import_name, external_descendant)
+                    template.entity_tpl["imported"] = import_name
+                    return cast(NodeInstance, external_descendant)
+        return None
+
+
+def is_external_template_compatible(
+    import_name: str, external: EntitySpec, template: NodeTemplate
+):
+    # match by template name unless a node_filter is set
+    imported = external.tpl.get("imported")
+    if imported:
+        i_name, sep, t_name = imported.partition(":")
+        if i_name != import_name:
+            return False
+    else:
+        t_name = template.name
+
+    node_filter = template.entity_tpl.get("node_filter")
+    if node_filter:
+        return isinstance(
+            external.toscaEntityTemplate, NodeTemplate
+        ) and external.toscaEntityTemplate.match_nodefilter(node_filter)
+
+    if external.name == t_name:
+        if not external.is_compatible_type(template.type):
+            raise UnfurlError(
+                f'external template "{template.name}" not compatible with local template'
+            )
+        return True
+    return False
 
 
 # unused

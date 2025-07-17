@@ -1,0 +1,32 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Base:
+    derived_from: tosca.nodes.Root
+    interfaces:
+      Standard:
+        inputs:
+          foo:
+            type: string
+            default: "base:default"
+        operations:
+          create:
+            inputs:
+              foo: "base:create"
+
+  Derived:
+    derived_from: Base
+    interfaces:
+      Standard:
+        inputs:
+          foo: derived:default
+          bar: derived:default
+        operations:
+          create:
+            inputs:
+              bar: "derived:create"
+topology_template:
+  node_templates:
+    # input merge order is derived:create, base:create, derived:default, base:default
+    # so create operation will have foo set to "base:create" and bar to "derived:create"
+    example:
+      type: Derived

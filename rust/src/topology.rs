@@ -17,12 +17,13 @@ pub type Symbol = String;
 
 type EntityName = Symbol;
 type NodeName = EntityName;
-type AnonEntityId = EntityName;
+// type AnonEntityId = EntityName;
 type CapabilityName = Symbol;
 type PropName = Symbol;
 type ReqName = Symbol;
 pub type TypeName = Symbol;
 type QueryId = usize;
+type Query = Vec<(QueryType, Symbol, Symbol)>;
 
 #[inline]
 pub(crate) fn sym(s: &str) -> Symbol {
@@ -56,7 +57,8 @@ pub enum CriteriaTerm {
         constraints: Vec<Constraint>,
     },
     NodeMatch {
-        query: Vec<(QueryType, Symbol)>,
+        start_node: Symbol,
+        query: Query,
     },
 }
 
@@ -97,6 +99,7 @@ pub enum QueryType {
     Sources,
     Targets,
     PropSource,
+    EntityType,
 }
 
 /// Constraints used in node filters
@@ -388,8 +391,8 @@ tv_from!(BTreeMap<String, ToscaValue>);
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub enum FieldValue {
     Property {
-        value: ToscaValue,
-        // Expr(Vec<QuerySegment>),
+        value: Option<ToscaValue>,
+        computed: Option<(Symbol, Query)>,
     },
     Capability {
         tosca_type: String, // the capability type
@@ -438,11 +441,40 @@ impl Field {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum EntityRef {
     Node(NodeName),
-    Capability(AnonEntityId),
-    Datatype(AnonEntityId),
+    Capability(NodeName, CapabilityName),
+    Relationship(NodeName, ReqName),
+    Property(NodeName, CapabilityName, PropName),
+    // DataEntity(AnonEntityId),
+}
+
+impl EntityRef {
+    pub fn is_relationship(&self, node_name: &NodeName, req_name: &ReqName) -> bool {
+        matches!(self, Self::Relationship(n, r) if *n == *node_name && *r == *req_name)
+    }
+
+    pub fn is_capability(&self, node_name: &NodeName, cap_name: &CapabilityName) -> bool {
+        matches!(self, Self::Capability(n, cap) if *n == *node_name && *cap == *cap_name)
+    }
+
+    /// Extract the node name
+    pub fn node_name(&self) -> NodeName {
+        match self {
+            Self::Node(n) => n.clone(),
+            Self::Capability(n, _) => n.clone(),
+            Self::Relationship(n, _) => n.clone(),
+            Self::Property(n, ..) => n.clone(),
+        }
+    }
+
+    pub fn req_name(&self) -> Option<ReqName> {
+        match self {
+            Self::Relationship(_, r) => Some(r.clone()),
+            _ => None,
+        }
+    }
 }
 
 fn choose_cap(a: Option<CapabilityName>, b: Option<CapabilityName>) -> Option<CapabilityName> {
@@ -466,10 +498,15 @@ ascent! {
 
     relation entity(EntityRef, TypeName);
     relation node(NodeName, TypeName);
-    relation property_value (NodeName, Option<CapabilityName>, PropName, ToscaValue);
-    // if a computed property is referenced in a node_filter match, translate a computed property's eval expression into set of these:
-    relation property_expr (EntityRef, PropName, ReqName, PropName);
-    // relation property_source (NodeName, Option<CapabilityName>, PropName, EntityRef); // transitive source from (property_expr, property_value) and (property_expr, property_source)
+
+    // reqname is set if property is on a relationship template
+    // final bool is true when set by property_expr match
+    relation property_value (NodeName, CapabilityName, ReqName, PropName, ToscaValue, bool);
+    // if property is referenced in a node_filter match:
+    // translate computed property's eval expression into a query
+    relation property_expr (NodeName, CapabilityName, ReqName, PropName, EntityRef);
+    // otherwise if property is not computed, add property_source(current, cap, prop_name, current)
+    relation property_source (NodeName, CapabilityName, PropName, NodeName);
 
     // node_template definition
     relation capability (NodeName, CapabilityName, EntityRef);
@@ -479,7 +516,7 @@ ascent! {
     relation req_term_node_type(NodeName, ReqName, CriteriaTerm, TypeName);
     relation req_term_cap_type(NodeName, ReqName, CriteriaTerm, TypeName);
     relation req_term_cap_name(NodeName, ReqName, CriteriaTerm, CapabilityName);
-    relation req_term_prop_filter(NodeName, ReqName, CriteriaTerm, Option<CapabilityName>, PropName);
+    relation req_term_prop_filter(NodeName, ReqName, CriteriaTerm, CapabilityName, PropName);
     relation req_term_query(NodeName, ReqName, CriteriaTerm, QueryId);
     relation term_match(NodeName, ReqName, Criteria, CriteriaTerm, NodeName, Option<CapabilityName>);
     lattice filtered(NodeName, ReqName, NodeName, Option<CapabilityName>, Criteria, Criteria);
@@ -504,13 +541,21 @@ ascent! {
         req_term_cap_name(source, req, ct, cap_name);
 
     term_match(source, req, criteria, ct, target, None) <--
-        property_value (target, capname, propname, value),
-        requirement(source, req, criteria, restrictions),
+        property_value(target, capname, sym(""), propname, value, ?computed),
+        requirement(source, req, criteria, _),
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
 
+    // for node filters with capability typename instead of capability name:
     term_match(source, req, criteria, ct, target, None) <--
-        result(source, req, q_id, target, true), requirement(source, req, criteria, restrictions),
-        req_term_query(node, req, ct, q_id);
+        property_value(target, capname, sym(""), propname, value, ?computed),
+        requirement(source, req, criteria, _),
+        capability(target, capname, cap_id), entity(cap_id, typename),
+        req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
+
+    term_match(source, req, criteria, ct, target, None) <--
+        result(entity_ref, q_id, target, true),
+        req_term_query(source, req, ct, q_id) if entity_ref.is_relationship(source, req),
+        requirement(source, req, criteria, _);
 
     filtered(name, req_name, target, cn, criteria, Criteria::singleton(term.clone())) <--
         term_match(name, req_name, criteria, term, target, cn);
@@ -535,39 +580,65 @@ ascent! {
     transitive_match(x, r, z) <-- requirement_match(x, r, y, c), transitive_match(y, r, z);
 
     // querying
-    relation query(NodeName, ReqName, QueryId, QueryType, ReqName, bool);
-    relation result(NodeName, ReqName, QueryId, NodeName, bool);
+    // bool indicates whether the query or result is last in the query chain
+    // entityref is a relationship or a property
+    relation query(EntityRef, QueryId, QueryType, ReqName, Symbol, bool);
+    relation result(EntityRef, QueryId, NodeName, bool);
 
     // rules for generating for each query type:
-    result(n, r, q_id + 1, t ,last) <-- transitive_match(s, a, t),
-                              query(n, r, q_id, QueryType::TransitiveRelation, a, last),
-                              result(n, r, q_id, s, false);
 
-    result(n, r, q_id + 1, s, last) <-- required_by(s, a, t),
-                              query(n, r, q_id, QueryType::RequiredBy, a, last),
-                              result(n, r, q_id, t, false);
+    // include self in result
+    result(r, q_id + 1, s, last) <--
+        query(r, q_id, qt, _, sym("SELF"), last) if *qt != QueryType::PropSource,
+        result(r, q_id, s, false);
 
-    result(n, r2, q_id + 1, s, last) <-- required_by(s, r2, t),
-          query(n, r, q_id, QueryType::RequiredByType, a, last),
-          relationship(n, r, a),
-          result(n, r, q_id, t, false);
+    result(r, q_id + 1, s, last) <-- node(s, t),
+        query(r, q_id, QueryType::EntityType, t, _, last),
+        result(r, q_id, s, false);
 
-    result(n, r2, q_id + 1, t ,last) <-- transitive_match(s, r2, t),
-        query(n, r, q_id, QueryType::TransitiveRelationType, a, last),
-        relationship(n, r, a),
-        result(n, r, q_id, s, false);
+    result(r, q_id + 1, t, last) <-- transitive_match(s, a, t),
+        query(r, q_id, QueryType::TransitiveRelation, a, _, last),
+        result(r, q_id, s, false);
 
-    result(node_name, req_name, q_id + 1, source, last) <-- requirement_match(source, a, target, ?cap),
-          query(node_name, req_name, q_id, QueryType::Sources, a, last),
-          result(node_name, req_name, q_id, target, false);
+    result(r, q_id + 1, t, last) <-- transitive_match(s, a, t),
+        query(r, q_id, QueryType::TransitiveRelationType, rel_type, _, last),
+        relationship(t, ?req, ret_type),  //any req that matches the type
+        result(r, q_id, s, false);
 
-    result(node_name, req_name, q_id + 1, target, last) <-- requirement_match(source, a, target, ?cap),
-          query(node_name, req_name, q_id, QueryType::Targets, a, last),
-          result(node_name, req_name, q_id, source, false);
+    result(r, q_id + 1, s, last) <-- required_by(s, a, t),
+              query(r, q_id, QueryType::RequiredBy, a, _, last),
+              result(r, q_id, t, false);
 
-   // result(t, q_id, final) <-- property_source(s, None, prop_name, t), query(q_id, QueryType::PropertySource"), prop_name, last), result(s, q_id, false);
-   // given an expression like configured_by::property, generate:
-   // [result(source_node, 1, false), query(1, "required_by", "configured_by", false), property_source_query(1, property, true)]
+    result(r, q_id + 1, s, last) <-- required_by(s, a, t),
+              query(r, q_id, QueryType::RequiredByType, rel_type, _, last),
+              relationship(s, ?req, rel_type), //any req that matches the type
+              result(r, q_id, t, false);
+
+    result(r, q_id + 1, source, last) <-- requirement_match(source, a, target, ?cap),
+        query(r, q_id, QueryType::Sources, a, _, last),
+        result(r, q_id, target, false);
+
+    result(r, q_id + 1, target, last) <-- requirement_match(source, a, target, ?cap),
+        query(r, q_id, QueryType::Targets, a, _, last),
+        result(r, q_id, source, false);
+
+    // find the node that is the source of the given property
+    result(r, q_id + 1, t, last) <-- property_source(current, cap, prop_name, t),
+        query(r, q_id, QueryType::PropSource, prop_name, cap, last),
+        result(r, q_id, current, false);
+
+    // when property_expr query finishes with a target node, update property_value and property_source
+    // property_expr found a result, set property_source to the target
+    property_source(node_name, cap, prop_name, target) <--
+       property_expr(node_name, cap, sym(""), prop_name, query_key),
+       result(query_key, _, target, true);
+
+    // in this context (a property expression with a PropSource as last term), PropSource selects the property value from target
+    property_value(node_name, cap, sym(""), prop_name, value, true) <--
+      property_expr(node_name, cap, sym(""), prop_name, query_key),
+      query(query_key, q_id, QueryType::PropSource, target_prop, target_cap, true),
+      result(query_key, q_id + 1, target, true),
+      property_value(target, target_cap, sym(""), target_prop, value, ?computed);
 }
 
 #[cfg(test)]

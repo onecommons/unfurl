@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import re
-from typing import Any, Dict, List, MutableMapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, MutableMapping, Optional, Tuple, Union
 from collections import namedtuple
 from collections.abc import Mapping, MutableSequence, Sequence
 
@@ -82,20 +82,25 @@ def make_map_with_base(doc, baseDir, cls):
 # other values besides delete not supported because current code can leave those keys in final result
 mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
+MappingMergeStrategy = Union[str, Callable[[str, Mapping, Mapping], Mapping]]
 
 def merge_dicts(
     b: Mapping,
     a: Mapping,
     cls=None,
     replaceKeys=None,
-    defaultStrategy="merge",
+    defaultStrategy: MappingMergeStrategy="merge",
     listStrategy="append_unique",
+    replaceStrategy: MappingMergeStrategy="replace",
+    mergeStrategyKey: str=mergeStrategyKey
 ) -> dict:
     """
     Returns a new dict (or cls) that recursively merges b into a.
     b is base, a overrides.
 
-    Similar to https://yaml.org/type/merge.html but does a recursive merge
+    Similar to https://yaml.org/type/merge.html but does a recursive merge.
+    List values are appended if the value is not already present in the base list.
+    If a list of replace keys is provided, those keys' values are replaced instead of merged.
     """
     if cls is not dict:
         cls = getattr(b, "mapCtor", cls or b.__class__)
@@ -105,7 +110,7 @@ def merge_dicts(
         if key == mergeStrategyKey:
             continue
         if replaceKeys and key in replaceKeys:
-            childStrategy = "replace"
+            childStrategy = replaceStrategy
         else:
             childStrategy = "merge"
         # note: for merging treat None as an empty map
@@ -126,13 +131,20 @@ def merge_dicts(
                             cls,
                             defaultStrategy=childStrategy,
                             replaceKeys=replaceKeys,
+                            replaceStrategy=replaceStrategy,
                             listStrategy=listStrategy,
+                            mergeStrategyKey=mergeStrategyKey,
                         )
                         continue
                     if strategy == "error":
                         raise UnfurlError(
-                            "merging %s is not allowed, +%%: error was set" % key
+                            f'merging {key} is not allowed, "{mergeStrategyKey}: error" was set'
                         )
+                    if callable(strategy):
+                        if val is None:  # empty map, treat as missing key
+                            continue
+                        cp[key] = strategy(key, bval, val)
+                        continue
                 # otherwise we ignore bval because key is already in a
             if strategy == "whiteout":
                 skip.append(key)
@@ -149,6 +161,7 @@ def merge_dicts(
                     childStrategy,
                     replaceKeys,
                     listStrategy,
+                    mergeStrategyKey
                 )
                 continue
         # otherwise a replaces b
@@ -178,6 +191,7 @@ def _merge_lists(
     childStrategy,
     replaceKeys,
     listStrategy,
+    mergeStrategyKey
 ):
     if listStrategy == "append_unique":
         # XXX allow more strategies beyond append
@@ -198,6 +212,7 @@ def _merge_lists(
                                 defaultStrategy=childStrategy,
                                 replaceKeys=replaceKeys,
                                 listStrategy=listStrategy,
+                                mergeStrategyKey=mergeStrategyKey
                             )
                         else:
                             bval[i] = item
@@ -213,6 +228,7 @@ def _merge_lists(
                             defaultStrategy=childStrategy,
                             replaceKeys=replaceKeys,
                             listStrategy=listStrategy,
+                            mergeStrategyKey=mergeStrategyKey
                         )
                         continue
             if item not in bval:
@@ -276,7 +292,7 @@ def _json_pointer_validate(pointer):
 
 
 def get_template(
-    doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None
+    doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None, mergeStrategyKey=mergeStrategyKey
 ) -> Optional[Any]:
     template = doc
     templatePath = None
@@ -314,7 +330,7 @@ def get_template(
                     )
             if includes is None:
                 includes = CommentedMap()
-            template = expand_dict(doc, path, includes, template, cls=cls)
+            template = expand_dict(doc, path, includes, template, cls, mergeStrategyKey)
     finally:
         if key.include:
             # pop baseDir
@@ -455,7 +471,7 @@ def copy_dict(current: Mapping, cls=dict) -> MutableMapping:
     return cp
 
 
-def expand_dict(doc, path, includes, current, cls=dict) -> Any:
+def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeStrategyKey) -> Any:
     """
     Return a copy of `doc` that expands include directives.
     Include directives look like "+path/to/value"
@@ -473,7 +489,7 @@ def expand_dict(doc, path, includes, current, cls=dict) -> Any:
         if not isinstance(key, str):
             cp[key] = value
             continue
-        if key.startswith("+"):
+        if key.startswith(mergeStrategyKey[0]):
             if key == mergeStrategyKey:
                 cp[key] = value
                 continue
@@ -491,7 +507,7 @@ def expand_dict(doc, path, includes, current, cls=dict) -> Any:
                 cp[key] = value
                 continue
             includes.setdefault(path, []).append((mergeKey, value))
-            template = get_template(doc, mergeKey, value, path, cls, includes)
+            template = get_template(doc, mergeKey, value, path, cls, includes, mergeStrategyKey)
             if isinstance(template, MutableMapping):
                 templates.append(template)
             elif mergeKey.include and template is None:
@@ -506,9 +522,9 @@ def expand_dict(doc, path, includes, current, cls=dict) -> Any:
         # elif key.startswith("q+"):
         #    cp[key[2:]] = value
         elif isinstance(value, Mapping):
-            cp[key] = expand_dict(doc, path + (key,), includes, value, cls)
+            cp[key] = expand_dict(doc, path + (key,), includes, value, cls, mergeStrategyKey)
         elif isinstance(value, list):
-            cp[key] = list(expand_list(doc, path + (key,), includes, value, cls))
+            cp[key] = list(expand_list(doc, path + (key,), includes, value, cls, mergeStrategyKey))
         else:
             cp[key] = value
 
@@ -517,7 +533,7 @@ def expand_dict(doc, path, includes, current, cls=dict) -> Any:
         templates.append(cp)
         while templates:
             cls = getattr(templates[0], "mapCtor", cls)
-            accum = merge_dicts(accum, templates.pop(0), cls)
+            accum = merge_dicts(accum, templates.pop(0), cls, mergeStrategyKey)
         return accum
     else:
         return cp
@@ -532,23 +548,23 @@ def _find_missing_includes(includes):
                 yield i
 
 
-def _delete_deleted_keys(expanded):
+def _delete_deleted_keys(expanded, mergeStrategyKey):
     for key in list(expanded):
         value = expanded[key]
         if isinstance(value, Mapping):
             if value.get(mergeStrategyKey) in ["whiteout", "nullout"]:
                 del expanded[key]
             else:
-                _delete_deleted_keys(value)
+                _delete_deleted_keys(value, mergeStrategyKey)
 
 
-def expand_doc(doc, current=None, cls=dict) -> Tuple[MutableMapping, Any]:
+def expand_doc(doc, current=None, cls=dict, mergeStrategyKey=mergeStrategyKey) -> Tuple[MutableMapping, Any]:
     includes = cls()
     if current is None:
         current = doc
     if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
         raise UnfurlError(f"top level element {doc} is not a dict")
-    expanded = expand_dict(doc, (), includes, current, cls)
+    expanded = expand_dict(doc, (), includes, current, cls, mergeStrategyKey)
     assert isinstance(expanded, Mapping), expanded
     if hasattr(doc, "_anchorCache"):
         setattr(expanded, "_anchorCache", doc._anchorCache)
@@ -557,7 +573,7 @@ def expand_doc(doc, current=None, cls=dict) -> Tuple[MutableMapping, Any]:
         missing = list(_find_missing_includes(includes))
         if len(missing) == 0:
             # remove any stray merge directive that weren't applied
-            _delete_deleted_keys(expanded)
+            _delete_deleted_keys(expanded, mergeStrategyKey)
             return includes, expanded
         if len(missing) == last:  # no progress
             required_missing = [
@@ -576,18 +592,18 @@ def expand_doc(doc, current=None, cls=dict) -> Tuple[MutableMapping, Any]:
             return includes, expanded
         last = len(missing)
         includes = CommentedMap()
-        expanded = expand_dict(expanded, (), includes, current, cls)
+        expanded = expand_dict(expanded, (), includes, current, cls, mergeStrategyKey)
         assert isinstance(expanded, Mapping), expanded
         if hasattr(doc, "_anchorCache"):
             setattr(expanded, "_anchorCache", doc._anchorCache)
 
 
-def expand_list(doc, path, includes, value, cls=dict):
+def expand_list(doc, path, includes, value, cls=dict, mergeStrategyKey=mergeStrategyKey):
     for i, item in enumerate(value):
         if isinstance(item, Mapping):
             if item.get(mergeStrategyKey) == "whiteout":
                 continue
-            newitem = expand_dict(doc, path + (i,), includes, item, cls)
+            newitem = expand_dict(doc, path + (i,), includes, item, cls, mergeStrategyKey)
             if isinstance(newitem, MutableSequence):
                 for i in newitem:
                     yield i
@@ -597,7 +613,7 @@ def expand_list(doc, path, includes, value, cls=dict):
             yield item
 
 
-def diff_dicts(old, new, cls=dict, skipkeys=()):
+def diff_dicts(old, new, cls=dict, skipkeys=(), mergeStrategyKey=mergeStrategyKey):
     """
     given old, new return diff where merge_dicts(old, diff) == new
     """
@@ -611,18 +627,18 @@ def diff_dicts(old, new, cls=dict, skipkeys=()):
             if oldval != newval:
                 if isinstance(oldval, Mapping):
                     if isinstance(newval, Mapping):
-                        _diff = diff_dicts(oldval, newval, cls, skipkeys)
+                        _diff = diff_dicts(oldval, newval, cls, skipkeys, mergeStrategyKey)
                         if not skipkeys or _diff:
                             diff[key] = _diff
                     elif newval is None:
                         # dicts merge with None so add a nullout directive to preserve the None
-                        diff[key] = cls((("+%", "nullout"),))
+                        diff[key] = cls(((mergeStrategyKey, "nullout"),))
                     else:  # new non-dict val replaces old dict
                         diff[key] = newval
                 else:
                     diff[key] = newval
         else:  # not in new, so add a whiteout directive to delete this key
-            diff[key] = cls((("+%", "whiteout"),))
+            diff[key] = cls(((mergeStrategyKey, "whiteout"),))
 
     for key in new:
         if key in skipkeys:
@@ -737,7 +753,7 @@ def add_template(changedDoc, path, mergeKey, template, cls):
     current[last] = template
 
 
-def restore_includes(includes, originalDoc, changedDoc, cls=dict):
+def restore_includes(includes, originalDoc, changedDoc, cls=dict, mergeStrategyKey=mergeStrategyKey):
     """
     Modifies changedDoc with to use the includes found in originalDoc
     """
@@ -800,5 +816,5 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
                 add_template(changedDoc, key, includeKey, template, cls)
 
         if isinstance(ref, Mapping):
-            diff = diff_dicts(mergedIncludes, ref, cls)
+            diff = diff_dicts(mergedIncludes, ref, cls, mergeStrategyKey=mergeStrategyKey)
             replace_path(changedDoc, key, diff, cls)

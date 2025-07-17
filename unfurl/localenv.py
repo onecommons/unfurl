@@ -40,10 +40,12 @@ from .repo import (
     normalize_git_url_hard,
 )
 from .util import (
+    API_VERSION,
     UnfurlError,
     filter_env,
     get_base_dir,
     is_relative_to,
+    should_include_path,
     substitute_env,
     wrap_sensitive_value,
     save_to_tempfile,
@@ -88,6 +90,7 @@ class Project:
         homeProject: Optional["Project"] = None,
         overrides: Optional[dict] = None,
         readonly: Optional[bool] = False,
+        register: bool = False,
     ):
         assert isinstance(path, str), path
         if os.path.isdir(path):
@@ -101,15 +104,17 @@ class Project:
         else:
             self.localConfig = LocalConfig(readonly=bool(readonly))
         self._set_repos()
-        # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
+        # XXX this might save the local config to disk -- constructing a Project object shouldn't do that
         # especially since the localenv call this might not have found the ensemble yet
         if homeProject is not self:
-            self._set_parent_project(homeProject)
+            self._set_parent_project(homeProject, register)
         else:
             self.parentProject: Optional[Project] = None
 
     def _set_parent_project(
-        self, parentProject: Optional["Project"], save: bool = True
+        self,
+        parentProject: Optional["Project"],
+        save: bool,
     ) -> None:
         assert parentProject is not self
         assert not parentProject or parentProject.projectRoot != self.projectRoot, (
@@ -117,8 +122,13 @@ class Project:
             self.projectRoot,
         )
         self.parentProject = parentProject
-        if parentProject and save:
-            parentProject.register_project(self)  # saves config
+        if parentProject:
+            saved = parentProject.register_project(self, save)
+            if saved:
+                logger.verbose(
+                    "Registered project with parent project at %s",
+                    parentProject.projectRoot,
+                )
         self._set_contexts()
         # depends on _set_contexts():
         self.project_repoview.yaml = make_yaml(self.make_vault_lib())
@@ -179,7 +189,15 @@ class Project:
             if os.path.isdir(path):
                 repo = Repo.find_containing_repo(path)
                 if repo:  # make sure it's a git repo
-                    # XXX validate that repo matches url and metadata in tpl
+                    url = normalize_git_url_hard(tpl["url"])
+                    repo_url = normalize_git_url_hard(repo.url)
+                    if repo_url != url:
+                        logger.warning(
+                            'Git origin in "%s" is "%s", which does not match the url "%s" found in its "localRepositories" config setting.',
+                            path,
+                            repo_url,
+                            url,
+                        )
                     self.workingDirs[path] = RepoView(
                         dict(url=repo.url, name=tpl.get("name", "")),
                         repo,
@@ -337,7 +355,7 @@ class Project:
                 # and has credentials, update the new url with those credentials
                 candidate_parts = urlsplit(repo.url)
                 password = candidate_parts.password
-                if password:
+                if candidate_parts.username and password:
                     if (
                         candidate_parts.hostname == repourl_parts.hostname
                         and candidate_parts.port == repourl_parts.port
@@ -444,11 +462,25 @@ class Project:
         # merge project contexts with parent contexts
         expanded = cast(dict, self.localConfig.config.expanded)
         contexts = expanded.get("environments") or {}
-        # handle null environments:
         dict_cls = getattr(expanded, "mapCtor", expanded.__class__)
-        contexts = dict_cls(
-            (n, dict_cls() if v is None else v) for n, v in contexts.items()
-        )
+
+        def _normalize(v: dict) -> dict:
+            if v is None:  # handle null environments:
+                return dict_cls()
+            # handle python dsl imports:
+            if "topology_template" in v:
+                if "node_templates" in v["topology_template"]:
+                    v["instances"] = merge_dicts(
+                        v["topology_template"]["node_templates"], v.get("instances", {})
+                    )
+                if "relationship_templates" in v["topology_template"]:
+                    v["connections"] = merge_dicts(
+                        v["topology_template"]["relationship_templates"],
+                        v.get("connections", {}),
+                    )
+            return v
+
+        contexts = dict_cls((n, _normalize(v)) for n, v in contexts.items())
         if self.parentProject:
             parentContexts = self.parentProject.contexts
             contexts = merge_dicts(
@@ -573,10 +605,13 @@ class Project:
         return self.localConfig.config.expanded.get("default_environment")
 
     def get_default_project_path(self, context_name: str) -> Optional[str]:
+        "If there is a default project set for the given environment, return its path."
         # when creating a new ensemble, use this shared project for the given environment
         default_project = self.get_context(context_name).get("defaultProject")
         if not default_project:
             return None
+        if default_project == "SELF":
+            return self.projectRoot
 
         # search for the default_project
         project: Optional[Project] = self
@@ -600,7 +635,7 @@ class Project:
         if path is not None:
             externalProject = localEnv.find_project(path)
             if externalProject:
-                externalProject._set_parent_project(self)  # inherit from self
+                externalProject._set_parent_project(self, True)  # inherit from self
                 return externalProject
             localEnv.logger.warning(
                 'Could not find the project "%s" which manages "%s"',
@@ -616,7 +651,9 @@ class Project:
         project: Optional["Project"] = None,
         managedBy: Optional["Project"] = None,
         context: Optional[str] = None,
-    ) -> None:
+        local: bool = False,
+        default: bool = False,
+    ) -> bool:
         relPath = (project if project else self).get_relative_path(manifestPath)
         props = dict(file=relPath)
         props["alias"] = os.path.basename(os.path.dirname(manifestPath))
@@ -626,26 +663,52 @@ class Project:
             props["project"] = project.name
         if context:
             props["environment"] = context
+        if default:
+            props["default"] = True  # type: ignore
+
+        # update in-memory list
         location = self.find_ensemble_by_path(manifestPath)
         if location:
             location.update(props)
         else:
             self.localConfig.ensembles.append(props)
-        if managedBy or project:
+            location = props
+        # update the config files
+        key, config = self.localConfig.find_config(local)
+        ensembles: List[dict] = config.setdefault("ensembles", [])
+        try:
+            index = ensembles.index(location)
+            ensembles[index].update(props)
+        except ValueError:
+            ensembles.append(props)
+        saved = self.localConfig.save_config(key, False)
+
+        dest_project = managedBy or project
+        if dest_project and dest_project.projectRoot != self.projectRoot:
             assert not (managedBy and project)
-            self.register_project(managedBy or project, changed=True)
-        elif self.localConfig.config.config:
-            self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
-            if not self.localConfig.config.readonly:
-                self.localConfig.config.save()
+            saved = self.register_project(dest_project, save=True)
+        if saved:
+            logger.verbose(
+                "Registered %sensemble: %s",
+                ("default " if default else ""),
+                manifestPath,
+            )
+        return saved
 
     def register_project(
-        self, project, for_context=None, changed=False, save_project=True
-    ):
-        self.localConfig.register_project(project, for_context, changed, save_project)
+        self,
+        project: "Project",
+        save: bool = False,
+    ) -> bool:
+        """
+        Register a project with this project.
+        Return True if this project's config file was updated and saved to disk.
+        """
+        saved = self.localConfig.register_project(project, save)
         self.workingDirs[project.project_repoview.working_dir] = (
             project.project_repoview
         )
+        return saved
 
     def load_yaml_include(
         self,
@@ -714,6 +777,13 @@ class Project:
             )
         return includekey, template
 
+    def should_include_path(self, path: str) -> bool:
+        return should_include_path(
+            self.localConfig.config.expanded.get("include_paths") or [],
+            self.localConfig.config.expanded.get("exclude_paths") or [],
+            path,
+        )
+
 
 class LocalConfig:
     """
@@ -736,7 +806,7 @@ class LocalConfig:
     def __init__(
         self, path=None, validate=True, yaml_include_hook=None, readonly=False
     ):
-        defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
+        defaultConfig = {"apiVersion": API_VERSION, "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
             path,
@@ -756,7 +826,7 @@ class LocalConfig:
         return os.path.join(self.config.get_base_dir(), path)
 
     @staticmethod
-    def _get_default_manifest_tpl(ensembles):
+    def _get_default_manifest_tpl(ensembles: List[Dict[str, Any]]):
         if len(ensembles) == 1:
             return ensembles[0]
         else:
@@ -836,33 +906,41 @@ class LocalConfig:
         return key, include
 
     def register_project(
-        self, project: Project, for_context=None, changed=False, save_project=True
-    ):
+        self,
+        project: Project,
+        save: bool,
+    ) -> bool:
         """
-        Register an external project with current project.
-        If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
-        Otherwise, add it to the "projects" section of the current project's config.
+        Register an external project with current project by updating the project's configuration files.
+        If the external project's git repository is local (ie. missing a git remote with an remote url) then save it in the local config ("local/unfurl.yaml") if it exists .
+        Otherwise, add it to the main config ("unfurl.yaml").
+
+        Args:
+            project (Project): The project to register.
+            save (bool): Whether to save the config file.
+
+        Return True if this project's config file was updated and saved to disk.
+
         """
         # update, if necessary, localRepositories and projects
-        key, local = self.config.search_includes(key="localRepositories")
-        assert self.config.config
-        if not key and "localRepositories" not in self.config.config:
-            # localRepositories doesn't exist, see if we are including a file inside "local"
-            pathPrefix = os.path.join(self.config.get_base_dir(), "local")
-            key, local = self.config.search_includes(pathPrefix=pathPrefix)
-        if not key:
-            local = self.config.config
-        assert isinstance(local, dict)
+        key, local = self.find_config(True)
 
         repo = project.project_repoview
         localRepositories = local.setdefault("localRepositories", {})
         lock = repo.lock()
         name = self._get_project_name(project)
         lock["project"] = name
+        changed = False
         if localRepositories.get(repo.working_dir) != lock:
             localRepositories[repo.working_dir] = lock
             changed = True
 
+        if repo.is_local_only():
+            projectConfig = local
+        else:
+            projectConfig = self.config.config
+
+        projects_changed = False
         externalProject = dict(
             url=normalize_git_url(repo.url, 1),
             initial=repo.get_initial_revision(),
@@ -871,33 +949,74 @@ class LocalConfig:
         if file and file != ".":
             externalProject["file"] = file
 
-        if save_project:
-            self.projects[name] = externalProject
-            if repo.is_local_only():
-                projectConfig = local
-            else:
-                projectConfig = self.config.config
-            project_tpl = projectConfig.setdefault("projects", {})
-            if project_tpl.get(name) != externalProject:
-                project_tpl[name] = externalProject
-                changed = True
+        self.projects[name] = externalProject
+        project_tpl = projectConfig.setdefault("projects", {})
+        if project_tpl.get(name) != externalProject:
+            if name in project_tpl:
+                save = True  # force save if existing project needs updating
+            project_tpl[name] = externalProject
+            projects_changed = True
 
-            if for_context:
-                # set the project to be the default project for the given context
-                context = projectConfig.setdefault("environments", {}).setdefault(
-                    for_context, {}
+        # update that environments that the given project as its default project"
+        environments_default_for = (
+            project.localConfig.environments_with_self_as_default()
+        )
+        if environments_default_for:
+            for env_name in environments_default_for:
+                environment = projectConfig.setdefault("environments", {}).setdefault(
+                    env_name, {}
                 )
-                if context.get("defaultProject") != name:
-                    context["defaultProject"] = name
-                    changed = True
+                if environment.get("defaultProject") != name:
+                    environment["defaultProject"] = name
+                    projects_changed = True
+                    save = True  # force save
 
-        if changed:
-            if key and not self.config.readonly:
-                self.config.save_include(key)
-            self.config.config["ensembles"] = self.ensembles
-            if not self.config.readonly:
-                self.config.save()
-        return lock
+        if not save:
+            return False
+        if projectConfig is self.config.config:
+            local_changed = changed
+            main_changed = projects_changed
+        else:
+            local_changed = changed or projects_changed
+            main_changed = False
+        if main_changed or local_changed:
+            return self.save_config(key if local_changed else None, main_changed)
+        return False
+
+    def save_config(self, key: Optional[str], main: bool) -> bool:
+        if self.config.readonly:
+            return False
+        if key:
+            self.config.save_include(key)
+        if not key or main:
+            self.config.save()
+        return True
+
+    def find_config(self, find_local: bool) -> Tuple[Optional[str], Dict[str, Any]]:
+        if not find_local:
+            local: Optional[Dict[str, Any]] = self.config.config
+            assert isinstance(local, dict)
+            return None, self.config.config
+        key, local = self.config.search_includes(key="localRepositories")
+        if not key and "localRepositories" not in self.config.config:
+            # localRepositories doesn't exist, see if we are including a file inside "local"
+            pathPrefix = os.path.join(self.config.get_base_dir(), "local")
+            key, local = self.config.search_includes(pathPrefix=pathPrefix)
+        if not key:
+            local = self.config.config
+        assert isinstance(local, dict)
+        return key, local
+
+    def environments_with_self_as_default(self) -> List[str]:
+        """
+        Returns a list with the names of environments with "defaultProject" set to "SELF".
+        """
+        contexts = self.config.expanded.get("environments") or {}
+        return [
+            name
+            for name, context in contexts.items()
+            if context and context.get("defaultProject") == "SELF"
+        ]
 
 
 def _maplist(template, environment_scope=None):
@@ -1011,11 +1130,13 @@ class LocalEnv:
                 raise UnfurlError(
                     f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
                 )
+        self._set_environment(override_context)
 
+    def _set_environment(self, override_context: Optional[str]) -> None:
         if override_context and override_context != "defaults":
-            assert (
-                override_context == self.manifest_context_name
-            ), self.manifest_context_name
+            assert override_context == self.manifest_context_name, (
+                self.manifest_context_name
+            )
             project = self.project or self.homeProject
             if not project or self.manifest_context_name not in project.contexts:
                 raise UnfurlError(
@@ -1104,6 +1225,16 @@ class LocalEnv:
                 if managed_project:
                     return managed_project
 
+        if self.manifestPath:
+            ensemble_project_path = os.path.join(
+                os.path.dirname(self.manifestPath), DefaultNames.LocalConfig
+            )
+            # look for a project in the same directory as the manifest
+            if ensemble_project_path != project.projectRoot and os.path.exists(
+                ensemble_project_path
+            ):
+                project = self.get_project(ensemble_project_path, self.homeProject)
+
         # projects can be nested (handle stand-alone ensemble repositories)
         parent_project = self.find_project(
             os.path.dirname(project.projectRoot), stop_at
@@ -1146,7 +1277,7 @@ class LocalEnv:
             if vault:
                 self.logger.info(
                     "Vault password found, configuring vault ids: %s",
-                    [s[0] for s in vault.secrets],
+                    [s[0] for s in vault.secrets if s[0] != "+%"],
                 )
         else:
             vault = None
@@ -1435,24 +1566,26 @@ class LocalEnv:
         revision: Optional[str] = None,
         basepath: Optional[str] = None,
         checkout_args: dict = {},
+        locked: bool = False,
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
         repoview_or_url = self._find_git_repo(repoURL, revision)
         if isinstance(repoview_or_url, RepoView):
             repo = repoview_or_url.repo
             assert repo
-            logger.debug(
+            logger.verbose(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
             if (
-                not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
+                not locked
+                and not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
                 and not repo.is_dirty()
                 and not (repoview_or_url.package and repoview_or_url.package.locked)
             ):
                 repo.pull(revision=revision)
         else:
-            assert isinstance(
-                repoview_or_url, str
-            ), repoview_or_url  # it's the repoUrl (possibly rewritten) at this point
+            assert isinstance(repoview_or_url, str), (
+                repoview_or_url
+            )  # it's the repoUrl (possibly rewritten) at this point
             url = repoview_or_url
             # git-local repos must already exist locally
             if url.startswith("git-local://"):

@@ -1,0 +1,60 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+artifact_types:
+  ClusterTerraformModule:
+    derived_from: unfurl.artifacts.TerraformModule
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+        operations:
+          execute:
+            metadata:
+              output_match:
+              - KubernetesClusterOutputs
+              input_match:
+              - KubernetesClusterInputs
+            inputs:
+              do_region:
+                type: string
+                default: nyc3
+            outputs:
+              do_id:
+                type: string
+node_types:
+  Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      do_region:
+        type: string
+        default: nyc3
+        metadata:
+          input_match: KubernetesClusterInputs
+      my_property:
+        type: string
+        default: default
+    attributes:
+      do_id:
+        type: string
+        metadata:
+          output_match: KubernetesClusterOutputs
+    artifacts:
+      cluster_config:
+        type: ClusterTerraformModule
+        file: my_module/main.tf
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            metadata:
+              output_match:
+              - KubernetesClusterOutputs
+              arguments:
+              - do_region
+            inputs:
+              do_region:
+                eval: .::do_region
+            outputs:
+              do_id:
+                type: string
+            implementation:
+              primary: cluster_config

@@ -25,7 +25,7 @@ spec:
         test1:
           type: tosca.nodes.Root
           properties:
-            testProp: "test"
+            testProp: yes
           interfaces:
             Standard:
               +/configurations:

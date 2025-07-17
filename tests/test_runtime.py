@@ -28,10 +28,11 @@ from unfurl.util import (
     lookup_class,
     API_VERSION,
     sensitive_str,
+    should_include_path
 )
 from unfurl.yamlloader import YamlConfig
 from unfurl.yamlmanifest import YamlManifest
-
+from unfurl import logs
 
 class SimpleConfigurator(Configurator):
     def run(self, task):
@@ -370,13 +371,13 @@ root:
 
     def test_sensitive_logging(self):
         handler = logging.getLogger().handlers[0]
-        print('d', handler, handler.stream)
+        assert isinstance(handler, logs.ColorHandler)
         old_stream = handler.stream
         try:
             handler.stream = io.StringIO()
 
-            logger = logging.getLogger("unfurl")
-            logger.critical("test1 %s", sensitive_str("sensitive"))
+            logger = logs.getLogger("unfurl")
+            logger.warning("test1 %s", sensitive_str("sensitive"))
 
             logger = logging.getLogger("another")
             logger.critical("test2 %s", sensitive_str("sensitive"))
@@ -666,3 +667,17 @@ spec:
             with self.assertRaises(UnfurlError) as err:
                 manifest.lock()  # can't lock twice
             self.assertIn("already locked", str(err.exception))
+
+@pytest.mark.parametrize("include_paths, exclude_paths, target_path, expected", [
+    (["/path/to/include"], [], "/path/to/include/subdir", True),
+    (["/path/to"], ["/path/to/exclude"], "/path/to/exclude/subdir", False),
+    ([], [os.path.abspath(".")], "./subdir", False),  # compare by absolute paths
+    (["/path/to"], ["/path/to"], "/path/to/exclude/subdir", False), # exclude takes precedence
+    ([], [], "/path/to/target", True),
+    (["/path/to/include"], ["/"], "/path/to/target", False),
+    (["/path/to/target/"], ["/"], "/path/to/target", True),
+    (["/path/to/include"], [], "/path/to/include/subdir/subsubdir", True),
+    ([], ["/path/to/exclude"], "/path/to/exclude/subdir/subsubdir", False),
+])
+def test_should_include_path(include_paths, exclude_paths, target_path, expected):
+    assert should_include_path(include_paths, exclude_paths, target_path) == expected

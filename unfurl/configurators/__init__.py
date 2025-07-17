@@ -6,10 +6,14 @@ from typing_extensions import TypedDict
 from tosca import ToscaInputs
 from ..eval import Ref, map_value
 from ..configurator import Configurator, TaskView
-from ..result import Results, ResultsMap
+from ..result import Results, wrap_var
 from ..util import UnfurlTaskError, register_short_names
-from ..support import Status
-from ..planrequests import set_default_command, ConfigurationSpecKeywords
+from ..support import Status, DEBUG_EX
+from ..planrequests import (
+    set_default_command,
+    ConfigurationSpecKeywords,
+    TaskRequest,
+)
 import importlib
 from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union, cast
 from collections.abc import Mapping
@@ -67,11 +71,11 @@ class TemplateConfigurator(Configurator):
         Ansible also includes "outputs"
         """
         # get the resultTemplate without evaluating it
-        resultTemplate = task.inputs._attributes.get("resultTemplate")
+        resultTemplate = task.inputs.get_original("resultTemplate")
         errors: Sequence[Exception] = []
         current_status = task.target.local_status
         if resultTemplate:  # evaluate it now with the result
-            if os.getenv("UNFURL_TEST_DEBUG_EX"):
+            if DEBUG_EX:
                 task.logger.error(
                     "evaluated result template (%s) with %s %s",
                     type(resultTemplate),
@@ -81,7 +85,7 @@ class TemplateConfigurator(Configurator):
             if isinstance(resultTemplate, Results):
                 resultTemplate = resultTemplate._attributes
             try:
-                if os.getenv("UNFURL_TEST_DEBUG_EX"):
+                if DEBUG_EX:
                     task.logger.error(
                         "result %s template is %s", type(resultTemplate), resultTemplate
                     )
@@ -89,9 +93,7 @@ class TemplateConfigurator(Configurator):
                 else:
                     trace = 0
                 if Ref.is_ref(resultTemplate):
-                    results = task.query(
-                        resultTemplate, vars=result, throw=True
-                    )
+                    results = task.query(resultTemplate, vars=result, throw=True)
                 else:
                     # lazily evaluated by update_instances() below
                     results = Results._map_value(
@@ -136,24 +138,39 @@ class TemplateConfigurator(Configurator):
         return runResult
 
     def done(self, task: "TaskView", **kw):
-        # this is called by derived classes like ShellConfigurator to allow the user
+        # this is (only) called by derived classes like ShellConfigurator to allow the user
         # to override the default logic for updating the state and status of a task.
-        done = task.inputs.get_copy("done", {})
+        done = task.inputs.get_original("done")
         if done:
+            vars = cast(
+                dict,
+                DoneDict(
+                    success=None, modified=None, status=None, result=None, outputs=None
+                ),
+            )
+            vars.update(kw)
+            done = map_value(done, task.inputs.context.copy(vars=vars))
             task.logger.trace("evaluated done template with %s", done)
             kw.update(done)  # "done" overrides kw
         return task.done(**kw)
 
     def run(self, task: "TaskView") -> Generator:
         runResult = task.rendered
-        done = task.inputs.get_copy("done", {})
+        done: dict = task.inputs.get_copy("done", {})
         if not isinstance(done, dict):
             raise UnfurlTaskError(task, 'input "done" must be a dict')
         if "result" not in done:
             if not isinstance(runResult, Mapping):
-                done["result"] = {"run": runResult, "outputs": done.get("outputs")}
+                done["result"] = {
+                    "run": runResult,
+                    "outputs": wrap_var(done.get("outputs")),
+                }
             else:
                 done["result"] = runResult
+        elif done["result"] and "outputs" in done["result"]:
+            done["result"]["outputs"] = wrap_var(done["result"]["outputs"])
+
+        # unlike derived configurators, this is called after "done" is evaluated
         errors, new_status = self.process_result_template(
             task, done.get("result") or {}
         )
@@ -197,7 +214,13 @@ class DelegateConfigurator(Configurator):
             yield task.done(True, modified=False)
         else:
             subtaskRequest = task.rendered
-            assert subtaskRequest
+            assert isinstance(subtaskRequest, TaskRequest), subtaskRequest
             # note: this will call can_run_task() for the subtask but not shouldRun()
             subtask = yield subtaskRequest
-            yield subtask.result
+            if not subtask.result and not subtaskRequest.required:
+                # subtask was skipped
+                # if skipping because subtask didn't support dry run, set modified to simulate
+                modified = task.dry_run and task.configSpec.operation != "check"
+                yield task.done(True, modified=modified)
+            else:
+                yield subtask.result

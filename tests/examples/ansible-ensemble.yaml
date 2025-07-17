@@ -14,7 +14,7 @@ spec:
               user: ubuntu
               authentication_type: private_key_file
               hostvars:
-                ansible_pipelining: yes
+                ansible_pipelining: false
 
     topology_template:
       node_templates:

@@ -26,7 +26,7 @@ from typing import (
     TYPE_CHECKING,
     overload,
 )
-from typing_extensions import Literal
+from typing_extensions import Literal, Self
 from .support import (
     Status,
     Priority,
@@ -185,6 +185,8 @@ class JobOptions:
 
     def __init__(self, **kw: Any) -> None:
         options = self.defaults.copy()
+        if kw.get("workflow") == "teardown":  # rename
+            kw["workflow"] = "undeploy"
         if kw.get("starttime"):  # rename
             options["startTime"] = kw["starttime"]
         if kw.get("skip_new"):
@@ -196,7 +198,7 @@ class JobOptions:
         instance = kw.pop("instance", None)
         if instance:
             if isinstance(instance, tuple):
-                instances = kw.pop("instance")
+                instances = instance
                 if instances:
                     kw["instances"] = list(instances)
             elif "instances" not in kw:
@@ -248,7 +250,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.outputs: Optional[dict] = None
         # for summary:
         self.modified_target: bool = False
-        self.target_status: Status = target.status
+        self.target_status: Optional[Status] = target.status
         self.target_state: Optional[NodeState] = target.state
         self.blocked: bool = False
 
@@ -379,7 +381,7 @@ class ConfigTask(TaskView, ConfigChange):
             return True
         return False
 
-    def _finished_workflow(self, successStatus, workflow):
+    def _finished_workflow(self, successStatus: Optional[Status], workflow: str):
         # non-readonly workflow finished successfully
         instance = self.target
         self.modified_target = True
@@ -396,7 +398,7 @@ class ConfigTask(TaskView, ConfigChange):
         ):
             instance.created = self.changeId
 
-    def finished(self, result: ConfiguratorResult):
+    def finished(self, result: ConfiguratorResult) -> Self:
         assert result
         self.restore_envvars()
         if self.generator:
@@ -491,8 +493,7 @@ class ConfigTask(TaskView, ConfigChange):
         # record the live attributes that we are dependent on
         # note: task start fresh with no dependencies so don't need to worry update or removing previous ones
         for key, (target, attributes) in dependencies.items():
-            if key.startswith("::.requirements"):
-                # hackish: exclude default connections (which are represented as root relationships)
+            if target.template.metadata.get("exclude-from-configuration"):
                 continue
             for name, (live, value, accessed) in attributes.items():
                 # hackish: we only want the status of a dependency to reflect its target instance's status
@@ -532,11 +533,14 @@ class ConfigTask(TaskView, ConfigChange):
             self.target.key, self.configSpec.operation
         )
         if not changeset:
-            self.logger.debug(
-                'Can\'t check for changes: could not find previous "%s" operation for "%s"',
-                self.target.key,
-                self.configSpec.operation,
-            )
+            # don't log exception if target was discovered, discovered resources without a job request won't have a digest
+            if isinstance(self.target.created, str):
+                self.logger.debug(
+                    'Can\'t check for changes: could not find previous "%s" operation for "%s" with last config change "%s"',
+                    self.target.key,
+                    self.configSpec.operation,
+                    self.target.last_config_change,
+                )
             return False
         return self.configurator.check_digest(self, changeset)
 
@@ -571,7 +575,7 @@ class ConfigTask(TaskView, ConfigChange):
         return missing, reason
 
     @property
-    def name(self):
+    def name(self) -> str:  # type: ignore[override]
         name = self.configSpec.name
         if self.configSpec.operation and self.configSpec.operation not in name:
             name = name + ":" + self.configSpec.operation
@@ -658,6 +662,10 @@ def _dependency_check(
 ) -> Tuple[List[Operational], str]:
     missing = []
     for dep in instance.get_operational_dependencies():
+        if isinstance(dep, RelationshipInstance):
+            if not dep.target:
+                continue
+            dep = dep.target
         if dep.required:
             if dep.local_status == Status.error:
                 missing.append(dep)
@@ -670,8 +678,8 @@ def _dependency_check(
                 Status.ok,
                 Status.degraded,
             ]:
-                # we only want to consider local_status especially for the case of subsequent runs
-                # trying to repair a failed deployment.
+                # only check if the dependency was skipped because it (or its parent) is not ready
+                # (assume the plan ordered dependencies correctly)
                 if not _is_waiting_for(not_ready, cast(EntityInstance, dep), instance):
                     # TOSCA doesn't have a way to set which individual operations and workflows depend on which requirements
                     # so rely on this heuristic to break common deadlocks:
@@ -785,6 +793,7 @@ class Job(ConfigChange):
         # we want to run these even if we just generating a plan
         self.external_jobs = self.run_external(planOnly=False)
         if self.external_jobs and self.external_jobs[-1].status == Status.error:
+            logger.error("Running local installation job failed, aborting render.")
             return [], [], []
 
         ready, notReady, errors = do_render_requests(self, ready)
@@ -815,7 +824,6 @@ class Job(ConfigChange):
             )
             return self.rootResource
 
-        # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
         while ready or notReady or self.jobRequestQueue:
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
@@ -830,7 +838,9 @@ class Job(ConfigChange):
             # remove requests from notReady if they've had all their dependencies fulfilled
             completed = ready
             if completed:
-                ready, notReady = set_fulfilled(notReady, completed)
+                ready, notReady = self._reorder_requests(
+                    *set_fulfilled(notReady, completed)
+                )
                 check_target = ""
             else:
                 if self.jobOptions.workflow == "deploy":
@@ -855,7 +865,6 @@ class Job(ConfigChange):
                 break  # none of the stragglers are ready, give up
             if unfulfilled:
                 logger.trace("marking unfulfilled as not ready %s", unfulfilled)
-                # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
                 notReady.extend(unfulfilled)
 
         for req in failed:
@@ -971,7 +980,7 @@ class Job(ConfigChange):
         if not self.jobOptions.parentJob:
             # don't do this when running a nested job
             # (planned was already removed and new tasks have already been rendered there)
-            rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
+            rmtree(os.path.join(self.rootResource.base_dir, Folders.planned))
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
@@ -1002,6 +1011,37 @@ class Job(ConfigChange):
         self.external_requests = external_requests
         self.plan_requests = plan_requests
         return self.plan_requests[:]
+
+    @staticmethod
+    def _reorder_requests(reqs: List[PlanRequest], not_ready_reqs: List[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest]]:
+        # first reorder not_ready in case one depends on another
+        not_ready = not_ready_reqs[:]
+        not_ready_appended: List[PlanRequest] = []
+        index = 0
+        while len(not_ready) > index:
+            req = not_ready[index]
+            depends = req.depends_on_not_ready(not_ready[index + 1 :])
+            if depends:
+                not_ready.pop(index)
+                not_ready_appended.append(req)
+            else:
+                index += 1
+        if not_ready_appended:
+            logger.trace("not ready dependents moved: %s", not_ready_appended)
+            not_ready.extend(not_ready_appended)
+
+        ready: List[PlanRequest] = []
+        new_not_ready: List[PlanRequest] = []
+        for req in reqs:
+            depends = req.depends_on_not_ready(not_ready)
+            if depends:
+                new_not_ready.append(req)
+            else:
+                ready.append(req)
+        if new_not_ready:
+            logger.trace("ready dependents moved to not ready: %s", new_not_ready)
+            not_ready.extend(new_not_ready)
+        return ready, not_ready
 
     def apply(
         self,
@@ -1087,9 +1127,9 @@ class Job(ConfigChange):
             manifest, requests = external_requests.pop(0)
             instance_specs = []
             for request in requests:
-                assert isinstance(
-                    request, JobRequest
-                ), "only JobRequest currently supported"
+                assert isinstance(request, JobRequest), (
+                    "only JobRequest currently supported"
+                )
                 instance_specs.extend(request.get_instance_specs())
             jobOptions = self.jobOptions.copy(
                 instances=instance_specs,
@@ -1116,6 +1156,9 @@ class Job(ConfigChange):
         """
         try:
             if task._configurator:
+                if task.dry_run and not task._configurator.can_dry_run(task):
+                    task.logger.warning("Skipping task: it doesn't support dry run.")
+                    return False, "task doesn't support dry run"
                 priority = task.configurator.should_run(task)
             else:
                 priority = task.priority
@@ -1163,8 +1206,6 @@ class Job(ConfigChange):
         try:
             if task._errors:
                 reason = "Error while creating task"  # XXX + str(_errors)
-            elif task.dry_run and not task.configurator.can_dry_run(task):
-                reason = "dry run not supported"
             else:
                 missing, reason = task.find_missing_dependencies(not_ready)
                 if missing:
@@ -1229,6 +1270,9 @@ class Job(ConfigChange):
             workflow,
             f" entry_state: {entry_state}" if entry_state else "",
         )
+        if self.jobOptions.force:  # always run
+            return True, "passed"
+
         if req.configSpec.operation == "check":
             missing, reason = _dependency_check(resource, operational=True)
             if missing:
@@ -1249,9 +1293,6 @@ class Job(ConfigChange):
                     return True, "passed"
         elif req.configSpec.operation == "restart" and not resource.present:
             return False, "instance can't be restart"
-
-        if self.jobOptions.force:  # always run
-            return True, "passed"
 
         # Note: workflow is only set when request is a child of a TaskRequestGroup generated by the plan
         if get_success_status(workflow) == resource.status:
@@ -1340,22 +1381,35 @@ class Job(ConfigChange):
             end_collapsible(hash(req))
             task_success = task.result and task.result.success
             status = task.target.status.name.upper()
-            state_status = task.target.state.name if task.target.state else ""
+            state_status = (
+                f" State: {task.target.state.name}" if task.target.state else ""
+            )
             extra = dict(
                 rich=dict(style=task.target.status.color),
                 json=task.summary(asJson=True),
             )
+            if (
+                task.target.local_status is not None
+                and task.target.local_status != task.target.status
+            ):
+                local_status = (
+                    f" Resource Local Status: {task.target.local_status.name}"
+                )
+            else:
+                local_status = ""
             if task_success:
                 task.logger.info(
-                    "Task succeeded, Resource Status: %s State: %s",
+                    "Task succeeded, Resource Status: %s%s%s",
                     status,
+                    local_status,
                     state_status,
                     extra=extra,
                 )
             else:
                 task.logger.error(
-                    "Task failed, Resource Status: %s State: %s",
+                    "Task failed, Resource Status: %s%s%s",
                     status,
+                    local_status,
                     state_status,
                     extra=extra,
                 )
@@ -1399,7 +1453,7 @@ class Job(ConfigChange):
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
         task.start()
-        change = None
+        change: Union[ConfigTask, Job, None] = None
         while True:
             try:
                 result = task.send(change)
@@ -1416,14 +1470,17 @@ class Job(ConfigChange):
                     else:
                         ready, _, error_reqs = do_render_requests(self, [result])
                         assert result.task
-                        if not ready:
+                        if not ready and result.required is not False:
                             err_msg = "render failed"
                             if error_reqs and error_reqs[0].render_errors:
                                 err_msg = str(error_reqs[0].render_errors[0])
                             return result.task.finished(
                                 ConfiguratorResult(False, False, result=err_msg)
                             )
-                    change = self.apply(ready, not_ready, depth + 1)
+                    if ready:
+                        change = self.apply(ready, not_ready, depth + 1)
+                    else:
+                        change = result.task
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job
@@ -1434,7 +1491,7 @@ class Job(ConfigChange):
                 )
                 return retVal
             else:
-                UnfurlTaskError(task, "unexpected result from configurator")
+                UnfurlTaskError(task, f"unexpected result from configurator: {result}")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
 
     def add_work(self, task: ConfigTask) -> None:
@@ -1591,6 +1648,7 @@ def _render(job: Job):
     # note: we need to call render() before lock because render might run this ensemble as an external_job
     with change_cwd(job.manifest.get_base_dir()):
         ready, notReady, errors = job.render()
+        ready, notReady = job._reorder_requests(ready, notReady)
         msg, count = job._plan_summary(ready + notReady, [])
         logger.info(msg, extra=dict(truncate=0))
     return (ready, notReady, errors), count
@@ -1666,7 +1724,7 @@ def run_job(
 class Runner:
     "this class is only used by unit tests, application uses start_job() above"
 
-    def __init__(self, manifest):
+    def __init__(self, manifest: "YamlManifest"):
         self.manifest = manifest
         assert self.manifest.tosca
         self.job = None
@@ -1682,6 +1740,7 @@ class Runner:
             jobOptions = JobOptions()
         if not self.job:
             self.job = _plan(self.manifest, jobOptions)
+        assert self.job
         rendered, count = _render(self.job)
         if not jobOptions.planOnly:
             self.job.run(rendered)

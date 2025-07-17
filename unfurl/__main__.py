@@ -26,7 +26,29 @@ from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
 
-from . import DefaultNames, __version__, semver_prerelease, get_home_config_path, is_version_unreleased
+
+_debugger_started = False
+
+
+def _try_debugger():
+    global _debugger_started
+    debug = os.getenv("DEBUGPY")
+    if debug and not _debugger_started:
+        import debugpy
+
+        port = int(debug)
+        _debugger_started = True
+        debugpy.listen(port if port > 1 else 5678)
+        debugpy.wait_for_client()
+
+
+from . import (
+    DefaultNames,
+    __version__,
+    semver_prerelease,
+    get_home_config_path,
+    is_version_unreleased,
+)
 from . import init as initmod
 from . import logs, version_tuple
 from .job import start_job, Job
@@ -238,6 +260,7 @@ def _cli(
     **kw,
 ):
     """A command line tool for deploying services and applications."""
+    _try_debugger()
     # ensure that ctx.obj exists and is a dict (in case `_cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
@@ -375,7 +398,10 @@ commonOutputOptions = option_group(
 allJobOptions = option_group(
     commonOutputOptions,
     click.option(
-        "--instance", multiple=True, help="Instance name to target (multiple times ok)."
+        "-i",
+        "--instance",
+        multiple=True,
+        help="Instance name to target (multiple times ok).",
     ),
     click.option("--starttime", help="Set the start time of the job."),
     click.option(
@@ -865,6 +891,12 @@ def stop(ctx: Context, ensemble=None, **options):
 @commonJobOptions
 @deployFilterOptions
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
+@click.option(
+    "--dryrun",
+    default=False,
+    is_flag=True,
+    help="Plan as a dryrun job.",
+)
 def plan(ctx: Context, ensemble=None, **options):
     """Print the given deployment plan"""
     options.update(ctx.obj)
@@ -947,12 +979,19 @@ def plan(ctx: Context, ensemble=None, **options):
     default=False,
     help="Generate files only (don't commit them).",
 )
+@click.option(
+    "--design",
+    default=False,
+    is_flag=True,
+    help="Set up project for blueprint development.",
+)
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
     Create a new project, or, if [project_dir] is an existing project, create a new ensemble.
     If [ensemble_name] is omitted, use a default name.
     """
     options.update(ctx.obj)
+    options["want_init"] = True
     projectPath = Project.find_path(projectdir or ".")
     if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
@@ -963,7 +1002,6 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
         # this will clone the default ensemble if it exists or use ensemble-template
-        options["want_init"] = True
         message = initmod.clone(projectPath, projectdir, ensemble_name or "", **options)
         click.echo(message)
         return
@@ -993,6 +1031,13 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     homePath, projectPath, repo = initmod.create_project(
         os.path.abspath(projectdir), ensemble_name, **options
     )
+    if options.get("design"):
+        builder = initmod.EnsembleBuilder(
+            os.path.dirname(projectPath), ensemble_name or "", options
+        )
+        builder.set_projects()
+        builder.configure(False)
+        builder.load_ensemble_template()
     if homePath:
         click.echo(f"Unfurl home created at {homePath}")
     click.echo(f"Unfurl project created at {projectPath}")
@@ -1035,26 +1080,53 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     multiple=True,
     help="Name/value pair to pass to skeleton (multiple times ok).",
 )
-def home(ctx, init=False, render=False, replace=False, **options):
+@click.option(
+    "--register",
+    type=click.Path(exists=True),
+    metavar="PROJECT PATH",
+    help="Register project with the home project.",
+)
+def home(ctx, init=False, render=False, replace=False, register=None, **options):
     """If no options are set, display the location of current unfurl home.
-    To create a new home project use --init and the global --home option.
+    To create a new home project use --init
+    with the global --home option to set the location (and the global --no-runtime option to skip creating a runtime).
     """
     options.update(ctx.obj)
-    if not render and not init:
-        # just display the current home location
-        click.echo(get_home_config_path(options.get("home")))
-        return
-
-    homePath = initmod.create_home(render=render, replace=replace, **options)
-    action = "rendered" if render else "created"
-    if homePath:
-        click.echo(f"unfurl home {action} at {homePath}")
-    else:
-        currentHome = get_home_config_path(options.get("home"))
-        if currentHome:
-            click.echo(f"Can't {action} home, it already exists at {currentHome}")
+    if render or init:
+        homePath = initmod.create_home(render=render, replace=replace, **options)
+        action = "rendered" if render else "created"
+        if homePath:
+            click.echo(f"unfurl home {action} at {homePath}")
         else:
-            click.echo("Error: home path is empty")
+            currentHome = get_home_config_path(options.get("home"))
+            if currentHome:
+                click.echo(f"Can't {action} home, it already exists at {currentHome}")
+            else:
+                click.echo("Error: home path is empty")
+            return
+        home_dir: Optional[str] = os.path.dirname(homePath)
+    else:
+        # just display the current home location
+        home_dir = get_home_config_path(options.get("home"))
+        if home_dir is None:
+            logging.info("Unfurl home directory is not set.")
+            return
+        elif home_dir and not os.path.exists(home_dir):
+            logging.info("Unfurl home set to %s, but it does not exist.", home_dir)
+            click.echo(home_dir)
+            return
+        else:
+            logging.info("Found unfurl home at %s", home_dir)
+        click.echo(home_dir)
+
+    if register is not None:
+        registered = initmod.find_project(register, home_dir, True)
+        if registered:
+            click.echo(
+                f"Registered project {registered.projectRoot} with the home project."
+            )
+        else:
+            click.echo(f'Unable to register project: could not find "{register}".')
 
 
 @utility_cli.command(short_help="Print or manage the project's runtime")
@@ -1237,11 +1309,15 @@ def git(ctx, gitargs, dir="."):
 
 
 class Committer(Protocol):
-    def commit(self, msg: str, add_all: bool = False) -> int: ...
+    def commit(
+        self, msg: str, add_all: bool = False, save_secrets: bool = True
+    ) -> int: ...
 
     def add_all(self) -> None: ...
 
     def get_repo_status(self, dirty=False) -> str: ...
+
+    def save_secrets(self) -> List[Path]: ...
 
 
 def get_commit_message(committer, default_message):
@@ -1287,6 +1363,12 @@ def get_commit_message(committer, default_message):
     help="Use this environment.",
     metavar="NAME",
 )
+@click.option(
+    "--save-secrets-only",
+    default=False,
+    is_flag=True,
+    help='Encrypt secret files to ".secrets" directories instead of committing.',
+)
 def commit(
     ctx,
     project_or_ensemble_path,
@@ -1294,6 +1376,7 @@ def commit(
     skip_add,
     no_edit,
     all_repositories,
+    save_secrets_only,
     **options,
 ):
     """Commit any changes to the given project or ensemble."""
@@ -1323,6 +1406,11 @@ def commit(
             assert localEnv.project
             committer = localEnv.project.project_repoview
 
+    # stage changes before invoking the commit editor
+    saved = committer.save_secrets()  # saves but doesn't stage
+    if save_secrets_only:
+        click.echo(f"Updated {len(saved)} secret files.")
+        return
     if not skip_add:
         committer.add_all()
 
@@ -1334,46 +1422,21 @@ def commit(
             if not message:
                 return  # aborted
 
-    committed = committer.commit(message, False)
-    click.echo(f"committed to {committed} repositories")
+    committed = committer.commit(message, False, False)
+    click.echo(f"Committed to {committed} repositories.")
 
 
-@project_cli.command(
-    short_help="Show the git status for paths relevant to this ensemble."
-)
-@click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
-@click.option(
-    "--dirty",
-    default=False,
-    is_flag=True,
-    help="Only show repositories with uncommitted changes",
-)
-@click.option(
-    "--use-environment",
-    default=None,
-    help="Use this environment.",
-    metavar="NAME",
-)
-def git_status(ctx, project_or_ensemble_path, dirty, **options):
-    "Show the git status for paths relevant to the given project or ensemble."
-    options.update(ctx.obj)
-    localEnv = LocalEnv(
-        project_or_ensemble_path,
-        options.get("home"),
-        can_be_empty=True,
-        override_context=options.get("use_environment") or "",
-    )
-    if localEnv.manifestPath:
-        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
-    else:
-        assert localEnv.project
-        committer = localEnv.project.project_repoview
-    statuses = committer.get_repo_status(dirty)
-    if not statuses:
-        click.echo("No status to display.")
-    else:
-        click.echo(statuses)
+def _stub_resolver(doc):
+    from .manifest import Manifest
+    from .yamlloader import ImportResolver
+
+    dummy_manifest = Manifest(None)
+    # create package rules for importing built-in unfurl packages:
+    dummy_manifest._set_builtin_repositories()
+    repositories = dummy_manifest.repositories_as_tpl()
+    doc.setdefault("repositories", {}).update(repositories)
+    import_resolver = ImportResolver(dummy_manifest)
+    return import_resolver
 
 
 def _yaml_to_python(
@@ -1416,19 +1479,20 @@ def _yaml_to_python(
             write_policy=write_policy,
         )
     else:
+        from .yamlloader import yaml
+
         if not file:
             yaml_path = Path(project_or_ensemble_path)
             file = str(yaml_path.parent / (yaml_path.stem + ".py"))
-        from .yamlloader import ImportResolver
-        from .manifest import Manifest
 
-        dummy_manifest = Manifest(None)
-        dummy_manifest._set_builtin_repositories()  # create package rules for importing built-in unfurl packages
-        import_resolver = ImportResolver(dummy_manifest)
+        with open(project_or_ensemble_path) as f:
+            tpl = yaml.load(f)
+
         yaml2python.yaml_to_python(
             project_or_ensemble_path,
             file,
-            import_resolver=import_resolver,
+            tpl,
+            import_resolver=_stub_resolver(tpl),
             python_target_version=python_target_version,
             write_policy=write_policy,
         )
@@ -1442,7 +1506,13 @@ def _yaml_to_python(
     "--format",
     default="deployment",
     type=click.Choice(
-        ["python", "blueprint", "environments", "deployment", "deployments"]
+        [
+            "python",
+            "blueprint",
+            "environments",
+            "deployment",
+            "deployments",
+        ]
     ),
     help="Default: deployment",
 )
@@ -1479,9 +1549,15 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     options.update(ctx.obj)
 
     if path.endswith(".py"):
-        from tosca import python2yaml
+        from .dsl import get_allowed_modules
+        from tosca import python2yaml, loader
 
-        python2yaml.python_to_yaml(path, file, overwrite)
+        safe_mode = loader.get_safe_mode(False)
+        if safe_mode:
+            modules = get_allowed_modules()
+        else:
+            modules = None
+        python2yaml.python_to_yaml(path, file, overwrite, safe_mode, modules)
         return
 
     try:
@@ -1542,7 +1618,8 @@ def status(ctx, ensemble, **options):
         readonly=True,
     )
     logger = logging.getLogger("unfurl")
-    manifest = localEnv.get_manifest()
+    # report validation errors instead of aborting
+    manifest = localEnv.get_manifest(skip_validation=True)
     verbose = ctx.obj["verbose"] > 0
     summary = manifest.status_summary(verbose)
     vstr = " (verbose) " if verbose else ""
@@ -1553,6 +1630,42 @@ def status(ctx, ensemble, **options):
         assert manifest.rootResource
         result = manifest.rootResource.query(query, trace=trace)
         _print_query(query, result)
+
+
+@info_cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@click.pass_context
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.option(
+    "--dirty",
+    default=False,
+    is_flag=True,
+    help="Only show repositories with uncommitted changes",
+)
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Use this environment.",
+    metavar="NAME",
+)
+def git_status(ctx, project_or_ensemble_path, dirty, **options):
+    "Show the git status for paths relevant to the given project or ensemble."
+    options.update(ctx.obj)
+    localEnv = LocalEnv(
+        project_or_ensemble_path,
+        options.get("home"),
+        can_be_empty=True,
+        override_context=options.get("use_environment") or "",
+    )
+    if localEnv.manifestPath:
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
+    else:
+        assert localEnv.project
+        committer = localEnv.project.project_repoview
+    statuses = committer.get_repo_status(dirty)
+    if not statuses:
+        click.echo("No status to display.")
+    else:
+        click.echo(statuses)
 
 
 @info_cli.command()
@@ -1582,7 +1695,8 @@ def validate(ctx, path, **options):
             path, options.get("home"), overrides=overrides, can_be_empty=True
         )
         if localEnv.manifestPath:
-            localEnv.get_manifest()
+            # report validation errors instead of aborting
+            localEnv.get_manifest(skip_validation=True)
         elif localEnv.project:
             # found project without an ensemble, try to validate the ensemble-template.yaml
             template = os.path.join(
@@ -1595,7 +1709,8 @@ def validate(ctx, path, **options):
             else:
                 overrides["format"] = "blueprint"
                 localEnv = LocalEnv(template, options.get("home"), overrides=overrides)
-                localEnv.get_manifest()
+                # report validation errors instead of aborting
+                localEnv.get_manifest(skip_validation=True)
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
             from tosca.python2yaml import python_src_to_yaml_obj
@@ -1608,9 +1723,15 @@ def validate(ctx, path, **options):
 
             if localEnv and localEnv.project:
                 m = Manifest(path, localEnv=localEnv)
-                m._set_spec(dict(service_template=e.doc))
+                # report validation errors instead of aborting
+                m._set_spec(dict(service_template=e.doc), skip_validation=True)
             else:
-                ToscaSpec(e.doc, path=path)
+                ToscaSpec(
+                    e.doc,
+                    path=path,
+                    skip_validation=True,
+                    resolver=_stub_resolver(e.doc),
+                )
         elif e.doc and e.doc.get("kind") == "CloudMap":
             from .cloudmap import CloudMapDB
 

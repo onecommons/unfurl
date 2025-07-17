@@ -182,16 +182,14 @@ VALUE_TYPES: Dict[str, Dict] = dict(
 )
 
 _SCALAR_TYPE: Any = {}
-VALUE_TYPES.update(
-    {
-        "scalar-unit.size": _SCALAR_TYPE,
-        "scalar-unit.frequency": _SCALAR_TYPE,
-        "scalar-unit.time": _SCALAR_TYPE,
-        "scalar-unit.bitrate": _SCALAR_TYPE,
-        "tosca.datatypes.network.PortDef": VALUE_TYPES["PortDef"],
-        "tosca.datatypes.network.PortSpec": VALUE_TYPES["PortSpec"],
-    }
-)
+VALUE_TYPES.update({
+    "scalar-unit.size": _SCALAR_TYPE,
+    "scalar-unit.frequency": _SCALAR_TYPE,
+    "scalar-unit.time": _SCALAR_TYPE,
+    "scalar-unit.bitrate": _SCALAR_TYPE,
+    "tosca.datatypes.network.PortDef": VALUE_TYPES["PortDef"],
+    "tosca.datatypes.network.PortSpec": VALUE_TYPES["PortSpec"],
+})
 
 
 def tosca_type_to_jsonschema(custom_defs: Namespace, propdefs, toscatype):
@@ -1087,13 +1085,13 @@ def _generate_primary(
     topology.custom_defs[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
     tpl["type"] = primary_name
-    tpl.setdefault("properties", {}).update(
-        {name: dict(get_input=name) for name in topology._tpl_inputs()}
-    )
+    tpl.setdefault("properties", {}).update({
+        name: dict(get_input=name) for name in topology._tpl_inputs()
+    })
     # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
     if not node_tpl and roots:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
-    node_spec = spec.topology.add_node_template(primary_name, tpl, False)
+    node_spec = spec.topology.add_template(primary_name, tpl, False)
     node_template = cast(NodeTemplate, node_spec.toscaEntityTemplate)
 
     types = db.get_types()
@@ -1149,7 +1147,7 @@ def _get_or_make_primary(
                 }
                 tpl = dict(type=root_type.type, properties=properties)
                 assert spec.topology
-                node_spec = spec.topology.add_node_template(primary_name, tpl, False)
+                node_spec = spec.topology.add_template(primary_name, tpl, False)
                 root = node_spec.toscaEntityTemplate
                 # XXX connections are missing
                 db["ResourceTemplate"][root.name] = nodetemplate_to_json(
@@ -1283,7 +1281,7 @@ def get_deployment_blueprints(
             topology = spec.topology.copy()
             for node_name, node_tpl in resource_templates.items():
                 # nodes here overrides node_templates
-                node_spec = topology.add_node_template(node_name, node_tpl, False)
+                node_spec = topology.add_template(node_name, node_tpl, False)
             # convert to json in second-pass template requirements can reference each other
             for node_name, node_tpl in resource_templates.items():
                 node_spec = topology.get_node_template(node_name)
@@ -1372,8 +1370,12 @@ def get_blueprint_from_topology(
     return blueprint, template
 
 
-def get_blueprint_path(manifest: YamlManifest):
-    if "ensemble-template.yaml" not in manifest.manifest._cachedDocIncludes:
+def get_blueprint_path(manifest: YamlManifest) -> str:
+    # search for +include-blueprint: path
+    path, _ = manifest.manifest.search_includes(directive="blueprint")
+    if path:
+        return path
+    elif "ensemble-template.yaml" not in manifest.manifest._cachedDocIncludes:
         # the ensemble doesn't include the standard ensemble-template.yaml so treat the deployment itself as the blueprint
         if manifest.path and manifest.localEnv and manifest.localEnv.project:
             return manifest.localEnv.project.get_relative_path(manifest.path)
@@ -1515,14 +1517,14 @@ def _to_graphql(
             if connection_template.get("visibility") == "omit":
                 continue
             name = connection_template["name"]
-            assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
+            # assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
             # db["ResourceTemplate"][name] = connection_template
             connections[name] = connection_template
 
     db["Overview"] = spec.template.metadata
     env = DeploymentEnvironment(
         connections=connections,
-        primary_provider=connections.get("primary_provider"),
+        primary_provider=connections.get("primary_provider") or connections.get("_default_provider"),
         instances=environment_instances,
         repositories=manifest.context.get("repositories") or {},
     )

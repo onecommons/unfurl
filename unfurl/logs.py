@@ -3,6 +3,7 @@ import json
 import logging
 import logging.config
 from enum import IntEnum
+import sys
 import os
 import re
 import tempfile
@@ -20,16 +21,24 @@ except ImportError:
 
 HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
-DEFAULT_TRUNCATE_LENGTH =  int(os.getenv("UNFURL_LOG_TRUNCATE") or 748)
+DEFAULT_TRUNCATE_LENGTH = int(os.getenv("UNFURL_LOG_TRUNCATE") or 748)
 
-sensitive_params = ("private_token", "secret")
+sensitive_params = (
+    "token",
+    "secret",
+    "password",
+)  # note: matches private_token etc too
 sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=[^&\s]+")
+sensitive_args_regex = (
+    rf"""(--\S{{0,50}}({"|".join(sensitive_params)})('|")?(=|\s+))\S+"""
+)
+
 
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
     if not s:
         return ""
     if len(s) > max:
-        return f"{s[:max//2]} [{len(s)} {omitted}]  {s[-max//2:]}"
+        return f"{s[: max // 2]} [{len(s)} {omitted}]  {s[-max // 2 :]}"
     return s
 
 
@@ -130,9 +139,9 @@ class ColorHandler(logging.StreamHandler):
         if truncate_length:
             # don't truncate stack traces
             if record.exc_text:
-                truncate_length = max(len(record.exc_text)*2, truncate_length)
+                truncate_length = max(len(record.exc_text) * 2, truncate_length)
             if record.stack_info:
-                truncate_length = max(len(record.stack_info)*2, truncate_length)
+                truncate_length = max(len(record.stack_info) * 2, truncate_length)
             message = truncate(message, truncate_length)
         # Hide meta job output because it seems to also be logged captured by
         # the root logger.
@@ -145,7 +154,9 @@ class ColorHandler(logging.StreamHandler):
             data = getattr(record, "json", None)
             if data and os.environ.get("CI", False):
                 # Running in a CI environment (eg GitLab CI)
-                console.out(json.dumps(data), end="\x1b[2K\r", highlight=False, style=None)
+                console.out(
+                    json.dumps(data), end="\x1b[2K\r", highlight=False, style=None
+                )
 
             console.print(
                 f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end=""
@@ -174,7 +185,7 @@ class sensitive:
 
 def is_sensitive(obj: object) -> bool:
     test = getattr(obj, "__sensitive__", None)
-    if test and isinstance(test, types.MethodType):
+    if isinstance(test, types.MethodType):
         return test()
     if AnsibleVaultEncryptedUnicode and isinstance(obj, AnsibleVaultEncryptedUnicode):
         return True
@@ -186,17 +197,19 @@ def is_sensitive(obj: object) -> bool:
 
 
 class SensitiveFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.args, collections.abc.Mapping):
-            record.args = {
-                self.redact(k): self.redact(v) for k, v in record.args.items()  # type: ignore
-            }
-        else:
-            if record.args is not None:
+    def filter(self, record: logging.LogRecord):
+        if sys.version_info >= (3, 12, 0):
+            # starting in 3.12, we can return a record instead of modifying it in-place,
+            # allowing other handlers to receive the original record
+            record = logging.makeLogRecord(record.__dict__)
+        if record.args is not None:
+            if isinstance(record.args, tuple):
                 record.args = tuple(self.redact(a) for a in record.args)
+            else:
+                record.args = self.redact(record.args)  # type: ignore
         if isinstance(record.msg, str):
             record.msg = self.sanitize_urls(record.msg)
-        return True
+        return record
 
     @staticmethod
     def sanitize_urls(value: str) -> str:
@@ -204,12 +217,23 @@ class SensitiveFilter(logging.Filter):
         return re.sub(sensitive_params_regex, r"\1=XXXXX", value)
 
     @staticmethod
+    def sanitize_str(value: str) -> str:
+        "Look for suspicious urls and command args and redact them."
+        value = SensitiveFilter.sanitize_urls(value)
+        return re.sub(sensitive_args_regex, r"\1XXXXX", value)
+
+    @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
-        if is_sensitive(value):
+        if isinstance(value, collections.abc.Mapping):
+            return {
+                SensitiveFilter.redact(k): SensitiveFilter.redact(v)
+                for k, v in value.items()
+            }
+        elif is_sensitive(value):
             return sensitive.redacted_str
         elif isinstance(value, str):
             # make sure urls with credentials don't leak
-            return SensitiveFilter.sanitize_urls(value)
+            return SensitiveFilter.sanitize_str(value)
         else:
             return value
 
@@ -279,7 +303,6 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
         os.makedirs(dir)
 
     handler = logging.FileHandler(filename)
-    f = SensitiveFilter()
     fmt = (
         os.getenv("UNFURL_LOG_FORMAT")
         or "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
@@ -288,6 +311,5 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
     handler.setFormatter(formatter)
     log_level = min(console_level, Levels.DEBUG)
     handler.setLevel(log_level)
-    handler.addFilter(f)
     logging.getLogger().addHandler(handler)
     return filename

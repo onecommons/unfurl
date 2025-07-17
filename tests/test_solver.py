@@ -1,5 +1,6 @@
 import sys
 import os
+from unfurl.util import UnfurlValidationError
 from unfurl.yamlloader import load_yaml, yaml, ImportResolver
 from unfurl.solver import (
     solve_topology,
@@ -17,6 +18,8 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.common import exception
 from ruamel.yaml.comments import CommentedMap
 import pytest
+import tosca
+from unfurl.testing import create_runner, runtime_test
 
 if os.getenv("UNFURL_TEST_SKIP_BUILD_RUST"):
     pytest.skip("UNFURL_TEST_SKIP_BUILD_RUST set", allow_module_level=True)
@@ -33,7 +36,7 @@ def make_tpl(yaml_str: str):
 
 
 example_helloworld_yaml = """
-tosca_definitions_version: tosca_simple_unfurl_1_0_0"
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
   Example:
     derived_from: tosca.nodes.Root
@@ -45,6 +48,9 @@ node_types:
         capability: tosca.capabilities.Compute
         node: tosca.nodes.Compute
         occurrences: [1, 1]
+    - connection:
+        relationship: tosca.relationship.ConnectsTo
+        # note: no node or capability
 
 topology_template:
   substitution_mappings:
@@ -86,7 +92,11 @@ topology_template:
             type: linux
             distribution: rhel
             version: "6.5"
+
+    extra:
+      type: tosca.nodes.Root
 """
+
 
 def test_convert():
     for val, toscatype in [
@@ -103,7 +113,7 @@ def test_convert():
 
 
 def test_solve():
-    f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0))))
+    f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0)), None))
     na = Node("a", "Foo", fields=[f])
     assert na.name == "a"
     assert na.tosca_type == "Foo"
@@ -120,7 +130,7 @@ def test_solve():
 
     assert solved == {("app", "host"): [("db_server", "host")]}
     app = tosca.topology_template.node_templates["app"]
-    assert not app.missing_requirements
+    assert app.missing_requirements == {'connection': {'relationship': {'type': 'tosca.relationship.ConnectsTo'}}}
     for rel_template, original_tpl, requires_tpl_dict in app.relationships:
         assert (
             rel_template.target == tosca.topology_template.node_templates["db_server"]
@@ -128,7 +138,7 @@ def test_solve():
 
     # XXX
     # test requirement match for each type of CriteriaTerm and Constraint
-    # test restrictions
+    # test restrictions (node filter with requirements)
 
 
 def test_multiple():
@@ -136,10 +146,12 @@ def test_multiple():
     tosca_yaml["topology_template"]["node_templates"]["db_server2"] = tosca_yaml[
         "topology_template"
     ]["node_templates"]["db_server"].copy()
+    import_resolver = ImportResolver(None)
+    assert import_resolver.solve_topology
     t = ToscaTemplate(
         path=__file__,
         yaml_dict_tpl=tosca_yaml,
-        import_resolver=ImportResolver(None),
+        import_resolver=import_resolver,
         verify=False,
     )
     exception.ExceptionCollector.start()
@@ -171,9 +183,92 @@ def test_node_filter():
     # add an unsupported pattern, match should be skipped
     t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node_filter"
-    ]["capabilities"][0]["host"]["properties"].append(
-        {"distribution": {"pattern": "u*"}}
-    )
+    ]["capabilities"][0]["host"]["properties"].append({
+        "distribution": {"pattern": "u*"}
+    })
 
     t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
     assert not t2.topology_template.node_templates["test"].relationships
+
+
+class Thingy(tosca.nodes.Root):
+    a_property: int = 1
+
+
+class Host(tosca.nodes.Root):
+    thingy: Thingy
+
+
+class App(tosca.nodes.Root):
+    host: Host
+    shortcut: Thingy = tosca.CONSTRAINED
+    computed: int = tosca.CONSTRAINED
+
+    @classmethod
+    def _class_init(cls) -> None:
+        # generates a node_filter with match
+        cls.shortcut = cls.host.thingy
+        cls.computed = cls.shortcut.a_property
+
+
+class Test(tosca.nodes.Root):
+    app: App
+
+
+class Test2(tosca.nodes.Root):
+    host: App
+    another_app: App = tosca.DEFAULT
+
+    def _template_init(self) -> None:
+        # test that we follow host through .hosted_on but only match Host
+        # set app.host to the (first) parent of this template that is type Host
+        self.another_app = App(host=self._find_template(".hosted_on", Host))
+
+
+def test_node_filter_match(caplog: pytest.LogCaptureFixture):
+    class test2(tosca.Namespace):
+        t = Test2(host=App(host=Host(thingy=Thingy())))
+
+    topology = runtime_test(test2)
+    assert (
+        "node_filter"
+        not in topology._yaml["node_types"]["App"]["requirements"][0]["host"]
+    )
+    assert (
+        "node_filter"
+        in topology._yaml["topology_template"]["node_templates"]["test2.t_another_app"][
+            "requirements"
+        ][0]["host"]
+    )
+
+    # XXX rename _host to test2.t_host_host
+    assert "Solver set test2.t_another_app.host to _host" in caplog.text
+
+
+def test_node_filter_computed_properties(caplog: pytest.LogCaptureFixture):
+    class test(tosca.Namespace):
+        thingy = Thingy(a_property=2)
+        app = App(host=Host(thingy=thingy))
+        test2 = Test(
+            app=tosca.Requirement(node_filter=dict(properties=[{"computed": 2}]))
+        )
+
+    topology = runtime_test(test)
+    assert topology.app.shortcut == topology.thingy
+    assert "Solver set test.app.shortcut to test.thingy" in caplog.text
+    # node_filter matches because test.app has "computed" == 2 via test.shortcut.a_property == 2
+    assert "Solver set test.test2.app to test.app" in caplog.text
+    assert topology.app.computed == 2
+
+    # validation error can't find requirement:
+    test.test1 = Test(
+        app=tosca.Requirement(node_filter=dict(properties=[{"computed": 1}]))
+    )
+    with pytest.raises(
+        UnfurlValidationError,
+        match='Could not find target template "App" for requirement "app" in node template "test1"',
+        # match='Node template test1 is missing requirements: app',
+    ):
+        # topology = runtime_test(test)
+        topology, runner = create_runner(test)
+        # runner.job.rootResource.find_resource("test1").validate()

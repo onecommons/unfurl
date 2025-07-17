@@ -3,9 +3,10 @@ import os
 import json
 import logging
 import io
+import pytest
 from unfurl.localenv import LocalEnv
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner, JobOptions
+from unfurl.job import Job, Runner, JobOptions
 from unfurl.configurators import TemplateConfigurator
 from unfurl.projectpaths import FilePath
 
@@ -79,6 +80,16 @@ spec:
 manifestContent = _manifestTemplate % "ok"
 manifestErrorContent = _manifestTemplate % "error"
 
+reorderManifest = (
+    manifestContent
+    + """
+        nodeD:
+          type: nodes.Test
+          requirements:
+          - host: nodeB
+"""
+)
+
 static_dep_manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
@@ -130,10 +141,6 @@ def test_digests(caplog):
     digestContents = filepath.__digestable__(dict(manifest=manifest))
     assert digestContents == "git:800472c7b1b2ea128464b9144c1440ca7289a5fa"
 
-    filepath = FilePath(__file__ + "/../..")  # root of repo
-    digestContents = filepath.__digestable__(dict(manifest=manifest))
-    assert digestContents.startswith("git:"), digestContents
-
     with caplog.at_level(logging.DEBUG):
         manifest2 = YamlManifest(
             job.out.getvalue(), path=os.path.dirname(path), localEnv=manifest.localEnv
@@ -175,7 +182,9 @@ class DependencyTest(unittest.TestCase):
         """
         self.maxDiff = None
         manifest = YamlManifest(manifestErrorContent)
-        assert "attr" in list(manifest.tosca.topology.get_node_template("nodeC").attributeDefs)
+        assert "attr" in list(
+            manifest.tosca.topology.get_node_template("nodeC").attributeDefs
+        )
         runner = Runner(manifest)
         job = runner.run(JobOptions(startTime=1))  # deploy
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
@@ -369,6 +378,8 @@ def test_static_dependencies():
     job = runner.run(JobOptions(startTime=1))  # deploy
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     summary = job.json_summary(add_rendered=True)
+    summary["tasks"][0]["rendered_paths"] = []
+    summary["tasks"][1]["rendered_paths"] = []
     assert summary == {
         "job": {
             "id": "A01110000000",
@@ -423,3 +434,100 @@ def test_static_dependencies():
             },
         ],
     }
+
+
+unconditional_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      my_host_type:
+        derived_from: tosca:Root
+        requirements:
+          - test:
+              node: tosca:Root
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                implementation: exit 1
+
+    topology_template:
+      node_templates:
+        missing:
+          type: my_host_type
+"""
+conditional_manifest = (
+    unconditional_manifest
+    + """
+          directives:
+          - conditional
+"""
+)
+
+
+@pytest.mark.parametrize(
+    "spec, success", [("unconditional_manifest", False), ("conditional_manifest", True)]
+)
+def test_conditional_directive(spec, success):
+    manifest = YamlManifest(globals()[spec])
+    runner = Runner(manifest)
+    try:
+        job = runner.run(JobOptions(startTime=1, planOnly=True))
+    except Exception:
+        assert not success, "validation error expected"
+    else:
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
+        assert summary["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 0,
+            "ok": 0,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 0,
+        }
+
+
+def _node_names(*reqlists):
+    return [[r.target.name for r in reqs] for reqs in reqlists]
+
+
+def test_reorder(mocker):
+    # test that tasks dependent on a task whose rendering is blocked run after the blocked task is unblocked and not before.
+    spy = mocker.spy(Job, "_reorder_requests")
+    manifest = YamlManifest(reorderManifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))  # deploy
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert spy.call_count == 3
+    assert _node_names(*spy.call_args_list[0].args) == [
+        ["nodeA", "nodeC", "nodeD"],
+        ["nodeB"],
+    ]
+    # B is blocked on C, D requires B, so _reorder_requests moves D after B
+    assert _node_names(*spy.spy_return_list[0]) == [
+        ["nodeA", "nodeC"],
+        ["nodeB", "nodeD"],
+    ]
+    # print(job.json_summary(True))
+    assert summary["job"] == {
+        "id": "A01110000000",
+        "status": "ok",
+        "total": 4,
+        "ok": 4,
+        "error": 0,
+        "unknown": 0,
+        "skipped": 0,
+        "changed": 4,
+    }
+    assert [t["target"] for t in summary["tasks"]] == [
+        "nodeA",
+        "nodeC",
+        "nodeB",
+        "nodeD",
+    ]

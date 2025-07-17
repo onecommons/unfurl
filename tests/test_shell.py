@@ -50,6 +50,16 @@ class TestShellConfigurator:
         assert delta < timedelta(seconds=2), delta - timedelta(seconds=2)
 
 
+def test_input():
+    configurator = ShellConfigurator()
+
+    result = configurator.run_process(cmd="read in; echo $in", shell=True, input="hello world")
+    assert result.stdout.strip() == "hello world"
+
+    result2 = configurator.run_process(cmd="python -c 'import sys; print(sys.stdin.read())'", input="hello world")
+    assert result2.stdout.strip() == "hello world"
+
+
 class TestDryRun:
     @pytest.mark.parametrize(
         "command,dryrun",
@@ -122,26 +132,31 @@ class TestDryRun:
         cmd = task.result.result["cmd"].strip()
         assert cmd == "echo hello world --use-dry-run"
 
-    def test_error_if_dry_run_not_defined_for_task(self):
+    def test_error_if_dry_run_not_defined_for_task(self, caplog):
         ensemble = ENSEMBLE_DRY_RUN.format(
             command="command: echo hello world", dryrun=""
         )
         runner = Runner(YamlManifest(ensemble))
 
         job = runner.run(JobOptions(instance="test_node", dryrun=True))
+        assert not job.workDone
+        assert "Skipping task: it doesn't support dry run" in caplog.text
 
-        task = list(job.workDone.values())[0]
-        assert job.status == Status.error
-        assert task.result.result == "could not run: dry run not supported"
+def test_lifecycle():
+    path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
+    # undeploy isn't implemented, skip those
+    jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
+    for job in jobs:
+        assert job.status == Status.ok, job.workflow
 
+def test_outputs():
+    runner = Runner(YamlManifest(ENSEMBLE_OUTPUTS))
 
-class TestShellLifecycle:
-    def test_lifecycle(self):
-        path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
-        # undeploy isn't implemented, skip those
-        jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
-        for job in jobs:
-            assert job.status == Status.ok, job.workflow
+    job = runner.run(JobOptions(skip_save=True))
+
+    assert job.status == Status.ok
+    task = list(job.workDone.values())[0]
+    assert task.outputs == {"a_output": 1}
 
 
 ENSEMBLE_TIMEOUT = """
@@ -185,3 +200,29 @@ spec:
             Standard:
               +/configurations:
 """
+
+ENSEMBLE_OUTPUTS = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation:
+                    primary:
+                      type: unfurl.artifacts.ShellExecutable
+                      file: dummy.sh
+                      contents: |
+                        echo '{"a_output": {{inputs.for_output}} }'
+                      properties:
+                        outputsTemplate: "{{ stdout | from_json }}"
+                  inputs:
+                      for_output: 1
+"""
+

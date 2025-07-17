@@ -3,8 +3,9 @@ coverage
 pytest
 pytest-cov
 pytest-xdist[psutil]
-mypy
+mypy>=1.14.0
 types-PyYAML
 types-requests
 types-redis
 types-waitress
+debugpy

@@ -237,7 +237,7 @@ class ToscaSyntaxTest(unittest.TestCase):
             ),
         )
         assert "testSensitive" == job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}).name
-        # assert job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True)[0]
+        assert job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True)[0]
         assert job.rootResource.query(
             {"get_nodes_of_type": "testy.nodes.aNodeType"}, wantList=True
         )[0].name == "testSensitive"
@@ -249,6 +249,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         )
         assert not Ref({"get_nodes_of_type": "testy.nodes.Nonexistent"}).resolve(RefContext(job.rootResource.template))
         assert "server_ip: <<REDACTED>>" in job.out.getvalue(), job.out.getvalue()
+        assert not job.rootResource.query("::*::[.type=testy.nodes.Nonexistent]")
+        assert len(job.rootResource.query("::*::[.type=testy.nodes.aNodeType]", wantList=True)) == 1
+        assert len(job.rootResource.query("::*::[.type=tosca.nodes.Root]", wantList=True)) == 2
 
     def test_ansibleVault(self):
         manifest = YamlManifest(manifestDoc, vault=make_vault_lib("a_password"))
@@ -509,6 +512,8 @@ class AbstractTemplateTest(unittest.TestCase):
     kind: Ensemble
     spec:
       service_template:
+        metadata:
+          template_version: 1.1
         node_types:
           test.nodes.AbstractTest:
             derived_from: tosca.nodes.Root
@@ -520,6 +525,11 @@ class AbstractTemplateTest(unittest.TestCase):
                   sensitive: true
               filter_prop: 
                 type: string
+            requirements:
+              - connection:
+                  relationship:
+                    type: tosca.relationships.ConnectsTo
+                    default_for: SELF
             interfaces:
                Install:
                 operations:
@@ -553,6 +563,10 @@ class AbstractTemplateTest(unittest.TestCase):
                   manifest:
                     file:  foreignmanifest.yaml
                   instance: "*"  # this is the default
+                  version: 1.0
+                  connections:
+                  # import this connection so we can connect to "anInstance"
+                  - anInstance::connection
         """
 
         # import a node from a external manifest and have an abstract node template select it
@@ -644,7 +658,7 @@ spec:
                 # test that restored manifest create a shadow instance for the foreign instance
                 imported = manifest2.imports["foreign"]
                 assert imported
-                imported2 = manifest2.imports.find_import("foreign:anInstance")
+                imported2 = manifest2.imports.find_instance("foreign:anInstance")
                 assert imported2
                 assert imported2.imported == "foreign:anInstance"
                 assert imported2.shadow
@@ -652,6 +666,11 @@ spec:
                 # modifications to imported instances are not saved:
                 assert "private_address" not in imported2.attributes
                 self.assertIsNot(imported2.shadow.root, manifest2.get_root_resource())
+                assert manifest2.get_root_resource().imports.connections
+                rel = manifest2.get_root_resource().imports.connections[0]
+                assert rel.name == "connection"
+                assert manifest2.get_root_resource().default_relationships[0].name == "_default_provider"
+                assert manifest2.get_root_resource().default_relationships[1] is rel
         finally:
             if UNFURL_HOME is not None:
                 os.environ["UNFURL_HOME"] = UNFURL_HOME
@@ -668,6 +687,8 @@ spec:
         file: tosca_plugins/k8s.yaml
     topology_template:
       node_templates:
+        rando:
+          type: tosca.nodes.Root
         myCluster:
           type: unfurl.nodes.K8sCluster
         defaultCluster:
@@ -678,8 +699,10 @@ spec:
           type: unfurl.nodes.Default
           requirements:
             - connect: # section 3.8.2 p140
+                node: tosca.nodes.Root  # despite this, we won't select "rando" because of the relationship
                 relationship:
-                  # think of this as a connection, "discover" will figure out what's on the other end
+                  # think of this as a connection, we'll figure out what's on the other end
+                  # (via valid_target_types)
                   type: unfurl.relationships.ConnectsTo.K8sCluster
                   properties:
                     context: docker-desktop
@@ -689,7 +712,8 @@ spec:
         manifest2 = YamlManifest(mainManifest)
         nodeSpec = manifest2.tosca.get_template("localhost")
         assert nodeSpec
-        relationshipSpec = nodeSpec.requirements["connect"].relationship
+        assert len(nodeSpec.requirements) == 1
+        relationshipSpec = nodeSpec.requirements[0].relationship
         assert relationshipSpec
         self.assertEqual(relationshipSpec.name, "connect")
         self.assertEqual(

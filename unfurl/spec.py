@@ -3,10 +3,13 @@
 """
 TOSCA implementation
 """
+
 import copy
+from enum import Enum, Flag, auto
 import sys
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.elements.nodetype import NodeType
+from toscaparser.elements.relationshiptype import RelationshipType
 from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
@@ -26,6 +29,7 @@ from toscaparser.topology_template import TopologyTemplate
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.capabilities import Capability
 from toscaparser.relationship_template import RelationshipTemplate
 from toscaparser.policy import Policy
 from toscaparser.properties import Property
@@ -44,6 +48,7 @@ from typing import (
     TYPE_CHECKING,
     Dict,
     Iterator,
+    Iterable,
     List,
     Optional,
     Sequence,
@@ -52,17 +57,17 @@ from typing import (
     Union,
     cast,
     Any,
-    Generator,
 )
 
 from ruamel.yaml.comments import CommentedMap
+from toscaparser import functions
 
 logger = getLogger("unfurl")
 
-from toscaparser import functions
 
 if TYPE_CHECKING:
     from .runtime import EntityInstance, HasInstancesInstance
+    from .yamlloader import ImportResolver
 
 
 class RefFunc(functions.Function):
@@ -93,7 +98,7 @@ def validate_unfurl_identifier(name):
 
 def encode_unfurl_identifier(name, escape=r"[^A-Za-z0-9._:-]"):
     def encode(match):
-        return f"-{ord(match.group(0))}-"
+        return f"_{ord(match.group(0))}_"
 
     return re.sub(escape, encode, name)
 
@@ -190,9 +195,10 @@ class ToscaSpec:
         return False
 
     def _overlay(self, overlays):
+        ExceptionCollector.start()  # clears previous errors
+
         def _find_matches():
             assert self.topology
-            ExceptionCollector.start()  # clears previous errors
             for expression, _tpl in overlays.items():
                 try:
                     match = Ref(expression).resolve_one(
@@ -225,7 +231,9 @@ class ToscaSpec:
         fragment,
     ):
         # need to set a path for the import loader
-        mode = os.getenv("UNFURL_VALIDATION_MODE")
+        mode = self.validation_mode
+        if mode is None:
+            mode = os.getenv("UNFURL_VALIDATION_MODE")
         additionalProperties = False
         validate_type_type = False
         if mode is not None:
@@ -237,6 +245,12 @@ class ToscaSpec:
         if resolver:
             # hack! set this now so the find_matching_node callback is invoked
             resolver.manifest.tosca = self
+        input_values = toscaDef.get("input_values")
+        if input_values:
+            if inputs:
+                inputs = dict(input_values, **inputs)
+            else:
+                inputs = input_values
         self.template = ToscaTemplate(
             path=path,
             parsed_params=inputs,
@@ -273,9 +287,10 @@ class ToscaSpec:
         matches = None
         decorators = self.load_decorators()
         if decorators:
-            logger.debug("applying decorators %s", decorators)
+            logger.debug("found decorators %s", decorators)
             matches = self._overlay(decorators)
             # overlay uses ExceptionCollector
+            ExceptionCollector.collecting = False
             if ExceptionCollector.exceptionsCaught():
                 # abort if overlay caused errors
                 # report previously collected errors too
@@ -300,12 +315,14 @@ class ToscaSpec:
         resolver=None,
         skip_validation: bool = False,
         fragment: str = "",
+        validation_mode: Optional[str] = None,
     ):
         self.discovered: Optional[CommentedMap] = None
         self.nested_discovered: Dict[str, dict] = {}
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
-        self.overridden_default_templates: Set[str] = set()
+        self.default_templates: Set[str] = set()
+        self.validation_mode = validation_mode
         if spec:
             inputs = cast(Dict[str, Any], spec.get("inputs") or {})
         else:
@@ -331,19 +348,22 @@ class ToscaSpec:
             logger.info("Validating TOSCA template at %s", path)
             try:
                 self._parse_template(path, inputs, toscaDef, resolver, fragment)
-            except:
+            except Exception:
                 if (
                     not ExceptionCollector.exceptionsCaught()
                     or not self.template
                     or not self.topology  # type: ignore
                 ):
                     raise  # unexpected error
+            finally:
+                ExceptionCollector.collecting = False
 
             # copy errors because self._patch() might clear them
             errorsSoFar = ExceptionCollector.exceptions[:]
             patched = self._patch(toscaDef, path, errorsSoFar)
             if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
+                logger.debug("Applied patches, re-parsing TOSCA template")
                 self._parse_template(path, inputs, toscaDef, resolver, fragment)
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
@@ -378,10 +398,14 @@ class ToscaSpec:
     def fragment(self) -> str:
         return self.template.fragment
 
+    @property
+    def import_resolver(self) -> Optional["ImportResolver"]:
+        return self.template.import_resolver
+
     def _get_project_dir(self, home=False):
         # hacky
-        if self.template and self.template.import_resolver:
-            manifest = self.template.import_resolver.manifest
+        if self.import_resolver:
+            manifest = self.import_resolver.manifest
             if manifest.localEnv:
                 if home:
                     if manifest.localEnv.homeProject:
@@ -410,10 +434,9 @@ class ToscaSpec:
             self.nested_topologies.append(topology_spec)
             for nodeTemplate in list(topology.node_templates.values()):
                 if "default" in nodeTemplate.directives:
-                    if nodeTemplate.name in self.topology.node_templates:
-                        self.overridden_default_templates.add(nodeTemplate.name)
-                    else:
-                        # move default template to root topology
+                    self.default_templates.add(nodeTemplate.name)
+                    if nodeTemplate.name not in self.topology.node_templates:
+                        # move default template that weren't overridden to the root topology
                         topology.node_templates.pop(nodeTemplate.name)
                         nodeTemplate.topology_template = self.topology.topology_template
                         self.topology.topology_template.node_templates[
@@ -443,10 +466,11 @@ class ToscaSpec:
         else:
             return None
 
-    def get_repository_path(self, repositoryName, file=""):
+    def get_repository_path(self, repositoryName, file="", topology=None):
         assert self.topology
         baseArtifact = ArtifactSpec(
-            dict(repository=repositoryName, file=file), topology=self.topology
+            dict(repository=repositoryName, file=file),
+            topology=topology or self.topology,
         )
         if baseArtifact.repository:
             # may resolve repository url to local path (e.g. checkout a remote git repo)
@@ -476,7 +500,9 @@ class ToscaSpec:
             return cast(NodeSpec, topology.get_template(nodetemplate.name))
         return None
 
-    def _get_artifact_declared_tpl(self, repositoryName, file):
+    def _get_artifact_declared_tpl(
+        self, repositoryName, file
+    ) -> Optional[Dict[str, Any]]:
         # see if this is declared in a repository node template with the same name
         assert self.topology
         repository = self.topology.get_node_template(repositoryName)
@@ -486,7 +512,7 @@ class ToscaSpec:
                 return artifact.toscaEntityTemplate.entity_tpl.copy()
         return None
 
-    def _get_artifact_spec_from_name(self, name):
+    def _get_artifact_spec_from_name(self, name) -> Dict[str, Any]:
         repository, sep, file = name.partition(":")
         file = decode_unfurl_identifier(file)
         artifact = self._get_artifact_declared_tpl(repository, file)
@@ -567,7 +593,9 @@ class ToscaSpec:
             impl["requirements"] = [{"install": installer}]
         return impl
 
-    def get_repository(self, name: str):
+    def get_repository(
+        self, name: str
+    ) -> Optional[toscaparser.repositories.Repository]:
         return self.template and self.template.repositories.get(name)
 
     def _post_node_filter_validation(self):
@@ -575,14 +603,18 @@ class ToscaSpec:
         for nodespec in self.topology.node_templates.values():
             ExceptionCollector.near = f' in node template "{nodespec.nested_name}"'
             nodespec.requirements  # needed for substitution mapping
-            if nodespec.abstract != "select":
+            if nodespec.substitution:
+                # since our properties might have changed, apply the property mapping again
+                nodespec.substitution.topology_template.substitution_mappings._substitute(
+                    nodespec.toscaEntityTemplate, []
+                )
+            elif not nodespec.abstract:
                 nodespec.toscaEntityTemplate.revalidate_properties()
 
-    def apply_node_filters(
-        self, target: NodeTemplate, req_def: dict, source: NodeTemplate
-    ) -> None:
-        target_spec = self.node_from_template(target)
-        for prop, value in get_nodefilters(req_def, "properties"):
+    def _apply_node_filter_properties(
+        self, source: NodeTemplate, target: EntityTemplate, property_filters
+    ):
+        for name, value in property_filters:
             if isinstance(value, dict):
                 if "eval" in value:
                     if value["eval"] is None:
@@ -594,22 +626,60 @@ class ToscaSpec:
                 elif "q" in value:
                     value = value["q"]
                 else:
-                    # XXX add constraint to property
-                    # prop = target.properties[name]
-                    # prop.schema.schema.setdefault("constraints",[]).append(value)
-                    # prop.schema.constraints_list = None
+                    # add node_filter constraint to property to validate that it conforms to the node_filter criteria
+                    # even if the property was computed or is modified
+                    # XXX validate now if possible instead of relying on access time validation
+                    prop = target.get_properties().get(name)
+                    if not prop:
+                        prop = target.get_built_in_properties().get(name)
+                    if prop:
+                        prop.schema.schema = prop.schema.schema.copy()
+                        prop.schema.schema.setdefault("constraints", []).append(value)
+                        prop.schema.constraints_list = None
                     continue
-            if target_spec:
-                logger.trace(
-                    f"applying node_filter to {target.name} on property {prop}: {value}"
-                )
-                target_spec._update_property(prop, value)
+            yield name, value
+
+    def _match_filter(
+        self,
+        source: NodeTemplate,
+        target_node: Optional["NodeSpec"],
+        target: EntityTemplate,
+        node_filter,
+    ):
+        # target can be a NodeTemplate, Capability or Artifact
+        for name, value in self._apply_node_filter_properties(
+            source, target, get_nodefilters(dict(node_filter=node_filter), "properties")
+        ):
+            logger.trace(
+                f"applying node_filter to {target.name} on property {name}: {value}"
+            )
+            if target_node:
+                if target_node.toscaEntityTemplate is not target:
+                    if isinstance(target, Capability):
+                        target_spec: EntitySpec = target_node.capabilities[target.name]
+                    elif isinstance(target, toscaparser.artifacts.Artifact):
+                        target_spec = target_node.artifacts[target.name]
+                    else:
+                        assert False, f"Unexpected node filter target {target.name} of type {type(target)}"
+                else:
+                    target_spec = target_node
+                target_spec._update_property(name, value)
             else:
-                assert target._properties_tpl is not None
-                target._properties_tpl[prop] = value
-                target._properties = (
-                    None  # XXX don't clear, node_filter constraints might have been set
-                )
+                target.update_property(name, value)
+        return True
+
+    def apply_node_filters(
+        self, target: NodeTemplate, req_def: dict, source: NodeTemplate
+    ) -> None:
+        target_spec = self.node_from_template(target)
+        if not req_def.get("node_filter"):
+            return
+        target._match_nodefilter(
+            req_def["node_filter"],
+            lambda entity, node_filter: self._match_filter(
+                source, target_spec, entity, node_filter
+            ),
+        )
 
         requires = target.requirements
         for name, value in get_nodefilters(req_def, "requirements"):
@@ -629,9 +699,8 @@ class ToscaSpec:
     def find_matching_node(self, relTpl: RelationshipTemplate, req_name, req_def: dict):
         assert relTpl.source
         if relTpl.target:
-            self.apply_node_filters(relTpl.target, req_def, relTpl.source)
             # found a match already (currently not set)
-            # XXX validate that it matches any constraints
+            self.apply_node_filters(relTpl.target, req_def, relTpl.source)
             return relTpl.target, relTpl.capability
         node: Optional[str] = req_def.get("node")
         capability = req_def.get("capability")
@@ -655,23 +724,24 @@ class ToscaSpec:
 
 
 def find_env_vars(props_iter):
-    for propdef, value in props_iter:
+    for propdef, attributes in props_iter:
         datatype = propdef.entity
         if (
             datatype.type == "map"
             and propdef.entry_schema_entity
             and propdef.entry_schema_entity.type == "unfurl.datatypes.EnvVar"
         ):
+            value = attributes[propdef.name]
             if value:
                 for key, item in value.items():
                     yield key, env_var_value(item)
         else:
             if datatype.type == "unfurl.datatypes.EnvVar":
-                yield propdef.name, env_var_value(value)
+                yield propdef.name, env_var_value(attributes[propdef.name])
             metadata = propdef.schema.get("metadata", {})
             if metadata.get("env_vars"):
                 for name in metadata["env_vars"]:
-                    yield name, env_var_value(value)
+                    yield name, env_var_value(attributes[propdef.name])
 
 
 def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
@@ -687,16 +757,15 @@ def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
                 # descend into its properties
                 yield from find_props(value, propdef.entity.properties, flatten)
             else:
-                yield propdef, value
+                yield propdef, attributes
         elif not flatten or not propdef.entry_schema:
-            yield propdef, attributes[propdef.name]
+            yield propdef, attributes
         else:
             # its a list or map
             assert propdef.entry_schema
             properties = propdef.entry_schema_entity.properties
             value = attributes[propdef.name]
             if not value:
-                yield propdef, value
                 continue
             if propdef.type == "map":
                 for key, val in value.items():
@@ -714,8 +783,56 @@ def find_props(attributes, propertyDefs: Dict[str, Property], flatten=False):
                         yield propdef, val
 
 
+class ToscaTypeId:
+    """
+    Represents a TOSCA type name with equality matching any subtype of the type.
+    Exists so that, for example, ``::*::[.type=tosca.nodes.Compute]`` matches all node templates
+    that are subtypes of ``tosca.nodes.Compute``.
+    """
+
+    def __init__(
+        self, type_str: Optional[str], entity_type: Optional[EntityType] = None
+    ):
+        """
+        :param type_str: Only used by eval expression engine, otherwise should be None
+        :param entity_type: An EntityType instance representing the type.
+        """
+        # need to handle str, see eval_test(): "compare = type(value)(key)"
+        if type_str is not None:
+            self.type_name: Optional[str] = type_str
+            assert not entity_type
+            self.entity_type = None
+        else:
+            self.type_name = None
+            self.entity_type = entity_type
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, ToscaTypeId):
+            entity_type = self.entity_type or other.entity_type
+            assert entity_type
+            type_str = self.type_name or other.type_name
+            assert type_str
+            return entity_type.is_derived_from(type_str)
+        elif isinstance(other, str):
+            if self.entity_type:
+                return self.entity_type.is_derived_from(other)
+            else:
+                return self.type_name == other
+        else:
+            return False
+
+    def __str__(self) -> str:
+        return self.entity_type.type if self.entity_type else self.type_name or ""  # type: ignore
+
+
 # represents a node, capability or relationship
 class EntitySpec(ResourceRef):
+    class ReferenceType(Flag):
+        Requirement = auto()
+        Property = auto()
+        Target = auto()
+        OperationHost = auto()
+
     # XXX need to define __eq__ for spec changes
     def __init__(
         self, toscaNodeTemplate: Optional[EntityTemplate], topology: "TopologySpec"
@@ -726,7 +843,7 @@ class EntitySpec(ResourceRef):
         self.toscaEntityTemplate: EntityTemplate = toscaNodeTemplate
         self.topology: TopologySpec = topology
         self.spec = topology.spec
-        self.name = toscaNodeTemplate.name
+        self.name: str = toscaNodeTemplate.name
         if not validate_unfurl_identifier(self.name):
             ExceptionCollector.appendException(
                 UnfurlValidationError(
@@ -736,9 +853,8 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = cast(str, toscaNodeTemplate.type)
-        self._isReferencedBy: Sequence[EntitySpec] = (
-            []
-        )  # this is referenced by another template or via property traversal
+        # this is referenced by another template or via property traversal
+        self._isReferencedBy: Dict[EntitySpec, EntitySpec.ReferenceType] = {}
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -781,6 +897,25 @@ class EntitySpec(ResourceRef):
             self.global_type = self.type
             self.defaultAttributes = {}
 
+    def add_reference(self, entity: "EntitySpec", ref_type: ReferenceType):
+        """
+        Add a reference to this EntitySpec from another EntitySpec.
+        If the entity is already referenced, update the flags.
+        """
+        if entity in self._isReferencedBy:
+            self._isReferencedBy[entity] |= ref_type
+        else:
+            self._isReferencedBy[entity] = ref_type
+
+    def has_reference(self, entity: "EntitySpec", ref_type: ReferenceType):
+        return self._has_reference(self._isReferencedBy, entity, ref_type)
+
+    @staticmethod
+    def _has_reference(references: Dict["EntitySpec", "EntitySpec.ReferenceType"], entity: "EntitySpec", ref_type: ReferenceType):
+        if entity not in references:
+            return False
+        return references[entity] & ref_type
+
     def _update_property(self, prop, value):
         # should only be called while parsing
         self.properties[prop] = value
@@ -788,25 +923,43 @@ class EntitySpec(ResourceRef):
             self.propertyDefs[prop].value = value
         if prop in self.attributeDefs:
             self.attributeDefs[prop].value = value
-        self.toscaEntityTemplate._properties_tpl[prop] = value
-        self.toscaEntityTemplate._properties = None
+        self.toscaEntityTemplate.update_property(prop, value)
 
     def _resolve_prop(self, key: str) -> "EntitySpec":
         # Returns the EntitySpec associated with this property.
         # If it's plain property, return self
         # if the property is computed, resolve the expression as a template expression to recursively find the EntitySpec it depends on.
+        # called by _resolve
         prop = self.propertyDefs[key]
         value = prop.value or prop.default
         if value and is_function(value):
             # treat default like a constraint
             # evaluate expression as a template expression and if it resolves to
-            result = cast(list, Ref(value).resolve(SafeRefContext(self)))
+            result = Ref(value).resolve(SafeRefContext(self))
             if result and isinstance(result[0], EntitySpec):
                 return result[0]
         return self
 
+    def is_property_set(self, name: str) -> bool:
+        return (
+            name in self.toscaEntityTemplate._properties_tpl
+            if self.toscaEntityTemplate._properties_tpl
+            else False
+        )
+
+    def _get_prop(self, name: str):
+        # name starts with .
+        # overrides ResourceRef._get_prop
+        if name == ".type":
+            return ToscaTypeId(
+                None, self.toscaEntityTemplate.type_definition
+            )  # handles subtyping
+        else:
+            return super()._get_prop(name)
+
     def _resolve(self, key):
         """Expose attributes to eval expressions"""
+        # see ResourceRef
         if key in ["name", "type", "uri", "groups", "policies"]:
             return getattr(self, key)
         if key in self.propertyDefs:
@@ -829,15 +982,15 @@ class EntitySpec(ResourceRef):
                 yield g
 
     @property
-    def policies(self):
+    def policies(self) -> Iterable["PolicySpec"]:
         return []
 
-    def is_compatible_target(self, targetStr) -> bool:
+    def is_compatible_target(self, targetStr: str) -> bool:
         if self.name == targetStr:
             return True
         return self.toscaEntityTemplate.is_derived_from(targetStr)
 
-    def is_compatible_type(self, typeStr) -> bool:
+    def is_compatible_type(self, typeStr: str) -> bool:
         return self.toscaEntityTemplate.is_derived_from(typeStr)
 
     @property
@@ -864,7 +1017,7 @@ class EntitySpec(ResourceRef):
         return self.topology.get_template(name) or None
 
     @staticmethod
-    def get_name_from_artifact_spec(artifact_tpl):
+    def get_name_from_artifact_spec(artifact_tpl: Dict[str, Any]) -> str:
         name = artifact_tpl.get(
             "name", encode_unfurl_identifier(artifact_tpl.get("file", ""))
         )
@@ -874,20 +1027,35 @@ class EntitySpec(ResourceRef):
         else:
             return name
 
-    def find_or_create_artifact(self, nameOrTpl, path=None, predefined=False):
+    def find_or_create_artifact(
+        self,
+        nameOrTpl: Union[str, Dict[str, str], toscaparser.artifacts.Artifact],
+        path=None,
+        predefined=False,
+    ):
+        # if predefined is false, an anonymous, inline artifact will be created from nameOrTpl if none is found
         if not nameOrTpl:
             return None
-        if isinstance(nameOrTpl, str):
+        if isinstance(nameOrTpl, toscaparser.artifacts.Artifact):
+            current = self.artifacts.get(nameOrTpl.name)
+            if current:
+                assert current.toscaEntityTemplate == nameOrTpl
+                return current
+            else:
+                current = ArtifactSpec(nameOrTpl, self, path=path)
+                self.artifacts[nameOrTpl.name] = current
+            return current
+        elif isinstance(nameOrTpl, str):
             name = nameOrTpl
             artifact = self.artifacts.get(nameOrTpl)
             if artifact:
                 return artifact
-            repositoryName = ""
+            repositoryName: Optional[str] = ""
         else:
+            tpl = nameOrTpl
             # inline, anonymous templates can only specify a file and repository
             # because ArtifactInstance don't have way to refer to the inline template
             # and only encode the file and repository in get_name_from_artifact_spec()
-            tpl = nameOrTpl
             name = nameOrTpl["file"]
             repositoryName = nameOrTpl.get("repository")
 
@@ -903,9 +1071,11 @@ class EntitySpec(ResourceRef):
                     tpl = artifact.toscaEntityTemplate.entity_tpl.copy()
                     tpl["name"] = name
                     tpl["repository"] = localStore.name
-                    break
+                    break  # XXX error if more than one artifact with the same name?
             else:
                 if predefined and not check_class_registry(name):
+                    # check_class_registry() allows us to treat configurator names as artifacts
+                    # (so they can be used in the implementation shorthand)
                     logger.warning(f"no artifact named {name} found")
                     return None
 
@@ -916,7 +1086,16 @@ class EntitySpec(ResourceRef):
             artifact_tpl = self.spec._get_artifact_declared_tpl(repositoryName, name)
             if artifact_tpl:
                 tpl = artifact_tpl
-                tpl["repository"] = repositoryName
+                if "repository" not in tpl:
+                    tpl["repository"] = repositoryName
+            else:
+                if predefined:
+                    logger.warning(
+                        f"no artifact named {name} in repository {repositoryName} found"
+                    )
+                    return None
+                else:
+                    tpl = dict(file=name, repository=repositoryName)
 
         # create an anonymous, inline artifact
         return ArtifactSpec(tpl, self, path=path)
@@ -930,8 +1109,12 @@ class EntitySpec(ResourceRef):
         return []
 
     @property
-    def tpl(self) -> dict:
+    def tpl(self) -> Dict[str, Any]:
         return self.toscaEntityTemplate.entity_tpl
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return self.toscaEntityTemplate.metadata
 
     def get_interface_requirements(self) -> List[str]:
         return self.toscaEntityTemplate.get_interface_requirements()
@@ -973,7 +1156,7 @@ class EntitySpec(ResourceRef):
 
     @property
     def required(self) -> bool:
-        # check if this template is required by another template
+        "Return True if this template is required by a non-default template or by the topology root if there is one."
         for root in _get_roots(self):
             if self.topology.substitution_node:
                 if self.topology.substitution_node is root:
@@ -997,21 +1180,22 @@ def _get_roots(node: EntitySpec, seen=None):
         seen = set()
     yield node
     for parent in node._isReferencedBy:
-        if parent.name not in seen:
-            seen.add(node.name)
+        if parent not in seen:
+            seen.add(parent)
             yield from _get_roots(parent, seen)
 
 
-def extract_req(expr, var_list=()) -> str:
-    result = analyze_expr(expr, var_list)
-    if not result:
-        return ""
-    expr_list = result.get_keys()
-    try:
-        i = expr_list.index(".targets")
-        return expr_list[i + 1]
-    except:
-        return ""  # not found
+# (see NodeSpec.requirement_constraints())
+# def extract_req(expr, var_list=()) -> str:
+#     result = analyze_expr(expr, var_list)
+#     if not result:
+#         return ""
+#     expr_list = result.get_keys()
+#     try:
+#         i = expr_list.index(".targets")
+#         return expr_list[i + 1]
+#     except:
+#         return ""  # not found
 
 
 class NodeSpec(EntitySpec):
@@ -1030,7 +1214,8 @@ class NodeSpec(EntitySpec):
         assert topology
         EntitySpec.__init__(self, template, topology)
         self._capabilities: Optional[Dict[str, "CapabilitySpec"]] = None
-        self._requirements: Optional[Dict[str, "RequirementSpec"]] = None
+        self._requirements_dict: Optional[Dict[str, "RequirementSpec"]] = None
+        self._requirements: Optional[List["RequirementSpec"]] = None
         self._relationships: List["RelationshipSpec"] = []
         self._artifacts: Optional[Dict[str, "ArtifactSpec"]] = None
         self._substitution: Optional["TopologySpec"] = None
@@ -1046,7 +1231,7 @@ class NodeSpec(EntitySpec):
             )
         return self._substitution
 
-    def _resolve(self, key):
+    def _resolve(self, key: str):
         try:
             return super()._resolve(key)
         except KeyError:
@@ -1055,14 +1240,14 @@ class NodeSpec(EntitySpec):
                 raise KeyError(key)
             relationship = req.relationship
             if relationship:
-                # hack!
-                tpl = list(req.entity_tpl.values())[0]
-                relationship.toscaEntityTemplate.entity_tpl = tpl
+                # XXX hack!
+                relationship.toscaEntityTemplate.entity_tpl = req.entity_tpl
             return relationship
 
     @property
     def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         if self._artifacts is None:
+            # XXX should artifacts with repository name check if repository is reified and has an associated artifact with file name?
             self._artifacts = {  # type: ignore
                 name: ArtifactSpec(artifact, self)
                 for name, artifact in self.toscaEntityTemplate.artifacts.items()
@@ -1070,7 +1255,7 @@ class NodeSpec(EntitySpec):
         return self._artifacts
 
     @property
-    def policies(self):
+    def policies(self) -> Iterable["PolicySpec"]:
         if not self.spec:
             return
         for p in self.spec.policies.values():
@@ -1083,15 +1268,22 @@ class NodeSpec(EntitySpec):
                     yield p
 
     @property
-    def targets(self):
-        return {
-            n: r.relationship.target
-            for n, r in self.requirements.items()
-            if r.relationship and r.relationship.target
-        }
+    def targets(self) -> Dict[str, Union[EntitySpec, List[EntitySpec]]]:
+        dep: Dict[str, Union[EntitySpec, List[EntitySpec]]] = {}
+        for req in self.requirements:
+            if req.relationship and req.relationship.target:
+                if req.name in dep:
+                    target = dep[req.name]
+                    if isinstance(target, list):
+                        target.append(req.relationship.target)
+                    else:
+                        dep[req.name] = [target, req.relationship.target]
+                else:
+                    dep[req.name] = req.relationship.target
+        return dep
 
     @property
-    def sources(self):
+    def sources(self) -> Dict[str, Union[EntitySpec, List[EntitySpec]]]:
         dep: Dict[str, Union[EntitySpec, List[EntitySpec]]] = {}
         for cap in self.capabilities.values():
             for rel in cap.relationships:
@@ -1107,14 +1299,14 @@ class NodeSpec(EntitySpec):
         return dep
 
     @property
-    def requirements(self) -> Dict[str, "RequirementSpec"]:
+    def requirements(self) -> List["RequirementSpec"]:
         if self._requirements is None:
-            self._requirements = {}
+            self._requirements = []
             nodeTemplate = cast(NodeTemplate, self.toscaEntityTemplate)
             assert self.topology
             has_substitution = self.toscaEntityTemplate.substitution
             for relTpl, req, req_type_def in nodeTemplate.relationships:
-                name, values = next(iter(req.items()))
+                name, value = next(iter(req.items()))
                 if has_substitution and relTpl.target:
                     type_req = nodeTemplate.type_definition.get_requirement_definition(
                         name
@@ -1126,26 +1318,48 @@ class NodeSpec(EntitySpec):
                             f'Omitting requirement "{name}" on substituted template "{self.name}": the target node "{relTpl.target.name}" is only declared on the type.'
                         )
                         continue
-                reqSpec = RequirementSpec(name, req, self, req_type_def)
+                if isinstance(value, str):
+                    entity_tpl = dict(node=value)
+                else:
+                    entity_tpl = value
+                reqSpec = RequirementSpec(name, entity_tpl, self, req_type_def)
                 if relTpl.target:
                     nodeSpec = self.spec.node_from_template(relTpl.target)
                     if nodeSpec:
                         nodeSpec.add_relationship(reqSpec)
+                        nodeSpec.add_reference(self, self.ReferenceType.Requirement)
                     else:
                         msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
                         ExceptionCollector.appendException(UnfurlValidationError(msg))
-                if name in self._requirements:
-                    logger.warning(
-                        f"More than one requirement for {name} on {self.nested_name} not supported."
-                    )
-                self._requirements[name] = reqSpec
+                else:
+                    relSpec = RelationshipSpec(relTpl, self.topology)
+                    reqSpec.relationship = relSpec
+                    relSpec.requirement = reqSpec
+                    if relTpl.is_default_connection():
+                        # add to topology default_requirements:
+                        self.topology.add_default_relationship(relSpec)
+                self._requirements.append(reqSpec)
         return self._requirements
 
+    @property
+    def requirements_dict(self) -> Dict[str, "RequirementSpec"]:
+        if self._requirements_dict is None:
+            self._requirements_dict = {}
+            for reqSpec in self.requirements:
+                name = reqSpec.name
+                if name in self._requirements_dict:
+                    logger.warning(
+                        f"More than one requirement for {name} on {self.nested_name} not supported"
+                        f" -- replacing {self._requirements_dict[name].entity_tpl} with {reqSpec.entity_tpl}.",
+                    )
+                self._requirements_dict[name] = reqSpec
+        return self._requirements_dict
+
     def get_requirement(self, name: str) -> Optional["RequirementSpec"]:
-        return self.requirements.get(name)
+        return self.requirements_dict.get(name)
 
     def get_relationship(self, name: str) -> Optional["RelationshipSpec"]:
-        req = self.requirements.get(name)
+        req = self.requirements_dict.get(name)
         if not req:
             return None
         return req.relationship
@@ -1182,7 +1396,7 @@ class NodeSpec(EntitySpec):
         return [i for elem in idefs for i in elem if i.name != "default"]
 
     def get_requirement_interfaces(self) -> List[OperationDef]:
-        idefs = [r.get_interfaces() for r in self.requirements.values()]
+        idefs = [r.get_interfaces() for r in self.requirements]
         return [i for elem in idefs for i in elem if i.name != "default"]
 
     @property
@@ -1229,7 +1443,7 @@ class NodeSpec(EntitySpec):
                 reqSpec.relationship = relSpec
                 if not relSpec.requirement:
                     relSpec.requirement = reqSpec
-                    relSpec._isReferencedBy.append(self)  # type: ignore
+                    relSpec.add_reference(self, self.ReferenceType.Target)
                 elif relSpec.requirement.name != reqSpec.name:
                     continue
                 assert (
@@ -1309,7 +1523,7 @@ class NodeSpec(EntitySpec):
         self, req_tpl: dict, nodetype: Optional[str]
     ) -> Set["NodeSpec"]:
         "Return a list of nodes that match this requirement's constraints"
-        if isinstance(self.toscaEntityTemplate.custom_def, Namespace):
+        if nodetype and isinstance(self.toscaEntityTemplate.custom_def, Namespace):
             node_type_namespace = self.toscaEntityTemplate.custom_def.find_namespace(
                 req_tpl.get("!namespace-node")
             )
@@ -1343,11 +1557,53 @@ class NodeSpec(EntitySpec):
             matches.update(results)
         return matches
 
+    def _configured_by(self, seen) -> Iterator["NodeSpec"]:
+        for cap in self.capabilities.values():
+            for rel in cap.relationships:
+                if rel.source:
+                    if id(rel.source) in seen:
+                        logger.debug(
+                            f"Circular operational dependency during configured_by in {seen}"
+                        )
+                        continue
+                    seen[id(rel.source)] = rel.source
+
+                    if rel.is_compatible_type("unfurl.relationships.Configures"):
+                        yield rel.source
+                    yield from rel.source._configured_by(seen)
+
+    @property
+    def configured_by(self) -> List["NodeSpec"]:
+        return list(self._configured_by({}))
+
+    def _hosted_on(self, seen) -> Iterator["NodeSpec"]:
+        for req in self.requirements:
+            if req.relationship and req.relationship.target:
+                target = req.relationship.target
+                if id(target) in seen:
+                    logger.debug(
+                        f"Circular operational dependency for {target} with hosted_on in {seen}"
+                    )
+                    continue
+                seen[id(target)] = target
+
+                if req.name == "host" or req.relationship.is_compatible_type(
+                    "tosca.relationships.HostedOn"
+                ):
+                    yield target
+                yield from target._hosted_on(seen)
+
+    @property
+    def hosted_on(self) -> List["NodeSpec"]:
+        return list(self._hosted_on({}))
+
 
 class RelationshipSpec(EntitySpec):
     """
     Links a RequirementSpec to a CapabilitySpec.
     """
+
+    ANY = RelationshipTemplate.ANY
 
     def __init__(
         self,
@@ -1370,7 +1626,11 @@ class RelationshipSpec(EntitySpec):
         self.requirement: Optional[RequirementSpec] = None
         self.capability: Optional[CapabilitySpec] = None
         if targetNode:
-            assert targetNode.toscaEntityTemplate is template.target
+            assert targetNode.toscaEntityTemplate is template.target, (
+                self,
+                targetNode.toscaEntityTemplate,
+                template.target,
+            )
             for c in targetNode.capabilities.values():
                 if c.toscaEntityTemplate is template.capability:
                     self.capability = c
@@ -1396,6 +1656,15 @@ class RelationshipSpec(EntitySpec):
         else:
             return None
 
+    @property
+    def default_for(self) -> Optional[str]:
+        return cast(RelationshipTemplate, self.toscaEntityTemplate).default_for
+
+    def is_default_connection(self) -> bool:
+        return cast(
+            RelationshipTemplate, self.toscaEntityTemplate
+        ).is_default_connection()
+
     def _resolve(self, key):
         try:
             return super()._resolve(key)
@@ -1410,28 +1679,6 @@ class RelationshipSpec(EntitySpec):
     def get_uri(self):
         suffix = "~r~" + self.name
         return self.source.name + suffix if self.source else suffix
-
-    def matches_target(self, capability):
-        defaultFor = self.toscaEntityTemplate.default_for
-        if not defaultFor:
-            return False
-        nodeTemplate = capability.parentNode.toscaEntityTemplate
-        if defaultFor == self.toscaEntityTemplate.ANY and capability.name == "feature":
-            # XXX get_matching_capabilities() buggy in this case
-            return True  # optimization
-        # XXX defaultFor might be type, resolve to global
-        if (
-            defaultFor == self.toscaEntityTemplate.ANY
-            or defaultFor == nodeTemplate.name
-            or nodeTemplate.is_derived_from(defaultFor)
-            or defaultFor == capability.name
-            or capability.is_derived_from(defaultFor)
-        ):
-            return self.toscaEntityTemplate.get_matching_capabilities(
-                nodeTemplate, capability.name
-            )
-
-        return False
 
 
 class RequirementSpec:
@@ -1512,10 +1759,9 @@ class CapabilitySpec(EntitySpec):
         assert capability
         # capabilities.Capability isn't an EntityTemplate but duck types with it
         EntitySpec.__init__(self, capability, parent.topology)
-        self._defaultRelationships: Optional[List[RelationshipSpec]] = None
 
     @property
-    def parent(self):
+    def parent(self):  # type:ignore[override]
         return self.parentNode
 
     @property
@@ -1535,24 +1781,17 @@ class CapabilitySpec(EntitySpec):
     def relationships(self):
         return [r for r in self.parentNode.relationships if r.capability is self]
 
-    @property
-    def default_relationships(self):
-        if self._defaultRelationships is None:
-            self._defaultRelationships = [
-                relSpec
-                for relSpec in self.parentNode.topology.relationship_templates.values()
-                if relSpec.matches_target(self)
-            ]
-        return self._defaultRelationships
+    def is_property_set(self, name: str) -> bool:
+        properties = cast(Capability, self.toscaEntityTemplate)._properties
+        return name in properties if properties else False
 
-    def get_default_relationships(self, relation=None):
-        if not relation:
-            return self.default_relationships
-        return [
-            relSpec
-            for relSpec in self.default_relationships
-            if relSpec.is_compatible_type(relation)
-        ]
+    @property
+    def tpl(self) -> Dict[str, Any]:
+        return {}  # missing from Capability
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return {}  # missing from Capability
 
 
 class TopologySpec(EntitySpec):
@@ -1595,9 +1834,8 @@ class TopologySpec(EntitySpec):
         self.defaultAttributes = {}
         self.propertyDefs = {}
         self.attributeDefs = {}
-        # XXX! broken for nested topologies
-        self._defaultRelationships: Optional[List[RelationshipSpec]] = None
-        self._isReferencedBy = []
+        self._default_relationships: List[RelationshipSpec] = []
+        self._isReferencedBy = {}
         self.add_discovered()
 
     def copy(self) -> "TopologySpec":
@@ -1632,13 +1870,19 @@ class TopologySpec(EntitySpec):
     def is_compatible_type(self, typeStr):
         return False
 
+    def _get_prop(self, name):
+        if name == ".type":
+            return self.type
+        else:
+            return super()._get_prop(name)
+
     def add_discovered(self):
         if not self.substitute_of:
             return
         key = self.substitute_of.nested_name + ":"
         for n, tpl in self.spec.nested_discovered.items():
             if n.startswith(key):
-                self.add_node_template(n[len(key) :], tpl)
+                self.add_template(n[len(key) :], tpl)
 
     @property
     def substitute_of(self) -> Optional[NodeSpec]:
@@ -1659,35 +1903,22 @@ class TopologySpec(EntitySpec):
             return self.get_node_template(substitution_mappings._node_template.name)
         return None
 
+    def get_inner_node_replaced_by_outer_node(
+        self, outer_node_name: str
+    ) -> Optional[NodeSpec]:
+        substitution_mappings = self.topology_template.substitution_mappings
+        if substitution_mappings:
+            inner_name = substitution_mappings._outer_nodes.get(outer_node_name)
+            if inner_name:
+                return self.get_node_template(inner_name)
+        return None
+
     @property
     def primary_provider(self) -> Optional[RelationshipSpec]:
         return self.relationship_templates.get("primary_provider")
 
-    @property
-    def default_relationships(self) -> List[RelationshipSpec]:
-        if self.parent_topology:
-            return self.parent_topology.default_relationships
-        if self._defaultRelationships is None:
-            self._defaultRelationships = [
-                relSpec
-                for relSpec in self.relationship_templates.values()
-                if relSpec.toscaEntityTemplate.default_for
-            ]
-            if not self.primary_provider:
-                # no cloud provider specified assume at least this default connection can happen
-                generic = RelationshipSpec(
-                    RelationshipTemplate(
-                        dict(
-                            type="unfurl.relationships.ConnectsTo.ComputeMachines",
-                            default_for=True,
-                        ),
-                        "_default_provider",
-                        self.topology_template.custom_defs,
-                    ),
-                    self,
-                )
-                self._defaultRelationships.append(generic)
-        return self._defaultRelationships
+    def add_default_relationship(self, relSpec: RelationshipSpec):
+        self._default_relationships.append(relSpec)
 
     @property
     def base_dir(self) -> str:
@@ -1715,13 +1946,30 @@ class TopologySpec(EntitySpec):
             return matches
 
     @property
-    def tpl(self):
-        return self.toscaEntityTemplate.tpl
+    def metadata(self) -> Dict[str, Any]:
+        metadata = self.tpl.get("metadata")
+        if metadata is None:
+            return {}
+        return metadata
 
-    def find_matching_templates(self, typeName):
+    @property
+    def tpl(self) -> Dict[str, Any]:
+        return self.topology_template.tpl
+
+    def is_property_set(self, name: str) -> bool:
+        return False
+
+    def find_matching_templates(self, typeName) -> Iterator[NodeSpec]:
         for template in self.node_templates.values():
             if template.is_compatible_type(typeName):
                 yield template
+        if not self.parent_topology or not self.spec.topology:
+            return
+        # if nested, also check default templates on the root topology
+        for template in self.spec.topology.node_templates.values():
+            if template.name in self.spec.default_templates:
+                if template.is_compatible_type(typeName):
+                    yield template
 
     def get_template(self, name: str) -> Optional[EntitySpec]:
         if name == "~topology" or name == "root":
@@ -1765,19 +2013,19 @@ class TopologySpec(EntitySpec):
         else:
             return self.node_templates.get(name)
 
-    def add_node_template(self, name, tpl, discovered=True):
+    def add_template(self, name, tpl, discovered=True):
         custom_types = None
         if "custom_types" in tpl:
             custom_types = tpl.pop("custom_types")
             if custom_types:
                 # XXX check for conflicts, throw error
                 # add to "types" so EntityTemplate validation passes
-                cast(dict, self.spec.template.tpl).setdefault("types", {}).update(custom_types)
+                cast(dict, self.spec.template.tpl).setdefault("types", {}).update(
+                    custom_types
+                )
                 self.topology_template.custom_defs.update(custom_types)
 
-        nodeTemplate = self.topology_template.add_template(name, tpl)
-        nodeSpec = NodeSpec(nodeTemplate, self)
-        self.node_templates[name] = nodeSpec
+        nodeSpec = self._add_template(name, tpl)
         if discovered:
             if self.spec.discovered is None:
                 self.spec.discovered = CommentedMap()
@@ -1786,6 +2034,25 @@ class TopologySpec(EntitySpec):
         if custom_types:
             tpl["custom_types"] = custom_types
         return nodeSpec
+
+    def _add_template(self, name, tpl):
+        type_def = self.topology_template.find_type(tpl["type"])
+        if not type_def or isinstance(type_def, (NodeType, StatefulEntityType)):
+            nodeTemplate = self.topology_template.add_node_template(name, tpl)
+            nodeSpec = NodeSpec(nodeTemplate, self)
+            self.node_templates[name] = nodeSpec
+            return nodeSpec
+        elif isinstance(type_def, RelationshipType):
+            relationshipTemplate = self.topology_template.add_relationship_template(
+                name, tpl
+            )
+            relationshipSpec = RelationshipSpec(relationshipTemplate, self)
+            self.relationship_templates[name] = relationshipSpec
+            return relationshipSpec
+        else:
+            raise UnfurlError(
+                f"Unsupported tosca type {type_def.type} for dynamically added template."
+            )
 
 
 class Workflow:
@@ -1844,6 +2111,7 @@ class ArtifactSpec(EntitySpec):
         "target",
         "order",
         "contents",
+        "dependencies",
     )
 
     def __init__(
@@ -1861,34 +2129,53 @@ class ArtifactSpec(EntitySpec):
         spec = topology.spec
         if isinstance(artifact_tpl, toscaparser.artifacts.Artifact):
             artifact = artifact_tpl
+            self._inline = False
         else:
             # inline artifact
             name = self.get_name_from_artifact_spec(artifact_tpl)
             artifact_tpl.pop("name", None)  # "name" isn't a valid key
-            custom_defs = spec and spec.template.topology_template.custom_defs or {}
+            custom_defs = (
+                spec
+                and spec.template.topology_template
+                and spec.template.topology_template.custom_defs
+                or {}
+            )
             artifact = toscaparser.artifacts.Artifact(
                 name, artifact_tpl, custom_defs, path
             )
+            self._inline = True
         EntitySpec.__init__(self, artifact, topology)
-        self.repository: Optional[toscaparser.repositories.Repository] = (
-            spec
-            and artifact.repository
-            and spec.get_repository(artifact.repository)
-            or None
-        )
+        self.repository: Optional[toscaparser.repositories.Repository] = None
+        if artifact.repository:
+            if spec:
+                self.repository = spec.get_repository(artifact.repository)
+            if isinstance(artifact.custom_def, Namespace):
+                repository_tpl = artifact.custom_def.repositories.get(
+                    artifact.repository
+                )
+                if repository_tpl and (
+                    not self.repository or self.repository.tpl != repository_tpl
+                ):
+                    self.repository = toscaparser.repositories.Repository(
+                        artifact.repository, repository_tpl
+                    )
         # map artifacts fields into properties
         for prop in self.buildin_fields:
             self.defaultAttributes[prop] = getattr(artifact, prop)
 
-    def get_uri(self):
+    def get_uri(self) -> str:
         if self.parentNode:
             return self.parentNode.name + "~a~" + self.name
         else:
             return "~a~" + self.name
 
     @property
-    def file(self):
+    def file(self) -> str:
         return self.toscaEntityTemplate.file
+
+    @property
+    def dependencies(self) -> Optional[List[Union[str, Dict[str, str]]]]:
+        return self.toscaEntityTemplate.dependencies
 
     @property
     def base_dir(self) -> str:
@@ -1897,28 +2184,46 @@ class ArtifactSpec(EntitySpec):
         else:
             return super().base_dir
 
-    def get_path(self, resolver=None) -> Optional[str]:
+    def get_path(self, resolver: Optional["ImportResolver"] = None) -> Optional[str]:
         return self.get_path_and_fragment(resolver)[0]
 
     def get_path_and_fragment(
-        self, resolver=None
+        self, resolver: Optional["ImportResolver"] = None
     ) -> Tuple[Optional[str], Optional[str]]:
         if not resolver:
             assert self.spec
-            resolver = self.spec.template.import_resolver
+            resolver = self.spec.import_resolver
 
         assert resolver
+        repository = self.toscaEntityTemplate.repository
+        repositories = None
+        if repository:
+            if (
+                isinstance(self.toscaEntityTemplate.custom_def, Namespace)
+                and repository in self.toscaEntityTemplate.custom_def.repositories
+            ):
+                repositories = self.toscaEntityTemplate.custom_def.repositories
+            elif not resolver.get_repository(
+                repository, None
+            ) and self.topology.get_node_template(repository):
+                repository = None  # it's a virtual, reified repository
         path, fragment = resolver.resolve_to_local_path(
-            self.base_dir, self.file, self.toscaEntityTemplate.repository
+            self.base_dir, self.file, repository, repositories
         )
         return path, fragment
+
+    def name_or_spec(self):
+        if self._inline:
+            return self.as_import_spec()
+        else:
+            return self.name
 
     def as_import_spec(self):
         return dict(file=self.file, repository=self.toscaEntityTemplate.repository)
 
     def as_value(self) -> Optional[ExternalValue]:
         if self.is_compatible_type("tosca.artifacts.Deployment.Image.Container.Docker"):
-            artifactDef = self.toscaEntityTemplate
+            artifactDef = cast(toscaparser.artifacts.Artifact, self.toscaEntityTemplate)
             assert (
                 not artifactDef.checksum or artifactDef.checksum_algorithm == "sha256"
             )
@@ -1952,7 +2257,7 @@ class GroupSpec(EntitySpec):
         return [self.spec.groups[m] for m in self.members if m in self.spec.groups]
 
     @property
-    def policies(self) -> Iterator["PolicySpec"]:
+    def policies(self) -> Iterable["PolicySpec"]:
         if not self.spec:
             return
         for p in self.spec.policies.values():

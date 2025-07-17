@@ -205,6 +205,17 @@
         },
         "schema": {
           "$ref": "#/definitions/attributes"
+        },
+        "version": {
+          "$ref": "#/definitions/version",
+          "description": "Imported template requires compatible version."
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of connection names to import."
         }
       },
       "additionalProperties": false
@@ -600,7 +611,7 @@
               "type": "object",
               "properties": {
                 "version": {
-                  "type": "string"
+                  "$ref": "#/definitions/version"
                 },
                 "digest": {
                   "type": "string"
@@ -680,7 +691,10 @@
   "properties": {
     "apiVersion": {
       "type": "string",
-      "const": "unfurl/v1alpha1"
+      "enum": [
+        "unfurl/v1alpha1",
+        "unfurl/v1.0.0"
+      ]
     },
     "kind": {
       "type": "string",

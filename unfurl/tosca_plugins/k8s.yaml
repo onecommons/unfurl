@@ -25,6 +25,11 @@ node_types:
 
   unfurl.nodes.K8sCluster:
     derived_from: unfurl.nodes._K8sResourceHost
+    properties:
+      name:
+        title: Cluster name
+        type: string
+        required: false
     capabilities:
       host:
         type: tosca.capabilities.Container
@@ -39,6 +44,13 @@ node_types:
         metadata:
           # mark this is as immutable to make sure the connection is pointing at the same cluster in subsequent runs
           immutable: true
+    requirements:
+      - default_connection:
+          # relationship_template needs to set default_for
+          metadata:
+            default_for: SELF
+          relationship: unfurl.relationships.ConnectsTo.K8sCluster
+          occurrences: [0, 1]
     interfaces:
       Install:
         operations:
@@ -53,6 +65,12 @@ node_types:
           relationship: tosca.relationships.HostedOn
           occurrences: [0, 1]
     properties:
+      name:
+        type: string
+        default:
+          eval:
+            to_dns_label:
+              eval: .name
       definition:
         type: any
         description: Inline resource definition (string or map)
@@ -64,13 +82,11 @@ node_types:
         metadata:
           user_settable: false
     attributes:
+      name:
+        type: string
       apiResource:
         type: map
         required: false
-      name:
-        type: string
-        default:
-          eval: .name
     interfaces:
       Standard:
         # requirements:
@@ -104,11 +120,6 @@ node_types:
           node: unfurl.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
     properties:
-      name:
-        type: string
-        default:
-          eval: .name
-    attributes:
       namespace:
         type: string
         default:
@@ -119,6 +130,9 @@ node_types:
               kubernetes_current_namespace:
             else:
               get_property: [HOST, name]
+    attributes:
+      namespace:
+        type: string
 
   unfurl.nodes.K8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
@@ -133,6 +147,27 @@ node_types:
       data:
         type: map
         required: false
+        description: Data to be base64 encoded into the secret. If not set, "key" and "keyValue" will be used.
+        metadata:
+          sensitive: true
+        default:
+          eval:
+            if: .::key
+            then: "{{ { '.::key' | eval : '.::keyValue' | eval } }}"
+            else: 
+              q: {}
+      key:
+        description: The primary key of the secret. Useful when a SecretRef is needed. If set, set "keyValue" instead of "data".
+        type: string
+        required: false
+      keyValue:
+        description: The value of the key, if "key" is set.
+        type: string
+        required: false
+        metadata:
+          sensitive: true
+    attributes:
+      apiResource:
         metadata:
           sensitive: true
 
@@ -140,8 +175,7 @@ capability_types:
   unfurl.capabilities.Endpoint.K8sCluster:
     derived_from: tosca.capabilities.Endpoint.Admin
     description: >
-      Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
-      for the semantics of the "credential" properties.
+      Capability to connect to a K8sCluster.
     properties:
       protocol:
         type: string
@@ -151,6 +185,8 @@ relationship_types:
   unfurl.relationships.ConnectsTo.K8sCluster:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [unfurl.capabilities.Endpoint.K8sCluster]
+    metadata:
+      exclude-from-configuration: true
     properties:
       name:
         title: Cluster name
@@ -161,14 +197,17 @@ relationship_types:
             - KUBE_CTX_CLUSTER
         default: { get_env: KUBE_CTX_CLUSTER }
       KUBECONFIG:
-        type: unfurl.datatypes.EnvVar
+        type: string
         description: >
           Path to an existing Kubernetes config file. If not provided, and no other connection
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
-        default: { get_env: KUBECONFIG }
+        default: { get_env: [KUBECONFIG, { get_env: KUBE_CONFIG_PATH }] }
         required: false
         metadata:
           user_settable: false
+          env_vars:
+            - KUBE_CONFIG_PATH
+            - KUBECONFIG
       context:
         type: string
         description: >
@@ -214,7 +253,7 @@ relationship_types:
         required: false
         default: { get_env: KUBE_INSECURE }
       token:
-        type: unfurl.datatypes.EnvVar
+        type: string
         title: Authentication Token
         metadata:
           sensitive: true
@@ -268,6 +307,10 @@ relationship_types:
           type: string
         metadata:
           user_settable: false
+      expires_at:
+        description: The timestamp when these credentials will expire and need to be regenerated.
+        required: false
+        type: timestamp
     interfaces:
       Install:
         check:

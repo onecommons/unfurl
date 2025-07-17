@@ -25,6 +25,7 @@ Binding between Unfurl's runtime and the TOSCA Python DSL.
 
 import functools
 import inspect
+import io
 import os
 from pathlib import Path
 import importlib
@@ -50,27 +51,37 @@ from typing import (
 )
 
 import tosca
-from tosca import InstanceProxy, ToscaType, DataType, ToscaFieldType, TypeInfo
+from tosca import InstanceProxy, ToscaType, DataEntity, ToscaFieldType, TypeInfo
 import tosca.loader
 from tosca._tosca import (
     _Tosca_Field,
     _ToscaType,
+    Node,
     global_state,
     FieldProjection,
     EvalData,
-    _BaseDataType,
     _get_field_from_prop_ref,
-    _get_expr_prefix,
 )
 from .logs import getLogger
 from .eval import RefContext, _map_value, set_eval_func, Ref
-from .result import Results, ResultsItem, ResultsMap, CollectionProxy
-from .runtime import EntityInstance, NodeInstance, RelationshipInstance
-from .spec import EntitySpec, NodeSpec, RelationshipSpec
+from .result import ResultsItem, CollectionProxy
+from .runtime import (
+    ArtifactInstance,
+    CapabilityInstance,
+    EntityInstance,
+    NodeInstance,
+    RelationshipInstance,
+)
+from .spec import EntitySpec, NodeSpec, RelationshipSpec, PolicySpec, GroupSpec
 from .support import Status
 from .repo import RepoView
-from .util import UnfurlError, get_base_dir
-from tosca.python2yaml import python_src_to_yaml_obj, WritePolicy
+from .util import UnfurlError, UnfurlTaskError, get_base_dir
+from tosca.python2yaml import (
+    _OperationProxy,
+    python_src_to_yaml_obj,
+    WritePolicy,
+    _write_yaml,
+)
 from .configurator import Configurator, ConfiguratorResult, TaskView
 import sys
 
@@ -82,15 +93,73 @@ logger = getLogger("unfurl")
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
+def is_python_file_newer(yaml_contents, path) -> Optional[str]:
+    yaml_path = Path(path)
+    python_path = yaml_path.parent / (yaml_path.stem + ".py")
+    if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
+        return None
+    if not python_path.exists():
+        return None
+    # only overwrite if yaml file is older than the python file
+    if not WritePolicy["older"].can_overwrite(str(python_path), path):
+        return ""
+    # only overwrite if the yaml file wasn't modified by another process
+    if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
+        return None
+    return str(python_path)
+
+
+def maybe_reconvert(
+    import_resolver: "ImportResolver",
+    yaml_contents: str,
+    path: str,
+    repo_view: Optional[RepoView],
+    base_dir: str,
+    yaml_dict=dict,
+) -> Optional[dict]:
+    "If the YAML was generated from a Python file, regenerate if Python file is newer."
+    # path is a yaml file
+    python_path = is_python_file_newer(yaml_contents, path)
+    if not python_path:
+        return None
+    with open(python_path) as f:
+        contents = f.read()
+    tosca_tpl = convert_to_yaml(
+        import_resolver, contents, python_path, repo_view, base_dir, yaml_dict
+    )
+    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
+    try:
+        _write_yaml(write_policy, tosca_tpl, python_path, path)
+    except Exception:
+        logger.error("error saving generated yaml file %s", path, exc_info=True)
+    return tosca_tpl
+
+
+def get_allowed_modules():
+    # import packages that can be referenced in safe mode
+    import unfurl.tosca_plugins
+    import unfurl.configurators
+    import unfurl.configurators.templates
+
+    packages = (
+        "unfurl.tosca_plugins",
+        "unfurl.configurators",
+        "unfurl.configurators.templates",
+    )
+    return tosca.loader.get_allowed_modules(packages)
+
+
 def convert_to_yaml(
     import_resolver: "ImportResolver",
     contents: str,
     path: str,
     repo_view: Optional[RepoView],
     base_dir: str,
+    yaml_dict=dict,
 ) -> dict:
-    from .yamlloader import yaml_dict_type
+    from .yamlloader import yaml_dict_type, yaml
 
+    tosca._tosca.yaml_cls = yaml_dict
     path = os.path.abspath(path)
     namespace: Dict[str, Any] = dict(__file__=path)
     logger.trace(
@@ -102,7 +171,7 @@ def convert_to_yaml(
         else:
             root_path = base_dir
         package_path = Path(get_base_dir(path)).relative_to(root_path)
-        relpath = str(package_path).strip("/").replace("/", ".")
+        relpath = str(package_path).strip("/").replace("/", ".").strip(".")
         if repo_view.repository.name == "unfurl":
             package = "unfurl."
         else:
@@ -116,14 +185,11 @@ def convert_to_yaml(
     if relpath:
         package += "." + relpath
     safe_mode = import_resolver.get_safe_mode()
-    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "never"]
+    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
     module_name = package + "." + Path(path).stem
     tosca.loader.install(import_resolver, base_dir)
-    safe_mode_override = os.getenv("UNFURL_TEST_SAFE_LOADER")
-    if safe_mode_override:
-        safe_mode = safe_mode_override != "never"
     if import_resolver.manifest.modules is None:
-        import_resolver.manifest.modules = tosca.loader.get_allowed_modules()
+        import_resolver.manifest.modules = get_allowed_modules()
     yaml_src = python_src_to_yaml_obj(
         contents,
         namespace,
@@ -138,10 +204,12 @@ def convert_to_yaml(
         import_resolver,
     )
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
+        output = io.StringIO()
+        yaml.dump(yaml_src, output)
         logger.debug(
             "converted %s to:\n%s",
             path,
-            pprint.pformat(yaml_src),
+            output.getvalue(),
             extra=dict(truncate=0),
         )
     return yaml_src
@@ -152,6 +220,10 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
         section = "node_templates"
     elif isinstance(template, RelationshipSpec):
         section = "relationship_templates"
+    elif isinstance(template, PolicySpec):
+        section = "policies"
+    elif isinstance(template, GroupSpec):
+        section = "groups"
     else:
         return None
     metadata = template.toscaEntityTemplate.entity_tpl.get("metadata")
@@ -161,18 +233,67 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
     return None
 
 
-def proxy_instance(instance, cls: Type[_ToscaType], context: RefContext):
-    if instance.proxy:
-        # XXX make sure existing proxy context matches context argument
+def proxy_instance(
+    instance: EntityInstance, cls: Optional[Type[ToscaType]], context: RefContext
+):
+    if instance.proxy and instance.proxy._context.vars == context.vars:
+        # XXX better comparison of contexts
         return instance.proxy
-    obj = find_template(instance.template)
+    if instance.parent and isinstance(instance, (ArtifactInstance, CapabilityInstance)):
+        obj = None
+        owner = find_template(instance.parent.template)
+        if owner:
+            if cls and issubclass(cls, Node):  # class is the owner node
+                # this happens when references to the owner's methods are parsed to computed eval expressions in yaml
+                return proxy_instance(instance.parent, owner.__class__, context)
+            field_type = ToscaFieldType(
+                instance.parentRelation[1:]
+            )  # strip leading '_'
+            field = owner.get_field_from_tosca_name(instance.template.name, field_type)
+            if field:
+                obj = getattr(owner, field.name)
+    else:
+        obj = find_template(instance.template)
     if obj:
-        found_cls: Optional[Type[_ToscaType]] = obj.__class__
+        found_cls: Optional[Type[ToscaType]] = obj.__class__
     else:
         # if target is subtype of cls, use the subtype
-        found_cls = cls._all_types.get(instance.template.type)
+        found_cls = cast(
+            Optional[Type[ToscaType]],
+            ToscaType._all_types.get(instance.template.type, cls),
+        )
+        if not found_cls:
+            return None
+        # the instance was defined in yaml so has no python obj, create one now
+        # since we proxy to the instance, we don't need to worry about setting its fields
+        previous_required = global_state._enforce_required_fields
+        previous_mode = global_state.mode
+        try:
+            global_state._enforce_required_fields = False
+            global_state.mode = "parse"
+            metadata = instance.template.toscaEntityTemplate.entity_tpl.get("metadata")
+            module_name = metadata and metadata.get("module")
+            if (
+                cls or module_name
+            ):  # don't force creation if cls was None and template wasn't dsl defined
+                obj = found_cls(instance.template.name)  # type:ignore
+            if module_name and obj:
+                obj.register_template(module_name, instance.template.name)
+        except Exception as e:
+            logger.error(
+                "failed to create TOSCA DSL object for proxy %s",
+                instance.template.name,
+                # exc_info=e,
+                stack_info=True,
+            )
+            return None
+        finally:
+            global_state._enforce_required_fields = previous_required
+            global_state.mode = previous_mode
 
-    proxy = get_proxy_class(found_cls or cls)(instance, obj, context)
+    if not cls and not obj:
+        return None
+    proxy = get_proxy_class(found_cls)(instance, obj, context)
     instance.proxy = proxy
     return proxy
 
@@ -183,31 +304,69 @@ class DslMethodConfigurator(Configurator):
         self.func = func
         self.action = action
         self.configurator: Optional[Configurator] = None
+        self._generator: Optional[Generator] = None
 
     def render(self, task: TaskView) -> Any:
-        if self.action == "render":
+        if self.action == "render" or self.action == "parse":
             # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
-            result = obj._invoke(self.func)
+            execute_proxy = _OperationProxy()
+            try:
+                global_state._type_proxy = execute_proxy
+                # XXX pass task
+                result = obj._invoke(self.func)
+            finally:
+                global_state._type_proxy = None
+
             if isinstance(result, Generator):
+                self._generator = result
                 # render the yielded configurator
                 result = result.send(None)
-                # need a way to mark yielded configurator as already rendered
+                assert isinstance(result, Configurator), (
+                    "Only yielding configurators is currently support"
+                )
             if isinstance(result, Configurator):
                 self.configurator = result
-                # configurators rely on task.inputs, so update them
-                task.inputs.update(result.inputs)
                 # task.inputs get reset after render phase
-                # so we need to set configSpec.inputs too in order to preserve them for run()
-                task.configSpec.inputs.update(result.inputs)
+                # so we need to set configSpec.inputs in order to preserve them for run()
+                task.configSpec.inputs.update(result._inputs)
+                # regenerate task.inputs:
+                task._inputs = None
+                task.inputs
+                if not self._generator:
+                    return self.configurator.render(task)
+            elif callable(result):
+                self.func = result
+            elif execute_proxy._artifact_executed:
+                name = execute_proxy.get_artifact_name()
+                artifact = task.target.artifacts.get(name)
+                if not artifact:
+                    raise UnfurlTaskError(
+                        task,
+                        f"Implementation artifacts set during render must be declared on node template: {execute_proxy._artifact_executed}",
+                    )
+                task.configSpec.artifact = artifact.template
+                task.configSpec.className = artifact.template.properties.get(
+                    "className"
+                )
+                if execute_proxy._inputs:
+                    task.configSpec.inputs.update(execute_proxy._inputs)
+                    task.configSpec.arguments = list(execute_proxy._inputs)
+                self.configurator = task.configSpec.create()
+                # regenerate task.inputs:
+                task._inputs = None
+                task.inputs
                 return self.configurator.render(task)
             else:
-                assert callable(result), result
-                self.func = result
+                raise UnfurlError(
+                    f"unsupported configurator type: {type(result)} {result and result._obj} {result and result._cls}"
+                )
         return super().render(task)
 
     def _is_generator(self) -> bool:
         # Note: this needs to called after configurator is set in render()
+        if self._generator:
+            return True
         if self.configurator:
             return self.configurator._is_generator()
         return inspect.isgeneratorfunction(self.func)
@@ -215,6 +374,15 @@ class DslMethodConfigurator(Configurator):
     def run(
         self, task: "TaskView"
     ) -> Union[Generator, ConfiguratorResult, "Status", bool]:
+        # XXX
+        # if self._generator:
+        #     # XXX render in render() with subtask, assign subtask to yield'd TaskRequest
+        #     subtask = yield task.create_sub_task(task.configSpec)
+        #     assert subtask
+        #     outputs = self._generator.send(subtask.outputs)
+        #     yield task.done(outputs=outputs)
+        #     return
+        # XXX live artifact.execute() should return a configurator with _inputs set
         if self.configurator:
             return self.configurator.run(task)
         obj = proxy_instance(task.target, self.cls, task.inputs.context)
@@ -223,24 +391,80 @@ class DslMethodConfigurator(Configurator):
     def can_dry_run(self, task: "TaskView") -> bool:
         if self.configurator:
             return self.configurator.can_dry_run(task)
-        return False
+        can_dry_run = getattr(self.func, "can_dry_run", False)
+        if callable(can_dry_run):
+            return can_dry_run(task)  # type: ignore
+        return can_dry_run
 
 
-def eval_computed(arg, ctx):
+def eval_computed(arg, ctx: RefContext):
     """
     eval:
        computed: mod:class.computed_property
+
+    or
+
+    eval:
+      computed: mod:func
+    """
+    if isinstance(arg, list):
+        arg, args = arg[0], arg[1:]
+    else:
+        args = []
+    if len(ctx.kw) > 1:
+        kw = {k: v for k, v in ctx.kw.items() if k != "computed"}
+    else:
+        kw = {}
+    parts = arg.split(":")
+    method = ""
+    if len(parts) == 3:
+        module_name, qualname, method = parts
+    else:
+        module_name, qualname = parts
+    module = importlib.import_module(module_name)
+    names = qualname.split(".")
+    attr_name = names.pop(0)
+    cls = getattr(module, attr_name)
+    if names:
+        while names:
+            func = getattr(cls, names.pop(0))
+            if names:
+                cls = func
+        proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), cls, ctx)
+        return proxy._invoke(func, *args, **kw)
+    elif method == "method":
+        proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), None, ctx)
+        return proxy._invoke(cls, *args, **kw)
+    else:
+        return cls(*args, **kw)
+
+
+set_eval_func("computed", eval_computed)
+
+
+def eval_validate(arg, ctx: RefContext):
+    """
+    eval:
+       validate: mod:class.method
+
+    or
+
+    eval:
+       computed: mod:func
     """
     module_name, sep, qualname = arg.partition(":")
     module = importlib.import_module(module_name)
     cls_name, sep, func_name = qualname.rpartition(".")
-    cls = getattr(module, cls_name)
-    func = getattr(cls, func_name)
-    proxy = proxy_instance(ctx.currentResource, cls, ctx)
-    return proxy._invoke(func)
+    if cls_name:
+        cls = getattr(module, cls_name)
+        func = getattr(cls, func_name)
+        proxy = proxy_instance(cast(EntityInstance, ctx.currentResource), cls, ctx)
+        return proxy._invoke(func, ctx.vars["value"])
+    else:
+        return getattr(module, func_name)(ctx.vars["value"])
 
 
-set_eval_func("computed", eval_computed)
+set_eval_func("validate", eval_validate)
 
 
 class ProxyCollection(CollectionProxy):
@@ -259,7 +483,7 @@ class ProxyCollection(CollectionProxy):
             return self._cache[key]
         val = self._values[key]
         prop_type = self._type_info.types[0]
-        if issubclass(prop_type, tosca.DataType):
+        if issubclass(prop_type, tosca.DataEntity):
             proxy = get_proxy_class(prop_type, DataTypeProxyBase)(val)
             self._cache[key] = proxy
             return proxy
@@ -302,22 +526,26 @@ class ProxyList(ProxyCollection, MutableSequence):
         self._values.insert(index, val)
 
 
-def _proxy_prop(type_info: tosca.TypeInfo, value: Any):
+def _proxy_prop(
+    type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None
+) -> Any:
     # converts a value set on an instance to one usable when globalstate.mode == "runtime"
+    if value is None:
+        return value
     prop_type = type_info.types[0]
-    if type_info.collection == dict:
+    if type_info.collection is dict or dict in type_info.types:
         return ProxyMap(value, type_info)
-    elif type_info.collection == list:
+    elif type_info.collection is list or list in type_info.types:
         return ProxyList(value, type_info)
-    elif issubclass(prop_type, tosca.DataType):
+    elif issubclass(prop_type, tosca.DataEntity):
         if isinstance(value, MutableMapping):
-            return get_proxy_class(prop_type, DataTypeProxyBase)(value)
+            return get_proxy_class(prop_type, DataTypeProxyBase)(value, obj)
         elif isinstance(value, (type(None), prop_type)):
             return value
         else:
             raise TypeError(f"can't convert value to {prop_type}: {value}")
     elif not type_info.instance_check(value):
-        raise TypeError(f"value is not type {prop_type}: {value}")
+        raise TypeError(f"value of type {type(value)} is not type {prop_type}: {value}")
     return value
 
 
@@ -344,6 +572,7 @@ def _proxy_eval_result(
 
 
 PT = TypeVar("PT", bound="ToscaType")
+_PT = TypeVar("_PT", bound="ToscaType")
 
 T = TypeVar("T")
 
@@ -369,6 +598,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     """
 
     _cls: Type[PT]
+    _obj: Optional[PT]
 
     def __init__(
         self, instance: EntityInstance, obj: Optional[PT], context: RefContext
@@ -380,12 +610,22 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         self._cache = Cache(self._context)
         # when calling into python code context won't have the basedir for the location of the code
         # (since its not imported as yaml). So set it now.
-        if self._cls.__module__ == "builtins":
-            path = __file__
-        else:
-            path = cast(str, sys.modules[self._cls.__module__].__file__)
-        assert path
-        self._context.base_dir = os.path.dirname(path)
+        if self._cls.__module__ in sys.modules:
+            path = getattr(sys.modules[self._cls.__module__], "__file__", __file__)
+            if path:
+                self._context.base_dir = os.path.dirname(path)
+
+    def __eq__(self, other):
+        if self is other:
+            return True
+        if isinstance(other, InstanceProxyBase):
+            if self._instance:
+                return self._instance == other._instance
+            elif self._obj and not other._instance:
+                return self._obj == other._obj
+        elif self._obj is other:
+            return True
+        return False
 
     def _get_field(self, name):
         if self._obj:
@@ -393,11 +633,11 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         else:
             return self._cls.__dataclass_fields__.get(name)
 
-    def _invoke(self, func, *args):
+    def _invoke(self, func, *args, **kwargs):
         saved_context = global_state.context
-        global_state.context = self._context.copy(self._instance.root)
+        global_state.context = self._context.copy(self._instance)
         try:
-            return func(self, *args)
+            return func(self, *args, **kwargs)
         finally:
             global_state.context = saved_context
 
@@ -420,12 +660,19 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         )
         assert isinstance(ref, EvalData)  # actually it will be a EvalData
         expected = Expected or tosca.nodes.Root
-        return self._execute_resolve_one(ref, requirement, expected)
+        return self._execute_resolve_one(ref, expected)
+
+    def _find_template(
+        self, axis: str, Expected: Optional[Type[_PT]] = None
+    ) -> Optional[_PT]:
+        ref = (self._obj or self._cls)._find_template(axis, Expected)
+        assert isinstance(ref, EvalData)  # actually it will be a EvalData
+        expected = Expected or tosca.nodes.Root
+        return self._execute_resolve_one(ref, expected)
 
     def _execute_resolve_one(
         self,
         ref: EvalData,
-        field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo] = None,
     ) -> Any:
         """
@@ -447,6 +694,8 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
 
     def _search(self, prop_ref: T, search_func: Callable) -> T:
         field, prop_name = _get_field_from_prop_ref(prop_ref)
+        if not field:
+            field = self._get_field(prop_name)
         ref = search_func(
             field or prop_name,
             cls_or_obj=cast(Type[tosca.Node], self._obj or self._cls),
@@ -458,14 +707,10 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         if _type and _type.is_sequence():
             return cast(
                 T,
-                self._execute_resolve_all(
-                    cast(EvalData, ref), prop_name, _type.types[0]
-                ),
+                self._execute_resolve_all(cast(EvalData, ref), _type.types[0]),
             )
         else:
-            return cast(
-                T, self._execute_resolve_one(cast(EvalData, ref), prop_name, _type)
-            )
+            return cast(T, self._execute_resolve_one(cast(EvalData, ref), _type))
 
     def find_configured_by(
         self,
@@ -479,6 +724,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
     ) -> T:
         return self._search(prop_ref, tosca.find_hosted_on)
 
+    def from_owner(
+        self,
+        prop_ref: T,
+    ) -> T:
+        return self._search(prop_ref, tosca.from_owner)
+
     def find_all_required_by(
         self,
         requirement: Union[str, FieldProjection],
@@ -491,13 +742,12 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
             requirement, Expected
         )
         return self._execute_resolve_all(
-            cast(EvalData, ref), requirement, Expected or tosca.nodes.Root
+            cast(EvalData, ref), Expected or tosca.nodes.Root
         )
 
     def _execute_resolve_all(
         self,
         ref: EvalData,
-        field_ref: Union[str, FieldProjection],
         Expected: Union[None, type, tosca.TypeInfo],
     ) -> List[Any]:
         result = Ref(cast(Union[str, dict], ref.expr)).resolve(self._context)
@@ -519,9 +769,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         captype = None
         nodetype = None
         for t in type_info.types:
-            if issubclass(t, tosca.RelationshipType):
+            if issubclass(t, tosca.Relationship):
                 reltype = t
-            elif issubclass(t, tosca.CapabilityType):
+            elif issubclass(t, tosca.CapabilityEntity):
                 captype = t
             elif issubclass(t, tosca.Node):
                 nodetype = t
@@ -585,30 +835,22 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         if not field or not isinstance(field, _Tosca_Field):
             if name in ["_name", "_metadata", "_directives"]:
                 # XXX other special attributes
-                return getattr(self._instance.template.toscaEntityTemplate, name[1:])
+                return getattr(self._instance.template, name[1:])
                 # elif if name[0] == "_": not self._obj
                 # return getattr(self.instance, name.lstrip("_")) or getattr(
                 #     self.instance.template.type_definition, name.lstrip("_")
                 # )
-            elif hasattr(self._obj or self._cls, name):
-                if self._obj:
-                    val = getattr(self._obj, name)
-                else:
-                    val = getattr(self._cls, name, None)
-                if callable(val):
-                    if isinstance(val, types.MethodType):
-                        # so we can call with proxy as self
-                        val = val.__func__
-                    elif (
-                        isinstance(val, functools.partial)
-                        and val.args
-                        and val.args[0] is self._obj
-                    ):
-                        val = val.func
-                    # should have been set by _invoke() earlier in the call stack.
-                    assert global_state.context
-                    return functools.partial(val, self)
+            elif name in self._cls._builtin_fields:
+                assert field
+                val = _proxy_prop(
+                    _Tosca_Field.find_type_info(self._cls, field.type),
+                    self._instance.attributes[name],
+                    getattr(self._obj, name) if self._obj else None,
+                )
+                self._cache[name] = val
                 return val
+            elif hasattr(self._obj or self._cls, name):
+                return super()._getattr(name)
             elif name in self._instance.attributes:  # untyped properties
                 return self._instance.attributes[name]
         else:
@@ -626,7 +868,9 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     val = None  # don't raise KeyError if the property isn't required
                 else:
                     val = _proxy_prop(
-                        type_info, self._instance.attributes[field.tosca_name]
+                        type_info,
+                        self._instance.attributes[field.tosca_name],
+                        getattr(self._obj, name) if self._obj else None,
                     )
                 self._cache[name] = val
                 return val
@@ -680,13 +924,14 @@ def get_proxy_class(cls, base: type = InstanceProxyBase):
     return _proxies[cls]
 
 
-DT = TypeVar("DT", bound="DataType")
+DT = TypeVar("DT", bound="DataEntity")
 
 
 class DataTypeProxyBase(InstanceProxy, Generic[DT]):
-    def __init__(self, values):
+    def __init__(self, values, obj: Optional[DT] = None):
         self._values = values
         self._cache: Dict[str, Any] = {}
+        self._obj = obj
 
     def __str__(self):
         return f"<{self._cls.__name__}({self._values})>"
@@ -709,17 +954,27 @@ class DataTypeProxyBase(InstanceProxy, Generic[DT]):
                 val = val.to_yaml(tosca.yaml_cls)
         self._values[name] = val
 
+    def to_yaml(self, dict_cls=dict):
+        return dict_cls(self._values)
+
     def _getattr(self, name):
         if name in self._cache:
             return self._cache[name]
         field = self._cls.__dataclass_fields__.get(name)
         if isinstance(field, _Tosca_Field):
+            if name not in self._values:
+                default = field._get_default_value()
+                if default is tosca.MISSING:
+                    raise AttributeError(name)
+                if isinstance(default, tosca.ToscaObject):  # e.g. a dataentity
+                    default = default.to_yaml(tosca.yaml_cls)
+                self._values[name] = default
             proxy = _proxy_prop(field.get_type_info(), self._values[name])
             self._cache[name] = proxy
             return proxy
-        elif hasattr(self._cls, name):
+        elif hasattr(self._obj or self._cls, name):
             # XXX if val is method, proxy and set context
-            return getattr(self._cls, name)
+            return super()._getattr(name)
         elif name in self._values:  # untyped properties
             return self._values[name]
         raise AttributeError(name)

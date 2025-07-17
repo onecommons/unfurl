@@ -72,11 +72,11 @@ class RunTest(unittest.TestCase):
                 "job": {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 10,
+                    "total": 5,
                     "ok": 5,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 5,
+                    "skipped": 0,
                     "changed": 5,
                 },
                 "outputs": {},
@@ -250,7 +250,7 @@ class RunTest(unittest.TestCase):
       ansible_port: 22
       ansible_connection: local
       ansible_user: ubuntu
-      ansible_pipelining: yes
+      ansible_pipelining: false
       ansible_private_key_file: ~/.ssh/example-key.pem
       ansible_python_interpreter: %s
   vars: {}

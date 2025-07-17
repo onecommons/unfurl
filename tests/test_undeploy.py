@@ -111,11 +111,11 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01110000000",
                 "status": "ok",
-                "total": 8,
+                "total": 7,
                 "ok": 7,
                 "error": 0,
                 "unknown": 0,
-                "skipped": 1,
+                "skipped": 0,
                 "changed": 6,
             },
             summary["job"],

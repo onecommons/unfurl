@@ -4,16 +4,17 @@ from typing import TYPE_CHECKING, List, Union, Dict, Any, cast
 from typing_extensions import Literal
 
 from ..configurator import TaskView
-from ..util import save_to_file, UnfurlTaskError, wrap_var, which
+from ..util import save_to_file, UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
-from ..result import Result
+from ..result import Result, wrap_var
 from ..projectpaths import WorkFolder, get_path, FilePath, Folders
 import json
 import os
 import os.path
 import re
 import tosca
+
 
 class TerraformInputs(ShellInputs):
     main: Union[None, str, Dict[str, Any]] = None
@@ -106,14 +107,6 @@ def mark_sensitive(schemas, state, task, sensitive_names=()):
             # XXX providers schema is probably out of date, retrieve schema again?
             task.logger.info("provider '%s' not found in terraform schema", provider)
     return state
-
-
-def _get_tfvars_from_properties(instance):
-    return {
-        p.name: instance.attributes[p.name]
-        for p in instance.template.propertyDefs.values()
-        if p.schema.get("metadata", {}).get("tfvar")
-    }
 
 
 _main_tf_template = """\
@@ -243,6 +236,7 @@ class TerraformConfigurator(ShellConfigurator):
             cast(str, p.name)
             for p in task.target.template.attributeDefs.values()
             if p.schema.get("metadata", {}).get(self.attribute_output_metadata_key)
+            or p.schema.get("metadata", {}).get(tosca.ToscaOutputs._metadata_key)
         ]
         if task.configSpec.outputs:
             # allow list for backwards compatibility
@@ -257,11 +251,15 @@ class TerraformConfigurator(ShellConfigurator):
     def _get_tfvars(self, task: TaskView):
         tfvars = task.inputs.get_copy("tfvars")
         if not isinstance(tfvars, str):
-            tfprops = _get_tfvars_from_properties(task.target)
+            tfprops = task.inputs.get_copy("arguments", {})
+            # old way:
+            tfprops.update(
+                task._get_inputs_from_properties(task.target.attributes, "tfvar")
+            )
             if isinstance(tfvars, dict):
-                tfvars.update(tfprops)
-            else:
-                return tfprops
+                tfprops.update(tfvars)  # inputs override properties
+            return tfprops
+        # note: if tfvars is a string, metadata mapping is ignored
         return tfvars
 
     def _prepare_workspace(self, task: TaskView, cwd: WorkFolder):
@@ -278,7 +276,7 @@ class TerraformConfigurator(ShellConfigurator):
             if not os.path.exists(main):
                 raise UnfurlTaskError(
                     task,
-                    f'Input parameter "main" not specifed and default terraform module directory does not exist at "{main}"',
+                    f'Input parameter "main" not specified and default terraform module directory does not exist at "{main}"',
                 )
         if task._errors:
             main = None  # assume render failed
@@ -291,7 +289,7 @@ class TerraformConfigurator(ShellConfigurator):
                 if not os.path.isabs(main):
                     main = get_path(task.inputs.context, main, "src")
                 if os.path.exists(main):
-                    # it's a directory -- if difference from cwd, treat it as a module to call
+                    # it's a directory -- if difference from cwd, treat location as a module to call
                     relpath = cwd.relpath_to_current(main)
                     if relpath != ".":
                         write_vars = False
@@ -446,6 +444,7 @@ class TerraformConfigurator(ShellConfigurator):
             providerSchema = {}
 
         echo_args = get_echo_args(task.verbose)
+        task.logger.trace("Running: %s %s", cmd, env)
         result = self.run_process(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, **echo_args
         )
@@ -482,11 +481,18 @@ class TerraformConfigurator(ShellConfigurator):
                 # changes were applied so set to OK
                 status = Status.ok
 
-        if success and task.configSpec.operation == "check":
-            if needs_changes:  # treat as missing
-                status = Status.absent
-            elif task.target.status in [Status.pending, Status.unknown]:
-                # no changes needed so set to known state
+        if success:
+            if task.configSpec.operation == "check":
+                if needs_changes:
+                    if "0 to change, 0 to destroy" in result.stdout:
+                        # terraform only would add resources, so treat current state as absent
+                        status = Status.absent
+                    else:
+                        status = Status.degraded
+                elif task.target.status in [Status.pending, Status.unknown]:
+                    # no changes needed so set to known state
+                    status = Status.ok
+            elif task.configSpec.operation != "delete":
                 status = Status.ok
 
         modified = (
@@ -524,7 +530,14 @@ class TerraformConfigurator(ShellConfigurator):
         )
 
     def _apply_state(
-        self, task, statePath, cwd, providerSchema, result, success, modified
+        self,
+        task: TaskView,
+        statePath: str,
+        cwd: WorkFolder,
+        providerSchema,
+        result,
+        success,
+        modified,
     ):
         # read state file
         current_path = cwd.cwd

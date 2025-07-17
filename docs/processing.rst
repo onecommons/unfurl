@@ -130,16 +130,17 @@ Expression Query Syntax
 Expression Function Syntax
 --------------------------
 
-   ========  ==============  ========================================
-   Key       Value           Description
-   ========  ==============  ========================================
-   eval      expr or func    the expression to evaluate
-   vars?     map             define variables for the expression
-   select?   expr            apply expression to the result
-   foreach?  {key?, value?}  apply expression to each item in result
-   trace?    integer         enable detailed logging of evaluation
-   strict?   boolean         overrides strict evaluation
-   ========  ==============  ========================================
+   =========  ==============  ==========================================
+   Key        Value           Description
+   =========  ==============  ==========================================
+   eval       expr or func    the expression to evaluate
+   vars?      map             define variables for the expression
+   select?    expr            apply expression to the result
+   foreach?   {key?, value?}  apply expression to each item in result
+   trace?     integer         enable detailed logging of evaluation
+   strict?    boolean         overrides strict evaluation
+   base_dir?  string          override base directory for relative paths
+   =========  ==============  ==========================================
 
 Evaluation Semantics
 --------------------

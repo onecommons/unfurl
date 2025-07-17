@@ -32,7 +32,7 @@ import git
 TAG = "v0.1.0-alpha.2"
 RELEASE_URL = f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz"
 DIST_DIR = ".cache/unfurl_gui"
-TAG_FILE = "RELEASE.txt"
+TAG_FILE = "dist/RELEASE.txt"
 
 __doc__ = f"""
 Running ``unfurl serve --gui /path/to/your/project`` will start Unfurl's built-in web server (at http://127.0.0.1:8081 by default, see :cli:`unfurl serve<unfurl-serve>` for more options).
@@ -40,7 +40,7 @@ Running ``unfurl serve --gui /path/to/your/project`` will start Unfurl's built-i
 When the server starts it checks for the web application's files at
 ``{DIST_DIR}`` in your unfurl home project if there is one set or in the current project.
 
-If that directory is missing or the web application version there isn't compatible with the version required by your unfurl (currently "{TAG}"), the web application is downloaded from ``{RELEASE_URL}`` to ``{DIST_DIR}``.
+If that directory is missing or the web application version there isn't compatible with the version required by your local unfurl (currently "{TAG}"), the web application is downloaded from ``{RELEASE_URL}`` to ``{DIST_DIR}``.
 
 You can set an alternative download URL with the ``UNFURL_GUI_DIST_URL`` environment variable or set it to "skip" to skip downloading a release. If a version tag is embedded in that URL then the local download needs to exactly match that version otherwise a semantic version compatibility check is made.
 You can also set an alternative download location with the ``UNFURL_GUI_DIST_DIR`` environment variable.
@@ -98,7 +98,7 @@ def serve_document(
     localrepo = localenv.project.project_repoview.repo
     assert localrepo
 
-    localrepo_is_dashboard = bool(localenv.manifestPath)
+    localrepo_is_dashboard = bool(localenv.manifestPath and localenv.overrides.get("format") != "blueprint")
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
@@ -245,7 +245,7 @@ def fetch_release(dist_dir, release_url, release_tag, exact_match):
             else:
                 msg = f"'{found_tag}' is not compatible with '{release_tag}'"
         else:
-            msg = "unfurl_gui distribution not found"
+            msg = f"unfurl_gui distribution not found in {tag_file}"
         if msg:
             logger.info(msg)
 
@@ -326,7 +326,8 @@ def create_routes(localenv: LocalEnv):
     def get_repo(project_path: str, branch=None):
         return _get_repo(project_path, localenv, branch)
 
-    def notfound_response(projectPath):
+    @app.route("/.well-known/<path:path>")
+    def notfound_response(path):
         # 404 page is not currently a template, but could become one
         return send_from_directory(public_files_dir, "404.html")
 

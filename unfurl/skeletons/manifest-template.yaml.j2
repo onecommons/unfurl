@@ -1,8 +1,11 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-# This template is intended to be included in your ensemble.yaml manifest file
+# This blueprint template is intended to be included in your ensemble.yaml manifest file
 # (by default, found at ensemble/ensemble.yaml)
 # Edit it to include any reusable components your ensemble needs.
-apiVersion: unfurl/v1alpha1
+#
+# You can find templates for this file at https://unfurl.cloud/onecommons/project-templates
+# or modify existing blueprint, for example, the ones at https://unfurl.cloud/explore/blueprints
+apiVersion: [% api_version %]
 spec:
   service_template:
     # Declare your TOSCA types and topology here.
@@ -10,10 +13,24 @@ spec:
     +?include: service_template.py
     # It will be merged with the YAML TOSCA definitions defined here.
 
+    # Optional description and metadata used by Unfurl and other TOSCA processors:
+    #
+    # description:
+    # metadata:
+    #   template_name:
+    #   template_author:
+    #   template_version:
+
+    {%- if std | default("") %}
+    repositories:
+      std:
+        url: https://unfurl.cloud/onecommons/std.git
+    {% else %}
     # uncomment if you want to use the Unfurl Cloud standard library
     # repositories:
     #  std:
     #    url: https://unfurl.cloud/onecommons/std.git
+    {% endif %}
 
     topology_template:
       node_templates: {}

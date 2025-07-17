@@ -18,6 +18,8 @@ jobs:
     env:
       TOX_SKIP_ENV: .+(docker|lock)
       UNFURL_LOGGING: info
+      UNFURL_TEST_CLOUDMAP_URL: ${{ secrets.UNFURL_TEST_CLOUDMAP_URL }}
+      UNFURL_TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,6 +64,8 @@ jobs:
           kubectl get node
           k3d kubeconfig merge --all -d
           kubectl config view
+      - name: Install valkey
+        run: sudo apt install -y valkey
       - name: Install Tox and any other packages
         run: pip install tox==3.28.0
       - name: Run mypy and Tox
@@ -71,15 +75,22 @@ jobs:
           git config --global user.name "Test Robot"
           git config --global push.autoSetupRemote true
           git config --global init.defaultBranch main
+          git config --global protocol.file.allow always
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -v -e $PY_V
-          tox -e $PY_V -v -- -vv -n auto --dist loadfile
+          tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-report term --cov-append
           .tox/$PY_V/bin/mypy unfurl --install-types --non-interactive
       - name: Run cargo clippy and cargo test
         if: matrix.python == 3.12
         run: |
           cargo clippy --manifest-path rust/Cargo.toml
           cargo test --no-default-features --manifest-path rust/Cargo.toml
+      - name: upload code coverage report
+        if: matrix.python == 3.12
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage_report_py${{ matrix.python }}
+          path: htmlcov      
       - name: build docs
         if: matrix.python == 3.12
         run: tox -e docs -- -W --keep-going
@@ -300,30 +311,19 @@ jobs:
           cache-to: type=gha,mode=max
 
   build:
-    name: >
-      build py3.${{ matrix.python-version }} on ${{ matrix.platform || matrix.os }}
-      (${{ matrix.alt_arch_name || matrix.arch }})
-    needs:
-      - test
+    name: build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }} 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu, macos]
+        os: [ubuntu-24.04-arm, ubuntu-latest, macos-14]
         python-version: ['8']
-        arch: [main, alt]
         include:
-          - os: ubuntu
-            platform: linux
-          - os: ubuntu
-            arch: alt
-            alt_arch_name: aarch64
-          - os: macos
-            arch: alt
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-14
             alt_arch_name: arm64
-          # - os: macos
-          #   arch: main
-
-    runs-on: ${{ format('{0}-latest', matrix.os) }}
+    timeout-minutes: 60
     steps:
     - uses: actions/checkout@v4
       with:
@@ -341,31 +341,21 @@ jobs:
         toolchain: nightly
 
     - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      if: matrix.os == 'macos'
-
-    - run: rustup toolchain install stable-i686-pc-windows-msvc
-      if: matrix.os == 'windows'
-
-    - run: rustup target add i686-pc-windows-msvc
-      if: matrix.os == 'windows'
+      if: matrix.os == 'macos-14'
 
     - name: install python dependencies
-      run: pip install -U setuptools wheel twine cibuildwheel pbr
+      run: pip install -U setuptools wheel twine pbr
 
     - name: build sdist
-      if: matrix.os == 'ubuntu' && matrix.python-version == '8'
+      if: matrix.os == 'ubuntu-24.04-arm' && matrix.python-version == '8'
       run: |
         pip install -U setuptools-rust
         python setup.py sdist
 
-    - name: Set up QEMU
-      if: matrix.os == 'ubuntu'
-      uses: docker/setup-qemu-action@v3
+    - uses: pypa/cibuildwheel@v2.23.1
+      name: build ${{  matrix.os }} binaries
       with:
-         platforms: all
-
-    - name: build ${{ matrix.platform || matrix.os }} binaries
-      run: cibuildwheel --output-dir dist
+        output-dir: dist
       env:
         CIBW_BUILD_FRONTEND: "build"
         CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
@@ -375,13 +365,11 @@ jobs:
         # we build for "alt_arch_name" if it exists, else 'auto
         CIBW_ARCHS: ${{ matrix.alt_arch_name || 'auto' }}
         # see https://cibuildwheel.readthedocs.io/en/stable/faq/#universal2, tests can run on cross-compiled binaries
-        # CIBW_TEST_SKIP: '*-macosx_arm64'
         # CIBW_TEST_REQUIRES: pytest
         # CIBW_TEST_COMMAND: 'pytest {project}/tests -s'
         CIBW_ENVIRONMENT: 'PATH="$HOME/.cargo/bin:$PATH" MACOSX_DEPLOYMENT_TARGET=10.12'
         CIBW_ENVIRONMENT_WINDOWS: 'PATH="$UserProfile\.cargo\bin;$PATH"'
         CIBW_ARCHS_MACOS: "universal2"
-        CIBW_MANYLINUX_I686_IMAGE: manylinux2014
         CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
         CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_1
         CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64:latest
@@ -395,18 +383,23 @@ jobs:
 
     - run: twine check dist/*
 
-    - uses: actions/upload-artifact@v3  # v4 doesn't allow same filename to be reloaded, see https://github.com/actions/upload-artifact/blob/main/docs/MIGRATION.md#merging-multiple-artifacts
+    - uses: actions/upload-artifact@v4
       with:
-        name: pypi_files
+        name: pypi_files-${{ matrix.os }}
         path: dist
 
   inspect-pypi-assets:
-    needs: [build]
+    needs: [test, build]
     runs-on: ubuntu-latest
-
     steps:
+      - name: Merge Artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: pypi_files
+          pattern: pypi_files-*
+
       - name: get dist artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: pypi_files
           path: dist
@@ -422,21 +415,26 @@ jobs:
           tar -xvf dist/*.tar.gz -C sdist-files
           tree -a sdist-files
 
-      - name: extract and list wheel file
+      - name: extract and list manylinux wheel file
         run: |
           ls dist/*cp3*-manylinux*x86_64.whl | head -n 1
           python -m zipfile --list `ls dist/*cp3*-manylinux*x86_64.whl | head -n 1`
 
-      - run: pip install twine
+      - name: extract and list macos wheel file
+        run: |
+          ls dist/*_universal2.whl | head -n 1
+          python -m zipfile --list `ls dist/*_universal2.whl | head -n 1`
+
+      - run: pip install -U packaging twine
       - run: twine check dist/*
 
-      - name: release to test pypi
-        uses: pypa/gh-action-pypi-publish@v1.12.2
-        with:
-          user: __token__
-          password: ${{ secrets.TEST_PYPI }}
-          verbose: true
-          repository-url: https://test.pypi.org/legacy/
+      # - name: release to test pypi
+      #   uses: pypa/gh-action-pypi-publish@v1.12.2
+      #   with:
+      #     user: __token__
+      #     password: ${{ secrets.TEST_PYPI }}
+      #     verbose: true
+      #     repository-url: https://test.pypi.org/legacy/
 
   publish_pypi:
     needs: [inspect-pypi-assets, publish_dockerhub]
@@ -444,7 +442,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: get dist artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: pypi_files
           path: dist

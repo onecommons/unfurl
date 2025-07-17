@@ -100,6 +100,7 @@ if flask_config["CACHE_TYPE"] == "RedisCache":
     if "CACHE_REDIS_URL" in os.environ:
         flask_config["CACHE_REDIS_URL"] = os.environ["CACHE_REDIS_URL"]
     else:
+        flask_config["CACHE_REDIS_PASSWORD"] = os.environ.get("CACHE_REDIS_PASSWORD")
         flask_config["CACHE_REDIS_HOST"] = os.environ["CACHE_REDIS_HOST"]
         flask_config["CACHE_REDIS_PORT"] = int(
             os.environ.get("CACHE_REDIS_PORT") or 6379
@@ -198,7 +199,7 @@ def _set_local_projects(
             continue
         remote = repo_view.repo.find_remote(host=server_host)
         if remote:
-            parts = urlparse(remote.url)
+            parts = urlparse(normalize_git_url(remote.url))
             project_id = project_id_from_urlresult(parts)
             if project_id in local_projects:
                 # unless the existing one is inside the clone_root
@@ -255,16 +256,31 @@ def set_current_ensemble_git_url(gui: bool = False):
                 apply_url_credentials=True,
             )
         else:
-            overrides = None
+            overrides = {}
         local_env = LocalEnv(
             project_or_ensemble_path,
             overrides=overrides,
             can_be_empty=True,
             readonly=not gui,
         )
+        if not local_env.manifestPath and local_env.project:
+            # found project without an ensemble, try to validate the ensemble-template.yaml
+            template = os.path.join(
+                local_env.project.projectRoot, DefaultNames.EnsembleTemplate
+            )
+            if os.path.isfile(template):
+                overrides["format"] = "blueprint"
+                local_env = LocalEnv(template, overrides=overrides, readonly=not gui)
+                logger.info('Using ensemble template found at "%s"', template)
+            else:
+                logger.info(
+                    'Can not find an ensemble or ensemble template in project at "%s"',
+                    template,
+                )
+                return None
     except Exception:
         logger.info(
-            'no project found at "%s", no local project set', project_or_ensemble_path
+            'No project found at "%s", no local project set', project_or_ensemble_path
         )
         return None
     if (
@@ -296,8 +312,9 @@ def set_current_ensemble_git_url(gui: bool = False):
     return None
 
 
-# XXX we shouldn't call this twice when invoked from the cli
-set_current_ensemble_git_url()
+# SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
+if os.getenv("SERVER_SOFTWARE"):
+    set_current_ensemble_git_url()
 
 
 def get_project_id(request) -> str:
@@ -345,6 +362,12 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
         ).rstrip("/")
         cast(dict, app.config.get("UNFURL_LOCAL_PROJECTS"))[project_id] = local_dir
         return local_dir
+    return _get_managed_project_repo_dir(project_id, branch, args)
+
+
+def _get_managed_project_repo_dir(
+    project_id: str, branch: str, args: Optional[dict]
+) -> str:
     base = "public"
     if args:
         if (
@@ -399,7 +422,8 @@ def _clone_repo(
             git_url, repo_path, branch, shallow_since=shallow_since
         )
     finally:
-        os.unlink(clone_lock_path)
+        if os.path.exists(clone_lock_path):
+            os.unlink(clone_lock_path)
 
 
 _cache_inflight_sleep_duration = 0.2
@@ -501,7 +525,7 @@ class CacheValue(NamedTuple):
     last_commit_date: int
 
     def make_etag(self) -> str:
-        etag = int(self.last_commit, 16) ^ int(get_package_digest() or "0", 16)
+        etag = int(self.last_commit or "0", 16) ^ int(get_package_digest() or "0", 16)
         for dep in self.deps.values():
             for last_commit in dep.last_commits:
                 if last_commit:
@@ -521,19 +545,28 @@ class InflightCacheValue(NamedTuple):
     time: float
 
 
+def _get_committed_date(commit: Commit):
+    try:
+        return commit.committed_date
+    except ValueError:
+        commit.repo.git.clear_cache()
+        return commit.committed_date
+
+
 def pull(repo: GitRepo, branch: str, shallow_since=None) -> str:
     action = "pulled"
+    firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
+    # set shallow_since so we don't remove commits we already fetched
+    committed_date = _get_committed_date(firstCommit)
+    if shallow_since:
+        shallow_since = str(min(shallow_since, committed_date))
+    else:
+        shallow_since = str(committed_date)
     try:
-        firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
-        # set shallow_since so we don't remove commits we already fetched
-        if shallow_since:
-            shallow_since = min(shallow_since, firstCommit.committed_date)
-        else:
-            shallow_since = firstCommit.committed_date
         repo.pull(
             revision=branch,
             with_exceptions=True,
-            shallow_since=str(shallow_since),
+            shallow_since=shallow_since,
         )
     except git.exc.GitCommandError as e:  # type: ignore
         if (
@@ -707,7 +740,7 @@ class CacheEntry:
         if commits:
             self.commitinfo = commits[0]
             new_commit = self.commitinfo.hexsha
-            new_commit_date = self.commitinfo.committed_date
+            new_commit_date = _get_committed_date(self.commitinfo)
         else:
             # file doesn't exist
             new_commit = ""  # not found
@@ -726,7 +759,7 @@ class CacheEntry:
                 last_commit, last_commit_date = self._set_commit_info()
             elif self.commitinfo:
                 last_commit = self.commitinfo.hexsha
-                last_commit_date = self.commitinfo.committed_date
+                last_commit_date = _get_committed_date(self.commitinfo)
             else:
                 last_commit = ""
                 last_commit_date = 0
@@ -1027,7 +1060,7 @@ class CacheEntry:
                     logger.debug(f"validation failed for {self.cache_key()}")
                 # otherwise in cache but stale or invalid, fall thru to redo work
                 # XXX? check date to see if its recent enough to serve anyway
-                # if stale.committed_date - time.time() < stale_ok_age:
+                # if _get_committed_date(stale) - time.time() < stale_ok_age:
                 #      return value
                 self.hit = False
             commit_date = cache_value.last_commit_date if cache_value else 0
@@ -1512,10 +1545,11 @@ def clear_project():
 
 
 def _clear_project(project_id):
-    if not local_developer_mode():
+    if not local_developer_mode() and project_id:
         found = False
+        # only delete repos we cloned
         for visibility in ["public", "private"]:
-            project_dir = _get_project_repo_dir(
+            project_dir = _get_managed_project_repo_dir(
                 project_id, "", dict(visibility=visibility)
             )
             if os.path.isdir(project_dir):
@@ -1550,7 +1584,7 @@ def _make_readonly_localenv(
             overrides["format"] = requested_format
         clone_location = os.path.join(clone_root, deployment_path)
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
-        if app.config.get("UNFURL_CURRENT_WORKING_DIR") != clone_root:
+        if app.config.get("UNFURL_CURRENT_WORKING_DIR", clone_root) != clone_root:
             home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
         else:
             home_dir = current_app.config["UNFURL_OPTIONS"].get("home")
@@ -1933,13 +1967,13 @@ def _patch_node_template(
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
-            assert isinstance(
-                value, list
-            ), f"bad patch value {value} for {key} in {patch}"
+            assert isinstance(value, list), (
+                f"bad patch value {value} for {key} in {patch}"
+            )
             for prop in value:
-                assert isinstance(
-                    prop, dict
-                ), f"bad {prop} in {value} for {key} in {patch}"
+                assert isinstance(prop, dict), (
+                    f"bad {prop} in {value} for {key} in {patch}"
+                )
                 if prop["value"] == {"__deleted": True}:
                     props.pop(prop["name"], None)
                 else:
@@ -2017,6 +2051,8 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
         assert isinstance(deleted, bool)
         if typename == "DeploymentEnvironment":
             environments = localConfig.config.config.setdefault("environments", {})
+            if environments is None:
+                environments = localConfig.config.config["environments"] = {}
             name = patch_inner["name"]
             if deleted:
                 if name in environments:
@@ -2199,9 +2235,7 @@ def _get_commit_msg(body, default_msg):
     return msg
 
 
-def _patch_ensemble(
-    body: dict, create: bool, project_id: str, check_lastcommit=True
-) -> str:
+def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=True):
     from .cache import ServerCacheResolver
 
     patch = body.get("patch")
@@ -2251,10 +2285,13 @@ def _patch_ensemble(
         was_dirty = False
     starting_revision = parent_localenv.project.project_repoview.repo.revision
     deployment_blueprint = body.get("deployment_blueprint")
-    current_working_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
+    current_working_dir = app.config.get(
+        "UNFURL_CURRENT_WORKING_DIR",
+        parent_localenv.project.project_repoview.repo.working_dir,
+    )
     if current_working_dir == parent_localenv.project.project_repoview.repo.working_dir:
-        # don't set home if its current project
-        current_working_dir = None
+        # don't set as home if its current project
+        current_working_dir = current_app.config["UNFURL_OPTIONS"].get("home")
     make_resolver = ServerCacheResolver.make_factory(
         None, dict(username=username, password=password)
     )
@@ -2333,12 +2370,12 @@ def _patch_ensemble(
     else:
         commit_msg = _get_commit_msg(body, "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
-        committed = manifest.commit(commit_msg, True, True)
+        committed = manifest.commit(commit_msg, True, ensemble_only=True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
             if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):
                 try:
-                    if password:
+                    if username and password:
                         url = add_user_to_url(manifest.repo.url, username, password)
                     else:
                         url = None
@@ -2419,7 +2456,7 @@ def _commit_and_push(
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
-    if not app.config.get("UNFURL_GUI_MODE"):
+    if app.config.get("UNFURL_GUI_MODE"):
         return None  # don't push
     if password:
         url = add_user_to_url(repo.url, username, password)
@@ -2490,9 +2527,11 @@ def enter_safe_mode():
 
     tosca.loader.FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER") or "1"
 
+
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
+
 
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
@@ -2537,17 +2576,20 @@ def serve(
 
     current_project_id = get_current_project_id()
     if current_project_id:
-        set_local_server_url = f'{urljoin(app.config["UNFURL_CLOUD_SERVER"], current_project_id)}?unfurl-server=http://{host}:{port}'
+        set_local_server_url = f"{urljoin(app.config['UNFURL_CLOUD_SERVER'], current_project_id)}?unfurl-server=http://{host}:{port}"
         logger.info(
             f"***Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
             extra=dict(rich=dict(markup=True)),
         )
     elif app.config.get("UNFURL_CURRENT_GIT_URL"):
         logger.warning(
-            f'Serving from a local project that isn\'t hosted on {app.config["UNFURL_CLOUD_SERVER"]}, no connection URL available.'
+            f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
         )
 
-    if gui and local_env:
+    if gui:
+        if not local_env:
+            logger.error("Unable to run local ui, could not find a valid project.")
+            return
         from . import gui as unfurl_gui
 
         unfurl_gui.create_routes(local_env)
@@ -2573,6 +2615,7 @@ def serve(
         host=host,
         port=port,
         threads=1,
+        ident="unfurl",
     )
 
     # gunicorn  , "-b", "0.0.0.0:5000", "unfurl.server:app"

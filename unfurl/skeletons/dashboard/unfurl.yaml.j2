@@ -1,5 +1,5 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-apiVersion: unfurl/v1alpha1
+apiVersion: [% api_version %]
 kind: Project
 [%include | default("") %]
 
@@ -15,3 +15,10 @@ environments:
     repositories:
       std:
         url: https://unfurl.cloud/onecommons/std.git
+{%- if defaultProject | default("") == default_context | default("") %}
+    defaultProject: SELF
+{% endif %}
+{%- if defaultProject | default("") and defaultProject | default("") != default_context | default("") %}
+  [%defaultProject%]:
+    defaultProject: SELF
+{% endif %}

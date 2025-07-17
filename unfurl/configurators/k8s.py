@@ -2,11 +2,19 @@
 # SPDX-License-Identifier: MIT
 from __future__ import absolute_import
 import re
-from base64 import b64encode
-from typing import Dict, Mapping, Union, cast
-from ..configurator import Configurator, TaskView
-from ..support import Status, Priority, to_kubernetes_label
-from ..runtime import EntityInstance, NodeInstance, RelationshipInstance
+import os
+from base64 import b64encode, b64decode
+from typing import Any, Dict, List, Mapping, Union, cast
+
+from ..projectpaths import get_path
+from ..configurator import Configurator, TaskView, ConfiguratorResult
+from ..support import Status, Priority, to_dns_label, find_connection
+from ..runtime import (
+    EntityInstance,
+    NodeInstance,
+    RelationshipInstance,
+    CapabilityInstance,
+)
 from ..util import UnfurlTaskError, wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
@@ -16,8 +24,11 @@ import subprocess
 import json
 
 
-def _get_connection_config(instance):
-    # Given an endpoint capability or a connection relationship, return a dictionary of connection settings.
+def _get_connection_config(
+    instance: Union[RelationshipInstance, CapabilityInstance],
+) -> Dict[str, Any]:
+    "Given an endpoint capability or a connection relationship, return a dictionary of connection settings."
+    # this will be merged into the generated ansible playbook
     # https://docs.ansible.com/ansible/latest/collections/kubernetes/core/k8s_module.html
     #  for connection settings
     # https://github.com/ansible-collections/kubernetes.core/blob/7f7008fecc9e5d16340e9b0bff510b7cde2f2cfd/plugins/connection/kubectl.py
@@ -73,7 +84,9 @@ def _get_connection_config(instance):
         credential = attributes.get("credential")
         if credential:
             if credential.get("token_type") in ["api_key", "password"]:
-                connection[credential["token_type"]] = credential["token"]
+                connection[credential["token_type"]] = wrap_sensitive_value(
+                    credential["token"]
+                )
             if "user" in credential:
                 connection["username"] = credential["user"]
             if not attributes.get("insecure") and "keys" in credential:
@@ -110,27 +123,46 @@ CONNECTION_OPTIONS = {
 
 def _get_connection(ctx: RefContext) -> dict:
     # get the cluster that the target resource is hosted on
-    cluster = Ref("[.type=unfurl.nodes.K8sCluster]").resolve_one(ctx)
+    ctx = ctx.copy(cast(EntityInstance, ctx.currentResource).owner)
+    cluster = Ref(".hosted_on::[.type=unfurl.nodes.K8sCluster]").resolve_one(ctx)
     relation = "unfurl.relationships.ConnectsTo.K8sCluster"
     if cluster:
-        instance = TaskView.find_connection(ctx, cast(NodeInstance, cluster), relation)
+        rel_instance = find_connection(ctx, cast(NodeInstance, cluster), relation)
     else:
         relationships = cast(
             EntityInstance, ctx.currentResource
         ).get_default_relationships(relation)
         if relationships:
-            instance = relationships[0]
+            rel_instance = relationships[0]
         else:
-            instance = None
-    if instance:
-        config = _get_connection_config(instance)
+            rel_instance = None
+    if rel_instance:
+        config = _get_connection_config(rel_instance)
     else:
         config = {}
-
-    # check if we are in a namespace, fall back to "default"
-    namespace = Ref("[.type=unfurl.nodes.K8sNamespace]").resolve_one(ctx)
+    empty_config = not config
+    # check if we are in a namespace
+    namespace = Ref(".hosted_on::[.type=unfurl.nodes.K8sNamespace]").resolve(ctx)
     if namespace:
-        config["namespace"] = cast(NodeInstance, namespace).attributes["name"]
+        config["namespace"] = cast(NodeInstance, namespace[0]).attributes["name"]
+    if ctx.task:
+        if empty_config:
+            ctx.task.logger.verbose(
+                "Empty k8s config, falling back to current kube context (if present), searched connection %s, cluster %s, namespace %s for %s",
+                rel_instance,
+                cluster,
+                namespace,
+                ctx.currentResource,
+            )
+        else:
+            ctx.task.logger.debug(
+                "Found k8s connection: %s from connection %s, cluster %s, namespace %s for %s",
+                config,
+                rel_instance,
+                cluster,
+                namespace,
+                ctx.currentResource,
+            )
     return config
 
 
@@ -185,7 +217,7 @@ def make_pull_secret(name, hostname, username, password) -> str:
     apiVersion: v1
     kind: Secret
     metadata:
-      name: { name }
+      name: {name}
     type: kubernetes.io/dockerconfigjson
     data:
       .dockerconfigjson: {b64encode(json.dumps(data).encode()).decode()}
@@ -201,7 +233,7 @@ class ClusterConfigurator(Configurator):
             return re.sub("^https?://", "", url)
         return url
 
-    def can_run(self, task):
+    def can_run(self, task: TaskView):
         if task.configSpec.operation not in ["check", "discover"]:
             return "Configurator can't perform this operation (only supports check and discover)"
         return True
@@ -209,25 +241,37 @@ class ClusterConfigurator(Configurator):
     def can_dry_run(self, task):
         return True
 
-    def run(self, task):
+    def run(self, task: TaskView):
         cluster = task.target
         # the endpoint on the cluster will have connection info
-        instances = cluster.get_capabilities("endpoint")
-        if not instances:
-            # no endpoint, look for a default connection for this cluster
-            instances = cluster.get_default_relationships(
-                "unfurl.relationships.ConnectsTo.K8sCluster"
-            )
+        instances = cast(NodeInstance, cluster).get_capabilities("endpoint")
         if instances:
             connectionConfig = _get_connection_config(instances[0])
         else:
             connectionConfig = {}
+        if not instances or not connectionConfig:
+            # no endpoint, look for a default connection for this cluster
+            rel_instances = cluster.get_default_relationships(
+                "unfurl.relationships.ConnectsTo.K8sCluster"
+            )
+            if rel_instances:
+                connectionConfig = _get_connection_config(rel_instances[0])
+        else:
+            rel_instances = []
 
         if cluster.attributes.get("api_server"):
             # api_server was set before, don't let it change --
             # if the connection has a different host, its pointing at a different cluster
             connectionConfig["host"] = "https://" + cluster.attributes["api_server"]
 
+        task.logger.debug(
+            "checking cluster connection %s from %s",
+            connectionConfig,
+            rel_instances or instances,
+        )
+        if task.dry_run:
+            yield task.done(True, False, Status.ok)
+            return
         try:
             # try connect and save the resolved host
             cluster.attributes["api_server"] = self._get_host(connectionConfig)
@@ -255,11 +299,18 @@ class ConnectionConfigurator(ClusterConfigurator):
             task.logger.debug("k8s connection configuration: %s", connectionConfig)
             connection.attributes["api_server"] = self._get_host(connectionConfig)
         except Exception:
-            yield task.done(
-                False,
-                False,
-                captureException="error while trying to establish connection to cluster",
-            )
+            if task.dry_run:
+                task.logger.warning(
+                    "ignoring k8s connection check failure during dry run: %s",
+                    connectionConfig,
+                )
+                yield task.done(True, False, Status.ok)
+            else:
+                yield task.done(
+                    False,
+                    False,
+                    captureException="error while trying to establish connection to cluster",
+                )
         else:
             # we aren't modifying this connection but we do want to assert that its ok
             yield task.done(True, False, Status.ok)
@@ -285,106 +336,171 @@ def mark_sensitive(task, resource):
                                 env["value"] = task.sensitive(env["value"])
 
 
-class ResourceConfigurator(AnsibleConfigurator):
+ClusterScoped_Kinds = [
+    "ClusterRole",
+    "ClusterRoleBinding",
+    "CustomResourceDefinition",
+    "MutatingWebhookConfiguration",
+    "ValidatingWebhookConfiguration",
+    "Node",
+    "PersistentVolume",
+    "PriorityClass",
+    "StorageClass",
+    "VolumeSnapshotClass",
+    "RuntimeClass",
+    "APIService",
+    "ClusterIssuer",
+]
 
+
+class ResourceConfigurator(AnsibleConfigurator):
     @classmethod
     def set_config_spec_args(cls, kw: dict, template):
-        artifact = template.find_or_create_artifact(
-            "kubernetes.core", predefined=True
-        )
+        artifact = template.find_or_create_artifact("kubernetes.core", predefined=True)
         if artifact:
             kw["dependencies"].append(artifact)
         return kw
 
-    def get_generator(self, task):
+    def get_generator(self, task: TaskView):
         if task.dry_run:
             return self.dry_run(task)
         else:
             return self.run(task)
 
-    def dry_run(self, task):
+    def dry_run(self, task: TaskView):
         task.logger.info("dry run: generating playbook:\n%s", self.find_playbook(task))
         yield task.done(True)
 
-    def make_secret(self, data, type="Opaque"):
+    def make_secret(self, data: Dict[str, Any], type: str = "Opaque") -> Dict[str, Any]:
         return dict(
             type=type,
             apiVersion="v1",
             kind="Secret",
-            data=sensitive_dict(
-                {k: b64encode(str(v).encode()).decode() for k, v in data.items() if v is not None}
-            ),
+            data=sensitive_dict({
+                k: b64encode(str(v).encode()).decode()
+                for k, v in data.items()
+                if v is not None
+            }),
         )
 
-    def get_definition(self, task):
+    def get_definition(self, task: TaskView) -> List[Dict[str, Any]]:
         if task.target.template.is_compatible_type("unfurl.nodes.K8sNamespace"):
-            return dict(apiVersion="v1", kind="Namespace")
+            return [dict(apiVersion="v1", kind="Namespace")]
+
+        secret = task.target.template.is_compatible_type(
+            "unfurl.nodes.K8sSecretResource"
+        )
+        if secret and isinstance(task.target.attributes.get("data"), Mapping):
+            return [
+                self.make_secret(
+                    task.target.attributes["data"], task.target.attributes["type"]
+                )
+            ]
 
         # get copy so subsequent modifications don't affect the definition
         if "definition" in task.target.attributes:
             definition = task.target.attributes.get_copy("definition") or {}
         elif "src" in task.target.attributes:
-            with open(task.target.attributes["src"]) as f:
+            src = task.target.attributes["src"]
+            if not os.path.isabs(src):
+                src = get_path(task.inputs.context, src, "src")
+            with open(src) as f:
                 definition = f.read()
         else:
             definition = task.target.attributes.get_copy("apiResource") or {}
 
-        if (
-            task.target.template.is_compatible_type("unfurl.nodes.K8sSecretResource")
-            and "data" in task.target.attributes
-        ):
-            return self.make_secret(
-                task.target.attributes["data"], task.target.attributes["type"]
+        if not definition and secret and task.configSpec.operation == "discover":
+            name = task.target.attributes.get("name") or to_dns_label(
+                task.target.name
             )
-        else:
-            if isinstance(definition, str):
-                definition = yaml.load(definition)
-            kind = definition.get("kind")
-            if not kind:
-                raise UnfurlTaskError(
-                    task, 'invalid Kubernetes resource definition, "kind" is missing'
-                )
-            if kind == "Secret" and "data" in definition:
-                definition["data"] = wrap_sensitive_value(definition["data"])
-            return definition
+            return [dict(apiVersion="v1", kind="Secret", metadata=dict(name=name))]
 
-    def update_metadata(self, definition, task, namespace):
+        if isinstance(definition, str):
+            definition = list(yaml.load_all(definition))
+        elif isinstance(definition, dict):
+            return [definition]
+        return definition
+
+    def update_metadata(self, definition: Dict[str, Any], task: TaskView, namespace):
+        "Add name and namespace to metadata if missing from metadata."
         md = definition.setdefault("metadata", {})
-        if namespace and "namespace" not in md:
-            md["namespace"] = namespace
-        # else: error if namespace mismatch?
-
-        name = to_kubernetes_label(task.target.attributes.get("name", task.target.name))
+        name = task.target.attributes.get("name") or to_dns_label(
+            task.target.name
+        )
         if "name" in md and md["name"] != name:
-            task.target.attributes["name"] = md["name"]
-        else:
+            name = task.target.attributes["name"] = md["name"]
+        elif task.configSpec.operation != "discover" or task.target.template.is_property_set("name"):
             md["name"] = name
 
+        if (
+            namespace
+            and "namespace" not in md
+            and definition["kind"] not in ClusterScoped_Kinds
+        ):
+            if namespace:
+                md["namespace"] = namespace
+            else:
+                task.logger.warning(f"No kubernetes namespace set for {name}.")
+        # else: error if namespace mismatch?
+
     def _make_check(self, connectionConfig, definition, extra_configuration):
+        "Make a k8s_info play for checking the existence of a resource."
         moduleSpec = connectionConfig.copy()
         moduleSpec["kind"] = definition.get("kind", "")
-        moduleSpec["name"] = definition["metadata"]["name"]
-        if "namespace" in definition["metadata"]:
+        if "name" in definition["metadata"]:
+            moduleSpec["name"] = definition["metadata"]["name"]
+        if moduleSpec["kind"] in ClusterScoped_Kinds:
+            moduleSpec.pop("namespace", None)
+        elif "namespace" in definition["metadata"]:
             moduleSpec["namespace"] = definition["metadata"]["namespace"]
         if extra_configuration:
             moduleSpec.update(extra_configuration)
         return [{"kubernetes.core.k8s_info": moduleSpec}]
 
-    def _find_host(self, task: TaskView):
+    def _find_host(self, task: TaskView):  # override
         if task.configSpec.operation_host:  # explicitly set
             return super()._find_host(task)
         return None, None  # use local connection, don't search for hosts
 
     def find_playbook(self, task: TaskView):
         # this is called by AnsibleConfigurator.get_playbook()
-        definition = self.get_definition(task)
+        definitions = self.get_definition(task)
+        playbook = []
+        for definition in definitions:
+            if definition:
+                playbook.extend(self._find_playbook(definition, task))
+        if not playbook:
+            raise UnfurlTaskError(task, "no Kubernetes resource definitions found")
+        return playbook
+
+    def _find_playbook(self, definition, task: TaskView):
+        kind = definition.get("kind")
+        if not kind:
+            raise UnfurlTaskError(
+                task, 'invalid Kubernetes resource definition, "kind" is missing'
+            )
+        if kind == "Secret" and "data" in definition:
+            definition["data"] = wrap_sensitive_value(definition["data"])
+
         connectionConfig = _get_connection(task.inputs.context)
         self.update_metadata(definition, task, connectionConfig.get("namespace"))
         extra_configuration = task.inputs.get("configuration")
         extra_playbook = task.inputs.get("playbook")
 
         if task.configSpec.operation in ["check", "discover"]:
-            return self._make_check(connectionConfig, definition, extra_configuration)
+            labels = definition["metadata"].get("labels")
+            if task.configSpec.operation == "discover" and labels:
+                selectors = [f"{key} = {value}" for key, value in labels.items()]
+                if not extra_configuration:
+                    extra_configuration = dict(label_selectors=selectors)
+                else:
+                    extra_configuration.setdefault("label_selectors", []).extend(
+                        selectors
+                    )
+            playbook = self._make_check(connectionConfig, definition, extra_configuration)
+            if extra_playbook:
+                playbook[0].update(extra_playbook)
+            return playbook
 
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
@@ -402,7 +518,8 @@ class ResourceConfigurator(AnsibleConfigurator):
             and task.target.status in [Status.pending, Status.unknown]
         ):
             # we don't want delete resources that already exist (especially namespaces!)
-            # so the first time we try to create the resource check for its exists first
+            # so the first time we try to create the resource check if it exists first,
+            # that way we know whether to mark resources as created by us or not
             task.logger.trace(
                 "adding k8s resource existence check for %s", task.target.name
             )
@@ -411,8 +528,12 @@ class ResourceConfigurator(AnsibleConfigurator):
         else:
             return playbook
 
-    def process_result(self, task, result):
-        # overrides super.processResult
+    def process_result(
+        self, task: TaskView, result: ConfiguratorResult
+    ) -> ConfiguratorResult:
+        # overrides super().process_result
+        # this is only called if the ansible playbook succeeded
+        assert isinstance(result.result, dict)
         resource_result = result.result.get("result")
         resources = result.result.get("resources")
         if resources:  # this is set when we have a k8s_info playbook task
@@ -441,6 +562,25 @@ class ResourceConfigurator(AnsibleConfigurator):
                 if "phase" in resource.get("status", {}):
                     status = resource["status"].get("phase", "Unknown")
                     result.status = states.get(status, Status.unknown)
+                else:
+                    result.status = Status.ok
+                    if task.target.template.is_compatible_type(
+                        "unfurl.nodes.K8sSecretResource"
+                    ) and isinstance(resource.get("data"), dict):
+
+                        def decode(v):
+                            try:
+                                return b64decode(v).decode()
+                            except UnicodeError:
+                                return v  # keep binary data encoded
+
+                        task.target.attributes["data"] = sensitive_dict({
+                            k: decode(v) for k, v in resource["data"].items()
+                        })
+                        task.target.attributes["type"] = resource.get("type")
+
+        elif result.status is None:  # don't change if status already set to error
+            result.status = Status.absent
         return result
 
     def get_result_keys(self, task, results):

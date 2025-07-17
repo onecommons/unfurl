@@ -107,7 +107,7 @@ Topology Template
 
 The topology Template defines the components of the service being deployed. It can be thought of as a graph of node templates and other components along with their relationships and dependencies.
 
-Topologies can parameterized with :std:ref:`inputs`, define `outputs<operation_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
+Topologies can parameterized with `inputs <Topology Inputs>`, define `outputs<topology_outputs>`, and contains `node templates`, `relationship templates`, `groups`, `policies<policy>`, and `workflows`.
 
 Topologies can be embedded in other topologies via `substitution_mappings`.
 
@@ -184,6 +184,7 @@ The following more complex example first defines a "MyApplication" node type tha
   .. literalinclude:: ./examples/tosca-requirements.py
     :language: python
 
+.. _tosca_artifacts:
 
 Artifacts
 ^^^^^^^^^
@@ -194,30 +195,17 @@ Artifacts are declared in the ``artifacts`` section of node templates and node t
 
 This example defines an artifact that is a container image, along with a `repository<repositories>` that represents the image registry that manages it:
 
-.. code:: yaml
+.. tab-set-code::
 
-     docker_hub:
-       url: https://registry.hub.docker.com/
-       credential:
-          user: user1
-          token:
-            eval:
-              secret:
-                dockerhub_user1_pw
+  .. literalinclude:: ./examples/artifact1.yaml
+    :language: yaml
 
-    topology_template:
-      node_templates:
-        myApp:
-          type: MyApplication
-          artifacts:
-            image:
-              type: tosca.artifacts.Deployment.Image.Container.Docker
-              file: myapp:latest
-              repository: docker_hub
+  .. literalinclude:: ./examples/artifact1.py
+    :language: python
 
 Artifacts can be used in the following ways:
 
-* An operation's `implementation's<implementation>`, ``primary`` field can be assigned an artifact which will be used to execute the operation. Artifacts derived from ``unfurl.artifacts.HasConfigurator`` will use configurator set on its type, otherwise it will treated as a shell script unless the ``className`` field is set in the implementation.
+* An operation's `implementation's<implementation>`, ``primary`` field can be assigned an artifact which will be used to execute the operation. Artifacts derived from ``unfurl.artifacts.HasConfigurator`` will use configurator set on its type, otherwise it will treated as a shell script (using the `Cmd` configurator) unless the ``className`` field is set in the implementation.
 * An implementation can also list artifacts in the ``dependencies`` field which will be installed if necessary.
 * The `get_artifact` TOSCA function to reference to artifact's URL or local location (if available).
 * An artifact and its properties can be accessed in `Eval Expressions` via the `.artifacts<Special keys>` key. (see `Artifact enhancements`) or as :py:class:`Node` attributes when using the `Python DSL`. 
@@ -238,34 +226,13 @@ An :tosca_spec:`Interface<_Toc50125307>` is a collections of :std:ref:`operation
 Example
 -------
 
-.. code-block:: yaml
+.. tab-set-code::
 
-    interfaces:
-      Standard:  # this is a built-in interface type so the "type" field is not required
-        inputs:  
-          # inputs defined at this level will be made available to all operations
-          foo: bar
-        operations:
-          # in the simplest case an operation can just be the name of an artifact or shell command
-          create: ./myscript.sh
-          # a more complex operation:
-          configure:
-            implementation:
-              primary: my_ansible_playbook 
-              dependencies:
-                  # unfurl will install artifacts listed as dependencies if they are missing
-                - a_ansible_collection
-              # Unfurl extensions:
-              className: Ansible # the configurator class to use (redundant in this example)
-              environment: # environment variables to set when executing the operation
-                 AN_ENV_VAR: 1
-            inputs:
-              foo: baz  # overrides the above definition of "foo"
-            outputs:
-              an_ansible_fact: an_attribute
-        # an Unfurl extension for specifying the connections that the operations need to function:
-        requirements:
-          - unfurl.relationships.ConnectsTo.GoogleCloudProject
+  .. literalinclude:: ./examples/tosca-interfaces.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/tosca-interfaces.py
+    :language: python
 
 Operations can be invoked in the following ways:
 
@@ -287,9 +254,25 @@ Inputs
 -------
 
 Inputs are passed to the implementation of the operation.
-A TOSCA type can (optionally) define the expected inputs on a operation in much like a property definition. In Unfurl, inputs are evaluated lazily as needed by the operation's configurator.
+A TOSCA type can (optionally) define the expected inputs on a operation in much like a property definition.
+Unlike properties on templates, you can pass inputs to an operation that are not defined in its inputs definition.
+In Unfurl, inputs are evaluated lazily as they are accessed by the operation's configurator.
+
 Default inputs can defined directly on the interface and will be made available to all operations in that interface.
 If inputs are defined on multiple types in a type hierarchy for the same operation, they are merged together along with any inputs for that operation defined on directly on the template.
+Note: it is not type-safe to remove arguments from the signature of an overloaded method, doing so will report a static type error.
+So TOSCA YAML's behavior of merging inherited inputs is a no-op and therefore consistent with type-safe Python DSL usage.
+
+For example:
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/tosca_inputs.yaml
+    :language: yaml
+
+  .. literalinclude:: ./examples/tosca_inputs.py
+    :language: python
+
 
 .. _operation_outputs:
 
@@ -298,7 +281,7 @@ Outputs
 
 An operation can define an :tosca_spec:`attribute mapping<_Toc50125291>` that specifies how to apply the operation's outputs. The meaning of keys in the mapping depends on the operation's configurator, for example, a Ansible fact or a Terraform output.
 If mapping's value is a string, it names the attribute on the instance where the output will be saved.
-If the value is null, no attribute mapping will be made but the output will be available to the ``resultTemplate`` and saved in the ensemble. 
+If the value is null, no attribute mapping will be made but the output will be available to the `resultTemplate` and saved in the ensemble.
 
 Interface types
 ---------------

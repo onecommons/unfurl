@@ -1,8 +1,9 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-apiVersion: unfurl/v1alpha1
+apiVersion: [% api_version %]
 kind: Project
 
 # The presence of this YAML file indicates that this directory contains an Unfurl project.
+# Syntax can be found here: https://docs.unfurl.run/jsonschema.html#unfurl-yaml
 
 {%- if include | default("") %}
 # These "+?include" directives merge these files so secret and local-only settings can be managed separately.
@@ -21,14 +22,17 @@ kind: Project
 # of an ensemble created with a matching "--use-environment" argument
 # See https://docs.unfurl.run/environments.html
 
-# environments:
+environments:
 #   defaults:
       # There can multiple environment with different names but they will merge with the defaults specified here.
       # variables:
       # connections:
       # (etc.)
 {%- if default_context | default("") %}
-#   [%default_context%]:
+   [%default_context%]:
+      {%- if defaultProject | default("") %}
+      defaultProject: SELF
+      {% endif %}
       # variables:
       # connections:
       # (etc.)
@@ -37,22 +41,4 @@ kind: Project
 {%- if default_context | default("") %}
 # This sets the default environment to use for new ensembles created in this project.
 default_environment: [%default_context%]
-{% endif %}
-
-{%- if manifestPath %}
-# these are the ensembles managed by this project
-# (note that they can be located in a different project)
-ensembles:
-  - file: [%manifestPath%]
-    default: true
-    {%- if external | default("") %}
-    # the ensemble is located in a different project
-    project: [%external%]
-    {% endif -%}
-    {% if context | default("") %}
-    environment: [%context%]
-    {% else %}
-    # uncomment to associate this ensemble with an environment
-    # environment: your_environment
-    {% endif %}
 {% endif %}

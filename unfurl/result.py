@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping, MutableSequence
-from typing_extensions import MutableMapping
+from typing_extensions import MutableMapping, Self
 from abc import ABC, abstractmethod, ABCMeta
 import datetime
 import io
@@ -10,17 +10,22 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
-    Iterator,
+    Iterable,
     List,
     Match,
     Optional,
     Tuple,
     Union,
     cast,
+    overload,
+    TypeVar,
 )
 import hashlib
 import re
-from tosca.yaml2python import has_function
+from ansible.utils import unsafe_proxy
+from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
+from ruamel.yaml.scalarstring import ScalarString, DoubleQuotedScalarString
+from tosca import has_function, scalar
 from toscaparser.common.exception import ValidationError
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.properties import Property
@@ -32,6 +37,7 @@ if TYPE_CHECKING:
 
 from .merge import diff_dicts
 from .util import (
+    ChainMap,
     UnfurlError,
     UnfurlTaskError,
     is_sensitive,
@@ -43,6 +49,8 @@ from .util import (
 from .logs import sensitive, getLogger
 
 logger = getLogger("unfurl")
+
+T = TypeVar("T")
 
 
 def _get_digest(value, kw):
@@ -82,6 +90,13 @@ def get_digest(tpl, **kw):
     return m.hexdigest()
 
 
+yaml11_hell = re.compile(
+    """^(?:y|Y|yes|Yes|YES|n|N|no|No|NO
+        |on|On|ON|off|Off|OFF)$""",
+    re.X,
+)
+
+
 def serialize_value(value, **kw):
     getter = getattr(value, "as_ref", None)
     if getter:
@@ -95,8 +110,15 @@ def serialize_value(value, **kw):
     if isinstance(value, (MutableSequence, tuple)):
         l_ctor = sensitive_list if isSensitive else list
         return l_ctor(serialize_value(item, **kw) for item in value)
-    else:
-        return value
+    if not isSensitive and isinstance(value, str):
+        if yaml11_hell.match(value):
+            # rumuael yaml assumes yaml 1.2 but ansible assumes 1.1 when it reads playbooks
+            # so quote string in case this is intended as yaml that is going to be read by ansible
+            return DoubleQuotedScalarString(value)
+        if not isinstance(value, (ScalarString, AnsibleUnsafeText)):
+            # handle unknown string subtypes so they serialize to yaml
+            return str(value)
+    return value
 
 
 class ResourceRef(ABC):
@@ -139,6 +161,7 @@ class ResourceRef(ABC):
 
     @property
     def ancestors(self):
+        "list of self and ancestors starting from self"
         return list(self.yield_parents())
 
     @property
@@ -166,26 +189,9 @@ class ResourceRef(ABC):
     def environ(self):
         return self.root._environ
 
-
-class AnyRef(ResourceRef):
-    "Use this to analyze expressions"
-
-    def __init__(self, name: str, parent=None):
-        self.parent = parent
-        self.key = name
-
-    def _get_prop(self, name: str) -> Optional["AnyRef"]:
-        if name == ".":
-            return self
-        elif name == "..":
-            return cast(AnyRef, self.parent)
-        return AnyRef(name, self)
-
-    def _resolve(self, key):
-        return AnyRef(key, self)
-
-    def get_keys(self) -> List[str]:
-        return [p.key for p in reversed(self.ancestors)]
+    @property
+    def key(self):
+        return self.name
 
 
 class ChangeRecord:
@@ -455,6 +461,12 @@ class Result(ChangeAware):
     def project(self, key: Any, ctx) -> "Result":
         from .eval import Ref
 
+        if key == ".super":
+            result = ctx._lastResource.get_attribute_manager().get_super(ctx)
+            if result is None:
+                raise KeyError(key)
+            return Result(result)
+
         value = self._resolve_key(key, ctx._lastResource)
         if isinstance(value, Result):
             result = value
@@ -489,10 +501,10 @@ class Result(ChangeAware):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 
-def is_sensitive_schema(defs, key):
+def is_sensitive_schema(defs: Dict[str, Property], key: str) -> bool:
     defSchema = (key in defs and defs[key].schema) or {}
-    defMeta = defSchema.get("metadata", {})
-    return defMeta.get("sensitive")
+    defMeta = defSchema.get("metadata", {})  # Schema has __getitem__
+    return bool(defMeta.get("sensitive"))
 
 
 def _validation_error(src, context, prop_def, msg):
@@ -551,9 +563,9 @@ class ResultsItem(Result):
 
     def set_resolved(self, result: Result, seen: int):
         # the value was computed again
-        assert (
-            self.is_computed()
-        ), "computed items are mutually exclusive with update_value()"
+        assert self.is_computed(), (
+            "computed items are mutually exclusive with update_value()"
+        )
         self.select = result.select
         self.external = result.external
         self.resolved = result.resolved
@@ -628,7 +640,7 @@ class Results(ABC, metaclass=ProxyableType):
     )
 
     @abstractmethod
-    def _values(self) -> Iterator: ...
+    def _values(self) -> Iterable: ...
 
     @abstractmethod
     def resolve_all(self): ...
@@ -672,14 +684,29 @@ class Results(ABC, metaclass=ProxyableType):
         else:
             self.defs = defs
 
-    def get_copy(self, key, default=None):
-        # return a copy of value or default if not found
+    def copy(self) -> Self:
+        copy = self.__class__(self._attributes, self.context, self.validate, self.defs)
+        copy._deleted = self._deleted.copy()
+        copy.applyTemplates = self.applyTemplates
+        return copy
+
+    @overload
+    def get_copy(self, key: str, default: T) -> T: ...
+
+    @overload
+    def get_copy(self, key: str) -> Optional[Any]: ...
+
+    def get_copy(self, key: str, default=None):
+        """Return a fully evaluated copy of value or return ``default`` if not found."""
         from .eval import map_value
 
         try:
-            return map_value(self._get(key), self.context)
+            val = self._get(key)
         except (KeyError, IndexError):
             return default
+        if isinstance(val, Results):
+            val = map_value(val, self.context)
+        return val
 
     def map_all(self):
         from .eval import map_value
@@ -732,7 +759,7 @@ class Results(ABC, metaclass=ProxyableType):
                 # XXX! see test_localConfig in test_cli.py
                 return val[0]
             items = [ResultsItem(r) if isinstance(r, Result) else r for r in val]
-            return ResultsList(val, context, False, defs or {})
+            return ResultsList(items, context, False, defs or {})
         else:
             from .support import is_template, apply_template
 
@@ -820,6 +847,16 @@ class Results(ABC, metaclass=ProxyableType):
         # remove from deleted if it's there
         self._deleted.pop(key, None)
 
+    @staticmethod
+    def _resolve_from_defs(defs: Dict[str, Property], key: str, val: Any) -> Any:
+        if is_sensitive_schema(defs, key):
+            return wrap_sensitive_value(val)
+        elif isinstance(val, str):
+            defSchema = (key in defs and defs[key].schema) or {}
+            if defSchema and defSchema.get("type", "").startswith("scalar-unit."):
+                return scalar(val)
+        return val
+
     def resolve(self, key, val, validate: Optional[bool] = None) -> Result:
         # lazily evaluate lists and dicts
         self.context.trace("Results._mapValue", key, val)
@@ -837,13 +874,13 @@ class Results(ABC, metaclass=ProxyableType):
 
         if self.validate if validate is None else validate:
             self._validate(key, resolved, val)
-        if self.defs and is_sensitive_schema(self.defs, key):
-            result.resolved = wrap_sensitive_value(resolved)
+        if self.defs:
+            result.resolved = self._resolve_from_defs(self.defs, key, resolved)
 
         assert not isinstance(result.resolved, Result)
         return result
 
-    def get_datatype_defs(self, key) -> Optional[Dict[str, Any]]:
+    def get_datatype_defs(self, key: str) -> Optional[Dict[str, Property]]:
         property = self.defs.get(key)
         if property:
             # if property is not a complex datatype this will return {}
@@ -856,6 +893,17 @@ class Results(ABC, metaclass=ProxyableType):
         property = self.defs.get(key)
         if property:
             transform = self._get_prop_metadata_key(property, "transform")
+            if (
+                not transform
+                and value
+                and property.entry_schema
+                and property.entry_schema.get("type", "").startswith("scalar-unit.")
+            ):
+                # hacky way to handle maps and lists of scalar units
+                transform = {
+                    "eval": "$value",
+                    "foreach": {"eval": {"scalar": {"eval": "$item"}}},
+                }
             if transform:
                 logger.trace(
                     "running transform on %s.%s", self.context.currentResource.name, key
@@ -894,6 +942,10 @@ class Results(ABC, metaclass=ProxyableType):
                 # required attributes might be null depending on the state of the resource
                 if (
                     propDef.required
+                    and (
+                        "default" not in propDef.schema.schema
+                        or propDef.schema.schema["default"] is not None
+                    )
                     and resource.template
                     and key not in resource.template.attributeDefs
                 ):
@@ -961,16 +1013,45 @@ class Results(ABC, metaclass=ProxyableType):
 
 
 class ResultsMap(Results, MutableMapping[str, Any]):
+    _attributes: MutableMapping[str, Any]
+
     def __iter__(self):
         return iter(self._attributes)
 
     def resolve_all(self):
         list(self.values())
 
+    def get_original(self, name):
+        original = None
+        if isinstance(self._attributes, ChainMap):
+            for mapping in self._attributes._maps:
+                if name in mapping:
+                    if isinstance(mapping, ResultsMap):
+                        return mapping.get_original(name)
+                    original = mapping[name]
+                    break
+        else:
+            original = self._attributes.get(name)
+        if isinstance(original, ResultsItem):
+            return original.original
+        else:
+            return original
+
     def get_resolved(self) -> Dict[str, ResultsItem]:
-        return {
-            key: v for key, v in self._attributes.items() if isinstance(v, ResultsItem)
-        }
+        if isinstance(self._attributes, ChainMap):
+            _attributes = self._attributes._maps[0]
+        else:
+            _attributes = self._attributes
+        return {key: v for key, v in _attributes.items() if isinstance(v, ResultsItem)}
+
+    def __sensitive__(self):
+        # only check resolved values
+        return any(is_sensitive(x) for x in self.get_resolved().values())
+
+    def has_diff(self):
+        # only check resolved values
+        # XXX also check if items were added or removed
+        return any(x.has_diff() for x in self.get_resolved().values())
 
     def __contains__(self, key):
         return key in self._attributes
@@ -981,8 +1062,8 @@ class ResultsMap(Results, MutableMapping[str, Any]):
     def get_diff(self, cls=dict):
         # returns a dict with the same semantics as diffDicts
         diffDict = cls()
-        for key, val in self._attributes.items():
-            if isinstance(val, ResultsItem) and val.has_diff():
+        for key, val in self.get_resolved().items():
+            if val.has_diff():
                 diffDict[key] = val.get_diff()
 
         for key in self._deleted:
@@ -994,6 +1075,8 @@ class ResultsMap(Results, MutableMapping[str, Any]):
 
 
 class ResultsList(Results, MutableSequence):
+    _attributes: MutableSequence
+
     def insert(self, index, value):
         assert not isinstance(value, Result), value
         self._attributes.insert(index, ResultsItem(value, _Missing))
@@ -1013,3 +1096,30 @@ class ResultsList(Results, MutableSequence):
 
     def is_compatible(self, other):
         return isinstance(other, MutableSequence)
+
+
+class quoted_dict(dict):
+    """Transparent wrapper class so we don't try to evaluate this as an expression."""
+
+
+def _wrap_dict(v):
+    if isinstance(v, Results):
+        # wrap_var() fails with Results types, this is equivalent:
+        v.applyTemplates = False
+        return v
+    return quoted_dict((wrap_var(k), wrap_var(item)) for k, item in v.items())
+
+
+unsafe_proxy._wrap_dict = _wrap_dict
+
+
+def _wrap_sequence(v):
+    if isinstance(v, Results):
+        # wrap_var() fails with Results types, this is equivalent:
+        v.applyTemplates = False
+        return v
+    v_type = type(v)
+    return v_type(wrap_var(item) for item in v)
+
+
+unsafe_proxy._wrap_sequence = _wrap_sequence

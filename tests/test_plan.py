@@ -5,6 +5,7 @@ import traceback
 from click.testing import CliRunner
 from unfurl.eval import RefContext
 from unfurl.projectpaths import _get_base_dir
+from unfurl.job import Job
 from .utils import init_project, run_job_cmd
 from string import Template
 
@@ -96,7 +97,7 @@ spec:
         ("", "error", 3, 3),
     ],
 )
-def test_plan(local_storage_status, compute_status, total, expected_errors):
+def test_plan(local_storage_status, compute_status, total, expected_errors, mocker):
     runner = CliRunner()
     with runner.isolated_filesystem():
         init_project(
@@ -158,6 +159,7 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
         # # relation is a nested task group:
         # assert relation["plan"][0]["sequence"][0]["operation"] == "post_configure_source"
 
+        spy = mocker.spy(Job, "_reorder_requests")
         result, job, summary = run_job_cmd(runner, ["deploy"])
         # print(job.json_summary(True))
         expected = [
@@ -221,6 +223,11 @@ def test_plan(local_storage_status, compute_status, total, expected_errors):
         }
         if blocked:
             expected_summary["job"]["blocked"] = blocked
+
+        # assert plan didn't reorder
+        assert spy.call_count
+        assert spy.call_args_list[0].args == spy.spy_return_list[0]
+        assert spy.call_args_list[-1].args == spy.spy_return_list[-1]
         assert summary == expected_summary
         # print("deploy", job.manifest.status_summary())
 

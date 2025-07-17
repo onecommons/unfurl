@@ -7,12 +7,23 @@ metadata:
   template_version: 1.0.0
 
 artifact_types:
+  unfurl.artifacts.Executable:
+    derived_from: tosca.artifacts.Root
+    description: >
+      Base type for declaring abstract executable artifacts that only define its expected inputs and outputs.
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+
   unfurl.artifacts.HasConfigurator:
     derived_from: tosca.artifacts.Implementation
     properties:
       className:
         type: string
         description: Name of the python class that implements the configurator interface
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
 
   unfurl.artifacts.TemplateOperation:
     derived_from: unfurl.artifacts.HasConfigurator
@@ -20,20 +31,112 @@ artifact_types:
       className:
         type: string
         default: unfurl.configurators.TemplateConfigurator
+      resultTemplate:
+        type: any
+        required: false
+        description: >
+          A Jinja2 template or runtime expression that is processed after the operation completes.
+          Note: This evaluate in the context of the task executing this artifact, so "SELF" will be the current task's target, not the artifact.
+          The artifact can be accessed through the "implementation" variable.
 
   unfurl.artifacts.ShellExecutable:
-    derived_from: unfurl.artifacts.HasConfigurator
+    derived_from: unfurl.artifacts.TemplateOperation
     properties:
       className:
         type: string
         default: unfurl.configurators.shell.ShellConfigurator
+      command:
+        type: any
+        required: false
+        default: "{{  '.::contents' | eval or '.path' | eval }}"
+        description: >
+          The command to execute. It can be either a string or a list of command arguments.
+          Defaults to the artifact's file, or that can embedded in the command using {{ '.path' | eval }}
+      cwd:
+        type: string
+        required: false
+        description: Set the current working directory to execute the command in.
+      keeplines:
+        type: boolean
+        default: false
+        description: If true, preserve line breaks in the given command.
+      shell:
+        type: any
+        required: false
+        description: >
+          If a string, the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
+          A boolean indicates whether the command if invoked through the default shell or not.
+          If omitted, it will be set to true if ``command`` is a string or false if it is a list.
+      echo:
+        type: boolean
+        required: false
+        description: >
+          A boolean that indicates whether or not should be standard output (and stderr)
+          should be echoed to Unfurl's stdout while the command is being run.
+          If omitted, true unless running with ``--quiet``.
+          (Doesn't affect the capture of stdout and stderr.)
+      input:
+        type: string
+        required: false
+        description: Optional string to pass as stdin.
+      outputsTemplate:
+        type: any
+        required: false
+        description: >
+          A `Jinja2 template or runtime expression that is processed after shell command completes, with same variables as `resultTemplate`.
+          The template should evaluate to a map to be used as the operation's outputs or null to skip.
+      dryrun:
+        type: string
+        required: false
+        description: >
+          During a during a dryrun job this will be either appended to the command line
+          or replace the string ``%dryrun%`` if it appears in the command. (``%dryrun%`` is stripped out when running regular jobs.)
+          If not set, the task will not be executed at all during a dry run job.
 
   unfurl.artifacts.AnsiblePlaybook:
-    derived_from: unfurl.artifacts.HasConfigurator
+    derived_from: unfurl.artifacts.TemplateOperation
     properties:
       className:
         type: string
         default: unfurl.configurators.ansible.AnsibleConfigurator
+      playbook:
+        type: any
+        default: "{{  '.::contents' | eval or '.path' | eval }}"
+        description: >
+          If a string, treat as a file path to the Ansible playbook to run, otherwise treat as an inline playbook
+          If omitted, it will use the artifact's ``contents`` if present or else the artifact's resolved file path.
+      playbookArgs:
+        type: list
+        required: false
+        description: >
+          A list of strings that will be passed to ``ansible-playbook`` as command-line arguments.
+
+  unfurl.artifacts.TerraformModule:
+    derived_from: unfurl.artifacts.TemplateOperation
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.terraform.TerraformConfigurator
+      main:
+        type: any
+        default: "{{  '.::contents' | eval or '.path' | eval }}"
+        description: >
+          The contents of the root Terraform module or a path to a directory containing the Terraform configuration.
+          If it is a directory path, the configurator will treat it as a local Terraform module.
+          Otherwise, if ``main`` is a string it will be treated as HCL and if it is a map, it will be written out as JSON.
+          If omitted, it will use the artifact's ``contents`` if present or else the artifact's resolved file path as the directory.
+      dryrun_mode:
+        type: string
+        constraints:
+          - valid_values: [plan, real]
+        default: plan
+        description: >
+          How to run during a dry run job. If set to "plan" just generate the Terraform plan. If set to "real", run the task without any dry run logic. Default: "plan"
+      dryrun_outputs:
+        type: any
+        required: false
+        description: >
+          During a dry run job, this map of outputs will be used simulate the task's outputs (otherwise outputs will be empty).
 
 node_types:
   tosca.nodes.Root:
@@ -288,6 +391,27 @@ relationship_types:
 
   unfurl.relationships.ConnectsTo.ComputeMachines:
     derived_from: tosca.relationships.ConnectsTo
+    metadata:
+      exclude-from-configuration: true
+
+  unfurl.relationships.ConnectsTo.ObjectStorage:
+    derived_from: tosca.relationships.ConnectsTo
+    metadata:
+      exclude-from-configuration: true
+    properties:
+      access_key:
+        type: string
+      secret_key:
+        type: string
+        metadata:
+          sensitive: true
+      region:
+        type: string
+        default: us-east-1
+      endpoint_hostname:
+        type: string
+        description: hostname
+        required: false
 
   unfurl.relationships.ConnectsTo.CloudAccount:
     derived_from: unfurl.relationships.ConnectsTo.ComputeMachines
@@ -357,7 +481,11 @@ relationship_types:
             #   - google-auth
 
   unfurl.relationships.ConnectsTo.AWSAccount:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       endpoints:
         description: custom service endpoints
@@ -400,11 +528,24 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_CONFIG_FILE }
         required: false
-    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
-    # for more environment variables
+      # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
+      # for more environment variables
+      access_key:
+        default: "{{ SELF.AWS_ACCESS_KEY_ID }}"
+        required: false
+      secret_key:
+        default: "{{ SELF.AWS_SECRET_ACCESS_KEY }}"
+        required: false
+      region:
+        default: "{{ SELF.AWS_DEFAULT_REGION }}"
+        required: false
 
   unfurl.relationships.ConnectsTo.DigitalOcean:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       credential:
         metadata:
@@ -423,6 +564,7 @@ relationship_types:
         required: false
         metadata:
           user_settable: true
+          env_vars: [SPACES_ACCESS_KEY_ID]
       SPACES_SECRET_ACCESS_KEY:
         description: "The secret key for Spaces object storage."
         type: unfurl.datatypes.EnvVar
@@ -431,16 +573,31 @@ relationship_types:
         metadata:
           user_settable: true
           sensitive: true
+          env_vars: [SPACES_SECRET_ACCESS_KEY]
       default_region:
         type: string
         title: Default Region
-        default: nyc1
-        description: "The default region to use, e.g. fra1, nyc2, etc."
+        default: nyc3
+        description: "The default region to use, e.g. fra1, nyc3, etc."
         metadata:
           user_settable: true
+      access_key:
+        default: "{{ SELF.SPACES_ACCESS_KEY_ID }}"
+        required: false
+      secret_key:
+        default: "{{ SELF.SPACES_SECRET_ACCESS_KEY }}"
+        required: false
+      endpoint_hostname:
+        default: "{{ SELF.default_region }}.digitaloceanspaces.com"
+      region:
+        default: "{{ SELF.default_region }}"
 
   unfurl.relationships.ConnectsTo.Azure:
-    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    derived_from:
+      [
+        unfurl.relationships.ConnectsTo.CloudAccount,
+        unfurl.relationships.ConnectsTo.ObjectStorage,
+      ]
     properties:
       AZURE_CLIENT_ID:
         description: >
@@ -452,7 +609,7 @@ relationship_types:
           env_vars: [ARM_CLIENT_ID, AZURE_CLIENT_ID]
           title: Client ID
           user_settable: true
-        default: { get_env: [ARM_CLIENT_ID, {get_env: AZURE_CLIENT_ID}] }
+        default: { get_env: [ARM_CLIENT_ID, { get_env: AZURE_CLIENT_ID }] }
         required: false
       AZURE_TENANT:
         description: >
@@ -462,7 +619,7 @@ relationship_types:
           env_vars: [ARM_TENANT_ID, AZURE_TENANT]
           title: Tenant
           user_settable: true
-        default: { get_env: [ARM_TENANT_ID, {get_env: AZURE_TENANT}] }
+        default: { get_env: [ARM_TENANT_ID, { get_env: AZURE_TENANT }] }
         required: false
       AZURE_SUBSCRIPTION_ID:
         description: >
@@ -473,13 +630,14 @@ relationship_types:
           env_vars: [ARM_SUBSCRIPTION_ID, AZURE_SUBSCRIPTION_ID]
           title: Azure Subscription
           user_settable: true
-        default: { get_env: [ARM_SUBSCRIPTION_ID, {get_env: AZURE_SUBSCRIPTION_ID}] }
+        default:
+          { get_env: [ARM_SUBSCRIPTION_ID, { get_env: AZURE_SUBSCRIPTION_ID }] }
       AZURE_SECRET:
         description: >
           For authentication with service principal. [(Portal link)](https://learn.microsoft.com/azure/active-directory/develop/howto-create-service-principal-portal#option-2-create-a-new-application-secret)
         type: string
         required: false
-        default: { get_env: [ARM_CLIENT_SECRET, {get_env: AZURE_SECRET}] }
+        default: { get_env: [ARM_CLIENT_SECRET, { get_env: AZURE_SECRET }] }
         metadata:
           env_vars: [ARM_CLIENT_SECRET, AZURE_SECRET]
           sensitive: true
@@ -501,6 +659,31 @@ relationship_types:
         description: set if you have your own ADFS authority
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_ADFS_AUTHORITY_URL }
+        required: false
+      AZURE_STORAGE_ACCOUNT:
+        description: The storage account name.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_ACCOUNT }
+        required: false
+      AZURE_STORAGE_KEY:
+        description: The storage account key.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_KEY }
+        required: false
+        metadata:
+          sensitive: true
+      AZURE_STORAGE_CONNECTION_STRING:
+        description: A connection string that includes the storage account key or a SAS token.
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: AZURE_STORAGE_CONNECTION_STRING }
+        required: false
+        metadata:
+          sensitive: true
+      access_key:
+        default: "{{ SELF.AZURE_STORAGE_ACCOUNT }}"
+        required: false
+      secret_key:
+        default: "{{ SELF.AZURE_STORAGE_KEY }}"
         required: false
 
   unfurl.relationships.ConnectsTo.Packet:
@@ -529,6 +712,12 @@ relationship_types:
 interface_types:
   Mock:
     derived_from: tosca.interfaces.Root
+
+  unfurl.interfaces.Executable:
+    derived_from: tosca.interfaces.Root
+    operations:
+      execute:
+        description: Execute the artifact
 
   unfurl.interfaces.Install:
     derived_from: tosca.interfaces.Root

@@ -13,45 +13,26 @@ The first step is to create an Unfurl project to manage your deployments:
 
 .. code-block:: shell
 
-    unfurl init myproject --empty
+    unfurl init myproject --empty --var std true --design
 
-This is will create an Unfurl project in directory "myproject".  The ``--empty`` option skips creating an ensemble (a deployment) for now (we'll add that later in `step 3<Step 3 Instantiate your blueprint>`).
+This will create an Unfurl project in directory "myproject".  The :cli:`--empty<cmdoption-unfurl-init-empty>` option skips creating an ensemble (a deployment) for now (we'll add that later in `step 3<Step 3 Instantiate your blueprint>`).
+The :cli:`--var<cmdoption-unfurl-init-var>` option passes settings to the `project skeleton <project skeletons>` templates that create the project. When the default project skeleton sees ``std``, it adds our |stdlib|_ repository, which includes TOSCA types that provide basic abstractions for resources like compute instances and container images.
+
+The :cli:`--design<cmdoption-unfurl-init-design>` option initialized your project for development, in particular, it will download the ``std`` repository so that if you open ``service_template.py`` in an Python IDE such as VS Code the Python import statements will resolve, enabling your editor's type checking and code navigation.
+(If you didn't do use that option, this will happen when you first deploy an ensemble or when you run the :cli:`validate<unfurl-validate>` command.)
 
 If this is the first time you've created a Unfurl project, you'll notice a message like "Unfurl home created at ~/.unfurl_home".  Unfurl home is an Unfurl project that contains local settings and resources that are shared with other projects on that machine, including an isolated execution environment to run Unfurl in. For more information, see `Unfurl Home`.
 
 Step 2: Describe your application
 ---------------------------------
 
-Now that your project is set up, we'll create an TOSCA `blueprint<Step 2: Create a cloud blueprint>` for deploying our application. In this example, its a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of things we need to do to deploy this web application:
+Now that your project is set up, we'll create a TOSCA `blueprint<Step 2: Create a cloud blueprint>` for deploying our application. In this example, it's a container image of a simple nodejs web app that requires a connection to a Postgres database. Here are some of the tasks we need to do to deploy this web application:
 
 * Create a service that can run the container image.
 * Deploy a database and connect it to the web app.
 * Consider DNS to resolve to the web app.
 
-We'll add the blueprint to the project's ``ensemble-template.yaml`` file so that it can be reused by different :doc:`ensembles`.
-
-The TOSCA specification defines types that provide basic abstractions for resources like compute instances and container images. In addition to TOSCA's built-in types, we'll use our |stdlib|_, so first we need to import that:
-
-1. Open ``ensemble-template.yaml`` and uncomment these lines:
-
-.. code-block:: yaml
-
-    repositories:
-      std:
-        url: https://unfurl.cloud/onecommons/std.git
-
-2. You can create your TOSCA blueprint in either YAML or Python. If you want to follow along using the Python examples, open ``service_template.py`` and uncomment these lines:
-
-.. code-block:: python
-
-  import tosca
-  from tosca_repositories import std
-
-3. Run ``unfurl validate``. 
-
-This will make sure the changes you just made are valid but more importantly, as a side effect, it will install the ``std`` repository so that if you open ``service_template.py`` in an Python IDE such as VS Code the Python import statements will resolve, enabling your editor's type checking and code navigation.
-
-4. Add the blueprint.
+You can create your TOSCA blueprint in either YAML or Python. If you want to use YAML, add the blueprint to the project's ``ensemble-template.yaml`` file so that it can be reused by different :doc:`ensembles`. If you want to follow along using the Python examples, edit the ``service_template.py`` file.
 
 Copy the code below to either service_template.py or ensemble-template.yaml. They are equivalent, in fact you can `bi-directionally convert<usage>` them using the :cli:`unfurl export<unfurl-export>` command.
 

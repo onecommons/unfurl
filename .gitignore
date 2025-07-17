@@ -21,3 +21,4 @@ venv/
 htmlcov/
 .mypy_cache
 .pytest_cache/
+.qodo

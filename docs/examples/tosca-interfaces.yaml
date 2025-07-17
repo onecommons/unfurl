@@ -1,0 +1,30 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  Example:
+    derived_from: tosca.nodes.Root
+    interfaces:
+      Standard:  # this is a built-in interface type so the "type" field is not required
+        inputs:  
+          # inputs defined at this level will be made available to all operations
+          foo: bar
+        operations:
+          # in the simplest case an operation can just be the name of an artifact or shell command
+          create: ./myscript.sh
+          # a more complex operation:
+          configure:
+            implementation:
+              primary: my_ansible_playbook # name of artifact
+              dependencies:
+                  # unfurl will install artifacts listed as dependencies if they are missing
+                - a_ansible_collection
+              # Unfurl extensions:
+              className: Ansible # the configurator class to use (redundant here because of the artifact)
+              environment: # environment variables to set when executing the operation
+                 AN_ENV_VAR: 1
+            inputs:
+              foo: baz  # overrides the above definition of "foo"
+            outputs:
+              an_ansible_fact: an_attribute
+        # an Unfurl extension for specifying the connections that the operations need to function:
+        requirements:
+          - unfurl.relationships.ConnectsTo.GoogleCloudProject

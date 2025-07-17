@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast, Iterator
 from typing_extensions import Literal
 import git
 import git.exc
@@ -31,9 +31,11 @@ def is_git_worktree(path, gitDir=".git"):
     return os.path.exists(os.path.join(path, gitDir))
 
 
-def add_user_to_url(url, username, password):
+def add_user_to_url(url: str, username: str, password: str) -> str:
     assert username
     parts = urlparse(url)
+    if parts.scheme != "https" and parts.scheme != "http":
+        return url
     user, sep, host = parts.netloc.rpartition("@")
     if password:
         netloc = f"{username}:{password}@{host}"
@@ -354,11 +356,11 @@ class Repo(abc.ABC):
         return GitRepo(repo)
 
 
-def commit_secrets(working_dir, yaml, repo: "GitRepo"):
+def commit_secrets(working_dir, yaml, repo: "GitRepo") -> List[Path]:
     vault = yaml and getattr(yaml.representer, "vault", None)
     if not vault or not vault.secrets:
         return []
-    saved = []
+    saved: List[Path] = []
     for filepath, dotsecrets in find_dirty_secrets(working_dir, repo):
         with open(filepath, "r") as vf:
             vaultContents = vf.read()
@@ -370,7 +372,7 @@ def commit_secrets(working_dir, yaml, repo: "GitRepo"):
     return saved
 
 
-def find_dirty_secrets(working_dir: str, repo: "GitRepo"):
+def find_dirty_secrets(working_dir: str, repo: "GitRepo") -> Iterator[Tuple[Path, Path]]:
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
             continue
@@ -446,6 +448,10 @@ class RepoView:
             assert self.repo
             return self.repo.url
 
+    @property
+    def safe_url(self):
+        return sanitize_url(self.url, True)
+
     def has_credentials(self):
         parts = urlparse(self.url)
         return "@" in parts.netloc
@@ -479,7 +485,7 @@ class RepoView:
             return self.repo.url
         return ""
 
-    def is_dirty(self):
+    def is_dirty(self) -> bool:
         if self.read_only or not self.repo:
             return False
         for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
@@ -502,7 +508,10 @@ class RepoView:
         failed = False
         for root, dirs, files in os.walk(self.working_dir):
             for d in dirs[:]:
-                if d == ".git" or os.path.join(root, d, "") in excluded:
+                if (
+                    d == ".git"
+                    or os.path.join(os.path.normpath(root), d, "") in excluded
+                ):
                     dirs.remove(d)
             if ".secrets" not in Path(root).parts:
                 continue
@@ -516,6 +525,8 @@ class RepoView:
                     target = secretsdir / filename
                     try:
                         contents = _loader.load_from_file(str(filepath))
+                        if contents is None:
+                            raise Exception("decrypting returned None")
                     except Exception as err:
                         logger.warning("could not decrypt %s: %s", filepath, err)
                         failed = True
@@ -530,7 +541,7 @@ class RepoView:
                     logger.verbose("decrypted secret file to %s", target)
         self._loaded_secrets = not failed
 
-    def save_secrets(self):
+    def save_secrets(self) -> List[Path]:
         return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
 
     def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:
@@ -551,14 +562,10 @@ class RepoView:
 
     def _secrets_status(self):
         assert self.repo
-        modified = "\n   ".join(
-            [
-                str(filepath.relative_to(self.repo.working_dir))
-                for filepath, dotsecrets in find_dirty_secrets(
-                    self.working_dir, self.repo
-                )
-            ]
-        )
+        modified = "\n   ".join([
+            str(filepath.relative_to(self.repo.working_dir))
+            for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo)
+        ])
         if modified:
             return f"\n\nSecrets to be committed:\n   {modified}"
         return ""
@@ -589,17 +596,11 @@ class RepoView:
             return self.repo.revision
 
     def lock(self) -> CommentedMap:
-        record = CommentedMap(
-            [
-                ("url", normalize_git_url(self.url, 1)),
-                ("commit", self.get_current_commit()),
-            ]
-        )
-        initial = (
-            self.repo
-            and self.repo.resolve_rev_spec("INITIAL")
-            or self.get_initial_revision()
-        )
+        record = CommentedMap([
+            ("url", normalize_git_url(self.url, 1)),
+            ("commit", self.get_current_commit()),
+        ])
+        initial = self.get_initial_revision()
         if initial:
             record["initial"] = initial
         record["discovered_revision"] = ""  # default: no search occurred
@@ -638,7 +639,7 @@ class RepoView:
         Returns:
             Tuple[str, str]: symlink file name, target path
         """
-        assert name or self.repository.name
+        assert name or self.repository.name, (base_path, self.repository.tpl)
         name = re.sub(r"\W", "_", name or self.repository.name)
         assert name.isidentifier(), name
         if not Path(self.working_dir).is_dir():
@@ -680,11 +681,14 @@ class RepoView:
 
 def add_transient_credentials(git, url, username, password):
     transient_url = add_user_to_url(url, username, password)
+    if transient_url == url:
+        return transient_url
     replacement = f'url."{transient_url}".insteadOf="{url}"'
     # _git_options get cleared after next git command is issued
     git._git_options = git.transform_kwargs(
         split_single_char_options=True, c=replacement
     )
+    return transient_url
 
 
 class GitRepo(Repo):
@@ -697,12 +701,14 @@ class GitRepo(Repo):
             self.url = remote.url
         self.push_url: Optional[str] = None
 
-    def add_transient_push_credentials(self, username, password):
+    def add_transient_push_credentials(self, username: str, password: str) -> str:
         if not self.remote:
-            return
+            return ""
         if self.push_url is None:
             self.push_url = self.repo.git.remote("get-url", "--push", self.remote.name)
-        add_transient_credentials(self.repo.git, self.push_url, username, password)
+        return add_transient_credentials(
+            self.repo.git, self.push_url, username, password
+        )
 
     def set_url_credentials(
         self, username: str, password: str, fetch_only=False
@@ -805,17 +811,15 @@ class GitRepo(Repo):
 
     def find_excluded_dirs(self, root):
         root = os.path.relpath(root, self.working_dir)
-        status, stdout, stderr = self.run_cmd(
-            [
-                "ls-files",
-                "--exclude-standard",
-                "-o",
-                "-i",
-                "--full-name",
-                "--directory",
-                root,
-            ]
-        )
+        status, stdout, stderr = self.run_cmd([
+            "ls-files",
+            "--exclude-standard",
+            "-o",
+            "-i",
+            "--full-name",
+            "--directory",
+            root,
+        ])
         for file in stdout.splitlines():
             path = os.path.join(self.working_dir, file)
             yield path
@@ -894,6 +898,9 @@ class GitRepo(Repo):
         return success
 
     def get_initial_revision(self):
+        initial = self.resolve_rev_spec("INITIAL")
+        if initial:
+            return initial
         if not self.repo.head.is_valid():
             return ""  # an uninitialized repo
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))

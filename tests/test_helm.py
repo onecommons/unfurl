@@ -66,22 +66,22 @@ class HelmTest(unittest.TestCase):
         self.assertEqual(summary["job"], {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 7,
+                    "total": 3,
                     "ok": 3,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 4,
+                    "skipped": 0,
                     "changed": 3,
                     })
         self.assertEqual([t for t in summary["tasks"] if t["status"]], [
                     {
                         "status": "ok",
                         "target": "stable_repo",
-                        "operation": "create",
+                        "operation": "configure",
                         "template": "stable_repo",
                         "type": "unfurl.nodes.HelmRepository",
                         "targetStatus": "ok",
-                        "targetState": "created",
+                        "targetState": "configured",
                         "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",

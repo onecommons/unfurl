@@ -1,0 +1,52 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    mycluster:
+      type: DOCluster
+      artifacts:
+        cluster_config:
+          type: ClusterTerraform
+          file: main.tf
+      metadata:
+        module: docs.examples.artifact3
+artifact_types:
+  ClusterOp:
+    derived_from: unfurl.artifacts.Executable
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+        operations:
+          execute:
+            inputs:
+              prop1:
+                type: string
+              prop2:
+                type: integer
+  ClusterTerraform:
+    derived_from:
+    - unfurl.artifacts.TerraformModule
+    - ClusterOp
+node_types:
+  DOCluster:
+    derived_from: tosca.nodes.Root
+    artifacts:
+      cluster_config:
+        type: ClusterOp
+    properties:
+      my_property:
+        type: string
+        default: default
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            inputs:
+              prop1:
+                eval: .::my_property
+              prop2: 0
+            metadata:
+              arguments:
+              - prop1
+              - prop2
+            implementation:
+              primary: cluster_config

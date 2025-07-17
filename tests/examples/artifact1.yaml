@@ -1,0 +1,41 @@
+kind: Ensemble
+apiVersion: unfurl/v1.0.0
+spec:
+  service_template:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    topology_template:
+      node_templates:
+        configurator-artifacts:
+          type: unfurl.nodes.LocalRepository
+          artifacts:
+            terraform:
+              type: unfurl.artifacts.TerraformModule
+              properties:
+                resultTemplate:
+                  attributes:
+                    output_attribute: "{{ '.name' | eval }} node {{arguments.foo}}:{{arguments.bar}}"
+              interfaces:
+                Executable:
+                  type: unfurl.interfaces.Executable
+                  inputs:
+                    foo: hello
+                  operations:
+                    execute:
+                      inputs:
+                        bar:
+                          type: integer
+                          default: 1
+              file: missing.tf
+              contents: "resource \"null_resource\" \"null\" {\n}\n"
+          metadata:
+            module: service_template
+        test:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    primary: terraform
+          metadata:
+            module: service_template

@@ -7,11 +7,8 @@ Internal classes supporting the runtime.
 import base64
 import collections
 from collections.abc import MutableSequence, Mapping
-import hashlib
 import math
 import os
-from random import choice
-import string
 import sys
 import os.path
 import re
@@ -32,19 +29,22 @@ from typing import (
     NewType,
     OrderedDict,
 )
-from typing_extensions import Protocol, NoReturn, TypedDict, Unpack
+from typing_extensions import NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .manifest import Manifest
+    from .yamlmanifest import YamlManifest
     from .runtime import (
         EntityInstance,
         InstanceKey,
         HasInstancesInstance,
         TopologyInstance,
+        RelationshipInstance,
     )
     from .configurator import Dependency
+    from .spec import EntitySpec
 
 from .logs import getLogger
 from .eval import _Tracker, RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -57,6 +57,7 @@ from .result import (
     ExternalValue,
     serialize_value,
     is_sensitive_schema,
+    wrap_var,
 )
 from .util import (
     ChainMap,
@@ -78,12 +79,12 @@ from .projectpaths import FilePath, get_path
 
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
-from ansible.utils import unsafe_proxy
-from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from jinja2.runtime import DebugUndefined
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.properties import Property
 
 from .tosca_plugins.functions import (
     urljoin,
@@ -93,6 +94,7 @@ from .tosca_plugins.functions import (
     to_googlecloud_label,
     generate_string,
 )
+from tosca import global_state
 
 logger = getLogger("unfurl")
 
@@ -158,7 +160,7 @@ class Reason(str, Enum):
     upgrade = "upgrade"
     update = "update"
     missing = "missing"
-    error = "error"
+    repair = "repair"
     degraded = "degraded"
     prune = "prune"
     run = "run"
@@ -166,6 +168,9 @@ class Reason(str, Enum):
     undeploy = "undeploy"
     stop = "stop"
     connect = "connect"
+    subtask = "subtask"
+    error = "error"
+    """Synonym for repair. Deprecated."""
 
     def __str__(self) -> str:
         return self.value
@@ -265,6 +270,12 @@ def reload_collections(ctx=None):
 reload_collections()
 
 
+def get_Self(ctx):
+    from .dsl import proxy_instance
+
+    return proxy_instance(ctx.currentResource, None, ctx)
+
+
 class Templar(ansible.template.Templar):
     def template(self, variable, **kw):
         if isinstance(variable, Results):
@@ -347,6 +358,9 @@ def is_template(val, ctx=None):
     return isinstance(val, str) and not not _clean_regex.search(val)
 
 
+DEBUG_EX = os.getenv("UNFURL_TEST_DEBUG_EX")
+
+
 class _VarTrackerDict(dict):
     ctx: Optional[RefContext] = None
 
@@ -354,7 +368,8 @@ class _VarTrackerDict(dict):
         try:
             val = super().__getitem__(key)
         except KeyError:
-            logger.debug('Missing variable "%s" in template', key)
+            if DEBUG_EX:
+                logger.debug('Missing variable "%s" in template', key)
             raise
 
         try:
@@ -362,29 +377,6 @@ class _VarTrackerDict(dict):
             return self.ctx.resolve_reference(key)
         except KeyError:
             return val
-
-
-def _wrap_dict(v):
-    if isinstance(v, Results):
-        # wrap_var() fails with Results types, this is equivalent:
-        v.applyTemplates = False
-        return v
-    return dict((wrap_var(k), wrap_var(item)) for k, item in v.items())
-
-
-unsafe_proxy._wrap_dict = _wrap_dict
-
-
-def _wrap_sequence(v):
-    if isinstance(v, Results):
-        # wrap_var() fails with Results types, this is equivalent:
-        v.applyTemplates = False
-        return v
-    v_type = type(v)
-    return v_type(wrap_var(item) for item in v)
-
-
-unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
 def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined):
@@ -411,22 +403,35 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         else:
             return f"<<{msg}>>"
     value = value.strip()
+    want_result = ctx.wantList == "result"
+    if ctx.wantList:
+        # we're building a string so we don't want lists
+        ctx = ctx.copy(wantList=False)
     if ctx.task:
         log = ctx.task.logger
     else:
         log = logger  # type: ignore
+
+    in_log_message = False
 
     # local class to bind with logger and ctx
     class _UnfurlUndefined(DebugUndefined):
         __slots__ = ()
 
         def _log_message(self) -> None:
-            msg = "Template: %s" % self._undefined_message
-            # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
-            log.debug("%s\nTemplate source:\n%s", msg, value)
-            log.warning(msg)
-            if ctx.task:  # already logged, so don't log
-                UnfurlTaskError(ctx.task, msg, False)
+            nonlocal in_log_message
+            if in_log_message:
+                return
+            in_log_message = True
+            try:
+                msg = "Template: %s" % self._undefined_message
+                # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
+                log.debug("%s\nTemplate source:\n%s", msg, value)
+                log.warning(msg)
+                if ctx.task:  # already logged, so don't log
+                    UnfurlTaskError(ctx.task, msg, False)
+            finally:
+                in_log_message = False
 
         def _fail_with_undefined_error(  # type: ignore
             self, *args: Any, **kwargs: Any
@@ -516,10 +521,21 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         __python_executable=sys.executable,
         __now=time.time(),
     )
-    if hasattr(ctx.currentResource, "attributes"):
-        vars["SELF"] = ctx.currentResource.attributes  # type: ignore
-    if os.getenv("UNFURL_TEST_DEBUG_EX"):
-        log.debug("template vars for %s: %s", value[:300], list(ctx.vars))
+    from .runtime import EntityInstance
+
+    if isinstance(ctx.currentResource, EntityInstance):
+        vars["SELF"] = ctx.currentResource.attributes
+        if "Self" not in ctx.vars:
+            vars["Self"] = get_Self(ctx)
+        if DEBUG_EX:
+            log.debug(
+                "template vars for %s: %s %s ",
+                value[:300],
+                ctx.currentResource.type,
+                list(ctx.vars),
+            )
+    else:
+        vars["SELF"] = ctx.currentResource
     vars.update(ctx.vars)
     vars.ctx = ctx
 
@@ -528,10 +544,14 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
     templar._available_variables = vars
 
     oldvalue = value
+    ctx.trace("evaluating template", value)
     index = ctx.referenced.start()
     # set referenced to track references (set by Ref.resolve)
     # need a way to turn on and off
+    saved_context = global_state.context
     try:
+        global_state.context = ctx
+
         # strip whitespace so jinija native types resolve even with extra whitespace
         # disable caching so we don't need to worry about the value of a cached var changing
         # use do_template because we already know it's a template
@@ -539,7 +559,9 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             if isinstance(ctx, SafeRefContext):
                 value = _sandboxed_template(value, ctx, vars, _UnfurlUndefined)
             else:
-                value = templar.template(value, fail_on_undefined=fail_on_undefined)
+                value = templar.template(
+                    value, fail_on_undefined=True, escape_backslashes=False
+                )
         except Exception as e:
             msg = str(e)
             # XXX have _UnfurlUndefined throw an exception with the missing obj and key
@@ -554,11 +576,12 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             if ctx.strict:
                 log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
                 raise UnfurlError(value)
-            else:
+            elif ctx.task:
                 log.warning(value[2:100] + "... see debug log for full report")
-                log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
-                if ctx.task:
-                    UnfurlTaskError(ctx.task, msg)
+                log.debug("%s\nTemplate source:\n%s", value, oldvalue, stack_info=True)
+                UnfurlTaskError(ctx.task, msg)
+            else:
+                ctx.trace(value)
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
@@ -567,7 +590,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                     if is_sensitive(result):
                         # note: even if the template rendered a list or dict
                         # we still need to wrap the entire result as sensitive because we
-                        # don't know how the referenced senstive results were transformed by the template
+                        # don't know how the referenced sensitive results were transformed by the template
                         ctx.trace("setting template result as sensitive")
                         # mark the template result as sensitive
                         return wrap_sensitive_value(value)
@@ -576,23 +599,22 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
 
                 if (
                     external_result
-                    and ctx.wantList == "result"
+                    and want_result
                     and external_result.external
                     and value == external_result.external.get()
                 ):
                     # return a Result with the external value instead
                     return external_result
-
-                # wrap result as AnsibleUnsafe so it isn't evaluated again
-                return wrap_var(value)
             else:
                 ctx.trace("no modification after processing template:", value)
     finally:
         ctx.referenced.stop()
+        global_state.context = saved_context
         if overrides:
             # restore original values
             templar._apply_templar_overrides(overrides)
-    return value
+    # wrap result as AnsibleUnsafe so it isn't evaluated again
+    return wrap_var(value)
 
 
 def _template_func(args, ctx: RefContext):
@@ -784,9 +806,13 @@ def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
 
 set_eval_func("get_env", get_env, True)
 
+set_eval_func(
+    "_arguments",
+    lambda arg, ctx: ctx.task and ctx.task._arguments(),
+)
 
-def set_context_vars(vars, resource: "EntityInstance"):
-    root = cast("TopologyInstance", resource.root)
+
+def set_context_vars(vars, root: "TopologyInstance"):
     ROOT: Dict[str, Any] = {}
     vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
     if "inputs" in root._attributes:
@@ -800,15 +826,14 @@ def set_context_vars(vars, resource: "EntityInstance"):
     if app_template:
         app = root.find_instance(app_template.name)
         if app:
-            ROOT["app"] = app.attributes
-        for name, req in app_template.requirements.items():
+            ROOT["app"] = app
+        for name, req in app_template.requirements_dict.items():
             if req.relationship and req.relationship.target:
                 target = root.get_root_instance(
                     cast(NodeTemplate, req.relationship.target.toscaEntityTemplate)
                 ).find_instance(req.relationship.target.name)
                 if target:
-                    ROOT[name] = target.attributes
-
+                    ROOT[name] = target
     return vars
 
 
@@ -822,6 +847,13 @@ class _EnvMapper(dict):
     def copy(self):
         return _EnvMapper(self)
 
+    def __contains__(self, key) -> bool:
+        try:
+            self[key]  # needs to be resolved
+            return True
+        except KeyError:
+            return False
+
     def __missing__(self, key):
         objname, sep, prop = key.partition("_")
         assert self.ctx
@@ -832,7 +864,7 @@ class _EnvMapper(dict):
             if objname == "APP":
                 obj = app
             else:
-                for name, req in app.requirements.items():
+                for name, req in app.requirements_dict.items():
                     if name.upper() == objname:
                         if req.relationship and req.relationship.target:
                             obj = req.relationship.target
@@ -870,28 +902,34 @@ set_eval_func("to_env", to_env)
 
 set_eval_func(
     "to_label",
-    lambda arg, ctx: to_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_label(
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 
 
 set_eval_func(
     "to_dns_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_dns_label(
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx), **map_value(ctx.kw, ctx)),
+    lambda arg, ctx: to_kubernetes_label(
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
+    ),
     safe=True,
 )
 
 set_eval_func(
     "to_googlecloud_label",
     lambda arg, ctx: to_googlecloud_label(
-        map_value(arg, ctx), **map_value(ctx.kw, ctx)
+        map_value(arg, ctx, flatten=True), **map_value(ctx.kw, ctx)
     ),
     safe=True,
 )
@@ -914,11 +952,8 @@ def get_ensemble_metadata(arg, ctx: RefContext):
     if arg:
         key = map_value(arg, ctx)
         if key == "project_namespace_subdomain" and ensemble.repo:
-            return ".".join(
-                reversed(
-                    os.path.dirname(ensemble.repo.project_path().lower()).split("/")
-                )
-            )
+            parts = os.path.dirname(ensemble.repo.project_path().lower()).split("/")
+            return ".".join(reversed([to_dns_label(p) for p in parts]))
         return metadata.get(key, "")
     else:
         return metadata
@@ -932,9 +967,14 @@ _toscaKeywordsToExpr = {
     "SOURCE": ".source",
     "TARGET": ".target",
     "ORCHESTRATOR": "::localhost",
-    "HOST": ".parents",
+    "HOST": ".hosted_on",
     "OPERATION_HOST": "$OPERATION_HOST",
 }
+
+
+def resolve_function_keyword(node_name: str):
+    """see 4.1 Reserved Function Keywords"""
+    return _toscaKeywordsToExpr.get(node_name, "::" + node_name)
 
 
 def get_attribute(args, ctx: RefContext):
@@ -943,7 +983,7 @@ def get_attribute(args, ctx: RefContext):
     candidate_name = args.pop(0)
     ctx = ctx.copy(ctx._lastResource)
 
-    start = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    start = resolve_function_keyword(entity_name)
     if args:
         attribute_name = args.pop(0)
         # need to include candidate_name as a test in addition to selecting it
@@ -977,12 +1017,15 @@ def get_nodes_of_type(type_name: str, ctx: RefContext):
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True, True)
 
-set_eval_func("generate_string", lambda arg, ctx: generate_string(**arg), True, True)
-# use this alias for compability with unfurl-gui:
-set_eval_func("_generate", lambda arg, ctx: generate_string(**arg), True, True)
 
-
-set_eval_func("urljoin", lambda args, ctx: urljoin(*args), False, True)
+# use this alias for compatibility with unfurl-gui (note that arg are kw args)
+# (generate_string is wrapped by the eval_func decorator)
+set_eval_func(
+    "_generate",
+    lambda arg, ctx: generate_string._func(**map_value(arg, ctx)),  # type:ignore [attr-defined]
+    True,
+    True,
+)
 
 
 class ContainerImage(ExternalValue):
@@ -1076,7 +1119,7 @@ class ContainerImage(ExternalValue):
         name, sep, digest = name.partition("@")
         if not sep:
             digest = None
-            name, sep, qualifier = artifact_name.partition(":")
+            name, sep, qualifier = name.partition(":")
             if sep:
                 tag = qualifier
         return name.lower(), tag, digest, hostname
@@ -1122,7 +1165,7 @@ set_eval_func(
 
 def _get_instances_from_keyname(ctx, entity_name):
     ctx = ctx.copy(ctx._lastResource)
-    query = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    query = resolve_function_keyword(entity_name)
     instances = cast(ResultsList, ctx.query(query, wantList=True))
     if instances:
         return instances
@@ -1145,7 +1188,7 @@ def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
 
 
 def _get_container_image_from_repository(
-    entity, artifact_name
+    entity: "EntityInstance", artifact_name: str
 ) -> Optional["ContainerImage"]:
     # aka get_artifact_as_value
     name, tag, digest, hostname = ContainerImage.split(artifact_name)
@@ -1176,7 +1219,7 @@ def _get_container_image_from_repository(
 def get_artifact(
     ctx: RefContext,
     entity: Union[None, str, "EntityInstance"],
-    artifact_name: str,
+    artifact_name: Union[str, Dict[str, str]],
     location=None,
     remove=None,
 ) -> Optional[ExternalValue]:
@@ -1191,14 +1234,25 @@ def get_artifact(
     """
     from .runtime import NodeInstance, ArtifactInstance
 
-    if not entity:
+    if entity == "ANON":
+        current = ctx.currentResource.template
+        if not current:
+            return None
+        artifact = current.find_or_create_artifact(artifact_name, predefined=False)
+        if artifact:
+            return artifact.as_value()
+        else:
+            return None
+    elif not isinstance(artifact_name, str):
+        return None
+    elif isinstance(entity, str):
+        instances = _get_instances_from_keyname(ctx, entity)
+    elif not entity:
         return ContainerImage.make(
             artifact_name
         )  # XXX this assumes its a container image
-    if isinstance(entity, ArtifactInstance):
+    elif isinstance(entity, ArtifactInstance):
         return cast(ArtifactSpec, entity.template).as_value()
-    if isinstance(entity, str):
-        instances = _get_instances_from_keyname(ctx, entity)
     elif isinstance(entity, NodeInstance):
         if entity.template.is_compatible_type("unfurl.nodes.Repository"):
             # XXX retrieve method from template definition
@@ -1229,7 +1283,7 @@ set_eval_func(
 )  # type: ignore
 
 
-def get_import(arg: RefContext, ctx):
+def get_import(arg: str, ctx: RefContext):
     """
     Returns the external resource associated with the named import
     """
@@ -1276,51 +1330,70 @@ class _Import:
         self.local_instance = local_instance
 
 
-ImportsBase = OrderedDict[str, _Import]
+class Imports(OrderedDict[str, _Import]):
+    """
+    Track shadowed nodes from external manifests and nested topologies.
+    The key syntax is import_name[":"node_name] for imported nodes and ":"nested_name for nested nodes.
 
+    external instance   key syntax                    created by
+    -----------------   ----------------------------  ---------------------------------------------------
+    local instances     "locals", "secrets"           YamlManifest.__init__
+    external root       import_name                   load_external_ensemble
+    external nodes      import_name:external_name     Plan.create_shadow_instance
+    nested topologies   :outer_node_name:"root"       TopologyInstance.create_nested_topology
+    nested root nodes   :outer_node_name:nested_node  _create_substituted_topology, Plan.create_resource
+    """
 
-class Imports(ImportsBase):
     manifest: Optional["Manifest"] = None
+    connections: Optional[List["RelationshipInstance"]] = None
 
-    def find_import(self, qualified_name: str) -> Optional["HasInstancesInstance"]:
-        # return a local shadow of the imported instance
-        # or the imported instance itself if no local shadow exist (yet).
+    def find_import(self, qualified_name: str) -> Optional[_Import]:
         imported = self._find_import(qualified_name)
         if imported:
             return imported
         iName, sep, rName = qualified_name.partition(":")
         if not iName:
-            # name is in the current ensemble (but maybe a different topology)
             return None
         assert self.manifest
         localEnv = self.manifest.localEnv
-        if iName not in self and localEnv:
+        if localEnv:
             project = localEnv.project or localEnv.homeProject
             tpl = project and project.find_ensemble_by_name(iName)
             if tpl:
-                self.manifest.load_external_ensemble(iName, dict(manifest=tpl))  # type: ignore
+                cast("YamlManifest", self.manifest).load_external_ensemble(
+                    iName, dict(manifest=tpl)
+                )
                 return self._find_import(qualified_name)
         return None
 
-    def _find_import(self, name: str) -> Optional["HasInstancesInstance"]:
-        if name in self:
-            # fully qualified name already added
-            return self[name].local_instance or self[name].external_instance
-        iName, sep, rName = name.partition(":")
+    def find_instance(self, qualified_name: str) -> Optional["HasInstancesInstance"]:
+        # return a local shadow of the imported instance
+        # or the imported instance itself if no local shadow exist (yet).
+        imported = self.find_import(qualified_name)
+        if imported:
+            return imported.local_instance or imported.external_instance
+        iName, sep, rName = qualified_name.partition(":")
         if not iName:
             # name is in the current ensemble (but maybe a different topology)
             assert self.manifest and self.manifest.rootResource
             assert sep and rName
             return self.manifest.rootResource.find_instance(rName)
-        if iName not in self:
+        return None
+
+    def _find_import(self, name: str) -> Optional[_Import]:
+        if name in self:
+            # fully qualified name already added
+            return self[name]
+        iName, sep, rName = name.partition(":")
+        if not iName or iName not in self:
             return None
         # do a unqualified look up to find the declared import
         imported = self[iName].external_instance.root.find_instance(rName or "root")
         if imported:
-            self.add_import(iName, imported)
-        return imported
+            return self.add_import(iName, imported)
+        return None
 
-    def set_shadow(self, key, local_instance, external_instance):
+    def set_shadow(self, key: str, local_instance, external_instance) -> _Import:
         if key not in self:
             record = self.add_import(key, external_instance)
         else:
@@ -1331,7 +1404,8 @@ class Imports(ImportsBase):
         record.local_instance = local_instance
         return record
 
-    def add_import(self, key, external_instance, spec=None):
+    def add_import(self, key, external_instance, spec=None) -> _Import:
+        # Adds an external (imported or nested) instance
         self[key] = _Import(external_instance, spec or {})
         return self[key]
 
@@ -1397,7 +1471,7 @@ class SecretResource(ExternalResource):
 
 # shortcuts for local and secret
 def shortcut(arg, ctx):
-    return Ref(dict(ref=dict(external=ctx.currentFunc), select=arg)).resolve(
+    return Ref(dict(eval=dict(external=ctx.currentFunc), select=arg)).resolve(
         ctx, wantList="result"
     )
 
@@ -1430,6 +1504,56 @@ class DelegateAttributes:
                 return result[0]
             else:
                 return result
+
+
+def find_connection(
+    ctx: RefContext,
+    target: Optional["EntityInstance"],
+    relation: str = "tosca.relationships.ConnectsTo",
+) -> Optional["RelationshipInstance"]:
+    from .runtime import EntityInstance
+
+    connection: Optional["RelationshipInstance"] = None
+    if not isinstance(ctx.currentResource, EntityInstance):
+        raise UnfurlError(
+            f"find_connection expressions can only be using in a runtime context, not with a {ctx.currentResource}"
+        )
+    if not target:
+        target = ctx.currentResource.root
+    elif not isinstance(target, EntityInstance):
+        raise UnfurlError(f'find_connection target "{target}" has wrong type')
+
+    if ctx.vars.get("OPERATION_HOST"):
+        operation_host = ctx.vars["OPERATION_HOST"].context.currentResource
+        connection = cast(
+            Optional["RelationshipInstance"],
+            Ref(
+                f"$operation_host::.requirements::*[.type={relation}][.target=$target]",
+                vars=dict(target=target, operation_host=operation_host),
+            ).resolve_one(ctx),
+        )
+
+    # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
+    if not connection:
+        # no connection, see if there's a default relationship template defined for this target
+        endpoints = cast(EntityInstance, target).get_default_relationships(relation)
+        if endpoints:
+            connection = endpoints[0]
+    if connection:
+        from .runtime import RelationshipInstance
+
+        assert isinstance(connection, RelationshipInstance)
+        return connection
+    return None
+
+
+def _find_connection(arg, ctx):
+    return find_connection(
+        ctx, map_value(arg, ctx), relation=map_value(ctx.kw.get("relation"), ctx)
+    )
+
+
+set_eval_func("find_connection", _find_connection, safe=True)
 
 
 AttributeChange = MutableMapping[str, Any]
@@ -1587,6 +1711,7 @@ class AttributeManager:
     def __init__(self, yaml=None, task=None):
         self.attributes: Dict[str, Tuple[EntityInstance, ResultsMap]] = {}
         self.statuses: StatusMap = {}
+        self.super_maps: Dict[Tuple[str, str], ResultsMap] = {}
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
         self._context_vars = None
@@ -1615,13 +1740,12 @@ class AttributeManager:
         else:
             self.statuses[resource.key][1] = newvalue
 
-    def mark_referenced_templates(self, template):
+    def mark_referenced_templates(self, template: "EntitySpec"):
         for resource, attr in self.attributes.values():
-            if (
-                resource.template is not template
-                and template not in resource.template._isReferencedBy
-            ):
-                resource.template._isReferencedBy.append(template)  # type: ignore
+            if resource.template is not template:
+                resource.template.add_reference(
+                    template, template.ReferenceType.Property
+                )
 
     def _get_context(self, resource) -> RefContext:
         if (
@@ -1629,7 +1753,7 @@ class AttributeManager:
             or self._context_vars["NODES"].resource is not resource.root
         ):
             self._context_vars = {}
-            set_context_vars(self._context_vars, resource)
+            set_context_vars(self._context_vars, resource.root)
         ctor = SafeRefContext if self.safe_mode else RefContext
         ctx = ctor(resource, self._context_vars, task=self.task, strict=self.strict)
         ctx.referenced = self.tracker
@@ -1638,28 +1762,95 @@ class AttributeManager:
     def get_attributes(self, resource: "EntityInstance") -> ResultsMap:
         if resource.nested_key not in self.attributes:
             if resource.shadow:
+                # shadow is the imported instance or the inner node of a substituted node
                 return resource.shadow.attributes
+            mode = os.getenv("UNFURL_VALIDATION_MODE")
+            if mode is not None and "nopropcheck" in mode:
+                self.validate = False
 
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
                 properties = resource.template.properties
-                _attributes = ChainMap(
-                    resource._attributes,
-                    properties,
-                    specAttributes,
-                )
+                maps: List[MutableMapping] = [properties, specAttributes]
+                outer_template = resource.template.topology.substitute_of
+                if outer_template:
+                    # if the node is a substitution
+                    # we need to evaluate the properties defined on the outer node in the context of the outer topology
+                    outer_instance = resource.apex.find_instance(
+                        outer_template.nested_name
+                    )
+                    if outer_instance:
+                        outer_properties = ResultsMap(
+                            outer_template.toscaEntityTemplate._properties_tpl,
+                            self._get_context(outer_instance),
+                            validate=self.validate,
+                        )
+                        maps.insert(0, outer_properties)
+                _attributes = ChainMap(resource._attributes, *maps)
             else:
                 _attributes = ChainMap(resource._attributes)
             ctx = self._get_context(resource)
-            mode = os.getenv("UNFURL_VALIDATION_MODE")
-            if mode is not None and "nopropcheck" in mode:
-                self.validate = False
             attributes = ResultsMap(_attributes, ctx, validate=self.validate)
             self.attributes[resource.nested_key] = (resource, attributes)
             return attributes
         else:
             attributes = self.attributes[resource.nested_key][1]
             return attributes
+
+    def get_super(self, ctx: RefContext) -> Optional[ResultsMap]:
+        if (
+            not ctx._lastResource.template
+            or not ctx._lastResource.template.toscaEntityTemplate.type_definition
+        ):
+            return None
+        key = (
+            ctx._lastResource.key,
+            ctx.tosca_type and ctx.tosca_type.global_name or "",
+        )
+        super_map = self.super_maps.get(key)
+        if super_map is not None:
+            return super_map
+        base_defs = None
+        if ctx.tosca_type:
+            tosca_type = (
+                ctx._lastResource.template.toscaEntityTemplate.type_definition.super(
+                    ctx.tosca_type
+                )
+            )
+        else:
+            tosca_type = ctx._lastResource.template.toscaEntityTemplate.type_definition
+            base_type = ctx._lastResource.template.toscaEntityTemplate.type_definition.parent_type
+            if base_type:
+                base_defs = base_type.get_properties_def()
+        if not tosca_type:  # no more super classes
+            return None
+        _attributes = {}
+        defs = {}
+        for p_def in tosca_type.get_properties_def_objects():
+            if p_def.schema and "default" in p_def.schema:
+                if not ctx.tosca_type:
+                    # if a property is not defined on the template its value will be set to its type's default value
+                    # so super() should that type's superclass's default instead of the type's default value
+                    if (
+                        p_def.name
+                        not in ctx._lastResource.template.toscaEntityTemplate._properties_tpl
+                    ):
+                        if not base_defs or p_def.name not in base_defs:
+                            continue
+                        p_def = base_defs[p_def.name]
+                        if not p_def.schema or "default" not in p_def.schema:
+                            continue
+                _attributes[p_def.name] = p_def.default
+                defs[p_def.name] = Property(
+                    p_def.name, p_def.default, p_def.schema, tosca_type.custom_def
+                )
+        super_map = ResultsMap(
+            _attributes, ctx.copy(tosca_type=tosca_type), self.validate, defs
+        )
+        self.super_maps[
+            (ctx._lastResource.key, tosca_type and tosca_type.global_name or "")
+        ] = super_map
+        return super_map
 
     def _reset(self):
         self.attributes = {}
@@ -1683,13 +1874,19 @@ class AttributeManager:
         return savedValue
 
     @staticmethod
-    def _check_attribute(specd, key: str, value: ResultsItem, instance):
+    def _check_attribute(
+        specd, key: str, value: ResultsItem, instance: "EntityInstance"
+    ):
         changed = value.has_diff()
+        is_property = key in specd  # declared as a property
+        is_attribute = (
+            key in instance.template.attributeDefs
+        )  # explicitly declared an attribute
         live = (
             changed  # modified by this task
-            # explicitly declared an attribute:
-            or key in instance.template.attributeDefs
-            or key not in specd  # not declared as a property
+            # an attribute that wasn't also set as a property on the template
+            or (is_attribute and not instance.template.is_property_set(key))
+            or not is_property  # any attribute not declared as a property
             or key in instance._attributes  # previously modified
         )
         return changed, live, value.get_before_set()
@@ -1717,7 +1914,7 @@ class AttributeManager:
         changes: AttributesChanges = cast(AttributesChanges, {})
         _dependencies = cast(_Dependencies, {})
         for resource, attributes in list(self.attributes.values()):
-            overrides, specd = attributes._attributes.split()
+            overrides, specd = cast(ChainMap, attributes._attributes).split()
             # overrides will only contain:
             #  - properties accessed or added while running a task
             #  - properties loaded from the ensemble status yaml (which implies it was previously added or changed)

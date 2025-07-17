@@ -38,8 +38,12 @@ from jsonschema import Draft7Validator, validators, RefResolver
 import jsonschema.exceptions
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.vault import VaultEditor
-from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed  # noqa: F401
-from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var  # noqa: F401
+from ansible.module_utils._text import (
+    to_text,
+    to_bytes,
+    to_native,
+)  # BSD licensed  # noqa: F401
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 import warnings
 import codecs
 import io
@@ -60,7 +64,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("unfurl")
 
-API_VERSION = "unfurl/v1alpha1"
+API_VERSION = "unfurl/v1.0.0"
 
 try:
     from importlib.metadata import files
@@ -171,7 +175,7 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         name: str,
         log: int = logging.DEBUG,
     ) -> None:
-        message = f"error updating resource {name}"
+        message = f'error updating resource "{name}"'
         super().__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
@@ -477,7 +481,9 @@ def clean_output(value: str) -> str:
 
 
 @contextmanager
-def change_cwd(new_path: Optional[str] = None, log: Optional[LogExtraLevels] = None) -> Iterator:
+def change_cwd(
+    new_path: Optional[str] = None, log: Optional[LogExtraLevels] = None
+) -> Iterator:
     """Temporarily change current working directory"""
     old_path = os.getcwd()
     if new_path:
@@ -565,8 +571,8 @@ class ChainMap(MutableMapping):
         self._maps = maps
 
     def copy(self):
-        # assume map implements copy()
-        return ChainMap(*(m.copy() for m in self._maps))  # type: ignore
+        # assume _map[0] implements copy(), the remaining dicts are read-only
+        return ChainMap(self._maps[0].copy(), *self._maps[1:])  # type: ignore
 
     def split(self) -> Tuple[MutableMapping, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
@@ -578,6 +584,12 @@ class ChainMap(MutableMapping):
             except KeyError:
                 pass
         raise KeyError(key)
+
+    def __contains__(self, key) -> bool:
+        for mapping in self._maps:
+            if key in mapping:
+                return True
+        return False
 
     def __setitem__(self, key, value: object) -> None:
         self._maps[0][key] = value
@@ -651,7 +663,47 @@ def is_relative_to(p, *other) -> bool:
         return False
 
 
-def substitute_env(contents, env:Optional[Mapping]=None, preserve_missing=False):
+def should_include_path(
+    include_paths: List[str], exclude_paths: List[str], target_path: str
+) -> bool:
+    """
+    Determine if a given path should be included or excluded based on exclusion and inclusion lists.
+    If no match is found, the path is included by default (use "/" in exclude_paths to exclude by default).
+    If exclude takes precedence over include if the same path appears in both lists. Paths are compared as absolute paths.
+
+    Args:
+        include_paths (list[str]): List of paths to include.
+        exclude_paths (list[str]): List of paths to exclude.
+        target_path (str): The path to check.
+
+    Returns:
+        bool: True if the path should be included, False if it should be excluded.
+    """
+    # Merge paths and sort by length (longest to shortest)
+    all_paths = sorted(
+        exclude_paths + include_paths,
+        key=lambda p: len(os.path.abspath(p)),
+        reverse=True,
+    )
+
+    # Check the target path against the sorted list
+    target_path = os.path.abspath(target_path)
+    for path in all_paths:
+        if is_relative_to(target_path, os.path.abspath(path)):
+            # If the path is in the exclude list, return False
+            if path in exclude_paths:
+                return False
+            # If the path is in the include list, return True
+            if path in include_paths:
+                return True
+
+    # Default to include if no match is found
+    return True
+
+
+def substitute_env(
+    contents: str, env: Optional[Mapping] = None, preserve_missing: bool = False
+):
     r"""
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
     Use \${NAME} to ignore
@@ -659,14 +711,14 @@ def substitute_env(contents, env:Optional[Mapping]=None, preserve_missing=False)
     if env is None:
         env = os.environ
 
-    def replace(m):
+    def replace(m: re.Match) -> str:
         if m.group(1):  # \ found
             return m.group(0)[len(m.group(1)) - 1 or 1 :]
         for name in m.group(2).split("|"):
             if name in env:
                 value = env[name]
                 if callable(value):
-                    return value()
+                    return cast(str, value())
                 return value
         # can't resolve, use default
         if preserve_missing:
@@ -767,7 +819,7 @@ def filter_env(
 
 # copied from tox
 required_envvars = [
-    "TMPDIR",
+    "ASDF_DATA_DIR",
     "CURL_CA_BUNDLE",
     "PATH",
     "LANG",
@@ -779,6 +831,7 @@ required_envvars = [
     "HTTPS_PROXY",
     "NO_PROXY",
     "PYTHONPATH",
+    "TMPDIR",
     "VIRTUAL_ENV",
     "UNFURL_TMPDIR",
     "UNFURL_LOGGING",
@@ -796,6 +849,7 @@ required_envvars = [
     "UNFURL_VALIDATION_MODE",
     "UNFURL_PACKAGE_RULES",
     "UNFURL_LOG_FORMAT",
+    "UNFURL_LOG_TRUNCATE",
     "UNFURL_RAISE_LOGGING_EXCEPTIONS",
     "PY_COLORS",
     "UNFURL_OVERWRITE_POLICY",

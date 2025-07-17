@@ -1,5 +1,5 @@
 """
-This module contains utility functions that can be executed in "spec" mode (e.g. as part of a class definition or in ``_class_init_``)
+This module contains utility functions that can be executed in `"parse" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``)
 and in the safe mode Python sandbox.
 Each of these are also available as Eval `Expression Functions`.
 """
@@ -12,11 +12,13 @@ import string
 import re
 from typing import (
     TYPE_CHECKING,
+    Callable,
     Iterator,
     List,
     Mapping,
     MutableMapping,
     Tuple,
+    TypeVar,
     Union,
     cast,
     Dict,
@@ -32,7 +34,58 @@ from tosca import (
     safe_mode,
     global_state_mode,
     global_state_context,
+    has_function
 )
+import tosca
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+if safe_mode():
+
+    def eval_func(func: F) -> F:
+        def wrapped(*args, **kwargs):
+            kwargs[func.__name__] = list(args)
+            return EvalData({"eval": kwargs})
+
+        return cast(F, wrapped)
+else:
+    from ..eval import map_value, set_eval_func
+    from tosca import global_state
+
+    def eval_func(func: F) -> F:
+        def wrapped(*args, **kwargs):
+            if global_state_mode() == "runtime":
+                ctx = global_state_context()
+                assert ctx, func
+                return func(*map_value(args, ctx), **map_value(kwargs, ctx))
+            elif (
+                not safe_mode() and not has_function(args) and not has_function(kwargs)
+            ):
+                return func(*args, **kwargs)
+            else:
+                kwargs[func.__name__] = list(args)
+                return EvalData({"eval": kwargs})
+
+        if not safe_mode():
+
+            def _eval_func(arg, ctx):
+                kw = ctx.kw.copy()
+                kw.pop(ctx.currentFunc or func.__name__, None)
+                return func(*map_value(arg, ctx, as_list=True), **map_value(kw, ctx))
+
+            set_eval_func(
+                func.__name__,
+                _eval_func,
+                safe=True,
+            )
+            wrapped._func = func  # type:ignore [attr-defined]
+            wrapped._eval_func = _eval_func  # type:ignore [attr-defined]
+        return cast(F, wrapped)
+
+
+scalar = eval_func(tosca.scalar)
+
+scalar_value = eval_func(tosca.scalar_value)
 
 
 def _digest(arg: str, case: str, digest: Optional[str] = None) -> str:
@@ -100,7 +153,7 @@ _label_defaults = LabelKwArgs(
 )
 
 
-def _validate_allowed(chars):
+def _validate_allowed(chars: str) -> str:
     # avoid common footgun
     if chars and chars[0] == "[" and chars[-1] == "]":
         return chars[1:-1]
@@ -142,7 +195,7 @@ def to_label(
         digestlen (int, optional): If a label is truncated, the length of the digest to include in the label. 0 to disable.
                                 Default: 3 or 2 if max < 32
     """
-    if global_state_mode() == "runtime" or not isinstance(arg, EvalData):
+    if global_state_mode() == "runtime" or (not isinstance(arg, EvalData) and not has_function(arg)):
         return _to_label(arg, **kw)
     else:
         kw[_wrapper] = arg  # type: ignore
@@ -154,6 +207,7 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
     sep: str = kw.get("sep", _label_defaults["sep"])
     digest: Optional[str] = kw.pop("digest", _label_defaults["digest"])
     replace: str = kw.get("replace", _label_defaults["replace"])
+    allowed: str = _validate_allowed(kw.get("allowed", _label_defaults["allowed"]))
     elide_chars = replace
 
     if isinstance(arg, Mapping):
@@ -183,8 +237,10 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
         trunc_chars = trunc - min(len(sep) * (len(arg) - 1), trunc - 1)
         seg_max = max(trunc_chars // len(arg), 1)
         segments = [str(n) for n in arg]
-        labels = [to_label(n, digestlen=0, max=9999, **kw) for n in segments]  # type: ignore
+        # don't do beginning/end conversion until we have the whole string
+        labels = [to_label(n, replace=replace, start=allowed, start_prepend="", end=None, allowed=allowed, digestlen=0, max=9999) for n in segments]  # type: ignore
         length = sum(map(len, labels))
+        joined_label = sep.join(labels)[:trunc]
         if length > trunc_chars or digest is not None:
             # needs truncation and/or digest
             # redistribute space from short segments
@@ -193,16 +249,18 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
             labels = [_mid_truncate(seg, elide_chars, seg_max) for seg in labels]
             if checksum:
                 # one of the labels was truncated, add a digest
-                trunc -= len(sep) + maxchecksum
-                hash = _digest("".join(segments), case, digest)[:maxchecksum]
-                if trunc <= 0:
+                trunctrunc = trunc - maxchecksum
+                hash = _digest("".join(segments), case, digest)
+                hash = hash[:maxchecksum]
+                if trunctrunc <= 0:
                     return hash
-                return sep.join(labels)[:trunc] + sep + hash
-        return sep.join(labels)[:trunc]
+                joined_label = sep.join(labels)[:trunctrunc] + hash
+        if sep:
+            kw["allowed"] = allowed + sep
+        return to_label(joined_label, digestlen=0, max=trunc, **kw)  # type: ignore
     elif isinstance(arg, str):
         start: str = _validate_allowed(kw.get("start", _label_defaults["start"]))
         start_prepend: str = kw.get("start_prepend", _label_defaults["start_prepend"])
-        allowed: str = _validate_allowed(kw.get("allowed", _label_defaults["allowed"]))
         end: Optional[str] = kw.get("end")
 
         if arg and re.match(rf"[^{start}]", arg[0]):
@@ -422,7 +480,8 @@ def get_random_password(
     )
 
 
-def generate_string(preset="", len=0, ranges=(), **kw) -> str:
+@eval_func
+def generate_string(*, preset="", len=0, ranges=(), **kw) -> str:
     # must match https://github.com/onecommons/unfurl-gui/blob/main/packages/oc-pages/vue_shared/lib/directives/generate.js
     if preset == "number":
         return get_random_password(len or 1, valid_chars=string.digits, start="")
@@ -444,6 +503,7 @@ def generate_string(preset="", len=0, ranges=(), **kw) -> str:
         return get_random_password(len or 10, "", extra, valid_chars, start="")
 
 
+@eval_func
 def urljoin(
     scheme: str,
     host: str,
@@ -504,4 +564,6 @@ __all__ = [
     "to_kubernetes_label",
     "to_googlecloud_label",
     "generate_string",
+    "scalar",
+    "scalar_value",
 ]

@@ -6,6 +6,7 @@ from typing import (
     Callable,
     Dict,
     Generator,
+    Iterable,
     Iterator,
     List,
     Optional,
@@ -36,6 +37,7 @@ from .planrequests import (
     SetStateRequest,
     JobRequest,
     create_task_request,
+    filter_config,
     filter_task_request,
     ConfigurationSpec,
     find_parent_resource,
@@ -54,33 +56,7 @@ from .logs import getLogger
 from toscaparser.nodetemplate import NodeTemplate
 
 logger = getLogger("unfurl")
-
-
-def is_external_template_compatible(
-    import_name: str, external: EntitySpec, template: EntitySpec
-):
-    # for now, require template names to match
-    imported = external.tpl.get("imported")
-    if imported:
-        i_name, sep, t_name = imported.partition(":")
-        if i_name != import_name:
-            return False
-    else:
-        t_name = template.name
-
-    node_filter = template.tpl.get("node_filter")
-    if node_filter:
-        return isinstance(
-            external.toscaEntityTemplate, NodeTemplate
-        ) and external.toscaEntityTemplate.match_nodefilter(node_filter)
-
-    if external.name == t_name:
-        if not external.is_compatible_type(template.type):
-            raise UnfurlError(
-                f'external template "{template.name}" not compatible with local template'
-            )
-        return True
-    return False
+MAX_MISSING_PARENT_INSTANCES = 20
 
 
 class Plan:
@@ -105,6 +81,7 @@ class Plan:
         self.root = root
         self.tosca = toscaSpec
         self._checked_connection_task = False
+        self._ran_workflow = False
         assert self.tosca
         if jobOptions.template:
             filterTemplate = self.tosca.get_template(jobOptions.template)
@@ -116,13 +93,11 @@ class Plan:
         else:
             self.filterTemplate = None
 
-    def find_shadow_instance(
-        self, template: EntitySpec, match=is_external_template_compatible
-    ) -> Optional[EntityInstance]:
+    def find_shadow_instance(self, template: EntitySpec) -> Optional[EntityInstance]:
         imported = template.tpl.get("imported")
-        assert self.root.imports is not None
         if imported:
-            _external = self.root.imports.find_import(imported)
+            assert self.root.imports is not None
+            _external = self.root.imports.find_instance(imported)
             if not _external:
                 return None
             if _external.shadow and _external.root is self.root:
@@ -131,30 +106,6 @@ class Plan:
             else:
                 import_name = imported.partition(":")[0]
                 return self.create_shadow_instance(_external, import_name, template)
-
-        searchAll = []
-        for name, record in self.root.imports.items():
-            external = record.external_instance
-            # XXX if external is a Relationship and template isn't, get it's target template
-            #  if no target, create with status == unknown
-
-            if match(name, external.template, template):
-                if record.local_instance:
-                    return record.local_instance
-                else:
-                    return self.create_shadow_instance(external, name, template)
-            if record.spec.get("instance") in ["root", "*"]:
-                # add root instance
-                searchAll.append((name, external))
-
-        # look in the topologies where were are importing everything
-        for name, root in searchAll:
-            for external_descendant in root.get_self_and_descendants():
-                if match(name, external_descendant.template, template):
-                    return self.create_shadow_instance(
-                        external_descendant, name, template
-                    )
-
         return None
 
     def create_shadow_instance(
@@ -196,7 +147,7 @@ class Plan:
             if self.root.template.topology is not template.topology:
                 name = ":" + template.topology.nested_name
                 assert self.root.imports is not None
-                root = self.root.imports.find_import(name)
+                root = self.root.imports.find_instance(name)
                 if not root:
                     self.root.create_nested_topology(template.topology)
                     return
@@ -205,8 +156,25 @@ class Plan:
             for resource in find_resources_from_template_name(root, template.name):
                 yield cast(NodeInstance, resource)
 
-    def create_resource(self, template: NodeSpec) -> NodeInstance:
-        parent = find_parent_resource(self.root, template)
+    def create_resource(self, template: NodeSpec, missing=0) -> Optional[NodeInstance]:
+        parent, parent_template = find_parent_resource(self.root, template)
+        if not parent and parent_template:
+            parent_node = self.tosca.node_from_template(parent_template)
+            if parent_node:
+                if missing > MAX_MISSING_PARENT_INSTANCES:
+                    raise UnfurlError(
+                        f"more than {MAX_MISSING_PARENT_INSTANCES} missing ancestors (last was {parent_node.name}) -- is there a cycle?"
+                    )
+                logger.trace(
+                    "creating missing parent %s for %s %s",
+                    parent_node.name,
+                    template.name,
+                    missing,
+                )
+                parent = self.create_resource(parent_node, missing + 1)
+        if not parent:
+            return None
+
         if self.jobOptions.check or "check" in template.directives:
             status = Status.unknown
         else:
@@ -218,11 +186,13 @@ class Plan:
             assert self.root.imports is not None
             # get the nested TopologyInstance
             nested_root_name = ":" + template.substitution.nested_name
-            nested_root = self.root.imports.find_import(nested_root_name)
+            nested_root = self.root.imports.find_instance(nested_root_name)
             assert nested_root, f"{nested_root_name} should already have been created"
             name = template.substitution.substitution_node.name
             inner = nested_root.find_instance(name)
-            assert inner, f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            assert inner, (
+                f"{name} in {nested_root_name} should have already been created before {instance.name}"
+            )
             assert inner is not instance
             instance.imported = (
                 ":" + template.substitution.substitution_node.nested_name
@@ -242,6 +212,7 @@ class Plan:
             self.jobOptions, op, resource, reason, inputs, startState
         )
         if req:
+            self._ran_workflow = True
             yield req
 
     def _execute_default_configure(
@@ -311,16 +282,18 @@ class Plan:
     ) -> Iterator[TaskRequest]:
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
+        status = resource.local_status or Status.unknown
         missing = (
-            resource.status in [Status.unknown, Status.absent, Status.pending]
+            status in [Status.unknown, Status.absent, Status.pending]
             and resource.state != NodeState.stopped  # stop sets Status back to pending
         )
         # if the resource doesn't exist or failed while creating:
         initialState = not resource.state or resource.state == NodeState.creating
+        self._ran_workflow = False
         if (
             missing
             or self.jobOptions.force
-            or (resource.status == Status.error and initialState)
+            or (status == Status.error and initialState)
         ):
             req = create_task_request(
                 self.jobOptions,
@@ -331,6 +304,7 @@ class Plan:
                 NodeState.creating,
             )
             if req:
+                self._ran_workflow = True
                 yield req
             else:
                 # no create operation defined, run configure instead
@@ -341,7 +315,7 @@ class Plan:
             or resource.state is None
             or resource.state < NodeState.configured
             or (self.jobOptions.force and resource.state != NodeState.started)
-            or resource.status == Status.error
+            or status == Status.error
         ):
             yield from self._execute_default_configure(resource, reason, inputs)
 
@@ -356,6 +330,11 @@ class Plan:
             yield from self._run_operation(
                 NodeState.starting, "Standard.start", resource, reason, inputs
             )
+        if not self._ran_workflow:
+            errorMsg = (
+                f'unable to find a deploy operation on node "{resource.template.name}"'
+            )
+            logger.debug(errorMsg)
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
         # add_target: Operation to notify source some property or attribute of the target changed
@@ -374,6 +353,7 @@ class Plan:
 
             yield from self._run_operation(nodeState, op, resource, reason, inputs)
 
+        self._ran_workflow = False
         if self.workflow == "stop":
             return
 
@@ -413,6 +393,10 @@ class Plan:
             op = "Install.revert"
 
         yield from self._run_operation(nodeState, op, resource, reason, inputs)
+        if not self._ran_workflow:
+            errorMsg = f'unable to find a teardown operation on node "{resource.template.name}"'
+            logger.debug(errorMsg)
+        self._ran_workflow = False
 
     def execute_default_install_op(
         self,
@@ -469,8 +453,7 @@ class Plan:
         seen: Set[int] = set()
         test = partial(self.should_delete, include_test)
         for child, reason in select_dependents(self.root, test, seen):
-            if reason != "cancelled" and id(child) not in seen:
-                seen.add(id(child))
+            if reason != "cancelled":
                 # eventually calls execute_default_undeploy() unless custom workflow
                 yield from self._generate_delete_configurations(child, reason)
 
@@ -501,12 +484,11 @@ class Plan:
         ):
             skip = "virtual instance"
             virtual = True
-        elif not resource.created and not self.jobOptions.destroyunmanaged:
-            skip = "instance wasn't created by this ensemble"
-        elif isinstance(resource.created, str) and not ChangeRecord.is_change_id(
-            resource.created
-        ):
-            skip = f"creation and deletion is managed by another instance {resource.created}"
+        elif not self.jobOptions.destroyunmanaged:
+            if not resource.created:
+                skip = "instance wasn't created by this ensemble (use --destroyunmanaged to override)"
+            elif resource.is_managed():
+                skip = f"creation and deletion is managed by another instance {resource.created} (use --destroyunmanaged to override)"
         elif resource.local_status in [Status.absent, Status.pending]:
             skip = "instance doesn't exist"
 
@@ -560,16 +542,19 @@ class Plan:
         if not self._checked_connection_task:
             self._checked_connection_task = True
             if self.tosca.topology and self.tosca.topology.primary_provider:
-                for rel in self.root.requirements:
+                for rel in self.root.default_relationships:
                     if rel.name == "primary_provider":
                         req = create_task_request(self.jobOptions, "Install.check", rel)
                         if req:
                             yield req
                         return
-                assert False, self.root.requirements
+                assert False, self.root.default_relationships
 
     def _generate_configurations(
-        self, resource: "NodeInstance", reason: Optional[str], workflow: Optional[str] = None
+        self,
+        resource: "NodeInstance",
+        reason: Optional[str],
+        workflow: Optional[str] = None,
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # note: workflow parameter might be an installOp
         workflow = workflow or self.workflow
@@ -704,13 +689,83 @@ class Plan:
     def _get_templates(self) -> List[NodeSpec]:
         assert self.tosca.topology
         filter = self.filterTemplate and self.filterTemplate.name
-        seen: Set[NodeSpec] = set()
+        seen: Dict[EntitySpec, EntitySpec.ReferenceType] = {}
         # order by ancestors
         return list(
-            _get_templates_from_topology(
-                self.tosca.topology, seen, self.interface, filter
-            )
+            self._get_templates_from_topology(self.tosca.topology, seen, filter)
         )
+
+    def _get_templates_from_topology(
+        self,
+        topology: TopologySpec,
+        seen: Dict[EntitySpec, EntitySpec.ReferenceType],
+        filter=None,
+    ) -> Iterator[NodeSpec]:
+        templates = topology.node_templates.values()
+        # order by ancestors
+        return self.order_templates(
+            {
+                t.name: t
+                for t in templates
+                if "virtual" not in t.directives
+                and interface_requirements_ok(self.root, t)
+                # only include conditional templates if all their requirements are met
+                and (
+                    "conditional" not in t.directives
+                    or not t.toscaEntityTemplate.missing_requirements
+                )
+                and (not filter or t.name == filter)
+            },
+            seen,
+        )
+
+    def order_templates(
+        self,
+        templates: Dict[str, NodeSpec],
+        seen: Dict[EntitySpec, EntitySpec.ReferenceType],
+    ) -> Iterator[NodeSpec]:
+        """Order templates so dependencies are yielded first."""
+        for source in templates.values():
+            if self.interface:
+                for operation_host in find_explicit_operation_hosts(
+                    source, self.interface
+                ):
+                    operationHostSpec = templates.get(operation_host)
+                    if operationHostSpec:
+                        if operationHostSpec is not source:
+                            operationHostSpec.add_reference(
+                                source, operationHostSpec.ReferenceType.OperationHost
+                            )
+                        if operationHostSpec in seen:
+                            continue
+                        seen[operationHostSpec] = (
+                            operationHostSpec.ReferenceType.OperationHost
+                        )
+                        yield operationHostSpec
+
+            # skip if we already encountered source while running get_ancestor_templates()
+            if EntitySpec._has_reference(
+                seen, source, EntitySpec.ReferenceType.Requirement
+            ):
+                continue
+
+            for nodespec in get_ancestor_templates([source], templates):
+                if nodespec is not source:
+                    # nodespec ancestor is required by source
+                    nodespec.add_reference(source, nodespec.ReferenceType.Requirement)
+                flags = seen.get(nodespec)
+                if not flags or not flags & EntitySpec.ReferenceType.Requirement:
+                    # setting nodespec now means we won't add nodespec references to other nodes
+                    # (because of the _has_reference check above)
+                    # so essentially, given a lineage, only the first one encountered in the topology will be in other node's _isReferencedBy
+                    # (which fine if we only use it to see if a node connected to the root node (see _get_roots()))
+                    seen[nodespec] = nodespec.ReferenceType.Requirement
+                    if nodespec.substitution:
+                        yield from self._get_templates_from_topology(
+                            nodespec.substitution, seen
+                        )
+                    if not flags:  # skip if already yielded as a operation host
+                        yield nodespec
 
     def include_not_found(self, template):
         return True
@@ -738,18 +793,25 @@ class Plan:
         visited = set()
         for template in templates:
             found = False
+            resource: Optional[NodeInstance]
             for resource in self.find_resources_from_template(template):
                 found = True
                 visited.add(id(resource))
                 yield from self._generate_workflow_configurations(resource, template)
 
-            if not found and "dependent" not in template.directives:
+            if not found:
+                if not template._isReferencedBy and "dependent" in template.directives:
+                    continue
                 abstract = template.abstract
                 if abstract == "select":
                     continue
-                include = self.include_not_found(template)
-                if include or abstract == "substitute":
+                include = abstract == "substitute" or self.include_not_found(template)
+                if include:
                     resource = self.create_resource(template)
+                    if not resource:
+                        raise UnfurlError(
+                            f'could not create instance from template "{template.nested_name}"'
+                        )
                     visited.add(id(resource))
                     if abstract != "substitute":
                         yield from self._generate_workflow_configurations(
@@ -772,7 +834,9 @@ class DeployPlan(Plan):
             return Reason.add
         return None
 
-    def include_instance(self, template: EntitySpec, instance: EntityInstance) -> Optional[str]:
+    def include_instance(
+        self, template: EntitySpec, instance: EntityInstance
+    ) -> Optional[str]:
         """Return whether or not the given instance should be included in the current plan,
         based on the current job's options and whether the template changed or the instance in need of repair?
 
@@ -788,11 +852,12 @@ class DeployPlan(Plan):
         if jobOptions.force:
             return Reason.force
 
-        if jobOptions.add and not jobOptions.skip_new and instance.status != Status.ok:
+        status = instance.local_status or Status.unknown
+        if jobOptions.add and not jobOptions.skip_new and status != Status.ok:
             if not instance.last_change:  # never instantiated before
                 return Reason.add
 
-            if instance.status in [Status.unknown, Status.pending, Status.absent]:
+            if status in [Status.unknown, Status.pending, Status.absent]:
                 return Reason.missing
 
         # if the specification changed:
@@ -812,11 +877,16 @@ class DeployPlan(Plan):
             if "check" in instance.template.directives:
                 # always triggers "check" operation if set
                 instance.local_status = Status.unknown
-            if jobOptions.change_detection != "skip" and instance.last_config_change:
+                reason = Reason.check
+            elif status == Status.pending and self.jobOptions.check:
+                reason = Reason.check
+            elif jobOptions.change_detection != "skip" and instance.last_config_change:
                 # customized is only set if created first!
                 # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
                 # discover would have to calculate digest for configure!
-                if not instance.customized or jobOptions.change_detection == "always":
+                if (
+                    not instance.customized and not instance.is_managed()
+                ) or jobOptions.change_detection == "always":
                     return Reason.reconfigure
         return reason
 
@@ -825,7 +895,7 @@ class DeployPlan(Plan):
         assert instance
         if jobOptions.repair == "none":
             return None
-        status = instance.status
+        status = instance.local_status or Status.unknown
 
         if status in [Status.unknown, Status.pending]:
             if instance.required:
@@ -843,10 +913,10 @@ class DeployPlan(Plan):
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
         else:
-            assert (
-                jobOptions.repair == "error"
-            ), f"repair: {jobOptions.repair} status: {instance.status}"
-            return Reason.error  # repair this
+            assert jobOptions.repair == "error", (
+                f"repair: {jobOptions.repair} status: {status}"
+            )
+            return Reason.repair  # repair this
 
     def is_instance_read_only(self, instance):
         return instance.shadow or "discover" in instance.template.directives
@@ -854,6 +924,15 @@ class DeployPlan(Plan):
     def _generate_workflow_configurations(
         self, instance: NodeInstance, oldTemplate: Optional[NodeSpec]
     ):
+        filter_reason = filter_config(self.jobOptions, "", instance)
+        if filter_reason:
+            if not filter_reason.startswith("instance"):
+                logger.debug(
+                    "skipping %s task: doesn't match filter: '%s'",
+                    instance.nested_name,
+                    filter_reason,
+                )
+            return
         if instance.shadow:
             reason: Optional[str] = Reason.connect
         elif oldTemplate:
@@ -870,9 +949,12 @@ class DeployPlan(Plan):
         else:  # this is newly created resource
             reason = Reason.add
 
+        status = instance.local_status or Status.unknown
         if instance.shadow:
             installOp = "connect"
-        elif instance.status == Status.unknown:
+        elif status == Status.unknown or (
+            status == Status.pending and self.jobOptions.check
+        ):
             installOp = "check"
         elif "discover" in instance.template.directives and not instance.operational:
             installOp = "discover"
@@ -907,6 +989,10 @@ class DeployPlan(Plan):
         )
         if req:
             yield req
+        else:
+            logger.verbose(
+                f'No operation for "reconfigure" defined for instance "{instance.nested_name}" (type "{instance.type}")'
+            )
 
     def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
         interface = taskrequest.configSpec.interface
@@ -988,7 +1074,9 @@ class WorkflowPlan(Plan):
             ):
                 continue
             if self.tosca.is_type_name(step.target):
-                templates = workflow.topology.find_matching_templates(step.target)
+                templates: Iterable[NodeSpec] = (
+                    workflow.topology.find_matching_templates(step.target)
+                )
             else:
                 template = workflow.topology.get_node_template(step.target)
                 if not template:
@@ -1045,7 +1133,7 @@ class RunNowPlan(Plan):
                     if template:
                         assert isinstance(template, NodeSpec)
                         resource = self.create_resource(template)
-                    else:
+                    if not resource:
                         raise UnfurlError(
                             f"specified instance not found: {instance_name}"
                         )
@@ -1105,15 +1193,15 @@ def find_explicit_operation_hosts(template, interface):
                 yield operation_host
 
 
-def interface_requirements_ok(spec: ToscaSpec, template: NodeSpec):
+def interface_requirements_ok(root: TopologyInstance, template: NodeSpec):
     reqs = template.get_interface_requirements()
     if reqs:
         assert isinstance(reqs, list)
         for req in reqs:
             if not any(
                 [
-                    rel.is_compatible_type(req)
-                    for rel in cast(TopologySpec, spec.topology).default_relationships
+                    rel.template.is_compatible_type(req)
+                    for rel in root.default_relationships
                 ]
             ):
                 logger.debug(
@@ -1125,61 +1213,15 @@ def interface_requirements_ok(spec: ToscaSpec, template: NodeSpec):
     return True
 
 
-def _get_templates_from_topology(
-    topology: TopologySpec, seen: Set[NodeSpec], interface, filter=None
-) -> Iterator[NodeSpec]:
-    templates = topology.node_templates.values()
-    # order by ancestors
-    return order_templates(
-        {
-            t.name: t
-            for t in templates
-            if "virtual" not in t.directives
-            and interface_requirements_ok(topology.spec, t)
-            and (not filter or t.name == filter)
-        },
-        seen,
-        interface,
-    )
-
-
-def order_templates(
-    templates: Dict[str, NodeSpec], seen: Set[NodeSpec], interface=None
-) -> Iterator[NodeSpec]:
-    for source in templates.values():
-        if source in seen:
-            continue
-
-        if interface:
-            for operation_host in find_explicit_operation_hosts(source, interface):
-                operationHostSpec = templates.get(operation_host)
-                if operationHostSpec:
-                    if operationHostSpec in seen:
-                        continue
-                    seen.add(operationHostSpec)
-                    yield operationHostSpec
-
-        for nodespec in get_ancestor_templates([source], templates):
-            if nodespec is not source:
-                # ancestor is required by source
-                cast(list, nodespec._isReferencedBy).append(source)
-            if nodespec in seen:
-                continue
-            seen.add(nodespec)
-            if nodespec.substitution:
-                yield from _get_templates_from_topology(
-                    nodespec.substitution, seen, interface
-                )
-            yield nodespec
-
-
 def get_ancestor_templates(
     stack: List[NodeSpec], templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
+    """Yield transitive requirements from topmost to self"""
+    # maintain a stack to avoid circular dependencies
     source = stack[-1]
     if not source.toscaEntityTemplate.is_replaced_by_outer():
         if source.abstract != "select":
-            for req in source.requirements.values():
+            for req in source.requirements:
                 target = req.relationship and req.relationship.target
                 if target and target not in stack:
                     for ancestor in get_ancestor_templates(stack + [target], templates):
@@ -1209,6 +1251,9 @@ def select_dependents(
     root_include_reason = include_test(resource)
     for dep in resource.get_operational_dependents():
         assert isinstance(dep, EntityInstance)
+        if id(dep) in seen:
+            continue
+        seen.add(id(dep))
         for child, include_reason in select_dependents(dep, include_test, seen):
             if include_reason != "cancelled":
                 yield child, include_reason
@@ -1218,7 +1263,7 @@ def select_dependents(
         # this resource has a dependent we don't want to delete, so cancel deleting the resource
         if root_include_reason and root_include_reason != "cancelled":
             logger.verbose(
-                "skip instance '%s' for removal: required instances depend on it: %s",
+                "skip instance '%s' for removal: required instances depend on it: %s (use --force to override)",
                 resource.name,
                 [c.nested_name for c in cancelled],
             )

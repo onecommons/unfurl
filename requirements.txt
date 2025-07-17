@@ -3,19 +3,18 @@ pipenv==2024.0.0 # MIT
 click>=8.0.1,<8.1.4 # BSD 3-clause
 jsonschema[format_nongpl] # MIT
 ruamel.yaml==0.17.21
-# use range because ansible-core support for 3.7 stops at 2.11.12
-ansible-core >= 2.11.12, <= 2.15.9 # gpl 3
-GitPython==3.1.41; python_version>='3.7' # BSD
+# use range because ansible-core support for 3.8 stops at 2.13.13
+ansible-core >= 2.13.13, <= 2.15.13 # gpl 3
+GitPython==3.1.41 # BSD
 rich==12.4.4  # MIT
 rich-click>=1.8.0 # MIT
-# the following are all Apache 2.0 (note: don't put comments on -r lines)
-MarkupSafe<=2.1.1 # newer version broken with jinja2
-jinja2==3.1.4 # BSD 3-clause
+MarkupSafe<=2.1.1 # Apache 2. newer version broken with jinja2
+jinja2==3.1.6 # BSD 3-clause
 typing_extensions>=4.7
 flask==2.3.3 # BSD 3-clause
 flask-caching<=2.0.1 # BSD 3-clause
-flask_cors==5.0.0
+flask_cors>=5.0.0 # MIT
 waitress  # Zope ZPL 2.1
-python-gitlab==3.13.0
+python-gitlab==3.13.0 # LGPL 3.0
 tosca>=0.1.0
 tenacity>=6.1.0 # Apache-2.0

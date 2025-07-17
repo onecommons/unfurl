@@ -4,14 +4,26 @@ import os
 import json
 import pickle
 import io
+import sys
 
+import tosca
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
-from unfurl.eval import Ref, UnfurlEvalError, analyze_expr, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
+from unfurl.eval import (
+    Ref,
+    UnfurlEvalError,
+    analyze_expr,
+    map_value,
+    RefContext,
+    set_eval_func,
+    ExternalValue,
+    SafeRefContext,
+)
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
 from unfurl.tosca_plugins.functions import to_dns_label
-from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_list
+from unfurl.util import sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
+
 
 class EvalTest(unittest.TestCase):
     longMessage = True
@@ -51,7 +63,7 @@ class EvalTest(unittest.TestCase):
             "e": {"a1": {"b1": "v1"}, "a2": {"b2": "v2"}},
             "f": {"a": 1, "b": {"ref": ".::f::a"}},
             "empty_list": [],
-            "ports": ["80:81"]
+            "ports": ["80:81"],
         }
         if more:
             resourceDef.update(more)
@@ -68,7 +80,7 @@ class EvalTest(unittest.TestCase):
 
     def test_refPaths(self):
         resource = self._getTestResource()
-        for (exp, expected) in [
+        for exp, expected in [
             ["x?::a[c=4]", [[{"c": 3}, {"c": 4}, {"l": ["l3"]}, {"l": ["l4"]}]]],
             [
                 "x::a[c]?",
@@ -105,7 +117,7 @@ class EvalTest(unittest.TestCase):
             ["x::a[!b]::c", [3, 4]],
             ["x::a::l", [["l1"], ["l2"], ["l3"], ["l4"]]],
             [{"ref": "a[=$yes]", "vars": {"yes": "test"}}, ["test"]],
-            [{"ref": "a[=$no]", "vars": {"no": None}}, []],
+            [{"eval": "a[=$no]", "vars": {"no": None}}, []],
             ["[a]", [resource]],
             ["[=blah]", []],
             ["[blah]", []],
@@ -119,9 +131,8 @@ class EvalTest(unittest.TestCase):
             ["f", [{"a": 1, "b": 1}]],
             ["::*", [resource]],
             ["::*::.template::type", ["tosca.nodes.Root"]],
-
-
-            # [{"q": "{{ foo }}"}, ["{{ foo }}"]]
+            ["$missing::a", []],
+            [{"q": "{{ 'a' }}"}, ["{{ 'a' }}"]],
             # XXX test nested ['.[k[d=3]=4]']
         ]:
             ref = Ref(exp)
@@ -133,13 +144,13 @@ class EvalTest(unittest.TestCase):
                 self.assertEqual(
                     set(result),
                     expected,
-                    "expr was: " + ref.source,
+                    "expr was: " + str(ref.source),
                 )
             else:
                 self.assertEqual(
                     result,
                     expected,
-                    "expr was: " + ref.source,
+                    "expr was: " + str(ref.source),
                 )
 
     def test_last_resource(self):
@@ -150,7 +161,7 @@ class EvalTest(unittest.TestCase):
         ctx = RefContext(parent, trace=0)
         # index = ctx.referenced.start()
         result = ref.resolve(ctx)
-        assert(ctx._lastResource.name) == "parent"
+        assert (ctx._lastResource.name) == "parent"
         assert result == [5, 6]
 
     def test_funcs(self):
@@ -179,6 +190,19 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(
             resource.attributes["b"], result5
         )  # this doesn't seem obvious!
+        test6 = {"eval": {"add": [1, 2]}}
+        assert 3 == Ref(test6).resolve_one(RefContext(resource))
+        test7 = {"eval": {"sub": [1, 1]}}
+        assert 0 == Ref(test7).resolve_one(RefContext(resource))
+        with tosca.set_evaluation_mode("runtime"):
+            test8 = {"eval": dict(scalar_value="6 mb", unit="gb", round=2)}
+            assert 0.01 == Ref(test8).resolve_one(RefContext(resource))
+            assert Ref(
+                dict(eval=dict(generate_string=None, preset="password"))
+            ).resolve_one(RefContext(resource))
+            assert Ref(dict(eval=dict(_generate={"preset": "password"}))).resolve_one(
+                RefContext(resource)
+            )
 
     def test_circular_refs(self):
         more = {}
@@ -188,8 +212,12 @@ class EvalTest(unittest.TestCase):
         more["circular_d"] = dict(eval={"or": [".::circular_c", 1]})
 
         resource = self._getTestResource(more)
-        assert resource.attributes["circular_a"] == None, resource.attributes["circular_a"]
-        assert resource.attributes["circular_b"] == None, resource.attributes["circular_b"]
+        assert resource.attributes["circular_a"] == None, resource.attributes[
+            "circular_a"
+        ]
+        assert resource.attributes["circular_b"] == None, resource.attributes[
+            "circular_b"
+        ]
         assert resource.attributes["circular_c"] == 1, resource.attributes["circular_c"]
         assert resource.attributes["circular_d"] == 1, resource.attributes["circular_d"]
 
@@ -212,64 +240,41 @@ class EvalTest(unittest.TestCase):
         result2 = Ref(test1).resolve(RefContext(resource))
         self.assertEqual([expected], result2)
 
-        test2 = {
-          "eval": ".::b",
-          "foreach": "{{ item * 2 }}"
-        }
+        test2 = {"eval": ".::b", "foreach": "{{ item * 2 }}"}
         result3 = Ref(test2).resolve_one(RefContext(resource, trace=0))
         assert result3 == [2, 4, 6]
 
-        test3 = {
-          "eval": "a",
-          "foreach": "$item"
-        }
+        test3 = {"eval": "a", "foreach": "$item"}
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
         assert result4 == ["test"]
 
-        test3 = {
-          "eval": "a",
-          "foreach": "$true"
-        }
+        test3 = {"eval": "a", "foreach": "$true"}
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
         assert result4 == ["test"]
 
-        test4 = {
-          "eval": "empty_list",
-          "foreach": "$item"
-        }
+        test4 = {"eval": "empty_list", "foreach": "$item"}
         result5 = Ref(test4).resolve_one(RefContext(resource, trace=0))
         assert result5 == []
 
-        test5 = {
-            "eval": {"portspec": "80:81"},
-            "select": "source"
-        }
+        test5 = {"eval": {"portspec": "80:81"}, "select": "source"}
         result6 = Ref(test5).resolve_one(RefContext(resource, trace=0))
         assert result6 == 80
 
-        test6 = {
-            "eval": {"portspec": "80:81"},
-            "select": "target"
-        }
+        test6 = {"eval": {"portspec": "80:81"}, "select": "target"}
         result7 = Ref(test6).resolve_one(RefContext(resource, trace=0))
         assert result7 == 81
 
         from toscaparser.elements.portspectype import PortSpec
 
-        test7 = {
-            "eval": "$p",
-            "foreach": {
-                "eval": {"portspec": {"eval": "$item"}}
-            }
-        }
-        result7 = Ref(test7).resolve_one(RefContext(resource, vars=dict(p="80:81"), trace=0))
+        test7 = {"eval": "$p", "foreach": {"eval": {"portspec": {"eval": "$item"}}}}
+        result7 = Ref(test7).resolve_one(
+            RefContext(resource, vars=dict(p="80:81"), trace=0)
+        )
         assert result7 == [PortSpec.make("80:81")]
 
         test8 = {
             "eval": ".::ports",
-            "foreach": {
-                "eval": {"portspec": {"eval": "$item"}}
-            }
+            "foreach": {"eval": {"portspec": {"eval": "$item"}}},
         }
         result8 = Ref(test8).resolve_one(RefContext(resource, trace=0))
         assert result8 == [PortSpec.make("80:81")]
@@ -277,31 +282,48 @@ class EvalTest(unittest.TestCase):
         mapped = ResultsMap._map_value(dict(test8=test8), RefContext(resource))
         assert mapped["test8"] == [PortSpec.make("80:81")]
 
-
     def test_serializeValues(self):
         resource = self._getTestResource()
         src = {"a": ["b", resource]}
         serialized = serialize_value(src)
         self.assertEqual(serialized, {"a": ["b", {"ref": "::test"}]})
         self.assertEqual(src, map_value(serialized, resource))
-        serialized = serialize_value(dict(foo=sensitive_str("sensitive")), redact=True)
-        self.assertEqual(json.dumps(serialized), '{"foo": "<<REDACTED>>"}')
+        serialized = serialize_value(
+            dict(foo=sensitive_str("sensitive"), yes="yes"), redact=True
+        )
+        self.assertEqual(
+            json.dumps(serialized), '{"foo": "<<REDACTED>>", "yes": "yes"}'
+        )
 
     def test_map_value(self):
         resource = self._getTestResource()
-        result = {'outputs': {'ec2_instance':
-                      {'ami': 'ami-0077f1602df963b17',
-                       'arn': 'arn:aws:ec2:eu-central-1',
-                       'id': 'i-087439ef0d1105c1c' }
-                   }
+        result = {
+            "outputs": {
+                "ec2_instance": {
+                    "ami": "ami-0077f1602df963b17",
+                    "arn": "arn:aws:ec2:eu-central-1",
+                    "id": "i-087439ef0d1105c1c",
+                }
+            }
         }
         ctx = RefContext(resource)
-        resultTemplate = ResultsMap(dict(attributes=dict(
-                  id = "{{ outputs.ec2_instance.id }}",
-                  arn = "{{ outputs.ec2_instance.arn }}")), ctx)
+        resultTemplate = ResultsMap(
+            dict(
+                attributes=dict(
+                    id="{{ outputs.ec2_instance.id }}",
+                    arn="{{ outputs.ec2_instance.arn }}",
+                )
+            ),
+            ctx,
+        )
         # if don't get _attributes here this fails because it resolve's against ctx's vars:
         results = map_value(resultTemplate._attributes, ctx.copy(vars=result))
-        assert results == {'attributes': {'id': 'i-087439ef0d1105c1c', 'arn': 'arn:aws:ec2:eu-central-1'}}
+        assert results == {
+            "attributes": {
+                "id": "i-087439ef0d1105c1c",
+                "arn": "arn:aws:ec2:eu-central-1",
+            }
+        }
 
     def test_jinjaTemplate(self):
         resource = NodeInstance("test", attributes=dict(a1="hello"))
@@ -311,25 +333,23 @@ class EvalTest(unittest.TestCase):
         # test jinja2 native types
         self.assertEqual(apply_template(" {{[foo]}} ", ctx), ["hello"])
 
-        self.assertEqual(apply_template(' {{ "::test::a1" | ref }} ', ctx), u"hello")
+        self.assertEqual(apply_template(' {{ "::test::a1" | ref }} ', ctx), "hello")
         self.assertEqual(
-            apply_template(' {{ lookup("unfurl", "::test::a1") }} ', ctx), u"hello"
+            apply_template(' {{ lookup("unfurl", "::test::a1") }} ', ctx), "hello"
         )
         # ansible query() always returns a list
         self.assertEqual(
-            apply_template('{{  query("unfurl", "::test::a1") }}', ctx), [u"hello"]
+            apply_template('{{  query("unfurl", "::test::a1") }}', ctx), ["hello"]
         )
 
-        os.environ[
-            "TEST_ENV"
-        ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
+        os.environ["TEST_ENV"] = (
+            "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
+        )
         self.assertEqual(
             map_value("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
         )
 
-        self.assertEqual(
-            map_value("{{ lookup('env', 'MISSING') }}", resource), ""
-        )
+        self.assertEqual(map_value("{{ lookup('env', 'MISSING') }}", resource), "")
 
         # test that ref vars as can be used as template string vars
         exp = {"a": "{{ aVar }} world"}
@@ -353,24 +373,56 @@ class EvalTest(unittest.TestCase):
         assert val == {"key": {"a": "b"}}
         # actually {'key': Results({'a': Result('b', None, ())})}
 
-        assert type(apply_template(" {{ {} }} ", RefContext(resource, vars))) == dict
-        assert apply_template('{{ {} }}{{"\n "}}', RefContext(resource, vars)) == '{}\n '
+        assert isinstance(
+            apply_template(" {{ {} }} ", RefContext(resource, vars)), dict
+        )
+        assert (
+            apply_template('{{ {} }}{{"\n "}}', RefContext(resource, vars)) == "{}\n "
+        )
 
         val = apply_template("{{ 'foo' | sensitive }}", RefContext(resource, trace=0))
         assert isinstance(val, sensitive_str), type(val)
 
-        val = apply_template("{{ ['a', 'b' | sensitive] }}", RefContext(resource, trace=0))
+        val = apply_template(
+            "{{ ['a', 'b' | sensitive] }}", RefContext(resource, trace=0)
+        )
         assert isinstance(val[1], sensitive_str), type(val)
 
-        val = apply_template("{{ ['a', 'b'] | sensitive }}", RefContext(resource, trace=0))
+        val = apply_template(
+            "{{ ['a', 'b'] | sensitive }}", RefContext(resource, trace=0)
+        )
         assert isinstance(val, sensitive_list), type(val)
 
         # test treating expression functions as RefContext methods
-        val = map_value(
-            "{{ __unfurl.to_label('a','b', sep='.') }}",
-            ctx
-        )
+        val = map_value("{{ __unfurl.to_label('a','b', sep='.') }}", ctx)
         assert val == "a.b"
+
+        val = map_value(
+            "{{ __unfurl.scalar_value('500 kb' | scalar + '1 mb' | scalar, 'gb') }}",
+            ctx,
+        )
+        assert val == 0.0015
+
+        val = apply_template(
+            "{{ '' if a is none else a | quote }}",
+            RefContext(resource, dict(a=None), trace=0),
+        )
+        assert val == ""
+        val = apply_template(
+            "{{ '' if a is none else a | quote }}",
+            RefContext(resource, dict(a=""), trace=0),
+        )
+        if sys.version_info.minor > 8:
+            assert val == "''"
+        else:
+            assert val == ""
+
+        # "q" should stop interpolation
+        val = apply_template(
+            "{{ a }}",
+            RefContext(resource, dict(a={"q": "unevaluated: {{ 'a' }}"}), trace=0),
+        )
+        assert val == "unevaluated: {{ 'a' }}"
 
     def test_templateFunc(self):
         query = {
@@ -380,9 +432,13 @@ class EvalTest(unittest.TestCase):
                 "success": dict(eval={"if": "$true", "then": ".name"}),
             },
         }
-        resource = self._getTestResource({"aTemplate": query})
+        resource = self._getTestResource({
+            "aTemplate": query,
+            "q": dict(q="{{ SELF }}"),
+        })
         self.assertEqual(map_value(query, resource), "test")
         self.assertEqual(resource.attributes["aTemplate"], "test")
+        self.assertEqual(resource.attributes["q"], "{{ SELF }}")
 
         template = """\
 #jinja2: variable_start_string: '<%', variable_end_string: '%>'
@@ -427,19 +483,33 @@ a_dict:
         ctx = SafeRefContext(resource, vars=dict(subdomain="foo.com"))
         expr = "{{ {subdomain.split('.')[0] : 1} }}"
         result = _sandboxed_template(expr, ctx, ctx.vars, None)
-        assert result == {'foo': 1}
+        assert result == {"foo": 1}
         assert type(result) == dict
         with self.assertRaises(UnfurlEvalError) as err:
             map_value(dict(eval={"get_env": "HOME"}), ctx)
-        assert 'function unsafe or missing in ' in str(err.exception)
+        assert "function unsafe or missing in " in str(err.exception)
 
         assert not map_value(dict(eval={"is_function_defined": "get_env"}), ctx)
         ctx2 = RefContext(resource, vars=dict(subdomain="foo.com"))
         assert map_value(dict(eval={"is_function_defined": "get_env"}), ctx2)
 
         ctx3 = SafeRefContext(resource, strict=False)
-        assert map_value(dict(eval="{{ foo | to_json }}"), ctx3) == "<<Error rendering template: No filter named 'to_json'.>>"
-        assert map_value(dict(eval="{{ foo | abspath }}"), ctx3) == "<<Error rendering template: No filter named 'abspath'.>>"
+        assert (
+            map_value(dict(eval="{{ foo | to_json }}"), ctx3)
+            == "<<Error rendering template: No filter named 'to_json'.>>"
+        )
+        assert (
+            map_value(dict(eval="{{ foo | abspath }}"), ctx3)
+            == "<<Error rendering template: No filter named 'abspath'.>>"
+        )
+
+        val = apply_template("{% include 'evil.j2' %}", ctx3)
+        assert (
+            val
+            == "<<Error rendering template: no loader for this environment specified>>"
+        )
+        val = apply_template("{{ lookup('file', 'evil.txt') }}", ctx3)
+        assert val == '<<Error rendering template: missing variable: "lookup">>'
 
     def test_innerReferences(self):
         resourceDef = {
@@ -491,7 +561,8 @@ a_dict:
 
     def test_nodeTraversal1(self):
         root = NodeInstance(
-            "r2", {"a": [dict(ref="::r1::a"), dict(ref="b")], "b": "r2"}  #'r1'  #'r2'
+            "r2",
+            {"a": [dict(ref="::r1::a"), dict(ref="b")], "b": "r2"},  #'r1'  #'r2'
         )
         child = NodeInstance("r1", {"a": dict(ref="b"), "b": "r1"}, root)
         ctx = RefContext(root)
@@ -517,11 +588,22 @@ a_dict:
         # a resolves to [child, dict] so a::b resolves to [child[b], [b]2]
         self.assertEqual(Ref("a::b").resolve(RefContext(child)), [1, 2])
 
+        root = NodeInstance(
+            "root", {"q": {"eval": "::child::q"}, "q2": {"eval": "::child::q2"}}, None
+        )
+        child = NodeInstance(
+            "child",
+            {"q": dict(q={"eval": ".name"}), "q2": "{{ '{' + '{' + 'SELF}}' }}"},
+            root,
+        )
+        assert root.attributes["q"] == {"eval": ".name"}
+        assert root.attributes["q2"] == "{{SELF}}"
+
     def test_lookup(self):
         resource = self._getTestResource()
-        os.environ[
-            "TEST_ENV"
-        ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
+        os.environ["TEST_ENV"] = (
+            "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
+        )
         query = {"eval": {"lookup": {"env": "TEST_ENV"}}}
         self.assertEqual(map_value(query, resource), "testEnv")
 
@@ -550,16 +632,25 @@ foo
             vars={"image": "foo/bar"},
         )
         ctx = RefContext(resource, strict=False, trace=0)
+
         class mock_task:
             _errors = []
             logger = logging.getLogger("test")
+
         ctx.task = mock_task()
         assert not ctx.strict
         assert not ctx.task._errors
         result = map_value(template, ctx)
-        # templating failed so it returned the original template 
-        self.assertEqual(result, template_contents.strip(), len(result))
+        assert result == '<<Error rendering template: missing variable: "str">>'
         assert ctx.task._errors
+
+        template = dict(
+            eval={"template": "{% include 'examples/unfurl.yaml' %}"},
+            base_dir=os.path.dirname(__file__),
+        )
+        ctx = RefContext(resource, trace=0)
+        result = map_value(template, ctx)
+        assert result.strip() == "apiVersion: unfurl/v1.0.0\nkind: Project"
 
     def test_changerecord(self):
         assert ChangeRecord.is_change_id("A01110000005")
@@ -610,7 +701,9 @@ foo
         select: contents
         """
         expr = yaml.load(io.StringIO(src))
-        contents = map_value(expr, RefContext(resource, trace=2, vars=dict(tempfile=filePath)))
+        contents = map_value(
+            expr, RefContext(resource, trace=2, vars=dict(tempfile=filePath))
+        )
         assert isinstance(contents, sensitive_bytes), type(contents)
         with open(fixture, "rb") as tp:
             self.assertEqual(tp.read(), contents)
@@ -649,6 +742,7 @@ foo
 
     def test_to_env(self):
         from unfurl.yamlloader import make_yaml
+
         src = """
           eval:
             to_env:
@@ -665,19 +759,29 @@ foo
         expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
         env = map_value(expr, ctx)
-        assert env == {'FOO': '1', 'BAR': '', 'BAZ': 'true', 'QUU': 'passw0rd', "SUB": "1"}
-        out=io.StringIO()
+        assert env == {
+            "FOO": "1",
+            "BAR": "",
+            "BAZ": "true",
+            "QUU": "passw0rd",
+            "SUB": "1",
+        }
+        out = io.StringIO()
         yaml.dump(serialize_value(env), out)
-        assert out.getvalue() == '''\
+        assert (
+            out.getvalue()
+            == """\
 FOO: '1'
 BAR: ''
 BAZ: 'true'
 QUU: <<REDACTED>>
 SUB: '1'
-'''
+"""
+        )
 
     def test_to_env_set_environ(self):
         from unfurl.yamlloader import make_yaml
+
         src = """
           eval:
             to_env:
@@ -687,15 +791,16 @@ SUB: '1'
         yaml = make_yaml()
         expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
-        path = os.environ['PATH']
+        path = os.environ["PATH"]
         env = map_value(expr, ctx)
-        new_path = "/foo/bin:"+path
-        assert os.environ['PATH'] == new_path
-        assert env == {'PATH': new_path}
+        new_path = "/foo/bin:" + path
+        assert os.environ["PATH"] == new_path
+        assert env == {"PATH": new_path}
 
     def test_labels(self):
         import io
         from unfurl.yamlloader import make_yaml
+
         src = """
           eval:
             to_googlecloud_label:
@@ -707,7 +812,7 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = RefContext(self._getTestResource())
         labels = map_value(expr, ctx)
-        assert labels == {'url': "https______foo-bar__comvit"}
+        assert labels == {"url": "https______foo-bar__comvit"}
 
         src = """
           eval:
@@ -751,7 +856,8 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert label == "lo.na.s.RC"
+        assert len(label) == 10
+        assert label == "lo.na.suRC"
 
         src = """
           eval:
@@ -767,7 +873,8 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert label == "longpr.name.suffi.RC"
+        assert len(label) == 20
+        assert label == "longpr.name.suffixRC"
 
         src = """
           eval:
@@ -782,8 +889,8 @@ SUB: '1'
         expr = yaml.load(io.StringIO(src))
         ctx = SafeRefContext(self._getTestResource())
         label = map_value(expr, ctx)
-        assert len(label) == 20
-        assert label == "reall-refix.short.yi"
+        assert len(label) == 19
+        assert label == "reall-refix.shortyi"
 
         src = """
           eval:
@@ -813,10 +920,12 @@ SUB: '1'
         ctx = SafeRefContext(NodeInstance("test_nodash-yeshyphen"))
         label = map_value(expr, ctx)
         assert label == "test--nodash-yeshyphen"
-        assert 'cy-cy-wordpress-lrtkxtb8-lruwqqt2-container--service' == to_dns_label(
-                "cy-cy-wordpress-lrtkxtb8-lruwqqt2-container_service", max=52
+        assert "cy-cy-wordpress-lrtkxtb8-lruwqqt2-container--service" == to_dns_label(
+            "cy-cy-wordpress-lrtkxtb8-lruwqqt2-container_service", max=52
         )
-
+        assert "x--foo--bar" == map_value(
+            "{{ __unfurl.to_dns_label('_foo/_bar'.split('/')) }}", ctx
+        )
 
     def test_urljoin(self):
         resource = self._getTestResource()
@@ -840,6 +949,7 @@ SUB: '1'
         result3 = Ref(test3).resolve_one(RefContext(resource))
         assert result3 is None
 
+
 def pairs(iterable):
     i = iter(iterable)
     try:
@@ -852,15 +962,22 @@ def pairs(iterable):
 def test_env_sub():
     env = dict(baz="env", alt="env2", bad=None)
     tests = [
-      "${baz} ${bar:default value}", "env default value",
-      "foo${baz|missing}${bar:default value}", "fooenvdefault value",
-      r"foo\${baz}${bar:default value}", "foo${baz}default value",
-      r"foo\\${baz}${bar:default value}", r"foo\${baz}default value",
-      "${missing|baz} ${missing|missing2:default value}", "env default value",
-      "${bad}", ""
+        "${baz} ${bar:default value}",
+        "env default value",
+        "foo${baz|missing}${bar:default value}",
+        "fooenvdefault value",
+        r"foo\${baz}${bar:default value}",
+        "foo${baz}default value",
+        r"foo\\${baz}${bar:default value}",
+        r"foo\${baz}default value",
+        "${missing|baz} ${missing|missing2:default value}",
+        "env default value",
+        "${bad}",
+        "",
     ]
     for test, expected in pairs(tests):
         assert expected == substitute_env(test, env), test
+
 
 def test_analyze_expr():
     result = analyze_expr(".targets::foo::baz")
@@ -870,5 +987,27 @@ def test_analyze_expr():
     assert result and result.get_keys() == ["SOURCE", ".targets", "foo", "baz"]
 
     result = analyze_expr({"get_property": ["HOST", "host", "disk_size"]})
-    assert result and result.get_keys() == ['$start']
+    assert result and result.get_keys() == ["$start"]
 
+    result = analyze_expr({"eval": ".capabilities::[.name=cap_name]::foo", "trace": 0})
+    assert result and result.get_keys() == [
+        "$start",
+        ".capabilities",
+        "cap_name",
+        "foo",
+    ]
+
+    result = analyze_expr({"eval": "::node::foo", "trace": 0})
+    assert result and result.get_keys() == ["$start", "::node", "foo"]
+
+    result = analyze_expr({"eval": "foo", "trace": 0})
+    assert result and result.get_keys() == ["$start", ".ancestors", "foo"]
+
+    result = analyze_expr(dict(eval=".hosted_on[.type=unfurl.nodes.K8sNamespace]::foo"))
+    assert result and result.get_keys() == [
+        "$start",
+        ".hosted_on",
+        ".type",
+        "unfurl.nodes.K8sNamespace",
+        "foo",
+    ]
