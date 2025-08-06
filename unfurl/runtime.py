@@ -888,12 +888,10 @@ class RelationshipInstance(EntityInstance):
             )
         elif not self.parent or self.parent is self.root:  # it's a default relationship
             return cast(InstanceKey, f"::.requirements::[.name={self.name}]")
-        elif self.parent:  # capability is parent
+        else:  # capability is parent
             return cast(
                 InstanceKey, f"{self.parent.key}::.relationships::[.name={self.name}]"
             )
-        else:
-            return cast(InstanceKey, self.name)
 
     def merge_props(self, matchfn, delete_if_none=False) -> Dict[str, str]:
         env: Dict[str, str] = {}
