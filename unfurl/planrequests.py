@@ -29,6 +29,7 @@ from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.artifacts import Artifact
 from .spec import ArtifactSpec, EntitySpec, NodeSpec
 import tosca.loader
+from tosca import get_annotations
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask, JobOptions
@@ -1466,7 +1467,7 @@ def _get_config_spec_args_from_implementation(
                 predefined = True
             elif name == "dependencies":
                 dependencies = value
-            elif name in ConfigurationSpecKeywords.__annotations__:
+            elif name in get_annotations(ConfigurationSpecKeywords):
                 # sets operation_host, environment, timeout, className, etc.
                 kw[name] = value  # type: ignore
     elif isinstance(implementation, str):

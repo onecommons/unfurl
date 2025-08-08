@@ -16,6 +16,7 @@ from typing import (
     Tuple,
     Type,
     Union,
+    Set,
 )
 from typing_extensions import Self
 import logging
@@ -357,7 +358,7 @@ class PythonToYaml:
                 names = dir(namespace)
             namespace = {name: getattr(namespace, name) for name in names}
 
-        seen = set()
+        seen: Set[int] = set()
         for name, obj in namespace.items():
             if isinstance(obj, ModuleType):
                 continue
