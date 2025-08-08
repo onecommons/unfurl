@@ -983,7 +983,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         contents, ok_to_show = self.yamlloader._get_file_contents(path)
                         f: TextIO = io.StringIO(codecs.decode(contents))
                     else:
-                        f = codecs.open(path, encoding="utf-8", errors="strict")
+                        f = open(path, encoding="utf-8")
                 else:
                     f = urlopen(path)
                 return f, ok_to_show

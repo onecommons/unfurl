@@ -846,6 +846,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         ]
         if sys.version_info.minor > 9:
             args.append(True)  # kw_only
+        if sys.version_info.minor > 13:
+            args.append(None)  # doc
         dataclasses.Field.__init__(*args)
         self._default_factory = _default_factory
         self.owner = owner
@@ -1848,10 +1850,14 @@ class FieldProjection(EvalData):
 def get_annotations(o):
     # return __annotations__ (but not on base classes)
     # see https://docs.python.org/3/howto/annotations.html
-    if hasattr(inspect, "get_annotations"):
+    if sys.version_info.minor > 13:
+        import annotationlib
+
+        return annotationlib.get_annotations(o, format=annotationlib.Format.FORWARDREF)
+    elif sys.version_info.minor > 9:
         # this calls eval
-        return inspect.get_annotations(o)  # 3.10 and later
-    if isinstance(o, type):  # < 3.10
+        return inspect.get_annotations(o)
+    elif isinstance(o, type):
         return o.__dict__.get("__annotations__", None)
     else:
         return getattr(o, "__annotations__", None)
@@ -1930,7 +1936,7 @@ def _make_dataclass(cls):
     global_state.mode = "parse"
     global_state._in_process_class = True
     try:
-        annotations = cls.__dict__.get("__annotations__")
+        annotations = get_annotations(cls)
         if annotations:
             for name, annotation in annotations.items():
                 if annotation is Callable or annotation == "Callable":
@@ -1972,9 +1978,13 @@ def _make_dataclass(cls):
         if (
             cls.__module__ != __name__
         ):  # if class is in a different module than this file
+            updated = False
             for name, value in cls.__dict__.items():
                 if name[0] != "_" and name not in annotations and is_data_field(value):
-                    if cls._handle_builtin_field(name, value, None):
+                    _field = cls._handle_builtin_field(name, value, None)
+                    if _field:
+                        annotations[name] = _field.type
+                        updated = True
                         continue
                     base_field = _find_base_field(cls, name)
                     if base_field:
@@ -1990,9 +2000,12 @@ def _make_dataclass(cls):
                         field = _Tosca_Field.infer_field(cls, name, value)
                     if field:
                         annotations[name] = field.type
+                        updated = True
                         field.super_field = base_field
                         cls._post_field_init(field)
                         setattr(cls, name, field)
+            if updated:
+                cls.__annotations__ = annotations
 
         _class_init = cls.__dict__.get("_class_init")
         if _class_init:
@@ -2002,9 +2015,9 @@ def _make_dataclass(cls):
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
-        assert (
-            cls.__module__ in sys.modules
-        ), cls.__module__  # _process_class checks this
+        assert cls.__module__ in sys.modules, (
+            cls.__module__
+        )  # _process_class checks this
         if cls._dataclass_args:
             kw.update(cls._dataclass_args)
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
@@ -2094,7 +2107,7 @@ class _Tosca_Fields_Getter:
     def __get__(self, obj, objtype=None) -> List[_Tosca_Field]:
         # only get the fields explicitly declared on the obj or class
         target = obj or objtype
-        annotations = target.__dict__.get("__annotations__", {})
+        annotations = get_annotations(target)
         return [
             f
             for f in dataclasses.fields(target)
@@ -2223,8 +2236,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     @classmethod
     def _handle_builtin_field(
         cls, name: str, default: Any, annotation: Optional[Any]
-    ) -> bool:
-        return False
+    ) -> Optional[dataclasses.Field]:
+        return None
 
     def __setattr__(self, name: str, value: Any) -> None:
         # XXX enable after working around internal attributes being set
@@ -2414,8 +2427,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     def _new_from_patch(self, patch: "ToscaType") -> "ToscaType":
         name = PATCH if self.is_patch else ""  # preserve as PATCH
-        return patch.__class__(name,
-            **{name: v[1] for name, v in patch._get_instance_field_values()}
+        return patch.__class__(
+            name, **{name: v[1] for name, v in patch._get_instance_field_values()}
         )
 
     def _merge(
@@ -3726,7 +3739,7 @@ class ArtifactEntity(_OwnedToscaType):
     @classmethod
     def _handle_builtin_field(
         cls, name: str, default: Any, annotation: Optional[Any]
-    ) -> bool:
+    ) -> Optional[dataclasses.Field]:
         if name in cls._builtin_fields:
             if cls.__module__ != __name__:  # this is a derived class
                 if isinstance(default, _Tosca_Field):
@@ -3758,10 +3771,8 @@ class ArtifactEntity(_OwnedToscaType):
                 _field.name = name
                 _field.type = field_type
                 setattr(cls, name, _field)
-                if annotation is None:  # declaration didn't have an annotation
-                    cls.__dict__["__annotations__"][name] = _field.type
-            return True
-        return False
+                return _field
+        return None
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:

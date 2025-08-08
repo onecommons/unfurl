@@ -4,7 +4,7 @@ click>=8.0.1,<8.1.4 # BSD 3-clause
 jsonschema[format_nongpl] # MIT
 ruamel.yaml==0.17.21
 # use range because ansible-core support for 3.8 stops at 2.13.13
-ansible-core >= 2.13.13, <= 2.16.14 # 2.15.13 # gpl 3
+ansible-core >= 2.13.13, <= 2.16.14 # gpl 3
 GitPython==3.1.41 # BSD
 rich==12.4.4  # MIT
 rich-click>=1.8.0 # MIT
@@ -16,5 +16,7 @@ flask-caching<=2.0.1 # BSD 3-clause
 flask_cors>=5.0.0 # MIT
 waitress  # Zope ZPL 2.1
 python-gitlab==3.13.0 # LGPL 3.0
-tosca>=0.1.0
+tosca>=0.1
+RestrictedPython==8.1a1.dev0
 tenacity>=6.1.0 # Apache-2.0
+pydantic_core==2.38.0

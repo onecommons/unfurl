@@ -68,7 +68,6 @@ from .logs import getLogger
 from .init import get_input_vars
 from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
-from codecs import open
 from ansible.parsing.dataloader import DataLoader
 
 if TYPE_CHECKING:
@@ -1257,7 +1256,6 @@ class YamlManifest(ReadOnlyManifest):
             retVal = ensembleRepo.commit(msg, add_all, save_secrets)
             committed += 1
             logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
-
         return committed
 
     def get_change_log_path(self) -> str:
