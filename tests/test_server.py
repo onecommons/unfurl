@@ -22,6 +22,7 @@ from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
 from unfurl.util import change_cwd, get_package_digest
 from base64 import b64encode
+import logging
 
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
 # (with -s only)
@@ -102,15 +103,17 @@ def _next_port():
 
 def start_server_process(proc, port):
     proc.start()
+    last_e = False
     for _ in range(10):
         time.sleep(0.2)
         try:
             url = f"http://localhost:{port}/health?secret=secret"
             urllib.request.urlopen(url)
         except Exception as e:
-            pass
+            last_e = e
         else:
             return proc
+    logging.warning("error starting server", exc_info=last_e)
     return None
 
 
