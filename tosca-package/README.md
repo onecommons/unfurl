@@ -30,7 +30,7 @@ Using our TOSCA DSL, VS-Code will detect missing or invalid node template proper
 
 If you want to use this as a Python library, `pip install tosca`. For a command line tool that converts between YAML and Python, or for a TOSCA orchestrator with native support, install [unfurl](https://github.com/onecommons/unfurl), which integrates this library.
 
-Requirements: Python versions 3.8 or later.
+Requirements: Python versions 3.9 or later.
 
 ## Status
 

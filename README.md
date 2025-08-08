@@ -147,7 +147,7 @@ The `stable` tag matches the version published to PyPi; `latest` is the latest c
 
 - Linux or MacOS
 - Git
-- Python (3.8 - 3.13)
+- Python (3.9 - 3.14)
 
 Optional: Docker or Podman
 

@@ -1858,9 +1858,9 @@ def get_annotations(o):
         # this calls eval
         return inspect.get_annotations(o)
     elif isinstance(o, type):
-        return o.__dict__.get("__annotations__", None)
+        return o.__dict__.get("__annotations__", {})
     else:
-        return getattr(o, "__annotations__", None)
+        return getattr(o, "__annotations__", {})
 
 
 class _DataclassTypeProxy:

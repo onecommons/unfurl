@@ -15,7 +15,7 @@ flask==2.3.3 # BSD 3-clause
 flask-caching<=2.0.1 # BSD 3-clause
 flask_cors>=5.0.0 # MIT
 waitress  # Zope ZPL 2.1
-python-gitlab==3.13.0 # LGPL 3.0
+python-gitlab==5.0.0 # LGPL 3.0
 tosca>=0.1
 RestrictedPython==8.1a1.dev0
 tenacity>=6.1.0 # Apache-2.0
