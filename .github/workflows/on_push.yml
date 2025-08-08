@@ -78,15 +78,19 @@ jobs:
           git config --global protocol.file.allow always
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -v -e $PY_V
-          tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-report term --cov-append
+          if [[ "$PY_V" == "py311" ]]; then
+            tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-report term --cov-append
+          else
+            tox -e $PY_V -v -- -vv -n auto --dist loadfile
+          fi
           .tox/$PY_V/bin/mypy unfurl --install-types --non-interactive
       - name: Run cargo clippy and cargo test
-        if: matrix.python == 3.12
+        if: matrix.python == 3.14
         run: |
           cargo clippy --manifest-path rust/Cargo.toml
           cargo test --no-default-features --manifest-path rust/Cargo.toml
       - name: upload code coverage report
-        if: matrix.python == 3.12
+        if: matrix.python == 3.11
         uses: actions/upload-artifact@v4
         with:
           name: coverage_report_py${{ matrix.python }}
