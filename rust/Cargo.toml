@@ -17,10 +17,10 @@ name = "tosca_solver"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.22.5", features = ["hashbrown"] }
-pyo3-log = "0.11.0"
+pyo3 = { version = "0.25.1", features = ["hashbrown"] }
+pyo3-log = "0.12.4"
 ascent = "0.7.0"
-log = "0.4.22"
+log = "0.4.27"
 # ascent-byods-rels = "0.7.0"
 
 [features]

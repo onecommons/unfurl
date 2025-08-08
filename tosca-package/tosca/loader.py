@@ -13,7 +13,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 from types import ModuleType
 import importlib._bootstrap
 from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
-from ast import Str, Constant, Name
+from ast import Constant, Name
 import ast
 import builtins
 import dis
@@ -372,7 +372,7 @@ class DeniedModule(ModuleType):
             return DeniedModule(__name, (), __package__=name)
         try:
             __package__ = object.__getattribute__(self, "__package__")
-        except:
+        except Exception:
             raise ImportError("Import of " + name + " is not permitted", name=name)
         else:
             raise ImportError(
@@ -568,8 +568,6 @@ def doc_str(node):
     if isinstance(node, Expr):
         if isinstance(node.value, Constant) and isinstance(node.value.value, str):
             return node.value.value
-        elif isinstance(node.value, Str):
-            return str(node.value.s)
     return None
 
 

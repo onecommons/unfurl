@@ -3,6 +3,7 @@
 import dataclasses
 import inspect
 import io
+import itertools
 from types import ModuleType
 import sys
 import os.path
@@ -156,8 +157,9 @@ class PythonToYaml:
                 for t in self.templates:
                     if t.__class__.__name__ not in self.globals:
                         self._add_type(t.__class__, types_used)
-                    for name in t.__annotations__:
-                        field = t.get_instance_field(name)
+                    for name, field in itertools.chain(
+                        t._instance_fields.items(), t.__dataclass_fields__.items()
+                    ):
                         if isinstance(field, _Tosca_Field):
                             ti = field.get_type_info_checked()
                             if ti and ti.types and issubclass(ti.types[0], ToscaType):

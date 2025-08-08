@@ -68,7 +68,6 @@ from .logs import getLogger
 from .init import get_input_vars
 from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
-from codecs import open
 from ansible.parsing.dataloader import DataLoader
 
 if TYPE_CHECKING:
@@ -1257,6 +1256,17 @@ class YamlManifest(ReadOnlyManifest):
             retVal = ensembleRepo.commit(msg, add_all, save_secrets)
             committed += 1
             logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
+            # if dev_branch: # checkout -B branch
+            #    add rollup job that only include lastConfig, created and customized per resource on the branch
+            #    for each task, extract job and look for changelog.yaml, load it and save record
+            #    save_changes() # filter out task in rollup job that are already in main
+            #    save changelog for roll up using the loaded change records
+            #    ensembleRepo.commit
+            #    checkout main and squash dev branch (hmm... except we don't want all the extra changelog.yaml)
+            # if commit:
+            #    filter out tasks that failed, not modified, and uncommitted and unreferenced
+            #    build rollup job and changes/changelog.yaml that only has those tasks (load from jobs)
+            #    previousid
 
         return committed
 
