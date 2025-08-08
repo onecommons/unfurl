@@ -5,9 +5,11 @@ import pytest
 from unfurl.__main__ import cli
 import git
 from unfurl.util import change_cwd, API_VERSION
+from unfurl.repo import sanitize_url
 from tests.utils import init_project, run_cmd
 
-if not os.getenv("UNFURL_TEST_CLOUDMAP_URL"):
+UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
+if not UNFURL_TEST_CLOUDMAP_URL:
     pytest.skip(
         reason="need UNFURL_TEST_CLOUDMAP_URL set to run test",
         allow_module_level=True,
@@ -119,11 +121,12 @@ def test_sync(runner, caplog):
         ["--home", ""]
         + "cloudmap --sync testProvider --namespace feb20a".split(),
     )
+    assert UNFURL_TEST_CLOUDMAP_URL
     for msg in [
         "found git repo unfurl.cloud/feb20a/dashboard.git",
         "nothing to commit for: Update hosts/testProvider with latest from testProvider/feb20a",
         "syncing to feb20a",
-        "skipping push: no change detected on branch testProvider/main for https://XXXXX:XXXXX@staging.unfurl.cloud/feb20a/dashboard.git",
+        f"skipping push: no change detected on branch testProvider/main for {sanitize_url(UNFURL_TEST_CLOUDMAP_URL)}/feb20a/dashboard.git",
         "nothing to commit for: synced testProvider",
     ]:
         assert msg in caplog.text
