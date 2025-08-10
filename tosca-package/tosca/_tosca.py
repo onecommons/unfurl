@@ -701,11 +701,14 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
     else:
         metadata = None
     origin = get_origin(_type)
-    collection = None
+    collection: Optional[Union[Type[tuple], Type[list], Type[dict]]] = None
     if origin == collections.abc.Sequence:
         collection = list
     elif origin in Collection_Types:
         collection = origin
+    elif isinstance(_type, type):
+        if issubclass(_type, dict):
+            collection = dict
     if collection:
         args = get_args(_type)
         if args:
@@ -716,7 +719,8 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
         if origin is Annotated:
             metadata = _type.__metadata__[0]
             _type = get_args(_type)[0]
-
+        if isinstance(_type, type) and issubclass(_type, dict):
+            _type = dict  # in case it's a TypedDict (because they don't support isinstance())
     if isinstance(_type, ForwardRef):
         types: tuple = tuple(
             ForwardRef(t.strip()) for t in _type.__forward_arg__.split("|")
