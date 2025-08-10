@@ -142,13 +142,17 @@ def test_inputs():
         assert result.exit_code == 0, result
         assert "Inputs:Init,2" in result.output  # cli query result
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
+
 def test_clone_csar():
     csar_path = os.path.join(
         os.path.dirname(__file__),
         "../tosca-parser/samples/tests/data/CSAR/csar_wordpress.zip",
     )
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("saving to", test_dir)
         run_cmd(runner, ["--home", "", "clone", csar_path])
         files = os.listdir("csar_wordpress")
         assert "ensemble-template.yaml" not in files
@@ -200,7 +204,7 @@ def test_clone_csar():
                 "clone",
                 second_csar_path,
                 "csar_wordpress/ensemble1"
-            ],
+            ], True
         )
         assert (
             LocalEnv("csar_wordpress/ensemble1")
