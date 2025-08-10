@@ -2090,6 +2090,8 @@ def test_dsl_definitions():
     # yaml.dump(test_yaml, sys.stdout)
     assert parsed_yaml == test_yaml
 
+class TypedDictTest(typing.TypedDict):
+    test: str
 
 def test_typeinfo():
     t = tosca.pytype_to_tosca_type(Optional[Dict[str, Dict[str, typing.Any]]])
@@ -2102,6 +2104,17 @@ def test_typeinfo():
     assert t2.simple_types == (list,)
     assert t2.instance_check({"not default": ["test"]})
     assert not t2.instance_check({"not default": ""})
+
+    t = tosca.pytype_to_tosca_type(TypedDictTest)
+    assert t.collection is dict
+    assert t.simple_types == (object,)
+    assert t.instance_check({"D": {"a": {}}})
+
+    t = tosca.pytype_to_tosca_type(Dict[str, TypedDictTest])
+    assert t.collection is dict
+    assert t.simple_types == (dict,)
+    assert t.instance_check({"D": {"a": {}}})
+    assert not t.instance_check({"D": []})
 
 
 if __name__ == "__main__":
