@@ -10,7 +10,7 @@ class KubernetesClusterOutputs(ToscaOutputs):
     do_id: str = Attribute()  # needed so can be KubernetesClusterOutputs inherited 
 
 class ClusterOp(unfurl.artifacts.Executable):
-    file: str = "kubernetes"
+    file = "kubernetes"
 
     # inputs defined here are set as the inputs for operations that set this artifact as their implementation
     # args, retval set input, output definitions
@@ -34,7 +34,7 @@ class CustomClusterOp(ClusterOp):
 
 class ClusterTerraform(unfurl.artifacts.TerraformModule, ClusterOp):
     # need to merge properties with inputs for configurator
-    file: str = "kubernetes"
+    file = "kubernetes"
 
 class DOCluster(tosca.nodes.Root, KubernetesClusterInputs, KubernetesClusterOutputs):
     clusterconfig: "ClusterOp" = ClusterTerraform()
