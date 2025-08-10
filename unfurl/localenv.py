@@ -116,7 +116,7 @@ class Project:
         parentProject: Optional["Project"],
         save: bool,
     ) -> None:
-        assert parentProject is not self
+        assert parentProject is not self, self.projectRoot
         assert not parentProject or parentProject.projectRoot != self.projectRoot, (
             parentProject and parentProject.projectRoot,
             self.projectRoot,
@@ -1236,9 +1236,10 @@ class LocalEnv:
                 project = self.get_project(ensemble_project_path, self.homeProject)
 
         # projects can be nested (handle stand-alone ensemble repositories)
-        parent_project = self.find_project(
-            os.path.dirname(project.projectRoot), stop_at
-        )
+        dirname, tail = os.path.split(project.projectRoot)
+        if tail == DefaultNames.ProjectDirectory:
+            dirname = os.path.dirname(dirname)
+        parent_project = self.find_project(dirname, stop_at)
         if parent_project and parent_project is not self.homeProject:
             #  (outer) parent_project inherits (overrides) (nested) project
             parent_project._set_parent_project(project, False)
