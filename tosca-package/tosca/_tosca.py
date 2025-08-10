@@ -1443,7 +1443,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if isinstance(value, FieldProjection):
             field.type = value.field.type
             field._tosca_field_type = value.field._tosca_field_type
-        elif isinstance(value, EvalData):
+        elif isinstance(value, (type(None), type(()), EvalData)):
             field.type = object
         else:
             field.type = type(value)
@@ -1991,18 +1991,27 @@ def _make_dataclass(cls):
                         updated = True
                         continue
                     base_field = _find_base_field(cls, name)
-                    if base_field:
+                    if isinstance(value, _Tosca_Field):
+                        value.owner = cls
+                        field = value
+                        value = field.default
+                    elif base_field:
                         field = _Tosca_Field(
                             base_field._tosca_field_type,
                             value,
                             owner=cls,
                         )
-                        # avoid type(None) or type(())
-                        field.type = base_field.type if not value else type(value)
                     else:
                         # for unannotated class attributes try to infer if they are TOSCA fields
                         field = _Tosca_Field.infer_field(cls, name, value)
                     if field:
+                        if not field.type:
+                            if base_field:
+                                field.type = base_field.type
+                            else:
+                                field.type = _Tosca_Field.infer_field(
+                                    cls, name, value
+                                ).type
                         annotations[name] = field.type
                         updated = True
                         field.super_field = base_field
@@ -2464,7 +2473,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         field: Optional[_Tosca_Field],
         val: Any,
         name: str,
-        partial: Optional["_ToscaType"] = None,
+        partial: Optional["ToscaType"] = None,
     ) -> bool:
         was_set = False
         if not field:
