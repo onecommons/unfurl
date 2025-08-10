@@ -758,7 +758,7 @@ def install(import_resolver_: Optional[ImportResolver], base_dir=None) -> str:
         service_template_basedir = base_dir
     else:
         service_template_basedir = os.getcwd()
-    if service_template_basedir != old_basedir:
+    if old_basedir and service_template_basedir != old_basedir:
         # delete modules whose contents are relative to the base dir that has changed
         _clear_private_modules()
     global installed

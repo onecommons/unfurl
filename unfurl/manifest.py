@@ -160,6 +160,14 @@ class Manifest(AttributeManager):
         self.apiVersion = API_VERSION
         self._load_errors = False
 
+    @property
+    def project_base_path(self):
+        return (
+            self.localEnv.project.projectRoot
+            if self.localEnv and self.localEnv.project
+            else self.get_base_dir()
+        )
+
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
         context = self.localEnv.get_context()

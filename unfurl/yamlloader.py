@@ -460,11 +460,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def _get_link_to_repo(
         self, repo_view: RepoView, base_path: Optional[str]
     ) -> Optional[str]:
-        project_base_path = (
-            self.manifest.localEnv.project.projectRoot
-            if self.manifest.localEnv and self.manifest.localEnv.project
-            else self.manifest.get_base_dir()
-        )
+        project_base_path = self.manifest.project_base_path
         # this will clone the repo if needed:
         self._resolve_repo_to_path(repo_view, project_base_path, "")
         assert repo_view.repo
@@ -987,6 +983,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 else:
                     f = urlopen(path)
                 return f, ok_to_show
+            except FileNotFoundError:
+                raise
             except urllib.error.URLError as e:
                 if hasattr(e, "reason"):
                     msg = _(
