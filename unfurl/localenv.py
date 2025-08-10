@@ -156,7 +156,7 @@ class Project:
             url = "file:" + path
         else:
             url = repo.get_url_with_path(path)
-            path = os.path.relpath(path, repo.working_dir)
+            path = ""
 
         self.project_repoview = RepoView(
             Repository("project", dict(url=url)),

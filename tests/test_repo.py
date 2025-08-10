@@ -374,6 +374,20 @@ unfurl.yaml
             # self.assertEqual(job.getOutputs()["aOutput"], "set")
 
     def test_repo_urls(self):
+        url="https://gitlab.com/onecommons/kubernetes-deployment-kicker.git#:.unfurl"
+        r = RepoView(dict(name="",url=url), None)
+        assert r.url == url
+        assert r.url == r.as_git_url()
+
+        url="git-local://5e661139cd335cf557c087ac18afaea24d320732:/csar_wordpress_valid_artifact_multi"
+        r = RepoView(dict(name="",url=url), None)
+        assert r.url == r.as_git_url()
+
+        url="git-local://5e661139cd335cf557c087ac18afaea24d320732#:csar_wordpress_valid_artifact_multi"
+        r = RepoView(dict(name="",url=url), None)
+        assert r.url == url
+        assert r.url == r.as_git_url()
+
         urls = {
             "foo/file": None,
             "git@github.com:onecommons/unfurl_site.git": (
@@ -443,6 +457,8 @@ unfurl.yaml
                 # relative urls aren't allowed here, skip those
                 rv = RepoView(dict(name="", url=url), None)
                 self.assertEqual(normalize_git_url(rv.url), normalize_git_url(url))
+                if not rv.url.startswith("file:"):
+                    assert rv.url.strip("#:") == rv.as_git_url().strip("#:"), url
             else:
                 self.assertRaises(URLException, RepoView, dict(name="", url=url), None)
 

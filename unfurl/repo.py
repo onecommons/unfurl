@@ -7,7 +7,17 @@ from pathlib import Path
 import re
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, cast, Iterator
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    Iterator,
+)
 from typing_extensions import Literal
 import git
 import git.exc
@@ -46,8 +56,16 @@ def add_user_to_url(url: str, username: str, password: str) -> str:
 
 
 def normalize_git_url(url: str, hard: int = 0):
-    if url.startswith("git-local://"):  # truncate url after commit digest
-        return "git-local://" + urlparse(url).netloc.partition(":")[0]
+    if url.startswith("git-local://"):
+        # truncate netloc after commit digest
+        url, path, revision = split_git_url(url)
+        base_url = "git-local://" + urlparse(url).netloc.partition(":")[0]
+        if path:  # move path to fragment
+            return f"{base_url}#{revision}:{path}"
+        elif revision:
+            return f"{base_url}#{revision}"
+        else:
+            return base_url
 
     if "://" not in url:  # not an absolute URL, convert some common patterns
         if url.startswith("/"):
@@ -372,7 +390,9 @@ def commit_secrets(working_dir, yaml, repo: "GitRepo") -> List[Path]:
     return saved
 
 
-def find_dirty_secrets(working_dir: str, repo: "GitRepo") -> Iterator[Tuple[Path, Path]]:
+def find_dirty_secrets(
+    working_dir: str, repo: "GitRepo"
+) -> Iterator[Tuple[Path, Path]]:
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
             continue
@@ -409,6 +429,16 @@ class RepoView:
         self.revision: Optional[str] = None
         self.file_refs: List[str] = []
         self.repo = repo
+        if (
+            is_url_or_git_path(self.repository.url)
+            and "file:" not in self.repository.url
+            and self.repository.url[0] != "/"
+        ):
+            _, filepath, revision = split_git_url(self.repository.url)
+            if filepath:
+                path = os.path.normpath(os.path.join(filepath, path))
+            if revision:
+                self.revision = revision
         self.path = path
         if repo and path and self.repository:
             # XXX check that repo.url and repository.url match
@@ -424,7 +454,7 @@ class RepoView:
     def working_dir(self) -> str:
         if self.repo:
             return os.path.join(self.repo.working_dir, self.path)
-        else:
+        else:  # XXX wrong unless url is just a file path not an url
             return os.path.join(self.repository.url, self.path)
 
     @property
@@ -463,13 +493,7 @@ class RepoView:
             revision = self.package.revision_tag
         else:
             revision = self.revision or ""
-        return (
-            normalize_git_url(url, hard)
-            + "#"
-            + revision
-            + ":"
-            + os.path.join(path, self.path)
-        )
+        return normalize_git_url(url, hard) + "#" + revision + ":" + self.path
 
     def is_local_only(self):
         # if it doesn't have a repo then it most be local
@@ -562,10 +586,14 @@ class RepoView:
 
     def _secrets_status(self):
         assert self.repo
-        modified = "\n   ".join([
-            str(filepath.relative_to(self.repo.working_dir))
-            for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo)
-        ])
+        modified = "\n   ".join(
+            [
+                str(filepath.relative_to(self.repo.working_dir))
+                for filepath, dotsecrets in find_dirty_secrets(
+                    self.working_dir, self.repo
+                )
+            ]
+        )
         if modified:
             return f"\n\nSecrets to be committed:\n   {modified}"
         return ""
@@ -596,10 +624,12 @@ class RepoView:
             return self.repo.revision
 
     def lock(self) -> CommentedMap:
-        record = CommentedMap([
-            ("url", normalize_git_url(self.url, 1)),
-            ("commit", self.get_current_commit()),
-        ])
+        record = CommentedMap(
+            [
+                ("url", normalize_git_url(self.url, 1)),
+                ("commit", self.get_current_commit()),
+            ]
+        )
         initial = self.get_initial_revision()
         if initial:
             record["initial"] = initial
@@ -642,9 +672,10 @@ class RepoView:
         assert name or self.repository.name, (base_path, self.repository.tpl)
         name = re.sub(r"\W", "_", name or self.repository.name)
         assert name.isidentifier(), name
-        if not Path(self.working_dir).is_dir():
+        target_path = self.working_dir
+        if not Path(target_path).is_dir():
             raise UnfurlError(
-                f"Can not create symlink to {self.working_dir}: it isn't a directory."
+                f"Can not create symlink to {target_path}: it isn't a directory."
             )
         tosca_repos_root = Path(base_path) / "tosca_repositories"
         # ensure t_r and its gitignore exist
@@ -663,20 +694,20 @@ class RepoView:
         if symlink.is_symlink():
             target = os.path.join(os.path.dirname(symlink), os.readlink(symlink))
             if os.path.abspath(target) == os.path.abspath(
-                self.working_dir
+                target_path
             ):  # already exists
-                return name, self.working_dir
+                return name, target_path
             symlink.unlink()
 
         # use os.path.relpath as Path.relative_to only accepts strict subpaths
-        rel_repo_path = os.path.relpath(self.working_dir, tosca_repos_root)
+        rel_repo_path = os.path.relpath(target_path, tosca_repos_root)
         try:
             symlink.symlink_to(rel_repo_path, target_is_directory=True)
         except FileExistsError:
             raise UnfurlError(
                 f"Can not create symlink at {symlink}: it already exists but is not a symlink"
             )
-        return name, self.working_dir
+        return name, target_path
 
 
 def add_transient_credentials(git, url, username, password):
@@ -811,15 +842,17 @@ class GitRepo(Repo):
 
     def find_excluded_dirs(self, root):
         root = os.path.relpath(root, self.working_dir)
-        status, stdout, stderr = self.run_cmd([
-            "ls-files",
-            "--exclude-standard",
-            "-o",
-            "-i",
-            "--full-name",
-            "--directory",
-            root,
-        ])
+        status, stdout, stderr = self.run_cmd(
+            [
+                "ls-files",
+                "--exclude-standard",
+                "-o",
+                "-i",
+                "--full-name",
+                "--directory",
+                root,
+            ]
+        )
         for file in stdout.splitlines():
             path = os.path.join(self.working_dir, file)
             yield path

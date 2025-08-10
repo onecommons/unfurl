@@ -885,7 +885,7 @@ class Manifest(AttributeManager):
             path = get_base_dir(self.path) if self.path else "."
             if self.repo:
                 url = self.repo.get_url_with_path(path)
-                path = os.path.relpath(path, self.repo.working_dir)
+                path = ""
             else:
                 url = "file:" + path
             repository = RepoView(
