@@ -70,6 +70,7 @@ from .planrequests import (
     create_instance_from_spec,
     get_success_status,
 )
+import tosca
 from .plan import Plan
 from .localenv import LocalEnv
 from . import display
@@ -292,6 +293,8 @@ class ConfigTask(TaskView, ConfigChange):
     @property
     def configurator(self) -> Configurator:
         if self._configurator is None:
+            if self.job and self.job.manifest and not tosca.loader.import_resolver:
+                tosca.loader.install(None, self.job.manifest.project_base_path)
             self._configurator = self.configSpec.create()
         return self._configurator
 
