@@ -157,6 +157,7 @@ class Manifest(AttributeManager):
         self.imports = Imports()
         self.imports.manifest = self
         self.modules: Optional[Dict] = None
+        self._patched_templates: Dict[Tuple[str, str], tosca.ToscaType] = {}
         self.apiVersion = API_VERSION
         self._load_errors = False
 

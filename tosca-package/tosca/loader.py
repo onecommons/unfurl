@@ -118,7 +118,7 @@ def get_module_path(module) -> str:
     if getattr(module, "__spec__", None) and module.__spec__.origin:
         # __file__ can be wrong
         return module.__spec__.origin
-    elif module.__file__:
+    elif getattr(module, "__file__", ""):
         return module.__file__
     else:
         assert hasattr(module, "__path__")

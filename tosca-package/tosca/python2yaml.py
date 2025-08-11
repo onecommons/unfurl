@@ -222,6 +222,9 @@ class PythonToYaml:
             obj._template_section, self.yaml_cls()
         )
         assert name
+        module_name = self.current_module
+        if module_name:
+            obj = obj.register_template(module_name, name)
         section[name] = obj  # placeholder to prevent circular references
         section[name] = obj.to_template_yaml(self)
         if referenced and not obj._name and isinstance(obj, Node):
@@ -230,13 +233,11 @@ class PythonToYaml:
             if "dependent" not in directives:
                 directives.append("dependent")
             obj._name = name
-        module_name = self.current_module
         if module_name:
             section[name].setdefault("metadata", {})["module"] = module_name
-            obj.register_template(module_name, name)
             if obj.__class__.__module__ != module_name:
-                module_path = self.globals.get("__file__")
-                self._import_module(module_path, obj.__class__.__module__)
+                current_module_path = self.globals.get("__file__")
+                self._import_module(current_module_path, obj.__class__.__module__)
         self.templates.append(obj)
         return name
 

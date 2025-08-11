@@ -86,6 +86,9 @@ class _LocalState(threading.local):
         self._type_proxy = None
         # by default, defer field validation to TOSCA parser:
         self._enforce_required_fields = False
+        # subtypes can registry themselves, so we can map TOSCA template names to instances
+        # section_name => Map((module_name, template_name) => instance)
+        self._all_templates: Dict[str, Dict[Tuple[str, str], "_ToscaType"]] = {}
         self.__dict__.update(kw)
 
 
@@ -104,6 +107,16 @@ def global_state_mode() -> str:
     Returns "parse" or "runtime"
     """
     return global_state.mode
+
+
+def reset_safe_mode():
+    """
+    If currently in safe mode, reset any global state as needed to maintain isolation.
+    """
+    if global_state.safe_mode:
+        global_state._all_templates = {}
+        global_state.context = None
+        global_state.modules = {}
 
 
 def global_state_context() -> Any:
@@ -2093,8 +2106,7 @@ class _DataclassType(type):
     def __new__(cls, name, bases, dct):
         x = super().__new__(cls, name, bases, dct)
         x = _make_dataclass(x)
-        if not global_state.safe_mode:
-            x.register_type(dct.get("_type_name", name))  # type: ignore
+        x.register_type(dct.get("_type_name", name))  # type: ignore
         return x
 
     def __instancecheck__(cls, inst) -> bool:
@@ -2213,9 +2225,6 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     # subtypes can registry themselves, so we can map TOSCA type names to a class
     _all_types: ClassVar[Dict[str, Type["_ToscaType"]]] = {}
-    # subtypes can registry themselves, so we can map TOSCA template names to instances
-    # section_name => Map((module_name, template_name) => instance)
-    _all_templates: ClassVar[Dict[str, Dict[Tuple[str, str], "_ToscaType"]]] = {}
     _metadata_key: ClassVar[str] = ""
     _instance_fields: Dict[str, _Tosca_Field] = dataclasses.field(
         default_factory=dict, init=False
@@ -2227,6 +2236,8 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
 
     @classmethod
     def register_type(cls, type_name):
+        if global_state.safe_mode:
+            return
         cls._all_types[type_name] = cls
 
     @classmethod
@@ -2558,6 +2569,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                             field.default is DEFAULT
                             and field.tosca_field_type != ToscaFieldType.requirement
                             and value == _defaults.get(name)
+                            and not self.is_patch  # if patch, must have been explicitly set
                         ):
                             continue
                         if field.default == value:
@@ -2934,10 +2946,24 @@ class ToscaType(_ToscaType):
     def patch(self, override: Self) -> None:
         self._merge(self, override, False)
 
-    def register_template(self, current_module, name) -> None:
-        self._all_templates.setdefault(self._template_section, {})[
+    def register_template(self, current_module: str, name: str) -> Self:
+        # _all_templates is used unfurl.dsl.find_template()
+        from . import loader
+
+        obj = self
+        name = self._name or name
+        if not global_state.safe_mode:
+            if loader.import_resolver and current_module in global_state.modules:
+                # used patched version if set
+                patched = loader.import_resolver.patch_template(
+                    global_state.modules[current_module], name
+                )
+                if patched:
+                    obj = patched
+        global_state._all_templates.setdefault(self._template_section, {})[
             (current_module, self._name or name)
-        ] = self
+        ] = obj
+        return obj
 
     def set_operation(
         self,

@@ -79,7 +79,7 @@ from .. import to_json
 from .. import init
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
-
+import tosca
 
 __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
@@ -1633,6 +1633,7 @@ def _localenv_from_cache(
         err, local_env = _make_readonly_localenv(clone_location, deployment_path)
         return err, local_env, True
 
+    tosca.reset_safe_mode()
     cache_entry = CacheEntry(
         project_id,
         branch,

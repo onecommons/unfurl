@@ -4,6 +4,7 @@ import os.path
 import sys
 import datetime
 import re
+from types import ModuleType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -296,6 +297,20 @@ def is_newer_than(output_path, input_path):
     return False
 
 
+def patch_template(
+    module: ModuleType, template_name: str, patch: "ToscaType"
+) -> Optional["ToscaType"]:
+    """Apply the give patch object to the template found in the given module.
+
+    Must be called before yaml generation, so care must be taken to make sure the module that calls this method is imported before a TOSCA import or include of the patched template.
+    """
+    from . import loader
+
+    if loader.import_resolver:
+        return loader.import_resolver.patch_template(module, template_name, patch)
+    return None
+
+
 __all__ = [
     "EvalData",
     "safe_mode",
@@ -366,6 +381,7 @@ __all__ = [
     "NS",
     "AttributeOptions",
     "PATCH",
+    "patch_template",
     "PropertyOptions",
     "Namespace",
     "NodeTemplateDirective",
@@ -459,6 +475,7 @@ __all__ = [
     "operation",
     "pattern",
     "placeholder",
+    "reset_safe_mode",
     "s",
     "scalar",
     "scalar_value",
