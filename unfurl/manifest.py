@@ -815,10 +815,17 @@ class Manifest(AttributeManager):
                 try:
                     self.add_repository(toscaRepository, "")
                 except UnfurlError:
-                    # just warn if the repository is redefined
-                    logger.warning(
-                        "Ignoring redefinition of repository '%s' to %s", name, tpl
-                    )
+                    # warn if the repository is redefined
+                    rv = self.repositories.get(toscaRepository.name)
+                    assert rv, toscaRepository.name
+                    # don't warn if the only difference was rv.path wasn't set
+                    if rv.repository.tpl != tpl or rv.path:
+                        logger.warning(
+                            "Ignoring redefinition of repository '%s' to %s, was: %s",
+                            name,
+                            tpl,
+                            rv.repository.tpl,
+                        )
 
         if inlineRepositories:
             for name, repository in inlineRepositories.items():

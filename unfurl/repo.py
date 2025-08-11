@@ -439,7 +439,7 @@ class RepoView:
                 path = os.path.normpath(os.path.join(filepath, path))
             if revision:
                 self.revision = revision
-        self.path = path
+        self.path = "" if path == "." else path
         if repo and path and self.repository:
             # XXX check that repo.url and repository.url match
             # and neither have fragments

@@ -1579,8 +1579,8 @@ class LocalEnv:
             if (
                 not locked
                 and not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
-                and not repo.is_dirty()
                 and not (repoview_or_url.package and repoview_or_url.package.locked)
+                and not repo.is_dirty()
             ):
                 repo.pull(revision=revision)
         else:
