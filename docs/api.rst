@@ -158,6 +158,8 @@ Other Module Items
    :show-inheritance: 
    :members:
 
+.. autofunction:: patch_template
+
 .. autofunction:: set_evaluation_mode
 
 .. autofunction:: safe_mode
@@ -165,6 +167,9 @@ Other Module Items
 .. autofunction:: global_state_mode
 
 .. autofunction:: global_state_context
+
+.. autofunction:: reset_safe_mode
+
 
 Scalars
 ~~~~~~~

@@ -4,13 +4,11 @@ import unittest
 
 import pytest
 
-import unfurl
 from unfurl.job import Runner
 from .utils import init_project, run_job_cmd
 from mypy import api
 import tosca
 from unfurl.localenv import LocalEnv
-from tosca import python2yaml
 import os
 import sys
 from unfurl.yamlloader import yaml, load_yaml
@@ -18,6 +16,8 @@ from tosca.python2yaml import PythonToYaml
 from click.testing import CliRunner
 from unfurl.util import UnfurlError, change_cwd
 from unfurl.testing import assert_no_mypy_errors
+
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 
 def test_constraints(caplog):
@@ -32,8 +32,7 @@ def test_constraints(caplog):
             "metadata": {"module": "service_template.constraints"},
             "requirements": [
                 {"proxy": "myapp_proxy"},
-                {"container":
-                 {"node" : "container_service"}},
+                {"container": {"node": "container_service"}},
             ],
         },
         "container_service": {
@@ -44,19 +43,19 @@ def test_constraints(caplog):
                 "name": "app",  # applied by the app's node_filter
                 "mem_size": "1 GB",  # XXX node_filter constraints aren't being applied
             },
-            'metadata': {'module': 'service_template.constraints'}
+            "metadata": {"module": "service_template.constraints"},
         },
         "myapp_proxy": {
             "type": "ProxyContainerHost",
-            'directives': ['dependent'],
-             'metadata': {'module': 'service_template.constraints'}
+            "directives": ["dependent"],
+            "metadata": {"module": "service_template.constraints"},
         },
     }
     for name, value in node_templates.items():
         # pprint.pprint((name, service_template["topology_template"]["node_templates"][name]), indent=4)
-        assert (
-            service_template["topology_template"]["node_templates"][name] == value
-        ), name
+        assert service_template["topology_template"]["node_templates"][name] == value, (
+            name
+        )
 
     myapp_proxy_spec = manifest.tosca.topology.get_node_template("myapp_proxy")
     assert myapp_proxy_spec
@@ -176,23 +175,35 @@ def test_constraints(caplog):
     assert hosting == container, (hosting, container)
 
     Runner(manifest).static_plan()  # generate instances
-    with pytest.raises(UnfurlError, match='The value "1 GB" of property "mem_size" is out of range'):
-        assert manifest.get_root_resource().find_instance("container_service").attributes["mem_size"] == "1 GB"
+    with pytest.raises(
+        UnfurlError, match='The value "1 GB" of property "mem_size" is out of range'
+    ):
+        assert (
+            manifest.get_root_resource()
+            .find_instance("container_service")
+            .attributes["mem_size"]
+            == "1 GB"
+        )
 
     assert "Solver set myapp_proxy.hosting to container" in caplog.text
     # XXX support for deducing inverse and test
     # assert container.get_relationship("host") == proxy
 
 
-
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @pytest.mark.parametrize(
-    "path", ["constraints.py", "dsl_configurator.py", "dsl_relationships.py", "dsl_artifacts.py"]
+    "path",
+    [
+        "constraints.py",
+        "dsl_configurator.py",
+        "dsl_relationships.py",
+        "dsl_artifacts.py",
+    ],
 )
 def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "examples", path)
-    assert_no_mypy_errors(basepath) #, "--disable-error-code=override")
+    assert_no_mypy_errors(basepath)  # , "--disable-error-code=override")
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
@@ -260,7 +271,7 @@ def test_class_init() -> None:
 
 
 attribute_access_ensemble = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
@@ -293,9 +304,32 @@ with open(os.path.join(os.path.dirname(__file__), "examples/dsl_configurator.py"
     attribute_access_import = f.read()
 
 
+expected_outputs = {
+    "computed": "https://foo.com",
+    "url": "https://foo.com",
+    "ports": {
+        "target": 8080,
+        "source": 80,
+    },
+    "a_list": [1],
+    "data_list": [
+        {
+            "ports": {
+                "target": 8080,
+                "source": 80,
+            },
+            "additional": 1,
+        }
+    ],
+    "extra": "extra",
+}
+
+
 def test_computed_properties():
     cli_runner = CliRunner()
-    with cli_runner.isolated_filesystem() as tmp:
+    with cli_runner.isolated_filesystem(SAVE_TMP) as tmp:
+        if SAVE_TMP:
+            print(f"using {tmp}")
         init_project(
             cli_runner,
             env=dict(UNFURL_HOME=""),
@@ -307,27 +341,8 @@ def test_computed_properties():
             f.write(attribute_access_import)
 
         result, job, summary = run_job_cmd(cli_runner, print_result=True)
-        expected = {
-            "computed": "https://foo.com",
-            "url": "https://foo.com",
-            "ports": {
-                "target": 8080,
-                "source": 80,
-            },
-            "a_list": [1],
-            "data_list": [
-                {
-                    "ports": {
-                        "target": 8080,
-                        "source": 80,
-                    },
-                    "additional": 1,
-                }
-            ],
-            "extra": "extra",
-        }
         # pprint.pprint(job.get_outputs())
-        assert job.get_outputs() == expected
+        assert job.get_outputs() == expected_outputs
         assert job.json_summary()["job"] == {
             "id": "A01110000000",
             "status": "ok",
@@ -415,3 +430,73 @@ def test_relationships():
     # pprint.pprint(service_template, indent=2)
     service_template.pop("repositories")
     assert service_template == relationships_yaml
+
+
+patch_ensemble_yaml = """\
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    +?include: ensemble.py
+# include blueprint after ensemble.py so it can patch templates before the include converts them to yaml
++include-blueprint:
+  file: ensemble-template.yaml
+  repository: spec
+"""
+
+patched_args = {
+    "url": "https://bar.com",
+}
+
+patch_ensemble_py = f"""\
+import tosca
+import tosca_repositories.spec.mytypes
+patch = tosca_repositories.spec.mytypes.Test(
+        tosca.PATCH, **{patched_args!r})
+assert patch.url == {patched_args["url"]!r}
+def make_patch():
+    obj = tosca.patch_template(
+      tosca_repositories.spec.mytypes, "test", patch
+    )
+    assert obj
+    assert obj.url == {patched_args["url"]!r}
+make_patch()
+"""
+
+
+def test_patching():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem(SAVE_TMP) as tmp:
+        if SAVE_TMP:
+            print(f"using {tmp}")
+        init_project(
+            cli_runner,
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(attribute_access_ensemble)
+
+        with open("mytypes.py", "w") as f:
+            f.write(attribute_access_import)
+
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(patch_ensemble_yaml)
+
+        with open("ensemble/ensemble.py", "w") as f:
+            f.write(patch_ensemble_py)
+
+        # checkout outputs matched patched value
+        result, job, summary = run_job_cmd(cli_runner, print_result=True)
+        assert job.get_outputs() == dict(
+            expected_outputs, computed="https://bar.com", **patched_args
+        )
+        assert job.json_summary()["job"] == {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        }

@@ -9,6 +9,7 @@ import sys
 import codecs
 import json
 import os
+from types import ModuleType
 from typing import (
     Any,
     Mapping,
@@ -456,6 +457,32 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             logger.debug("Could not find a repository for '%s' (%s)", name, tpl)
             return None
         return self._get_link_to_repo(repo_view, base_path, name)
+
+    def patch_template(
+        self,
+        module: ModuleType,
+        template_name: str,
+        patch: Optional[tosca.ToscaType] = None,
+    ) -> Optional[tosca.ToscaType]:
+        if not self.manifest:
+            return None
+        if patch:
+            obj = getattr(module, template_name)
+            if not isinstance(obj, tosca.ToscaType):
+                return None
+            obj.patch(patch)
+            # use os.path.realpath() to resolve symlinks
+            self.manifest._patched_templates[
+                (os.path.realpath(tosca.loader.get_module_path(module))), template_name
+            ] = obj
+            return obj
+        else:
+            # use os.path.realpath() to resolve symlinks
+            key = (
+                os.path.realpath(tosca.loader.get_module_path(module)),
+                template_name,
+            )
+            return self.manifest._patched_templates.get(key)
 
     def _get_link_to_repo(
         self, repo_view: RepoView, base_path: Optional[str], name: str = ""

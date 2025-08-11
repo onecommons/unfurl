@@ -228,8 +228,8 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
         return None
     metadata = template.toscaEntityTemplate.entity_tpl.get("metadata")
     module_name = metadata and metadata.get("module")
-    if module_name and ToscaType._all_templates:
-        return ToscaType._all_templates[section].get((module_name, template.name))  # type: ignore
+    if module_name and global_state._all_templates:
+        return global_state._all_templates[section].get((module_name, template.name))  # type: ignore
     return None
 
 
