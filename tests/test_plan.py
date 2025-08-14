@@ -291,3 +291,275 @@ def test_plan(local_storage_status, compute_status, total, expected_errors, mock
                 },
             ],
         }
+
+
+# all|mixed success? changed? check vs deploy
+# commits / check caplog messages?
+# check final disk layout
+
+commit_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      Test:
+        derived_from: tosca:Root
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                implementation: echo "test"
+                inputs:
+                  dryrun: true
+                  done:
+                    # success: "{{ '.name' | eval  not in '::root::inputs::failed' | eval }}"
+                    # modified: "{{  '.name' | eval in '::root::inputs::changed' | eval }}"
+                    success: "{{ '.name' | eval not in TOPOLOGY.inputs.failed }}"
+                    modified: "{{ '.name' | eval in TOPOLOGY.inputs.changed  }}"
+
+
+    topology_template:
+      inputs:
+        failed:
+          type: string
+          default: none
+        changed:
+          type: string
+          default: none
+      node_templates:
+        test1:
+          type: Test
+        test2:
+          type: Test
+"""
+
+
+@pytest.fixture()
+def runner(request):
+    runner = CliRunner()
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("running in", test_dir)
+        init_project(
+            runner,
+            env=dict(UNFURL_HOME=""),
+        )
+        with open("ensemble-template.yaml", "w") as f:
+            f.write(commit_manifest)
+        run_cmd(runner, ["commit", "--no-edit"])
+        runner.job_count = 0
+        yield runner
+
+
+def _deploy(cli_runner, command, expected_summary=None, check_files=None):
+    args = f"-vvv {command}"
+    result, job, summary = run_job_cmd(
+        cli_runner, args, print_result=True, starttime=cli_runner.job_count
+    )
+    # os.system("git diff")
+    # print(job.json_summary()["job"])
+    files = dict((item[0], item[1:]) for item in os.walk("ensemble"))
+    # pprint.pprint(files)
+    if check_files:
+        for expected_dir, expected in check_files.items():
+            assert expected_dir in files
+            assert files[expected_dir] == expected
+    if expected_summary:
+        summary = job.json_summary()["job"]
+        jobid = summary.pop("id")
+        expected_summary.pop("id", None)
+        assert expected_summary == summary, jobid
+
+
+def test_committing(runner):
+    # changes updated when changed
+    command = "deploy --commit"
+    for args, summary, files in [
+        # both failed, no changes
+        (
+            "--var input_failed 'test1 test2'",
+            {
+                "id": "A01110000000",
+                "status": "error",
+                "total": 2,
+                "ok": 0,
+                "error": 2,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 0,
+            },
+            {
+                "ensemble": (["planned", "jobs"], ["ensemble.yaml"]),
+                "ensemble/jobs": (
+                    [],
+                    [
+                        "job2020-01-01-01-00-00-A0111000.log",
+                        "job2020-01-01-01-00-00-A0111000.yaml",
+                    ],
+                ),
+            },
+        ),
+        # one failed with change, the other repaired
+        (
+            "--var input_failed test1 --var input_changed test1",
+            {
+                "id": "A01120000000",
+                "status": "error",
+                "total": 2,
+                "ok": 1,
+                "error": 1,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 2,
+            },
+            {},
+        ),
+        # one failed, both changed
+        (
+            "--var input_failed test1 --var input_changed 'test1 test2'",
+            {
+                "id": "A01130000000",
+                "status": "error",
+                "total": 2,
+                "ok": 1,
+                "error": 1,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 2,
+            },
+            {},
+        ),
+        # repair and reconfigure
+        (
+            "",
+            {
+                "id": "A01140000000",
+                "status": "ok",
+                "total": 2,
+                "ok": 2,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 1,
+            },
+            {},
+        ),
+        # nothing to do
+        (
+            "",
+            {
+                "id": "A01150000000",
+                "status": "ok",
+                "total": 2,
+                "ok": 0,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 2,
+                "changed": 0,
+            },
+            {},
+        ),
+        # one failed and reconfigure
+        (
+            "--var input_failed test1",
+            {
+                "id": "A01160000000",
+                "status": "error",
+                "total": 2,
+                "ok": 1,
+                "error": 1,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 0,
+            },
+            {
+                "ensemble/changes": (
+                    [],
+                    [
+                        "job2020-01-01-04-00-00-A0114000.yaml",
+                        "job2020-01-01-06-00-00-A0116000.yaml",
+                        "job2020-01-01-02-00-00-A0112000.yaml",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
+                    ],
+                ),
+                "ensemble/jobs": (
+                    [],
+                    [
+                        "job2020-01-01-04-00-00-A0114000.yaml",
+                        "job2020-01-01-01-00-00-A0111000.log",
+                        "job2020-01-01-06-00-00-A0116000.yaml",
+                        "job2020-01-01-06-00-00-A0116000.log",
+                        "job2020-01-01-02-00-00-A0112000.yaml",
+                        "job2020-01-01-04-00-00-A0114000.log",
+                        "job2020-01-01-02-00-00-A0112000.log",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
+                        "job2020-01-01-01-00-00-A0111000.yaml",
+                        "job2020-01-01-03-00-00-A0113000.log",
+                        "job2020-01-01-05-00-00-A0115000.log",
+                    ],
+                ),
+            },
+        ),
+    ]:  # Updating status for job A01110000000
+        runner.job_count += 1
+        _deploy(runner, command + " " + args, summary)
+
+
+def test_planning(runner):
+    plan_files = {
+        "ensemble": (["planned"], ["ensemble.yaml"]),
+    }
+    for command, summary, files in [
+        # both failed, no changes
+        ("plan --var input_failed 'test1 test2'", {}, plan_files),
+        (
+            "deploy --commit --dryrun",
+            {
+                "id": "A01120000000",
+                "status": "ok",
+                "total": 2,
+                "ok": 2,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 2,
+            },
+            plan_files,
+        ),
+        (
+            "deploy --commit --dryrun --var input_failed 'test1 test2'",
+            {
+                "id": "A01130000000",
+                "status": "error",
+                "total": 2,
+                "ok": 0,
+                "error": 2,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 0,
+            },
+            {
+                "ensemble": (["planned"], ["ensemble.yaml"]),
+                "ensemble/planned": (
+                    ["tasks", "previous"],
+                    [
+                        "job2020-01-01-02-00-00-A0112000.ensemble.yaml",
+                        "job2020-01-01-01-00-00-A0111000.log",
+                        "job2020-01-01-02-00-00-A0112000.yaml",
+                        "job2020-01-01-03-00-00-A0113000.ensemble.yaml",
+                        "job2020-01-01-02-00-00-A0112000.log",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
+                        "job2020-01-01-03-00-00-A0113000.log",
+                    ],
+                ),
+                "ensemble/planned/tasks": (["test1", "test2"], []),
+                "ensemble/planned/tasks/test1": (["configure"], []),
+                "ensemble/planned/tasks/test1/configure": ([], ["rendered.sh"]),
+                "ensemble/planned/tasks/test2": (["configure"], []),
+                "ensemble/planned/tasks/test2/configure": ([], ["rendered.sh"]),
+            },
+        ),
+    ]:
+        runner.job_count += 1
+        _deploy(runner, command, summary, files)

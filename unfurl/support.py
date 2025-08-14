@@ -812,16 +812,23 @@ set_eval_func(
 )
 
 
+class _ContextVars(dict):
+    def __init__(self, root):
+        self.root = root
+
+    def __getitem__(self, key):
+        # hack so we record access via attribute manager
+        if key in ("inputs", "outputs"):
+            return self.root[key]
+        return super().__getitem__(key)
+
+    def copy(self):
+        return self  # for jinja2
+
+
 def set_context_vars(vars, root: "TopologyInstance"):
-    ROOT: Dict[str, Any] = {}
+    ROOT = _ContextVars(root)
     vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
-    if "inputs" in root._attributes:
-        ROOT.update(
-            dict(
-                inputs=root._attributes["inputs"],
-                outputs=root._attributes["outputs"],
-            )
-        )
     app_template = root.template.topology.substitution_node
     if app_template:
         app = root.find_instance(app_template.name)
