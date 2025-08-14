@@ -43,7 +43,6 @@ from typing_extensions import (
     get_args,
     get_origin,
     Annotated,
-    Literal,
     Self,
     TypeAlias,
 )
@@ -2830,13 +2829,6 @@ def from_owner(
     return cast(_T, _search(field_name, ".owner", cls_or_obj))
 
 
-# XXX make unconditional when type_extensions 4.13 is released (and use Self)
-if sys.version_info >= (3, 11):
-    _OperationFunc = Callable[Concatenate["ToscaType", ...], Any]
-else:
-    _OperationFunc = Callable
-
-
 class ToscaType(_ToscaType):
     """Base class for TOSCA type definitions.
 
@@ -2967,8 +2959,8 @@ class ToscaType(_ToscaType):
 
     def set_operation(
         self,
-        op: _OperationFunc,  # Callable[Concatenate[Self, ...], Any],
-        name: Optional[Union[str, _OperationFunc]] = None,
+        op: Callable[Concatenate[Self, ...], Any],
+        name: Optional[Union[str, Callable[Concatenate[Self, ...], Any]]] = None,
     ) -> Self:
         """
         Assign the given :std:ref:`TOSCA operation<operation>` to this TOSCA object.
