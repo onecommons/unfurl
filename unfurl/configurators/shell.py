@@ -336,14 +336,10 @@ class ShellConfigurator(TemplateConfigurator):
                     cmd += " " + " ".join(args)
                 else:
                     cmd.extend(args)
-        if isString:
-            script = cmd
-        else:
-            script = " ".join(cmd)
+        # try this now to catch errors early:
+        script, _ = self._cmd(cmd, task.inputs.get("keeplines", False))
         # save as script just for troubleshooting
         task.set_work_folder().write_file(script, "rendered.sh")
-        # try this now to catch errors early:
-        _, _ = self._cmd(cmd, task.inputs.get("keeplines", False))
         return [cmd, cwd]
 
     def run(self, task: TaskView):
