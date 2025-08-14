@@ -48,7 +48,7 @@ The job summary table has the following columns:
   :Status: The `status <Operational status and state>` of the resource after the task ran (which is orthogonal to the task's status -- a task can run successfully even if the resource remains in a error state).
            If the local status of the resource is different from its effective status, (ie. its status with its dependencies' statuses considered) both will be displayed (local first).
   :State: The resource `state <Node state>` after the task ran.
-  :Changed: Whether the task modified the resource.
+  :Changed: Whether the task modified or recorded a change to a resource.
 
 You can also output this table as json using the :cli:`--output<cmdoption-unfurl-deploy-output>` option.
 

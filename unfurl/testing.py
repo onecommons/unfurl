@@ -117,10 +117,10 @@ def _check_job(job, i, step):
             )
 
     for task in job.workDone.values():
-        if task.status is not None and task.priority > Priority.ignore:
+        if task.local_status is not None and task.priority > Priority.ignore:
             if task.target.name not in step.ignore_target_status:
-                assert task.target.status == step.target_status, (
-                    f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
+                assert task.target.local_status == step.target_status, (
+                    f"Step: {step_str}, status: {task.target.local_status.name} should be {step.target_status.name} for {task.target.name}"
                 )
     job.step = step
     return job

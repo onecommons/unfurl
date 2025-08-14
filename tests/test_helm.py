@@ -186,7 +186,7 @@ class HelmTest(unittest.TestCase):
                                     "status": "ok",
                                     "target": "install",
                                     "targetState": None,
-                                    "targetStatus": "unknown",
+                                    "targetStatus": None,
                                     "template": "install",
                                     "type": "artifact.AsdfTool",
                                 },
