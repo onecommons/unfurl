@@ -251,7 +251,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.outputs: Optional[dict] = None
         # for summary:
         self.modified_target: bool = False
-        self.target_status: Optional[Status] = target.status
+        self.target_status: Optional[Status] = target.local_status
         self.target_state: Optional[NodeState] = target.state
         self.blocked: bool = False
 
@@ -314,7 +314,7 @@ class ConfigTask(TaskView, ConfigChange):
     def start(self) -> None:
         self.start_run()
         self.target.root.set_attribute_manager(self._attributeManager)
-        self.target_status = self.target.status
+        self.target_status = self.target.local_status
         self.target_state = self.target.state
         self.set_envvars()
 
@@ -387,9 +387,10 @@ class ConfigTask(TaskView, ConfigChange):
     def _finished_workflow(self, successStatus: Optional[Status], workflow: str):
         # non-readonly workflow finished successfully
         instance = self.target
-        self.modified_target = True
-        instance.local_status = successStatus
-        self.target_status = successStatus
+        if instance.local_status != successStatus:
+            instance.local_status = successStatus
+            self.modified_target = True
+            self.target_status = instance.local_status
         if instance.last_change != self.changeId:
             # save to create a linked list of tasks that modified the target
             self.previousId = instance.last_change
@@ -438,15 +439,15 @@ class ConfigTask(TaskView, ConfigChange):
         targetChanged = self._update_last_change(result)
         self.result = result
         self.local_status = Status.ok if result.success else Status.error
-        self.modified_target = targetChanged or self.target_status != self.target.status
+        self.modified_target = targetChanged or self.target_status != self.target.local_status
         if targetChanged:
             self._set_customized()
-        self.target_status = self.target.status
+        self.target_status = self.target.local_status
         self.target_state = self.target.state
         return self
 
     def _set_customized(self) -> bool:
-        # If non-Standard operation has modified attribute which overlaps with attributes
+        # If non-Standard operation has modified attributes which overlaps with attributes
         # that the last config operation depended on or modified, then mark the target as customized
         if (
             self.configSpec.interface != "Standard"
@@ -1016,7 +1017,9 @@ class Job(ConfigChange):
         return self.plan_requests[:]
 
     @staticmethod
-    def _reorder_requests(reqs: List[PlanRequest], not_ready_reqs: List[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest]]:
+    def _reorder_requests(
+        reqs: List[PlanRequest], not_ready_reqs: List[PlanRequest]
+    ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
         # first reorder not_ready in case one depends on another
         not_ready = not_ready_reqs[:]
         not_ready_appended: List[PlanRequest] = []

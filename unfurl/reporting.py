@@ -403,8 +403,9 @@ class JobReporter:
             if task.target_status is None:
                 status = ""
             else:
-                if task.target.local_status is not None and task.target.local_status != task.target_status:
-                    status = f"[{task.target.local_status.color}]{task.target.local_status.name}[/]/[{task.target_status.color}]{task.target_status.name}[/]"
+                target_status = task.target.status
+                if target_status != task.target_status:
+                    status = f"[{task.target_status.color}]{task.target_status.name}[/]/[{target_status.color}]{target_status.name}[/]"
                 else:
                     status = (
                         f"[{task.target_status.color}]{task.target_status.name.upper()}[/]"

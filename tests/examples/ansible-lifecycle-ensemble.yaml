@@ -11,7 +11,7 @@ spec:
               check:
             Standard:
               operations:
-                create:
+                configure:
                 delete:
             defaults:
               implementation: Ansible
