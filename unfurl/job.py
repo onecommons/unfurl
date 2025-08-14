@@ -160,6 +160,7 @@ class JobOptions:
     dirty: str = "auto"
     readonly: bool = False
     instances: Optional[List[Union[str, Dict[str, Any]]]] = None
+    vars: Optional[Dict[str, str]] = None
 
     defaults = dict(
         global_defaults,
@@ -182,6 +183,7 @@ class JobOptions:
         append=None,
         replace=None,
         workflow=workflow,
+        vars=None,
     )
 
     def __init__(self, **kw: Any) -> None:
@@ -204,6 +206,9 @@ class JobOptions:
                     kw["instances"] = list(instances)
             elif "instances" not in kw:
                 kw["instances"] = [instance]
+        job_vars = kw.pop("var", None)
+        if job_vars:
+            kw["vars"] = dict(job_vars)
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
