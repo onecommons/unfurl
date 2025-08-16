@@ -57,6 +57,7 @@ from .spec import (
     get_default_topology,
 )
 from .runtime import (
+    ArtifactInstance,
     EntityInstance,
     NodeInstance,
     TopologyInstance,
@@ -948,7 +949,9 @@ class YamlManifest(ReadOnlyManifest):
             status["customized"] = resource.customized
         return (resource.name, status)
 
-    def save_artifact(self, resource: EntityInstance) -> Optional[Tuple[str, Dict]]:
+    def save_artifact(self, resource: ArtifactInstance) -> Optional[Tuple[str, Dict]]:
+        if cast(ArtifactSpec, resource.template)._inline:
+            return None
         if resource.parent and resource.name not in resource.parent.template.artifacts:  # type: ignore
             name, status = self.save_entity_instance(resource)  # type: ignore
             # this artifact was dynamically added and is not part of the node template

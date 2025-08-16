@@ -1057,7 +1057,7 @@ class NodeInstance(HasInstancesInstance):
         # next three may be initialized either by Manifest.createNodeInstance or by its property
         self._capabilities = []
         self._requirements: List["RelationshipInstance"] = []
-        self._artifacts = []
+        self._artifacts: List[ArtifactInstance] = []
         self._named_artifacts = None
         HasInstancesInstance.__init__(self, name, attributes, parent, template, status)
 
