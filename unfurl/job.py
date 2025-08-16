@@ -54,7 +54,7 @@ from .configurator import (
     ConfiguratorResult,
     Configurator,
 )
-from .projectpaths import Folders, rmtree
+from .projectpaths import Folders, move_dirs
 from .planrequests import (
     ConfigurationSpec,
     PlanRequest,
@@ -999,7 +999,9 @@ class Job(ConfigChange):
         if not self.jobOptions.parentJob:
             # don't do this when running a nested job
             # (planned was already removed and new tasks have already been rendered there)
-            rmtree(os.path.join(self.rootResource.base_dir, Folders.planned))
+            move_dirs(
+                os.path.join(self.rootResource.base_dir, Folders.planned), "previous"
+            )
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
