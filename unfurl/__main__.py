@@ -52,6 +52,7 @@ from . import (
 from . import init as initmod
 from . import logs, version_tuple
 from .job import start_job, Job
+from .projectpaths import Folders
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
@@ -692,12 +693,12 @@ def yesno(prompt):
         return False
 
 
-def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary):
+def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary, folder):
     if summary:
         with open(tmplogfile, "a") as f:
             f.write(summary)
     if job and job.log_path():
-        log_path = job.log_path()
+        log_path = job.log_path(folder)
         dir = os.path.dirname(log_path)
         if not os.path.exists(dir):
             os.makedirs(dir)
@@ -720,6 +721,7 @@ def _run_local(ensemble: Optional[str], options: dict):
     job, rendered, proceed = start_job(ensemble, options)
     _latestJobs.append(job)  # testing only
     summary = ""
+    folder = ""
     if job:
         declined = False
         if not job.unexpectedAbort and not job.jobOptions.planOnly and proceed:
@@ -734,10 +736,16 @@ def _run_local(ensemble: Optional[str], options: dict):
                 raise job.unexpectedAbort
         elif not declined:
             summary = _print_summary(job, options)
+        if job.local_status == Status.error or job.unexpectedAbort:
+            folder = Folders.failed
+        elif declined or job.jobOptions.planOnly or job.jobOptions.dryrun:
+            folder = Folders.planned
+        else:
+            folder = Folders.jobs
     else:
         click.echo("Unable to create job")
 
-    _stop_logging(job, options, verbose, tmplogfile, summary)
+    _stop_logging(job, options, verbose, tmplogfile, summary, folder)
     return _exit(job, options)
 
 
