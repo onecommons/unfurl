@@ -184,6 +184,7 @@ class JobOptions:
         replace=None,
         workflow=workflow,
         vars=None,
+        use_environment=None,
     )
 
     def __init__(self, **kw: Any) -> None:
@@ -1669,14 +1670,14 @@ def start_job(
     manifestPath=None, _opts=None
 ) -> Tuple[Optional[Job], Optional[RenderRequests], bool]:
     _opts = _opts or {}
+    opts = JobOptions(**_opts)
     localEnv = LocalEnv(
         manifestPath,
         _opts.get("home"),
         override_context=_opts.get("use_environment") or "",
-        overrides=dict((n, v) for n, v in _opts.get("var", [])),
+        overrides=dict(opts.vars or {}),
         # XXX readonly=_opts.get("planOnly")
     )
-    opts = JobOptions(**_opts)
     path = localEnv.manifestPath
     if not opts.planOnly:
         logger.info("creating %s job for %s", opts.workflow, path)

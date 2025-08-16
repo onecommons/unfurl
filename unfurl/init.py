@@ -632,7 +632,7 @@ def clone_local_repos(manifest, sourceProject: Project, targetProject: Project):
 
 def _add_ensemble_specific_unfurl_config(repo: GitRepo, kw: dict):
     # when creating a separate repo, add a stub unfurl.yaml too
-    skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+    skeleton_vars = dict(kw.get("var", []))
     use_context = kw.get("use_environment")
     if use_context:
         skeleton_vars["default_context"] = use_context
@@ -763,7 +763,7 @@ class EnsembleBuilder:
         self.ensemble_name = ensemble_name
         self.mono = bool(options.get("mono") or options.get("existing"))
         self.home_path = get_home_config_path(options.get("home"))
-        self.skeleton_vars = dict((n, v) for n, v in options.get("var", []))
+        self.skeleton_vars = dict(options.get("var", []))
 
         self.source_project: Optional[Project] = None  # step 1
         self.source_path: Optional[str] = None  # step 1 relative path in source_project
@@ -1172,7 +1172,7 @@ class EnsembleBuilder:
         kw = self.options
         use_context = cast(Optional[str], kw.get("use_environment"))
         if use_context and use_context not in existing_project.contexts:
-            skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+            skeleton_vars = dict(kw.get("var", []))
             if "api_version" not in skeleton_vars:
                 skeleton_vars["api_version"] = API_VERSION
             skeleton_vars["default_context"] = use_context

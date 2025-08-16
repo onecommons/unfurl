@@ -481,6 +481,7 @@ def _get_runtime(options: dict, ensemble_path: Optional[str]) -> Optional[str]:
 def _run(ensemble: Optional[str], options, workflow=None):
     if workflow:
         options["workflow"] = workflow
+    _validate_var_option(options.get("var"))
 
     if not options.get("no_runtime"):
         runtime = _get_runtime(options, ensemble)
@@ -991,6 +992,7 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     If [ensemble_name] is omitted, use a default name.
     """
     options.update(ctx.obj)
+    _validate_var_option(options.get("var"))
     options["want_init"] = True
     projectPath = Project.find_path(projectdir or ".")
     if projectPath:
@@ -1255,10 +1257,19 @@ def clone(ctx, source, dest, **options):
     """
 
     options.update(ctx.obj)
+    _validate_var_option(options.get("var"))
 
     message = initmod.clone(source, dest, **options)
     click.echo(message)
 
+def _validate_var_option(vars):
+    names = []
+    if vars:
+        for (name, val) in vars:
+            if name in names:
+                raise ValueError(f'--var option used multiple times with the same name: "{name}"')
+            names.append(name)
+    return names
 
 @project_cli.command(
     short_help="Run a git command across all repositories",
