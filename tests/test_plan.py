@@ -385,7 +385,9 @@ def _deploy(cli_runner, command, expected_summary=None, check_files=None):
     )
     # os.system("git diff")
     # print(job.json_summary()["job"])
-    files = dict((item[0], item[1:]) for item in os.walk("ensemble"))
+    files = dict(
+        (item[0], (sorted(item[1]), sorted(item[2]))) for item in os.walk("ensemble")
+    )
     # pprint.pprint(files)
     if check_files:
         for expected_dir, expected in check_files.items():
@@ -416,7 +418,7 @@ def test_committing(runner):
                 "changed": 0,
             },
             {
-                "ensemble": (["planned", "jobs"], ["ensemble.yaml"]),
+                "ensemble": (["jobs", "planned"], ["ensemble.yaml"]),
                 "ensemble/jobs": (
                     [],
                     [
@@ -503,26 +505,26 @@ def test_committing(runner):
                 "ensemble/changes": (
                     [],
                     [
-                        "job2020-01-01-04-00-00-A0114000.yaml",
-                        "job2020-01-01-06-00-00-A0116000.yaml",
                         "job2020-01-01-02-00-00-A0112000.yaml",
                         "job2020-01-01-03-00-00-A0113000.yaml",
+                        "job2020-01-01-04-00-00-A0114000.yaml",
+                        "job2020-01-01-06-00-00-A0116000.yaml",
                     ],
                 ),
                 "ensemble/jobs": (
                     [],
                     [
-                        "job2020-01-01-04-00-00-A0114000.yaml",
                         "job2020-01-01-01-00-00-A0111000.log",
-                        "job2020-01-01-06-00-00-A0116000.yaml",
-                        "job2020-01-01-06-00-00-A0116000.log",
-                        "job2020-01-01-02-00-00-A0112000.yaml",
-                        "job2020-01-01-04-00-00-A0114000.log",
-                        "job2020-01-01-02-00-00-A0112000.log",
-                        "job2020-01-01-03-00-00-A0113000.yaml",
                         "job2020-01-01-01-00-00-A0111000.yaml",
+                        "job2020-01-01-02-00-00-A0112000.log",
+                        "job2020-01-01-02-00-00-A0112000.yaml",
                         "job2020-01-01-03-00-00-A0113000.log",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
+                        "job2020-01-01-04-00-00-A0114000.log",
+                        "job2020-01-01-04-00-00-A0114000.yaml",
                         "job2020-01-01-05-00-00-A0115000.log",
+                        "job2020-01-01-06-00-00-A0116000.log",
+                        "job2020-01-01-06-00-00-A0116000.yaml",
                     ],
                 ),
             },
@@ -568,15 +570,18 @@ def test_planning(runner):
             {
                 "ensemble": (["planned"], ["ensemble.yaml"]),
                 "ensemble/planned": (
-                    ["tasks", "previous"],
                     [
-                        "job2020-01-01-02-00-00-A0112000.ensemble.yaml",
+                        "previous",
+                        "tasks",
+                    ],
+                    [
                         "job2020-01-01-01-00-00-A0111000.log",
+                        "job2020-01-01-02-00-00-A0112000.ensemble.yaml",
+                        "job2020-01-01-02-00-00-A0112000.log",
                         "job2020-01-01-02-00-00-A0112000.yaml",
                         "job2020-01-01-03-00-00-A0113000.ensemble.yaml",
-                        "job2020-01-01-02-00-00-A0112000.log",
-                        "job2020-01-01-03-00-00-A0113000.yaml",
                         "job2020-01-01-03-00-00-A0113000.log",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
                     ],
                 ),
                 "ensemble/planned/tasks": (["test1", "test2"], []),

@@ -374,7 +374,8 @@ def test_kompose_ingress():
         # print(job.manifest.status_summary())
         # output = result.output.strip()
         # print( output )
-        ingress_playbook = "ensemble/active/tasks/busybox-ingress/configure/playbook.yml"
+        # dry run job so rendered files stays in planned:
+        ingress_playbook = "ensemble/planned/tasks/busybox-ingress/configure/playbook.yml"
         assert os.path.exists(ingress_playbook)
         with open(ingress_playbook) as f:
             ingress = f.read().strip()
