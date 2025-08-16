@@ -20,6 +20,7 @@ from unfurl.testing import run_cmd
 from unfurl.yamlmanifest import YamlManifest
 from .utils import print_config
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 def createUnrelatedRepo(gitDir):
     os.makedirs(gitDir)
