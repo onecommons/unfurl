@@ -292,7 +292,7 @@ class WorkFolder:
         # save_as_previous = False
         pendingpath = self._pending
         renamed_path = ""
-        if os.path.exists(pendingpath):
+        if not self.task.dry_run and os.path.exists(pendingpath):
             if os.path.exists(self._active):
                 # if save_as_previous:
                 #     previouspath = self._get_job_path(
@@ -307,7 +307,7 @@ class WorkFolder:
             # rename the pending version as the current one
             self._rename_dir(pendingpath, self._active)
             renamed_path = self._active
-        self.pending_state = False
+        self.pending_state = bool(self.task.dry_run)  # set active if not dry run
         return renamed_path
 
     def discard(self) -> None:
@@ -322,7 +322,7 @@ class WorkFolder:
             error_dir = "failed/" + self.task.changeId  # type: ignore
             errorpath = self._get_job_path(self.task, self.location, error_dir)
             self._rename_dir(pendingpath, errorpath)
-        self.pending_state = False
+        self.pending_state = bool(self.task.dry_run)  # set active if not dry run
         return errorpath
 
     def _rename_dir(self, src, dst):
@@ -504,7 +504,7 @@ class FilePath(_ArtifactExternalValue):
         self.path = abspath[len(base_dir) + 1 :]
         self.rel_to = rel_to
 
-    MAX_DIGEST_FILE_SIZE = 1024*1024
+    MAX_DIGEST_FILE_SIZE = 1024 * 1024
 
     def __digestable__(self, options):
         fullpath = self.get_full_path()
