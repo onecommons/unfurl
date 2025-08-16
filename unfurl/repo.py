@@ -509,12 +509,14 @@ class RepoView:
             return self.repo.url
         return ""
 
-    def is_dirty(self) -> bool:
+    def is_dirty(self, path="") -> bool:
         if self.read_only or not self.repo:
             return False
+        if self.repo.is_dirty(untracked_files=True, path=path or self.path):
+            return True
         for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
             return True
-        return self.repo.is_dirty(untracked_files=True, path=self.path)
+        return False
 
     def add_file_ref(self, file_name: str):
         if file_name not in self.file_refs:

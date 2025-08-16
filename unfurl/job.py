@@ -947,7 +947,16 @@ class Job(ConfigChange):
                     checkIfClean = jobOptions.dirty == "abort"
                 if checkIfClean:
                     for repo in manifest.repositories.values():
-                        if repo.is_dirty():
+                        if (
+                            manifest.path
+                            and repo.repo
+                            and (rel_path := repo.repo.find_path(manifest.path)[0])
+                        ):
+                            # exclude the ensemble, it might have been updated by no-op jobs
+                            path = f"':!{rel_path}'"
+                        else:
+                            path = ""
+                        if repo.is_dirty(path):
                             logger.error(
                                 "aborting run: uncommitted files in %s (--dirty=ok to override)",
                                 repo.working_dir,
