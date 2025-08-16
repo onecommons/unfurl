@@ -228,6 +228,7 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
         output.update(task.configurator.save_digest(task))
     except Exception:
         logger.error("Error while saving task %s", task, exc_info=True)
+    output["changed"] = task.modified_target
     output["summary"] = task.summary()
     return output
 
@@ -1083,9 +1084,12 @@ class YamlManifest(ReadOnlyManifest):
           startTime:
           workflow:
           options: # job options set by the user
+          changed:
           summary:
           specDigest:
-          endCommit:   # commit updating status (only appears in changelog file)
+          readyState:
+          # added later:
+          changelog: changes/job<timestamp>-<changeid>.yaml
         """
         output = CommentedMap()
         output["changeId"] = job.changeId
@@ -1105,7 +1109,9 @@ class YamlManifest(ReadOnlyManifest):
         options = job.jobOptions.get_user_settings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options
-        output["summary"] = job.stats(asMessage=True)
+        stats = job.stats()
+        output["changed"] = stats["changed"]
+        output["summary"] = job.format_stats(stats)
         if self.currentCommitId:
             output["startCommit"] = self.currentCommitId
         output["specDigest"] = self.specDigest
@@ -1309,6 +1315,7 @@ class YamlManifest(ReadOnlyManifest):
                     status=status,
                     target=change["target"],
                     operation=change["implementation"]["operation"],
+                    changed=change["changed"],
                 )
                 for key in change.keys():
                     if key.startswith("digest"):
