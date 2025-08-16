@@ -339,10 +339,10 @@ spec:
                 inputs:
                   dryrun: true
                   done:
-                    success: "{{ '.name' | eval  not in '::root::inputs::failed' | eval }}"
-                    modified: "{{  '.name' | eval in '::root::inputs::changed' | eval }}"
-                    # success: "{{ '.name' | eval not in TOPOLOGY.inputs.failed' | eval }}"
-                    # modified: "{{ '.name'  | eval in TOPOLOGY.inputs.changed | eval }}"
+                    # success: "{{ '.name' | eval  not in '::root::inputs::failed' | eval }}"
+                    # modified: "{{  '.name' | eval in '::root::inputs::changed' | eval }}"
+                    success: "{{ '.name' | eval not in TOPOLOGY.inputs.failed }}"
+                    modified: "{{ '.name' | eval in TOPOLOGY.inputs.changed  }}"
 
 
     topology_template:
