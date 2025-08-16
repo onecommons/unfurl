@@ -113,7 +113,7 @@ def start_server_process(proc, port):
             last_e = e
         else:
             return proc
-    logging.warning("error starting server", exc_info=last_e)
+    logging.warning("error connecting to server", exc_info=last_e)
     return None
 
 

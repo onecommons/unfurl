@@ -233,6 +233,14 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
     return output
 
 
+def commit_change_record(change: CommentedMap) -> bool:
+    if "readyState" not in change:
+        return False  # never ran (skipped)
+    if not change["changed"] and change["readyState"].get("local") == "error":
+        return False  # don't include failed tasks that didn't make changes
+    return True
+
+
 def split_changes(
     changes: List[CommentedMap],
 ) -> Tuple[List[CommentedMap], List[CommentedMap]]:
@@ -241,6 +249,8 @@ def split_changes(
     for change in changes:
         local_change = change.copy()
         local_changes.append(local_change)
+        if not commit_change_record(change):
+            continue
         if "result" in change and change["result"] != "skipped":
             change.pop("result")
         committed_changes.append(change)
@@ -1117,17 +1127,19 @@ class YamlManifest(ReadOnlyManifest):
         output["specDigest"] = self.specDigest
         return save_status(job, output)
 
-    def save_job(self, job: "Job") -> Tuple[CommentedMap, List[CommentedMap]]:
+    def save_job(
+        self, job: "Job"
+    ) -> Tuple[CommentedMap, List[CommentedMap], List[CommentedMap]]:
         discovered = CommentedMap()
         assert self.rootResource
-        changed = self.save_root_resource(self.rootResource, discovered)
-
+        new_status = self.save_root_resource(self.rootResource, discovered)
         # update changed with includes, this may change objects with references to these objects
-        self.manifest.restore_includes(changed)
+        self.manifest.restore_includes(new_status)
         assert self.manifest.config
         # only saved discovered templates that are still referenced
         spec = self.manifest.config.setdefault("spec", {})
-        spec.pop("discovered", None)
+        old_discovered = spec.pop("discovered", None) or {}
+        # changed = self.manifest.expanded.get("status") != new_status or old_discovered != discovered
         if discovered:
             spec["discovered"] = discovered
 
@@ -1144,65 +1156,99 @@ class YamlManifest(ReadOnlyManifest):
         if "status" not in self.manifest.config:
             self.manifest.config["status"] = {}
         if not self.manifest.config["status"]:
-            self.manifest.config["status"] = changed
+            self.manifest.config["status"] = new_status
         else:
-            patch_dict(self.manifest.config["status"], changed)
+            patch_dict(self.manifest.config["status"], new_status)
 
         jobRecord = self.save_job_record(job)
         if job.workDone:
-            self.manifest.config["lastJob"] = jobRecord
             # don't save result.results into this yaml, it might contain sensitive data
             exclude_result = not self.changeLogPath and not job.dry_run
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
+            changes, committed_changes = split_changes(changes)
             if self.changeLogPath and self.path is not None:
                 self.manifest.config["jobsLog"] = self.changeLogPath  # jobs.tsv
-
-                jobLogPath = job.log_path("changes", ".yaml")
-                jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(self.path))
-                jobRecord["changelog"] = jobLogRelPath
+                self._save_last_job(job, jobRecord, bool(committed_changes))
             else:
                 self.manifest.config.setdefault("changes", []).extend(changes)
+                self.manifest.config["lastJob"] = jobRecord
         else:
             # no work was done
-            changes = []
+            changes, committed_changes = [], []
+        self._save_manifest(job)
+        return jobRecord, changes, committed_changes
 
+    def _save_manifest(self, job: "Job") -> None:
         output = job.out or job.jobOptions.out  # type: ignore
         if output:
-            if job.dry_run:
-                logger.info("printing results from dry run")
             self.dump(output)
         else:
-            job.out = self.manifest.save()  # type: ignore
-        return jobRecord, changes
+            if job.dry_run and job.jobOptions.skip_save != "never":
+                dry_run_ensemble_path = job.log_path("planned", ".ensemble.yaml")
+                logger.info(
+                    "saving copy of ensemble as modified by this dry run to %s",
+                    dry_run_ensemble_path,
+                )
+                output = io.StringIO()
+                self.dump(output)
+                ensemble_dir = os.path.dirname(dry_run_ensemble_path)
+                if not os.path.exists(ensemble_dir):
+                    os.makedirs(ensemble_dir)
+                with open(dry_run_ensemble_path, "w") as f:
+                    f.write(output.getvalue())
+                job.out = output  # type: ignore
+            else:
+                job.out = self.manifest.save()  # type: ignore
+            # else:
+            #     logger.verbose(
+            #         "No changes detected to %s", self.path
+            #     )
+
+    def _save_last_job(
+        self, job: "Job", jobRecord: CommentedMap, changed: bool
+    ) -> None:
+        # only save lastJob in manifest if something changed or dryrun
+        if job.dry_run:
+            jobLogPath = job.log_path("planned", ".yaml")
+            self.manifest.config["lastJob"] = jobRecord
+        elif changed:
+            jobLogPath = job.log_path("changes", ".yaml")
+            self.manifest.config["lastJob"] = jobRecord
+        else:
+            jobLogPath = job.log_path("jobs", ".yaml")
+        jobLogRelPath = os.path.relpath(jobLogPath, self.get_base_dir())
+        jobRecord["changelog"] = jobLogRelPath
 
     def commit_job(self, job: "Job") -> None:
         if job.jobOptions.planOnly:
             return
-        if job.dry_run and job.jobOptions.skip_save != "never":
-            if not job.jobOptions.out and self.manifest.path:  # type: ignore
-                job.jobOptions.out = sys.stdout  # type: ignore
-        jobRecord, changes = self.save_job(job)
+        jobRecord, changes, committed_changes = self.save_job(job)
         if not changes:
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
+        not_modified = job.dry_run or not committed_changes
         if self.changeLogPath:
-            if job.dry_run:  # don't commit dry run changes
-                self.save_change_log(
-                    job.log_path(ext=".yaml"), jobRecord, changes, cleartext_yaml
-                )
+            jobLogPath = os.path.join(self.get_base_dir(), jobRecord["changelog"])
+            if not_modified:
+                # skip adding to "changes" folder, which is committed to git
+                self.save_change_log(jobLogPath, jobRecord, changes, cleartext_yaml)
             else:
-                local_changes, committed_changes = split_changes(changes)
+                # save two version of the changelog and append to the job log
                 self.save_change_log(
-                    job.log_path(ext=".yaml"), jobRecord, local_changes, cleartext_yaml
+                    job.log_path("jobs", ext=".yaml"),
+                    jobRecord,
+                    changes,
+                    cleartext_yaml,
                 )
-                jobLogPath = job.log_path("changes", ".yaml")
                 self.save_change_log(jobLogPath, jobRecord, committed_changes)
-                self._append_log(job, jobRecord, changes, jobLogPath)
+                self._append_log(job, jobRecord, committed_changes, jobLogPath, "")
 
-        if job.dry_run:
+        if not_modified:
+            if job.jobOptions.commit:
+                logger.info("Skipping commit because the job didn't make any changes.")
             return
 
         if job.jobOptions.commit and self.repo:
@@ -1267,10 +1313,10 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
         return committed
 
-    def get_change_log_path(self) -> str:
-        # jobs.tsv
+    def get_change_log_path(self, folder="") -> str:
+        "Path to jobs.tsv or custom named equivalent."
         return os.path.join(
-            self.get_base_dir(), self.changeLogPath or DefaultNames.JobsLog
+            self.get_base_dir(), folder, self.changeLogPath or DefaultNames.JobsLog
         )
 
     def get_job_log_path(self, startTime, folder_name, ext=".yaml") -> str:
@@ -1282,31 +1328,34 @@ class YamlManifest(ReadOnlyManifest):
         fileName = prefix + "job" + startTime + suffix + ext
         return os.path.join(self.get_base_dir(), folder_name, fileName)
 
-    def _append_log(self, job, jobRecord, changes, jobLogPath):
-        logPath = self.get_change_log_path()
-        jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(logPath))
-        if not os.path.isdir(os.path.dirname(logPath)):
-            os.makedirs(os.path.dirname(logPath))
-        logger.info("saving changelog to %s", logPath)
-        with open(logPath, "a") as f:
+    def _append_log(self, job, jobRecord, changes, job_path, folder):
+        if not changes:
+            return
+        log_path = self.get_change_log_path(folder)
+        log_dir = os.path.dirname(log_path)
+        jobLogRelPath = os.path.relpath(job_path, log_dir)
+        if not os.path.isdir(log_dir):
+            os.makedirs(log_dir)
+        logger.info("saving changelog to %s", log_path)
+        with open(log_path, "a") as f:
             attrs = dict(status=job.status.name)
-            attrs.update({
-                k: jobRecord[k]
-                for k in (
-                    "status",
-                    "startTime",
-                    "specDigest",
-                    "startCommit",
-                    "summary",
-                )
-                if k in jobRecord
-            })
+            attrs.update(
+                {
+                    k: jobRecord[k]
+                    for k in (
+                        "status",
+                        "startTime",
+                        "specDigest",
+                        "startCommit",
+                        "summary",
+                    )
+                    if k in jobRecord
+                }
+            )
             attrs["changelog"] = jobLogRelPath
             f.write(job.log(attrs))
 
             for change in changes:
-                if "readyState" not in change:
-                    continue  # never ran (skipped)
                 status = change["readyState"].get("effective") or change[
                     "readyState"
                 ].get("local")

@@ -2,12 +2,16 @@ import pytest
 import json
 import os
 import traceback
+import itertools
+import pprint
 from click.testing import CliRunner
 from unfurl.eval import RefContext
 from unfurl.projectpaths import _get_base_dir
 from unfurl.job import Job
-from .utils import init_project, run_job_cmd
 from string import Template
+from unfurl.testing import init_project, run_job_cmd, run_cmd
+
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 ENSEMBLE_WITH_RELATIONSHIPS = """
 apiVersion: unfurl/v1alpha1
@@ -126,10 +130,30 @@ def test_plan(local_storage_status, compute_status, total, expected_errors, mock
         assert job.rootResource.find_instance("my_server").required
         my_block_storage = job.rootResource.find_instance("my_block_storage")
         assert my_block_storage
-        assert my_block_storage.query("{{ '.sources::local_storage' | eval(wantList=true) | count }}") == 1
-        assert my_block_storage.query("{{ '.sources::local_storage[name=compute]' | eval(wantList=true) | count }}") == 1
-        assert my_block_storage.query("{{ '.sources::local_storage[name=wrongname]' | eval(wantList=true) | count }}") == 0
-        assert my_block_storage.query("{{ '.sources::local_storage[nonexistent_property]' | eval(wantList=true) | count }}") == 0
+        assert (
+            my_block_storage.query(
+                "{{ '.sources::local_storage' | eval(wantList=true) | count }}"
+            )
+            == 1
+        )
+        assert (
+            my_block_storage.query(
+                "{{ '.sources::local_storage[name=compute]' | eval(wantList=true) | count }}"
+            )
+            == 1
+        )
+        assert (
+            my_block_storage.query(
+                "{{ '.sources::local_storage[name=wrongname]' | eval(wantList=true) | count }}"
+            )
+            == 0
+        )
+        assert (
+            my_block_storage.query(
+                "{{ '.sources::local_storage[nonexistent_property]' | eval(wantList=true) | count }}"
+            )
+            == 0
+        )
 
         relinstance = job.rootResource.find_instance("my_server").get_requirements(
             "local_storage"
@@ -182,7 +206,7 @@ def test_plan(local_storage_status, compute_status, total, expected_errors, mock
                 "operation": "create",
                 "template": "my_block_storage",
                 "type": "Volume",
-                "targetStatus": "pending" if compute_status == "error" else  "ok",
+                "targetStatus": "pending" if compute_status == "error" else "ok",
                 "targetState": "creating" if compute_status == "error" else "created",
                 "changed": False if compute_status == "error" else True,
                 "configurator": "unfurl.configurators.shell.ShellConfigurator",
@@ -198,7 +222,9 @@ def test_plan(local_storage_status, compute_status, total, expected_errors, mock
                     "operation": "post_configure_target",
                     "template": "local_storage",
                     "type": "VolumeAttach",
-                    "targetStatus": "pending" if compute_status == "error" else (local_storage_status or "ok"),
+                    "targetStatus": "pending"
+                    if compute_status == "error"
+                    else (local_storage_status or "ok"),
                     "targetState": None if compute_status == "error" else "configured",
                     "changed": False if compute_status == "error" else True,
                     "configurator": "unfurl.configurators.shell.ShellConfigurator",
@@ -228,7 +254,7 @@ def test_plan(local_storage_status, compute_status, total, expected_errors, mock
         assert spy.call_count
         assert spy.call_args_list[0].args == spy.spy_return_list[0]
         assert spy.call_args_list[-1].args == spy.spy_return_list[-1]
-        assert summary == expected_summary
+        assert summary == expected_summary, summary
         # print("deploy", job.manifest.status_summary())
 
         if compute_status != "ok":
@@ -359,7 +385,9 @@ def _deploy(cli_runner, command, expected_summary=None, check_files=None):
     )
     # os.system("git diff")
     # print(job.json_summary()["job"])
-    files = dict((item[0], item[1:]) for item in os.walk("ensemble"))
+    files = dict(
+        (item[0], (sorted(item[1]), sorted(item[2]))) for item in os.walk("ensemble")
+    )
     # pprint.pprint(files)
     if check_files:
         for expected_dir, expected in check_files.items():
@@ -390,7 +418,7 @@ def test_committing(runner):
                 "changed": 0,
             },
             {
-                "ensemble": (["planned", "jobs"], ["ensemble.yaml"]),
+                "ensemble": (["jobs", "planned"], ["ensemble.yaml"]),
                 "ensemble/jobs": (
                     [],
                     [
@@ -477,26 +505,26 @@ def test_committing(runner):
                 "ensemble/changes": (
                     [],
                     [
-                        "job2020-01-01-04-00-00-A0114000.yaml",
-                        "job2020-01-01-06-00-00-A0116000.yaml",
                         "job2020-01-01-02-00-00-A0112000.yaml",
                         "job2020-01-01-03-00-00-A0113000.yaml",
+                        "job2020-01-01-04-00-00-A0114000.yaml",
+                        "job2020-01-01-06-00-00-A0116000.yaml",
                     ],
                 ),
                 "ensemble/jobs": (
                     [],
                     [
-                        "job2020-01-01-04-00-00-A0114000.yaml",
                         "job2020-01-01-01-00-00-A0111000.log",
-                        "job2020-01-01-06-00-00-A0116000.yaml",
-                        "job2020-01-01-06-00-00-A0116000.log",
-                        "job2020-01-01-02-00-00-A0112000.yaml",
-                        "job2020-01-01-04-00-00-A0114000.log",
-                        "job2020-01-01-02-00-00-A0112000.log",
-                        "job2020-01-01-03-00-00-A0113000.yaml",
                         "job2020-01-01-01-00-00-A0111000.yaml",
+                        "job2020-01-01-02-00-00-A0112000.log",
+                        "job2020-01-01-02-00-00-A0112000.yaml",
                         "job2020-01-01-03-00-00-A0113000.log",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
+                        "job2020-01-01-04-00-00-A0114000.log",
+                        "job2020-01-01-04-00-00-A0114000.yaml",
                         "job2020-01-01-05-00-00-A0115000.log",
+                        "job2020-01-01-06-00-00-A0116000.log",
+                        "job2020-01-01-06-00-00-A0116000.yaml",
                     ],
                 ),
             },
@@ -542,15 +570,18 @@ def test_planning(runner):
             {
                 "ensemble": (["planned"], ["ensemble.yaml"]),
                 "ensemble/planned": (
-                    ["tasks", "previous"],
                     [
-                        "job2020-01-01-02-00-00-A0112000.ensemble.yaml",
+                        "previous",
+                        "tasks",
+                    ],
+                    [
                         "job2020-01-01-01-00-00-A0111000.log",
+                        "job2020-01-01-02-00-00-A0112000.ensemble.yaml",
+                        "job2020-01-01-02-00-00-A0112000.log",
                         "job2020-01-01-02-00-00-A0112000.yaml",
                         "job2020-01-01-03-00-00-A0113000.ensemble.yaml",
-                        "job2020-01-01-02-00-00-A0112000.log",
-                        "job2020-01-01-03-00-00-A0113000.yaml",
                         "job2020-01-01-03-00-00-A0113000.log",
+                        "job2020-01-01-03-00-00-A0113000.yaml",
                     ],
                 ),
                 "ensemble/planned/tasks": (["test1", "test2"], []),

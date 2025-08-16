@@ -315,7 +315,7 @@ class Manifest(AttributeManager):
             and self.rootResource.templar._loader
         )
 
-    def save_job(self, job):
+    def save_job(self, job) -> Any:
         pass
 
     def load_error(self, msg: str) -> None:

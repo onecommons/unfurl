@@ -5,6 +5,7 @@ Utility functions for unit tests.
 """
 
 from dataclasses import dataclass
+import shlex
 from typing import Any, Dict, List, Optional, Iterable, Sequence, Tuple, Union
 import shutil
 import traceback
@@ -242,7 +243,10 @@ def run_job_cmd(
     print_result=False,
     env: Optional[Dict[str, str]] = None,
 ) -> Tuple[Result, Job, dict]:
-    _args = list(args)
+    if isinstance(args, str):
+        _args = shlex.split(args)
+    else:
+        _args = list(args)
     if starttime:
         _args.append(f"--starttime={starttime}")
     result = run_cmd(runner, _args, print_result, env)
@@ -292,7 +296,9 @@ def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
     return clone, runner
 
 
-def namespace2manifest(namespace: Type[tosca.Namespace]) -> Tuple[YamlManifest, Dict[str, Any]]:
+def namespace2manifest(
+    namespace: Type[tosca.Namespace],
+) -> Tuple[YamlManifest, Dict[str, Any]]:
     converter = PythonToYaml(namespace.get_defs())
     doc = converter.module2yaml(True)
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):

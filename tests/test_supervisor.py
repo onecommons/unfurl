@@ -5,6 +5,7 @@ import time
 import unittest
 import urllib.request
 from pathlib import Path
+import json
 
 from click.testing import CliRunner
 
@@ -14,11 +15,15 @@ from unfurl.yamlmanifest import YamlManifest
 
 from .utils import isolated_lifecycle
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
+
 
 class SupervisorTest(unittest.TestCase):
     def test_supervisor(self):
         cli_runner = CliRunner()
-        with cli_runner.isolated_filesystem():
+        with cli_runner.isolated_filesystem(SAVE_TMP) as dir:
+            if SAVE_TMP:
+                print("running in", dir)
             src_path = Path(__file__).parent / "examples" / "supervisor-ensemble.yaml"
             path = shutil.copy(src_path, ".")
             runner = Runner(YamlManifest(path=path))
@@ -36,7 +41,7 @@ class SupervisorTest(unittest.TestCase):
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 4,  # create operation doesn't mark as modified
+                        "changed": 4,  # create operation doesn't set modified
                     },
                     summary["job"],
                 )
