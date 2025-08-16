@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
     from rich.console import RenderableType
     from rich.style import StyleType
-    from .job import Job
+    from .job import Job, ConfigTask
 
 logger = getLogger("unfurl")
 
@@ -226,7 +226,7 @@ class JobReporter:
     def stats(tasks, asMessage: bool) -> Union[Dict[str, int], str]: ...
 
     @staticmethod
-    def stats(tasks, asMessage=False):
+    def stats(tasks: List["ConfigTask"], asMessage=False):
         # note: the status of the task, not the target resource
         key = lambda t: (
             Status.absent
@@ -248,12 +248,16 @@ class JobReporter:
                 stats[k.name] = len(list(g))
         stats["changed"] = len([t for t in tasks if t.modified_target])
         if asMessage:
-            if "blocked" not in stats:
-                stats["blocked"] = 0
-            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {blocked} blocked, {unknown} unknown, {skipped} skipped)".format(
-                **stats
-            )
+            return JobReporter.format_stats(stats)
         return stats
+
+    @staticmethod
+    def format_stats(stats: Dict[str, int]) -> str:
+        if "blocked" not in stats:
+            stats["blocked"] = 0
+        return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {blocked} blocked, {unknown} unknown, {skipped} skipped)".format(
+            **stats
+        )
 
     @staticmethod
     def plan_summary(
@@ -304,7 +308,9 @@ class JobReporter:
                         filter(
                             None,
                             (
-                                target.local_status.name if target.local_status is not None else "",
+                                target.local_status.name
+                                if target.local_status is not None
+                                else "",
                                 target.state.name if target.state is not None else "",
                                 "managed" if target.created else "",
                             ),
@@ -407,9 +413,7 @@ class JobReporter:
                 if target_status != task.target_status:
                     status = f"[{task.target_status.color}]{task.target_status.name}[/]/[{target_status.color}]{target_status.name}[/]"
                 else:
-                    status = (
-                        f"[{task.target_status.color}]{task.target_status.name.upper()}[/]"
-                    )
+                    status = f"[{task.target_status.color}]{task.target_status.name.upper()}[/]"
             state = (task.target_state and task.target_state.name) or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:

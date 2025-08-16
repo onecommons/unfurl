@@ -445,7 +445,9 @@ class ConfigTask(TaskView, ConfigChange):
         targetChanged = self._update_last_change(result)
         self.result = result
         self.local_status = Status.ok if result.success else Status.error
-        self.modified_target = targetChanged or self.target_status != self.target.local_status
+        self.modified_target = (
+            targetChanged or self.target_status != self.target.local_status
+        )
         if targetChanged:
             self._set_customized()
         self.target_status = self.target.local_status
@@ -1547,6 +1549,10 @@ class Job(ConfigChange):
 
     def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
         return JobReporter.stats(self.workDone.values(), asMessage)
+
+    @staticmethod
+    def format_stats(stats: Dict[str, int]) -> str:
+        return JobReporter.format_stats(stats)
 
     def get_end_time(self) -> str:
         return (self.startTime + timedelta(seconds=self.timeElapsed)).strftime(
