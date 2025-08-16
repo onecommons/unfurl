@@ -88,6 +88,8 @@ class Folders(str, Enum):
     workflow = "workflow"
     planned = "planned"
     active = "active"
+    failed = "failed"
+    jobs = "jobs"
 
     Persistent = ClassProperty(("artifacts", "secrets", "local"))
 
@@ -319,7 +321,7 @@ class WorkFolder:
         pendingpath = self._pending
         errorpath = ""
         if os.path.exists(pendingpath):
-            error_dir = "failed/" + self.task.changeId  # type: ignore
+            error_dir = os.path.join(Folders.failed, self.task.changeId)  # type: ignore
             errorpath = self._get_job_path(self.task, self.location, error_dir)
             self._rename_dir(pendingpath, errorpath)
         self.pending_state = bool(self.task.dry_run)  # set active if not dry run
@@ -524,7 +526,10 @@ class FilePath(_ArtifactExternalValue):
                 return digest
 
         fstat = os.stat(fullpath)
-        if os.path.isfile(fullpath) and fstat[stat.ST_SIZE] <= self.MAX_DIGEST_FILE_SIZE:
+        if (
+            os.path.isfile(fullpath)
+            and fstat[stat.ST_SIZE] <= self.MAX_DIGEST_FILE_SIZE
+        ):
             with open(fullpath, "rb") as f:
                 return f.read()
         else:
