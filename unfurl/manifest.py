@@ -748,11 +748,12 @@ class Manifest(AttributeManager):
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
 
-    def find_repo_from_git_url(self, url, base, locked=False):
-        revision: Optional[str]
-        repoURL, filePath, revision = split_git_url(url)
-        if not repoURL:
-            raise UnfurlError(f"invalid git URL {url}")
+    def find_or_clone_repo(
+        self, repo_view: RepoView, base: str
+    ) -> Tuple[Optional[GitRepo], Optional[bool]]:
+        url, _, _ = split_git_url(repo_view.url)
+        if not url:
+            raise UnfurlError(f"invalid git URL {repo_view.url}")
         if not self.localEnv:  # can happen in unit tests
             repo = Repo.find_containing_repo(base)
             if repo and (
@@ -760,16 +761,16 @@ class Manifest(AttributeManager):
                 or toscaparser.imports.normalize_path(url.partition("#")[0]).rstrip("/")
                 == repo.working_dir.rstrip("/")
             ):
-                return repo, filePath, revision, None
+                return repo, None
             else:
                 logger.warning(
                     "Can't resolve repository %s because there's no localenv.", url
                 )
-                return None, None, None, None
-        repo, revision, bare = self.localEnv.find_or_create_working_dir(
-            repoURL, revision, base, locked=locked
+                return None, None
+        repo, _, created = self.localEnv.find_or_create_working_dir(
+            url, repo_view.revision_tag, base, package=repo_view.package or None
         )
-        return repo, filePath, revision, bare
+        return repo, created
 
     def add_repository(self, toscaRepository: Repository, file_name: str) -> RepoView:
         # add or replace the repository
